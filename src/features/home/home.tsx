@@ -12,9 +12,9 @@ import { generate3x3Scramble } from './lib/scramble/generate3x3';
 import { useSessionsStore } from '@/shared/store/sessions-store';
 import { useSettingsStore } from '@/shared/store/settings-store';
 import { useI18nStore } from '@/shared/store/i18n-store';
-import { useOnboardingStore } from '@/shared/store/onboarding-store';
+import { useOnboardingStore } from '@/features/home/lib/onboarding/onboarding-store';
 import { slideUp, fadeIn, formatAverage } from '@/shared/lib';
-import type { Penalty } from '@/commons/types';
+import type { Penalty } from '@/shared/types';
 
 export function Home() {
   const [scramble, setScramble] = useState('');

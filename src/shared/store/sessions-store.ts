@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Session, Solve, Penalty } from '@/commons/types';
+import type { Session, Solve, Penalty } from '@/shared/types';
 import {
   calculateSingle,
   calculateAo5,

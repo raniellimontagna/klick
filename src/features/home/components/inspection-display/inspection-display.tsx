@@ -1,6 +1,6 @@
 import { AlertTriangle, Clock } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { TimerState } from '@/commons/types';
+import type { TimerState } from '@/shared/types';
 import { useI18nStore } from '@/shared/store/i18n-store';
 
 interface InspectionDisplayProps {

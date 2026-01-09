@@ -4,7 +4,7 @@ import { Button } from '@/shared/components/ui';
 import { useTutorialContent } from './use-tutorial-content';
 import { useI18nStore } from '@/shared/store/i18n-store';
 import { translations } from '@/shared/config/i18n/translations';
-import type { TutorialStep } from '@/shared/store/tutorial-store';
+import type { TutorialStep } from '@/features/tutorial/tutorial-store';
 import { CubeVisualizer } from '@/shared/components/cube-visualizer';
 import { getTutorialVisualizationConfig } from './tutorial-visualizations';
 

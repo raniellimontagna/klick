@@ -1,6 +1,6 @@
 import { AnimatePresence } from 'framer-motion';
 import { ONBOARDING_STEPS } from '@/features/home/lib/onboarding/config';
-import { useOnboardingStore } from '@/shared/store/onboarding-store';
+import { useOnboardingStore } from '@/features/home/lib/onboarding/onboarding-store';
 import { Spotlight } from './spotlight';
 import { OnboardingTooltip } from './onboarding-tooltip';
 

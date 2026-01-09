@@ -1,4 +1,4 @@
-import type { OnboardingStep } from '@/shared/store/onboarding-store';
+import type { OnboardingStep } from '@/features/home/lib/onboarding/onboarding-store';
 
 export type TooltipPosition = 'top' | 'bottom' | 'left' | 'right';
 

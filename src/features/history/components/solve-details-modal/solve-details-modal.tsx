@@ -3,7 +3,7 @@ import { Button, Modal, Card } from '@/shared/components/ui';
 import { useI18nStore } from '@/shared/store/i18n-store';
 import { formatTime } from '@/shared/lib';
 import { useSolveDetailsModal } from './use-solve-details-modal';
-import type { Solve } from '@/commons/types';
+import type { Solve } from '@/shared/types';
 
 interface SolveDetailsModalProps {
   isOpen: boolean;

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Settings } from '@/commons/types';
+import type { Settings } from '@/shared/types';
 
 interface SettingsStore {
   settings: Settings;

@@ -4,7 +4,7 @@ import { Card, Button } from '@/shared/components/ui';
 import { cn } from '@/shared/lib';
 import { useTranslation } from '@/shared/hooks/use-translation';
 import type { TrainingCase } from '@/features/training/types';
-import { useTrainingStore, type TrainingStatus } from '@/shared/store/training-store';
+import { useTrainingStore, type TrainingStatus } from '@/features/training/training-store';
 import { CubeVisualizer } from '@/shared/components/cube-visualizer';
 import { getTrainingVisualization } from '@/features/training/visualizations';
 

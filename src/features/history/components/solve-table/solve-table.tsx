@@ -6,7 +6,7 @@ import { useSessionsStore } from '@/shared/store/sessions-store';
 import { ConfirmDialog } from '@/shared';
 import { Button } from '@/shared/components/ui';
 import { fadeIn, formatTime } from '@/shared/lib';
-import type { Solve } from '@/commons/types';
+import type { Solve } from '@/shared/types';
 
 type FilterOption = 'all' | 'last5' | 'last12' | 'last50' | 'last100';
 
