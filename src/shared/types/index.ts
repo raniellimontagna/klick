@@ -9,9 +9,20 @@ export type Solve = {
   createdAt: string;
 };
 
+export type PuzzleType =
+  | '3x3'
+  | '2x2'
+  | '4x4'
+  | '5x5'
+  | 'pyraminx'
+  | 'megaminx'
+  | 'skewb'
+  | 'square1';
+
 export type Session = {
   id: string;
   name: string;
+  puzzleType: PuzzleType;
   solves: Solve[];
 };
 

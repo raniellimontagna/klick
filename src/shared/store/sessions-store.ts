@@ -8,16 +8,17 @@ import {
   calculateBestAo12,
   calculateSingle,
 } from '@/features/stats/averages';
-import type { Penalty, Session, Solve } from '@/shared/types';
+import type { Penalty, PuzzleType, Session, Solve } from '@/shared/types';
 
 interface SessionsStore {
   sessions: Session[];
   activeSessionId: string;
 
-  createSession: (name: string) => void;
+  createSession: (name: string, puzzleType?: PuzzleType) => void;
   deleteSession: (id: string) => void;
   renameSession: (id: string, name: string) => void;
   setActiveSession: (id: string) => void;
+  switchPuzzleType: (type: PuzzleType) => void;
   getActiveSession: () => Session | undefined;
 
   addSolve: (solve: Omit<Solve, 'id' | 'createdAt' | 'effectiveMs'>) => void;
@@ -44,6 +45,7 @@ interface SessionsStore {
 const initialSession: Session = {
   id: crypto.randomUUID(),
   name: 'Sessão 1',
+  puzzleType: '3x3',
   solves: [],
 };
 
@@ -59,11 +61,12 @@ export const useSessionsStore = create<SessionsStore>()(
       sessions: [initialSession],
       activeSessionId: initialSession.id,
 
-      createSession: (name) =>
+      createSession: (name, puzzleType) =>
         set((state) => {
           const newSession: Session = {
             id: crypto.randomUUID(),
             name,
+            puzzleType: puzzleType || '3x3',
             solves: [],
           };
           return {
@@ -91,6 +94,32 @@ export const useSessionsStore = create<SessionsStore>()(
         })),
 
       setActiveSession: (id) => set({ activeSessionId: id }),
+
+      switchPuzzleType: (type) =>
+        set((state) => {
+          // Find last active session of this type (or any)
+          // Ideally we would track 'lastActiveSessionId' per puzzle type, but for now just find the first one
+          // or the one with latest lastPlayed (if we tracked that).
+          // Simple approach: find first session of this type.
+          const existingSession = state.sessions.find((s) => s.puzzleType === type);
+
+          if (existingSession) {
+            return { activeSessionId: existingSession.id };
+          }
+
+          // Create new session if none exists
+          const newSession: Session = {
+            id: crypto.randomUUID(),
+            name: 'Sessão 1',
+            puzzleType: type,
+            solves: [],
+          };
+
+          return {
+            sessions: [...state.sessions, newSession],
+            activeSessionId: newSession.id,
+          };
+        }),
 
       getActiveSession: () => {
         const state = get();

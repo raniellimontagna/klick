@@ -1,229 +1,143 @@
 import { motion } from 'framer-motion';
-import { HelpCircle, Keyboard, Timer } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
-import { useOnboardingStore } from '@/features/home/lib/onboarding/onboarding-store';
-import { Button, PageHeader } from '@/shared';
-import { fadeIn, formatAverage, slideUp } from '@/shared/lib';
+import { HelpCircle, Timer } from 'lucide-react';
+import { Button } from '@/shared';
+import { CubeVisualizer } from '@/shared/components/cube-visualizer/cube-visualizer';
+import { formatAverage } from '@/shared/lib';
 import { useI18nStore } from '@/shared/store/i18n-store';
 import { useSessionsStore } from '@/shared/store/sessions-store';
-import { useSettingsStore } from '@/shared/store/settings-store';
-import type { Penalty } from '@/shared/types';
 import { StatCard } from './components/home-page-components/stat-card';
 import { StatsInfoModal } from './components/home-page-components/stats-info-modal';
 import { InspectionDisplay } from './components/inspection-display/inspection-display';
 import { ScrambleBox } from './components/scramble-box/scramble-box';
 import { TimerDisplay } from './components/timer-display/timer-display';
-import { generate3x3Scramble } from './lib/scramble/generate3x3';
-import { useTimer } from './lib/use-timer';
+import { useHome } from './use-home';
 
 export function Home() {
-  const [scramble, setScramble] = useState('');
-  const [inspectionOvertime, setInspectionOvertime] = useState(0);
-  const [showStatsInfo, setShowStatsInfo] = useState(false);
-
   const { t } = useI18nStore();
-  const { settings } = useSettingsStore();
-  const { addSolve, updateSolvePenalty, getSingle, getAo5, getAo12, getBestAo5, getBestAo12 } =
-    useSessionsStore();
-  const hasCompletedOnboarding = useOnboardingStore((state) => state.hasCompletedOnboarding);
-  const onboardingActive = useOnboardingStore((state) => state.isActive);
-  const startOnboarding = useOnboardingStore((state) => state.startOnboarding);
+  const { getSingle, getAo5, getAo12, getBestAo5, getBestAo12 } = useSessionsStore(); // Stats retrieval remains in component or could be moved to hook if strictly following pattern, but easy enough here.
 
-  const { state, timeMs, inspectionTimeLeft, reset } = useTimer({
-    inspectionDuration: settings.inspectionDuration,
-    soundsEnabled: settings.soundsEnabled,
-    onInspectionEnd: (overtime) => {
-      setInspectionOvertime(overtime);
-    },
-  });
-
-  const generateNewScramble = useCallback(() => {
-    setScramble(generate3x3Scramble());
-  }, []);
-
-  // Gera scramble inicial
-  useEffect(() => {
-    generateNewScramble();
-  }, [generateNewScramble]);
-  useEffect(() => {
-    if (!hasCompletedOnboarding && !onboardingActive) {
-      startOnboarding();
-    }
-  }, [hasCompletedOnboarding, onboardingActive, startOnboarding]);
-
-  // Salvar solve quando o timer parar
-  useEffect(() => {
-    if (state === 'stopped' && timeMs > 0 && scramble) {
-      let penalty: Penalty = 'NONE';
-
-      if (settings.autoInspectionPenalty) {
-        const overtime = inspectionOvertime;
-        if (overtime >= 2000) {
-          penalty = 'DNF';
-        } else if (overtime > 0) {
-          penalty = '+2';
-        }
-      }
-
-      addSolve({
-        timeMs,
-        penalty,
-        scramble,
-      });
-
-      // Prepara próximo solve
-      generateNewScramble();
-      setInspectionOvertime(0);
-      reset();
-    }
-  }, [
+  const {
+    scramble,
     state,
     timeMs,
-    scramble,
-    inspectionOvertime,
-    settings.autoInspectionPenalty,
-    addSolve,
+    inspectionTimeLeft,
+    isFocusMode,
+    showStatsInfo,
+    setShowStatsInfo,
     generateNewScramble,
-    reset,
-  ]);
-
-  // Atalhos de teclado
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
-        return;
-      }
-
-      if (e.key === 'n' || e.key === 'N') {
-        e.preventDefault();
-        generateNewScramble();
-      } else if (e.key === 'p' || e.key === 'P') {
-        e.preventDefault();
-        const session = useSessionsStore.getState().getActiveSession();
-        const lastSolve = session?.solves.at(-1);
-        if (lastSolve) {
-          updateSolvePenalty(lastSolve.id, lastSolve.penalty === '+2' ? 'NONE' : '+2');
-        }
-      } else if (e.key === 'd' || e.key === 'D') {
-        e.preventDefault();
-        const session = useSessionsStore.getState().getActiveSession();
-        const lastSolve = session?.solves.at(-1);
-        if (lastSolve) {
-          updateSolvePenalty(lastSolve.id, lastSolve.penalty === 'DNF' ? 'NONE' : 'DNF');
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [generateNewScramble, updateSolvePenalty]);
+    cubeState,
+  } = useHome();
 
   // Stats
-  const single = getSingle();
-  const ao5 = getAo5();
-  const ao12 = getAo12();
-  const bestAo5 = getBestAo5();
-  const bestAo12 = getBestAo12();
-
   const stats = [
-    { label: t.stats.single, value: single },
-    { label: t.stats.ao5, value: ao5 },
-    { label: t.stats.ao12, value: ao12 },
-    { label: t.stats.bestAo5, value: bestAo5 },
-    { label: t.stats.bestAo12, value: bestAo12 },
+    { label: t.stats.single, value: getSingle() },
+    { label: t.stats.ao5, value: getAo5() },
+    { label: t.stats.ao12, value: getAo12() },
+    { label: t.stats.bestAo5, value: getBestAo5() },
+    { label: t.stats.bestAo12, value: getBestAo12() },
   ];
 
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-6 sm:space-y-8">
-      <PageHeader
-        title={t.navigation.home}
-        description={t.pages.home.description}
-        icon={<Timer className="w-8 h-8" />}
-      />
+    <div className="flex flex-col h-full items-center justify-center min-h-[80vh] relative">
+      {/* Timer & Scramble Area - Always Centered */}
+      <div className="flex flex-col items-center w-full max-w-4xl z-10 space-y-8 md:space-y-12">
+        {/* Scramble - Fades out during solve */}
+        <motion.div
+          className="w-full"
+          animate={{ opacity: isFocusMode ? 0 : 1, y: isFocusMode ? -20 : 0 }}
+          transition={{ duration: 0.3 }}
+        >
+          <ScrambleBox
+            scramble={scramble}
+            onNewScramble={generateNewScramble}
+            data-onboarding="scramble"
+          />
 
-      {/* Scramble */}
-      <motion.div variants={slideUp} initial="hidden" animate="visible">
-        <ScrambleBox
-          scramble={scramble}
-          onNewScramble={generateNewScramble}
-          data-onboarding="scramble"
-        />
-      </motion.div>
+          {cubeState && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              className="mt-4"
+            >
+              <CubeVisualizer
+                config={{
+                  faces: [
+                    { label: 'U', colors: cubeState.U },
+                    { label: 'F', colors: cubeState.F },
+                    { label: 'R', colors: cubeState.R },
+                    { label: 'D', colors: cubeState.D },
+                    { label: 'L', colors: cubeState.L },
+                    { label: 'B', colors: cubeState.B },
+                  ],
+                }}
+                className="bg-transparent border-none p-0"
+              />
+            </motion.div>
+          )}
+        </motion.div>
 
-      {/* Timer + Inspection */}
+        {/* Timer Display - Scales up during solve */}
+        <div className="flex flex-col items-center justify-center">
+          {state === 'inspection' && (
+            <InspectionDisplay timeLeft={inspectionTimeLeft} state={state} />
+          )}
+          <TimerDisplay state={state} timeMs={timeMs} data-onboarding="timer" />
+        </div>
+      </div>
+
+      {/* Stats & Footer - Fades out during solve */}
       <motion.div
-        variants={fadeIn}
-        initial="hidden"
-        animate="visible"
-        className="flex flex-col items-center gap-4"
+        className="w-full max-w-6xl mt-auto space-y-8 pt-12"
+        animate={{ opacity: isFocusMode ? 0 : 1 }}
+        transition={{ duration: 0.3 }}
       >
-        {state === 'inspection' && (
-          <InspectionDisplay timeLeft={inspectionTimeLeft} state={state} />
-        )}
-        <TimerDisplay state={state} timeMs={timeMs} data-onboarding="timer" />
-      </motion.div>
+        {/* Stats Grid */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between px-2">
+            <h2 className="text-lg font-bold text-text-muted flex items-center gap-2">
+              <Timer className="w-5 h-5" />
+              {t.navigation.stats}
+            </h2>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setShowStatsInfo(true)}
+              aria-label={t.stats.help}
+              className="text-text-muted hover:text-text-primary"
+            >
+              <HelpCircle className="w-5 h-5" />
+            </Button>
+          </div>
 
-      {/* Stats */}
-      <motion.div variants={slideUp} initial="hidden" animate="visible">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-text-primary">{t.navigation.stats}</h2>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setShowStatsInfo(true)}
-            aria-label={t.stats.help}
+          <div
+            className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4"
+            data-onboarding="stats"
           >
-            <HelpCircle className="w-5 h-5" />
-          </Button>
+            {stats.map((stat) => (
+              <StatCard key={stat.label} label={stat.label} value={formatAverage(stat.value)} />
+            ))}
+          </div>
         </div>
-        <div
-          className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4"
-          data-onboarding="stats"
-        >
-          {stats.map((stat) => (
-            <StatCard key={stat.label} label={stat.label} value={formatAverage(stat.value)} />
-          ))}
-        </div>
-      </motion.div>
 
-      {/* Shortcuts */}
-      <motion.div variants={slideUp} initial="hidden" animate="visible">
-        <div className="flex items-center gap-2 mb-3">
-          <Keyboard className="w-5 h-5 text-primary" />
-          <h3 className="text-sm font-semibold text-text-primary">{t.shortcuts.title}</h3>
-        </div>
-        <div
-          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3"
-          data-onboarding="shortcuts"
-        >
-          <div className="flex items-center gap-2 p-3 bg-surface rounded-lg border border-border">
-            <kbd className="px-2 py-1 text-xs font-mono bg-background border border-border rounded">
-              {t.shortcuts.space}
+        {/* Shortcuts Hint */}
+        <div className="flex flex-wrap justify-center gap-4 py-4 border-t border-border/30">
+          <div className="flex items-center gap-2 text-xs text-text-tertiary">
+            <kbd className="px-1.5 py-0.5 bg-surface border border-border rounded font-mono">
+              space
             </kbd>
-            <span className="text-xs text-text-secondary">{t.shortcuts.space}</span>
+            <span>{t.shortcuts.space}</span>
           </div>
-          <div className="flex items-center gap-2 p-3 bg-surface rounded-lg border border-border">
-            <kbd className="px-2 py-1 text-xs font-mono bg-background border border-border rounded">
-              N
-            </kbd>
-            <span className="text-xs text-text-secondary">{t.shortcuts.newScramble}</span>
+          <div className="flex items-center gap-2 text-xs text-text-tertiary">
+            <kbd className="px-1.5 py-0.5 bg-surface border border-border rounded font-mono">N</kbd>
+            <span>{t.shortcuts.newScramble}</span>
           </div>
-          <div className="flex items-center gap-2 p-3 bg-surface rounded-lg border border-border">
-            <kbd className="px-2 py-1 text-xs font-mono bg-background border border-border rounded">
-              P
-            </kbd>
-            <span className="text-xs text-text-secondary">{t.shortcuts.togglePlus2}</span>
-          </div>
-          <div className="flex items-center gap-2 p-3 bg-surface rounded-lg border border-border">
-            <kbd className="px-2 py-1 text-xs font-mono bg-background border border-border rounded">
-              D
-            </kbd>
-            <span className="text-xs text-text-secondary">{t.shortcuts.toggleDNF}</span>
+          <div className="flex items-center gap-2 text-xs text-text-tertiary">
+            <kbd className="px-1.5 py-0.5 bg-surface border border-border rounded font-mono">P</kbd>
+            <span>{t.shortcuts.togglePlus2}</span>
           </div>
         </div>
       </motion.div>
 
-      {/* Modals */}
       <StatsInfoModal isOpen={showStatsInfo} onClose={() => setShowStatsInfo(false)} />
     </div>
   );

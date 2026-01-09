@@ -89,7 +89,7 @@ export function TimerDisplay({
         key={`${state}-${Math.floor(timeMs / 100)}`}
         initial={{ scale: 0.95 }}
         animate={{ scale: 1 }}
-        className={`text-5xl sm:text-6xl md:text-8xl font-bold tabular-nums ${getStateColor()}`}
+        className={`text-5xl sm:text-6xl md:text-8xl font-bold font-mono tracking-tight tabular-nums ${getStateColor()}`}
       >
         {formatTime(timeMs)}
       </motion.div>

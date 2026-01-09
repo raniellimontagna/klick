@@ -6,8 +6,7 @@ export { HeaderDropdownButton } from './components/header-dropdown-button/header
 export { HeaderDropdownMenu } from './components/header-dropdown-menu/header-dropdown-menu';
 export { LanguageSelector } from './components/language-selector/language-selector';
 export { Logo } from './components/logo/logo';
-export { MobileNav } from './components/navigation/mobile-nav';
-export { Navbar } from './components/navigation/navbar';
+export * from './components/navigation';
 export { Onboarding } from './components/onboarding/onboarding';
 export { PageHeader } from './components/page-header/page-header';
 export { PWAUpdatePrompt } from './components/pwa-update-prompt/pwa-update-prompt';

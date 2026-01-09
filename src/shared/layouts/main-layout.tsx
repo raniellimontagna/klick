@@ -1,57 +1,25 @@
 import { useState } from 'react';
-import { Link, Outlet } from 'react-router-dom';
-import {
-  LanguageSelector,
-  Logo,
-  MobileNav,
-  Navbar,
-  Onboarding,
-  PWAUpdatePrompt,
-  SessionManagerModal,
-  SessionSwitcher,
-  useTranslation,
-} from '@/shared';
+import { Outlet } from 'react-router-dom';
+import { Onboarding, PWAUpdatePrompt, SessionManagerModal, Sidebar, Topbar } from '@/shared';
 
 export function MainLayout() {
-  const { t } = useTranslation();
   const [isSessionManagerOpen, setSessionManagerOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-background text-text-primary">
-      {/* Header */}
-      <header className="sticky top-0 z-30 bg-background/95 backdrop-blur-sm border-b border-border">
-        <div className="container mx-auto px-4">
-          <div className="flex items-center justify-between h-16">
-            {/* Logo + Title */}
-            <div className="flex items-center gap-3">
-              <Link to="/" aria-label={t.navigation.home} className="inline-flex">
-                <Logo size="sm" />
-              </Link>
-              <div className="sm:block hidden">
-                <p className="text-xs text-text-secondary">{t.app.tagline}</p>
-              </div>
-            </div>
+    <div className="flex h-screen overflow-hidden bg-background text-text-primary">
+      {/* Sidebar - Desktop only */}
+      <Sidebar className="hidden md:flex w-64 shrink-0" />
 
-            {/* Desktop Navigation */}
-            <Navbar />
+      {/* Main Content */}
+      <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+        <Topbar onManageClick={() => setSessionManagerOpen(true)} />
 
-            {/* Right actions */}
-            <div className="flex items-center gap-2">
-              <SessionSwitcher
-                onManageClick={() => setSessionManagerOpen(true)}
-                data-onboarding="sessions"
-              />
-              <LanguageSelector />
-              <MobileNav />
-            </div>
+        <main className="flex-1 overflow-y-auto scroll-smooth p-4 md:p-6 pb-20 md:pb-6">
+          <div className="mx-auto max-w-6xl">
+            <Outlet />
           </div>
-        </div>
-      </header>
-
-      {/* Main content */}
-      <main className="container mx-auto px-4 py-6">
-        <Outlet />
-      </main>
+        </main>
+      </div>
 
       {/* Global components */}
       <Onboarding />
