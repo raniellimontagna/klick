@@ -509,11 +509,26 @@ export const esES = {
     open: '¿Cómo resolver?',
     steps: {
       title: 'Paso {step} de {total}',
+      progress: 'Paso {current} de {total}',
       navigation: {
         previous: 'Anterior',
         next: 'Siguiente',
         finish: 'Finalizar',
       },
+      labels: {
+        goal: 'Objetivo',
+        algorithm: 'Algoritmo',
+        steps: 'Pasos',
+        tip: 'Consejo',
+        important: 'Importante',
+      },
+    },
+    completion: {
+      title: '¡Felicitaciones!',
+      description:
+        'Has completado el tutorial para principiantes. ¡Ahora es hora de practicar y mejorar tu tiempo de resolución!',
+      goToTimer: 'Empezar a Resolver',
+      restart: 'Reiniciar Tutorial',
     },
     intro: {
       title: '¡Bienvenido al Método para Principiantes! 🎓',

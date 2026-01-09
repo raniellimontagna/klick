@@ -13,11 +13,14 @@ export type TutorialStep =
 interface TutorialState {
   isOpen: boolean;
   currentStep: TutorialStep;
+  hasCompleted: boolean;
   openTutorial: () => void;
   closeTutorial: () => void;
+  completeTutorial: () => void;
   nextStep: () => void;
   previousStep: () => void;
   goToStep: (step: TutorialStep) => void;
+  resetTutorial: () => void;
 }
 
 const STEP_ORDER: TutorialStep[] = [
@@ -34,6 +37,7 @@ const STEP_ORDER: TutorialStep[] = [
 export const useTutorialStore = create<TutorialState>((set, get) => ({
   isOpen: false,
   currentStep: 'intro',
+  hasCompleted: false,
 
   openTutorial: () => {
     set({ isOpen: true, currentStep: 'intro' });
@@ -43,6 +47,10 @@ export const useTutorialStore = create<TutorialState>((set, get) => ({
     set({ isOpen: false });
   },
 
+  completeTutorial: () => {
+    set({ isOpen: false, hasCompleted: true });
+  },
+
   nextStep: () => {
     const { currentStep } = get();
     const currentIndex = STEP_ORDER.indexOf(currentStep);
@@ -50,8 +58,8 @@ export const useTutorialStore = create<TutorialState>((set, get) => ({
     if (currentIndex < STEP_ORDER.length - 1) {
       set({ currentStep: STEP_ORDER[currentIndex + 1] });
     } else {
-      // Last step, close tutorial
-      get().closeTutorial();
+      // Last step - mark as completed
+      get().completeTutorial();
     }
   },
 
@@ -66,5 +74,9 @@ export const useTutorialStore = create<TutorialState>((set, get) => ({
 
   goToStep: (step: TutorialStep) => {
     set({ currentStep: step });
+  },
+
+  resetTutorial: () => {
+    set({ currentStep: 'intro', hasCompleted: false });
   },
 }));

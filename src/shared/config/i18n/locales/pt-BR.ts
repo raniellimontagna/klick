@@ -509,11 +509,26 @@ export const ptBR = {
     open: 'Como resolver?',
     steps: {
       title: 'Passo {step} de {total}',
+      progress: 'Passo {current} de {total}',
       navigation: {
         previous: 'Anterior',
         next: 'Próximo',
         finish: 'Concluir',
       },
+      labels: {
+        goal: 'Objetivo',
+        algorithm: 'Algoritmo',
+        steps: 'Passos',
+        tip: 'Dica',
+        important: 'Importante',
+      },
+    },
+    completion: {
+      title: 'Parabéns!',
+      description:
+        'Você completou o tutorial para iniciantes. Agora é hora de praticar e melhorar seu tempo de resolução!',
+      goToTimer: 'Começar a Resolver',
+      restart: 'Refazer Tutorial',
     },
     intro: {
       title: 'Bem-vindo ao Método para Iniciantes! 🎓',

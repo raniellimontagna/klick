@@ -507,11 +507,26 @@ export const enUS = {
     open: 'How to solve?',
     steps: {
       title: 'Step {step} of {total}',
+      progress: 'Step {current} of {total}',
       navigation: {
         previous: 'Previous',
         next: 'Next',
         finish: 'Finish',
       },
+      labels: {
+        goal: 'Goal',
+        algorithm: 'Algorithm',
+        steps: 'Steps',
+        tip: 'Tip',
+        important: 'Important',
+      },
+    },
+    completion: {
+      title: 'Congratulations!',
+      description:
+        "You've completed the beginner's tutorial. Now it's time to practice and improve your solving time!",
+      goToTimer: 'Start Solving',
+      restart: 'Restart Tutorial',
     },
     intro: {
       title: "Welcome to the Beginner's Method! 🎓",
