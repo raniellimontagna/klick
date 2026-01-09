@@ -4,8 +4,8 @@ import { History as HistoryIcon } from 'lucide-react';
 import { PageHeader } from '@/shared';
 import { SolveTable } from './components/solve-table/solve-table';
 import { SolveDetailsModal } from './components/solve-details-modal/solve-details-modal';
-import { useI18nStore } from '@/shared/store/stores/i18n-store';
-import { useSessionsStore } from '@/shared/store/stores/sessions-store';
+import { useI18nStore } from '@/shared/store/i18n-store';
+import { useSessionsStore } from '@/shared/store/sessions-store';
 import { fadeIn } from '@/shared/lib';
 import type { Solve } from '@/commons/types';
 

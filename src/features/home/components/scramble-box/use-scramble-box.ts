@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { useSettingsStore } from '@/shared/store/stores/settings-store';
+import { useSettingsStore } from '@/shared/store/settings-store';
 import { shouldPlaySound, sounds } from '@/shared/lib';
 
 export function useScrambleBox(scramble: string) {

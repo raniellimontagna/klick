@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { Languages, Check } from 'lucide-react';
-import { useI18nStore } from '@/shared/store/stores/i18n-store';
+import { useI18nStore } from '@/shared/store/i18n-store';
 import { HeaderDropdownButton, HeaderDropdownMenu } from '@/shared';
 import { Button } from '@/shared/components/ui';
 import type { Language } from '@/shared/config/i18n/translations';

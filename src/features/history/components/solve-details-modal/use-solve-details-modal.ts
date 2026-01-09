@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import type { Solve } from '@/commons/types';
-import { useI18nStore } from '@/shared/store/stores/i18n-store';
+import { useI18nStore } from '@/shared/store/i18n-store';
 
 interface PenaltyInfo {
   label: string;

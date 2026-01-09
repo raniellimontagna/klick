@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Trash2, Eye } from 'lucide-react';
-import { useI18nStore } from '@/shared/store/stores/i18n-store';
-import { useSessionsStore } from '@/shared/store/stores/sessions-store';
+import { useI18nStore } from '@/shared/store/i18n-store';
+import { useSessionsStore } from '@/shared/store/sessions-store';
 import { ConfirmDialog } from '@/shared';
 import { Button } from '@/shared/components/ui';
 import { fadeIn, formatTime } from '@/shared/lib';

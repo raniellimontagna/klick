@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
-import { useTutorialStore, type TutorialStep } from '@/shared/store/stores/tutorial-store';
-import { useTranslation } from '@/shared/hooks/hooks/use-translation';
+import { useTutorialStore, type TutorialStep } from '@/shared/store/tutorial-store';
+import { useTranslation } from '@/shared/hooks/use-translation';
 
 const STEP_ORDER: TutorialStep[] = [
   'intro',

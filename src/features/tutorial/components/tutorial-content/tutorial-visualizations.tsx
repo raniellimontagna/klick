@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { CUBE_COLORS, type CubeVisualizationConfig } from '@/shared/components/cube-visualizer';
-import type { TutorialStep } from '@/shared/store/stores/tutorial-store';
+import type { TutorialStep } from '@/shared/store/tutorial-store';
 
 const { WHITE, YELLOW, BLUE, ORANGE, GREEN, RED, GRAY } = CUBE_COLORS;
 

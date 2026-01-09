@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { TrendingUp, Target, Zap } from 'lucide-react';
 import { Button, Card } from '@/shared/components/ui';
-import { useTranslation } from '@/shared/hooks/hooks/use-translation';
+import { useTranslation } from '@/shared/hooks/use-translation';
 import { EvolutionChart } from './evolution-chart';
 import { DistributionChart } from './distribution-chart';
 import { useAdvancedStatsContent, type Tab } from './use-advanced-stats-modal';

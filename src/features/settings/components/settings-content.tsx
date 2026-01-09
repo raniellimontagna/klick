@@ -1,10 +1,10 @@
 import { Download, Upload, Sun, Moon } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { Button, ToggleButton, RangeSlider, RadioGroup, RadioButton, Card } from '@/shared/components/ui';
-import { useSettingsStore } from '@/shared/store/stores/settings-store';
-import { useSessionsStore } from '@/shared/store/stores/sessions-store';
-import { useI18nStore } from '@/shared/store/stores/i18n-store';
-import { useTheme } from '@/shared/hooks/hooks/use-theme';
+import { useSettingsStore } from '@/shared/store/settings-store';
+import { useSessionsStore } from '@/shared/store/sessions-store';
+import { useI18nStore } from '@/shared/store/i18n-store';
+import { useTheme } from '@/shared/hooks/use-theme';
 import { motion, AnimatePresence } from 'framer-motion';
 
 type ExportImportMessage = {

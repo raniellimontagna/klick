@@ -17,6 +17,7 @@ export { ScrambleGuideModal } from './components/scramble-guide-modal/scramble-g
 export { SessionManagerModal } from './components/session-manager-modal/session-manager-modal'
 export { SessionSwitcher } from './components/session-switcher/session-switcher'
 export { Toast } from './components/toast/toast'
+export { MainLayout } from './layouts/main-layout'
 
 // Config
 export * from './config/i18n'

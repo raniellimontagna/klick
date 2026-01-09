@@ -1,6 +1,6 @@
 import { X, Target, TrendingUp, Award, Trophy } from 'lucide-react';
 import { Button, Modal } from '@/shared/components/ui';
-import { useI18nStore } from '@/shared/store/stores/i18n-store';
+import { useI18nStore } from '@/shared/store/i18n-store';
 
 interface StatsInfoModalProps {
   isOpen: boolean;

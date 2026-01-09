@@ -1,4 +1,4 @@
-import { useTheme } from './shared/hooks';
+import { useTheme } from '@/shared/hooks';
 import AppRouter from './app-router';
 
 function App() {

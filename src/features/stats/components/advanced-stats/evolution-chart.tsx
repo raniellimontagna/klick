@@ -9,8 +9,8 @@ import {
   YAxis,
 } from 'recharts';
 import type { ChartDataPoint } from '@/features/stats/advanced';
-import { useTheme } from '@/shared/hooks/hooks/use-theme';
-import { useTranslation } from '@/shared/hooks/hooks/use-translation';
+import { useTheme } from '@/shared/hooks/use-theme';
+import { useTranslation } from '@/shared/hooks/use-translation';
 
 type EvolutionChartProps = {
   data: ChartDataPoint[];

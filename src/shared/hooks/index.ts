@@ -1,3 +1,3 @@
 // Shared hooks
-export * from './hooks/use-translation'
-export * from './hooks/use-theme'
+export * from './use-translation'
+export * from './use-theme'

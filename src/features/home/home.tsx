@@ -9,10 +9,10 @@ import { StatsInfoModal } from './components/home-page-components/stats-info-mod
 import { StatCard } from './components/home-page-components/stat-card';
 import { useTimer } from './lib/use-timer';
 import { generate3x3Scramble } from './lib/scramble/generate3x3';
-import { useSessionsStore } from '@/shared/store/stores/sessions-store';
-import { useSettingsStore } from '@/shared/store/stores/settings-store';
-import { useI18nStore } from '@/shared/store/stores/i18n-store';
-import { useOnboardingStore } from '@/shared/store/stores/onboarding-store';
+import { useSessionsStore } from '@/shared/store/sessions-store';
+import { useSettingsStore } from '@/shared/store/settings-store';
+import { useI18nStore } from '@/shared/store/i18n-store';
+import { useOnboardingStore } from '@/shared/store/onboarding-store';
 import { slideUp, fadeIn, formatAverage } from '@/shared/lib';
 import type { Penalty } from '@/commons/types';
 

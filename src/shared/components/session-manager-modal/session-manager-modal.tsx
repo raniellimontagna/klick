@@ -1,5 +1,5 @@
 import { X, Plus, Edit2, Trash2, FolderOpen } from 'lucide-react';
-import { useI18nStore } from '@/shared/store/stores/i18n-store';
+import { useI18nStore } from '@/shared/store/i18n-store';
 import { Toast, ConfirmDialog } from '@/shared';
 import { Button, Modal } from '@/shared/components/ui';
 import { useSessionManagerModal } from './use-session-manager-modal';

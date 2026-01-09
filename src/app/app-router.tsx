@@ -1,11 +1,11 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
-import { MainLayout } from './layouts/main-layout';
-import { Home } from './features/home';
-import { History } from './features/history';
-import { Stats } from './features/stats';
-import { Training } from './features/training';
-import { Settings } from './features/settings';
-import { Tutorial } from './features/tutorial';
+import { MainLayout } from '@/shared/layouts/main-layout';
+import { Home } from '@/features/home';
+import { History } from '@/features/history';
+import { Stats } from '@/features/stats';
+import { Training } from '@/features/training';
+import { Settings } from '@/features/settings';
+import { Tutorial } from '@/features/tutorial';
 
 export default function AppRouter() {
   return (

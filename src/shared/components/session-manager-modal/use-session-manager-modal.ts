@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { useSessionsStore } from '@/shared/store/stores/sessions-store';
+import { useSessionsStore } from '@/shared/store/sessions-store';
 
 export function useSessionManagerModal() {
   const {

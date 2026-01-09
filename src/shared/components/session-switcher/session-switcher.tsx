@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { FolderOpen, Settings } from 'lucide-react';
-import { useSessionsStore } from '@/shared/store/stores/sessions-store';
-import { useI18nStore } from '@/shared/store/stores/i18n-store';
+import { useSessionsStore } from '@/shared/store/sessions-store';
+import { useI18nStore } from '@/shared/store/i18n-store';
 import { HeaderDropdownButton, HeaderDropdownMenu, Button } from '@/shared';
 
 interface SessionSwitcherProps {

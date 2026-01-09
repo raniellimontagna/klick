@@ -1,6 +1,6 @@
 import { BookOpen, Dumbbell, History, Home, Settings, TrendingUp } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
-import { useTranslation } from '@/shared/hooks/hooks/use-translation';
+import { useTranslation } from '@/shared/hooks/use-translation';
 
 export function Navbar() {
   const { t } = useTranslation();

@@ -1,7 +1,7 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { Download, X } from 'lucide-react';
 import { Button } from '@/shared/components/ui';
-import { useI18nStore } from '@/shared/store/stores/i18n-store';
+import { useI18nStore } from '@/shared/store/i18n-store';
 import { usePWAUpdatePrompt } from './use-pwa-update-prompt';
 
 export function PWAUpdatePrompt() {

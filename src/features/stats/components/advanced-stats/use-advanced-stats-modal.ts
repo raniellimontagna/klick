@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useSessionsStore } from '@/shared/store/stores/sessions-store';
+import { useSessionsStore } from '@/shared/store/sessions-store';
 import {
   prepareChartData,
   calculateAdvancedStats,

@@ -4,7 +4,7 @@ import { Menu, X, Home, History, TrendingUp, BookOpen, Settings, Dumbbell } from
 import { motion, AnimatePresence } from 'framer-motion';
 import { createPortal } from 'react-dom';
 import { Button } from '@/shared/components/ui';
-import { useTranslation } from '@/shared/hooks/hooks/use-translation';
+import { useTranslation } from '@/shared/hooks/use-translation';
 
 export function MobileNav() {
   const { t } = useTranslation();
