@@ -1,3 +1,3 @@
-export { Onboarding } from './Onboarding';
-export { Spotlight } from './Spotlight';
-export { OnboardingTooltip } from './OnboardingTooltip';
+export { Onboarding } from './onboarding';
+export { Spotlight } from './spotlight';
+export { OnboardingTooltip } from './onboarding-tooltip';

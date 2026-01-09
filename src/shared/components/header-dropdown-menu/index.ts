@@ -1,1 +1,1 @@
-export { HeaderDropdownMenu } from './HeaderDropdownMenu';
+export { HeaderDropdownMenu } from './header-dropdown-menu';

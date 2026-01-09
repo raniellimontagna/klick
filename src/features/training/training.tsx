@@ -2,11 +2,11 @@ import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Dumbbell } from 'lucide-react';
 import { PageHeader, Button, Card } from '@/shared';
-import { useTranslation } from '@/shared/hooks/hooks/useTranslation';
+import { useTranslation } from '@/shared/hooks/hooks/use-translation';
 import { cn, slideUp, staggerContainer } from '@/shared/lib';
 import { trainingCategories, trainingCases } from './lib/training-data/cases';
 import type { TrainingCategory } from './lib/training-data/types';
-import { TrainingCaseCard } from './components/TrainingCaseCard';
+import { TrainingCaseCard } from './components/training-case-card';
 
 export function Training() {
   const { t } = useTranslation();

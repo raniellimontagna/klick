@@ -1,1 +1,1 @@
-export { ScrambleGuideModal } from './ScrambleGuideModal';
+export { ScrambleGuideModal } from './scramble-guide-modal';

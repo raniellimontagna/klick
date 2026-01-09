@@ -1,1 +1,1 @@
-export { HeaderDropdownButton } from './HeaderDropdownButton';
+export { HeaderDropdownButton } from './header-dropdown-button';

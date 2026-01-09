@@ -1,6 +1,6 @@
-export { CubeVisualizer } from './CubeVisualizer';
-export { CubeFace } from './CubeFace';
-export { AlgorithmMove } from './AlgorithmMove';
+export { CubeVisualizer } from './cube-visualizer';
+export { CubeFace } from './cube-face';
+export { AlgorithmMove } from './algorithm-move';
 export { CUBE_COLORS } from './types';
 export type {
   CubeColor,

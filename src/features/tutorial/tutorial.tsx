@@ -1,8 +1,8 @@
 import { motion } from 'framer-motion';
 import { BookOpen } from 'lucide-react';
-import { TutorialContent } from './components/tutorialContent/TutorialContent';
+import { TutorialContent } from './components/tutorial-content/tutorial-content';
 import { PageHeader } from '@/shared';
-import { useI18nStore } from '@/shared/store/stores/i18nStore';
+import { useI18nStore } from '@/shared/store/stores/i18n-store';
 import { fadeIn } from '@/shared/lib';
 
 export function Tutorial() {

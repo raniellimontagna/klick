@@ -1,2 +1,2 @@
-export { Navbar } from './Navbar';
-export { MobileNav } from './MobileNav';
+export { Navbar } from './navbar';
+export { MobileNav } from './mobile-nav';

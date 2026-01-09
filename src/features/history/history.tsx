@@ -2,10 +2,10 @@ import { motion } from 'framer-motion';
 import { useState } from 'react';
 import { History as HistoryIcon } from 'lucide-react';
 import { PageHeader } from '@/shared';
-import { SolveTable } from './components/solveTable/SolveTable';
-import { SolveDetailsModal } from './components/solveDetailsModal/SolveDetailsModal';
-import { useI18nStore } from '@/shared/store/stores/i18nStore';
-import { useSessionsStore } from '@/shared/store/stores/sessionsStore';
+import { SolveTable } from './components/solve-table/solve-table';
+import { SolveDetailsModal } from './components/solve-details-modal/solve-details-modal';
+import { useI18nStore } from '@/shared/store/stores/i18n-store';
+import { useSessionsStore } from '@/shared/store/stores/sessions-store';
 import { fadeIn } from '@/shared/lib';
 import type { Solve } from '@/commons/types';
 
