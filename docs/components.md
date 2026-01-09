@@ -1,6 +1,6 @@
 # Componentes
 
-## UI Base (`/src/components/ui/`)
+## UI Base (`/src/shared/components/ui/`)
 
 ### Button
 
@@ -22,8 +22,7 @@ Botão reutilizável com variantes.
 | `warning` | Alerta |
 
 | Tamanho | Descrição |
-|---------|-----------|
-| `sm` | Pequeno |
+|---------|-----------| | `sm` | Pequeno |
 | `md` | Médio (padrão) |
 | `lg` | Grande |
 | `icon` | Apenas ícone |
@@ -40,65 +39,72 @@ Container reutilizável.
 
 ---
 
-## Core Components
+## Core Components (`/src/shared/components/`)
 
 | Componente | Path | Descrição |
-|------------|------|-----------|
-| `TimerDisplay` | `/timerDisplay/` | Display do cronômetro |
-| `ScrambleBox` | `/scrambleBox/` | Box do scramble copiável |
-| `InspectionDisplay` | `/inspectionDisplay/` | Contagem regressiva |
-| `Toast` | `/toast/` | Notificações temporárias |
+|------------|------|-----------| | `RouteLoader` | `/route-loader/` | Tela de loading para lazy routes com animações |
 | `Logo` | `/logo/` | Logo do app |
+| `PageHeader` | `/page-header/` | Header de página |
+| `Toast` | `/toast/` | Notificações temporárias |
 
 ---
 
-## Navegação
+## Feature Components
 
-| Componente | Path | Descrição |
-|------------|------|-----------|
-| `Navbar` | `/navigation/` | Navegação desktop |
-| `MobileNav` | `/navigation/` | Menu hamburger mobile |
-| `PageHeader` | `/pageHeader/` | Header de página |
+Componentes específicos de features ficam em `/src/features/[feature]/components/`:
 
----
-
-## Dropdowns
-
-| Componente | Path | Descrição |
-|------------|------|-----------|
-| `HeaderDropdownButton` | `/headerDropdownButton/` | Botão padrão para dropdowns |
-| `HeaderDropdownMenu` | `/headerDropdownMenu/` | Menu dropdown com animations |
-| `LanguageSelector` | `/languageSelector/` | Seletor de idioma |
-| `SessionSwitcher` | `/sessionSwitcher/` | Troca de sessões |
+| Componente | Feature | Descrição |
+|------------|---------|-----------|
+| `TimerDisplay` | home | Display do cronômetro com estados |
+| `ScrambleBox` | home | Box do scramble copiável |
+| `InspectionDisplay` | home | Contagem regressiva de inspeção |
+| `StatCard` | home | Card de estatísticas animado |
+| `SolveTable` | history | Tabela de solves com filtros |
+| `AdvancedStatsModal` | stats | Modal com gráficos e métricas |
+| `TutorialModal` | tutorial | Tutorial layer-by-layer |
 
 ---
 
-## Modais
+## Navegação (`/src/shared/components/navigation/`)
 
-| Componente | Path | Descrição |
-|------------|------|-----------|
-| `ConfirmDialog` | `/confirmDialog/` | Diálogo de confirmação |
-| `SessionManagerModal` | `/sessionManagerModal/` | Gerenciador de sessões |
-| `ScrambleGuideModal` | `/scrambleGuideModal/` | Guia de embaralhamento |
-
----
-
-## Onboarding
-
-| Componente | Path | Descrição |
-|------------|------|-----------|
-| `Onboarding` | `/onboarding/` | Container principal |
-| `Spotlight` | `/onboarding/` | Highlight de elementos |
-| `OnboardingTooltip` | `/onboarding/` | Tooltip com navegação |
+| Componente | Descrição |
+|------------|-----------|
+| `Navbar` | Navegação desktop (links horizontais) |
+| `MobileNav` | Menu hamburger mobile (drawer lateral) |
 
 ---
 
-## Utilitários
+## Dropdowns (`/src/shared/components/`)
 
 | Componente | Path | Descrição |
-|------------|------|-----------|
-| `PWAUpdatePrompt` | `/pwaUpdatePrompt/` | Prompt de atualização |
-| `CubeVisualizer` | `/cubeVisualizer/` | Visualização do cubo |
+|------------|------|-----------| | `LanguageSelector` | `/language-selector/` | Seletor de idioma com flags |
+| `SessionSwitcher` | `/session-switcher/` | Troca e gerenciamento de sessões |
+
+---
+
+## Modais (`/src/shared/components/`)
+
+| Componente | Path | Descrição |
+|------------|------|-----------| | `ConfirmDialog` | `/confirm-dialog/` | Diálogo de confirmação genérico |
+| `ScrambleGuideModal` | `/scramble-guide-modal/` | Guia de embaralhamento para iniciantes |
+
+---
+
+## Onboarding (`/src/shared/components/onboarding/`)
+
+| Componente | Descrição |
+|------------|-----------|
+| `Onboarding` | Container principal do sistema de onboarding |
+| `Spotlight` | Highlight radial de elementos com borda |
+| `OnboardingTooltip` | Tooltip com navegação e progresso |
+
+---
+
+## Utilitários (`/src/shared/components/`)
+
+| Componente | Path | Descrição |
+|------------|------|-----------| | `PWAUpdatePrompt` | `/pwa-update-prompt/` | Prompt de atualização do PWA |
+| `CubeVisualizer` | `/cube-visualizer/` | Visualização 2D do cubo |
 
 ---
 
@@ -113,9 +119,31 @@ Container reutilizável.
 └── index.ts             # Barrel export
 ```
 
+### Separação de Responsabilidades
+
+- **Componentes (.tsx):** Apenas renderização e UI
+- **Hooks (.ts):** Toda a lógica de negócio
+
 ### Animações
 
-Usar variantes de `/src/utils/animations/`:
+Usar variantes de `/src/shared/lib/animations.ts`:
 - `fadeIn`, `slideUp`, `slideDown`, `scale`
 - `AnimatePresence` para enter/exit
 - `whileHover`, `whileTap` para micro-interações
+
+### RouteLoader
+
+Componente especial para Suspense boundaries em rotas lazy-loaded:
+
+```tsx
+<Suspense fallback={<RouteLoader />}>
+  <LazyComponent />
+</Suspense>
+```
+
+**Features:**
+- Cubo animado com rotação infinita
+- Barra de progresso deslizante
+- Texto "Carregando..." com dots animados
+- Design consistente com tema do app (roxo/cinza)
+- Transições suaves com Framer Motion

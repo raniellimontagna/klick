@@ -64,6 +64,23 @@ O Klick é um Progressive Web App completo, permitindo:
 3. No **iOS**: Toque no ícone de compartilhar → "Adicionar à Tela de Início"
 4. O app abrirá em tela cheia, como um app nativo!
 
+## ⚡ Performance
+
+### Otimizações de Bundle
+
+O Klick utiliza **code splitting** e **lazy loading** para otimizar o carregamento:
+
+- **Main bundle:** 135 KB (gzipped: 40 KB) - ~70% menor que a versão inicial
+- **Route chunks:** 6-16 KB cada - carregados sob demanda
+- **Vendor chunks:** Bibliotecas grandes isoladas para melhor caching
+
+**Benefícios:**
+- ✅ Carregamento inicial ~40% mais rápido
+- ✅ Vendor chunks em cache separado (não re-baixam em updates)
+- ✅ Rotas carregadas apenas quando necessário
+
+Para detalhes técnicos completos, veja [docs/performance.md](./docs/performance.md).
+
 ## 🎮 Como usar
 
 ### Controles básicos
@@ -499,3 +516,16 @@ MIT
 ---
 
 **Desenvolvido com ❤️ para a comunidade de speedcubing**
+
+## 📚 Documentação
+
+Documentação técnica completa disponível em `/docs/`:
+
+- **[changelog.md](./docs/changelog.md)** - Histórico de implementação e mudanças
+- **[architecture.md](./docs/architecture.md)** - Estrutura do projeto e padrões de código
+- **[performance.md](./docs/performance.md)** - Otimizações de bundle e métricas
+- **[components.md](./docs/components.md)** - Componentes disponíveis e como usar
+- **[features.md](./docs/features.md)** - Funcionalidades detalhadas
+- **[i18n.md](./docs/i18n.md)** - Sistema de internacionalização
+- **[stores.md](./docs/stores.md)** - Gerenciamento de estado com Zustand
+- **[pwa.md](./docs/pwa.md)** - Configuração do Progressive Web App

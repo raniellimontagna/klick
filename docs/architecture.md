@@ -4,38 +4,75 @@
 
 ```
 src/
-├── @types/           # Tipagens globais
-├── assets/           # Assets estáticos
-├── commons/          # Utilitários compartilhados
-├── components/       # Componentes React reutilizáveis
-│   ├── navigation/   # Navbar, MobileNav
-│   ├── onboarding/   # Sistema de onboarding
-│   ├── ui/           # Biblioteca UI (Button, Card, etc.)
-│   └── ...           # Componentes de feature
-├── features/         # Regras de negócio
-│   ├── timer/        # Hook useTimer
-│   ├── scramble/     # Gerador de scrambles
-│   ├── stats/        # Cálculos estatísticos
-│   ├── onboarding/   # Configuração do onboarding
-│   └── training/     # Casos de treino (PLL, OLL, F2L)
-├── hooks/            # Custom hooks globais
-│   ├── useTheme.ts   # Controle de tema
-│   └── useTranslation.ts
-├── i18n/             # Internacionalização
-│   └── locales/      # Arquivos de tradução
-├── layouts/          # Layouts de página
-│   └── MainLayout.tsx
-├── pages/            # Páginas da aplicação
-│   ├── homePage/     # Timer principal
-│   ├── historyPage/  # Histórico de solves
-│   ├── statsPage/    # Estatísticas avançadas
-│   ├── trainingPage/ # Modo de treino
-│   ├── tutorialPage/ # Tutorial layer-by-layer
-│   └── settingsPage/ # Configurações
-├── stores/           # Zustand stores
-├── styles/           # CSS global
-├── test/             # Configuração de testes
-└── utils/            # Funções utilitárias
+├── app/                  # Core application setup
+│   ├── app-router.tsx   # React Router configuration with lazy loading
+│   ├── app.tsx          # Root component
+│   ├── main.tsx         # Entry point
+│   └── styles/          # Global CSS
+│
+├── features/            # Feature-based modules (self-contained)
+│   ├── home/           # Timer page (main feature)
+│   │   ├── components/ # Feature-specific components
+│   │   │   ├── timer-display/
+│   │   │   ├── scramble-box/
+│   │   │   ├── inspection-display/
+│   │   │   └── stat-card/
+│   │   ├── lib/        # Business logic
+│   │   │   ├── use-timer.ts
+│   │   │   └── scramble/
+│   │   ├── home.tsx    # Page component
+│   │   └── index.ts    # Barrel export
+│   │
+│   ├── history/        # Solve history page
+│   ├── stats/          # Advanced stats page
+│   ├── training/       # Training mode page
+│   ├── tutorial/       # Tutorial page
+│   └── settings/       # Settings page
+│
+├── shared/             # Shared code across features
+│   ├── components/     # Reusable UI components
+│   │   ├── ui/         # Design system (Button, Card, Modal, etc.)
+│   │   ├── navigation/ # Navbar, MobileNav
+│   │   ├── route-loader/    # Loading component for lazy routes
+│   │   ├── session-switcher/
+│   │   ├── language-selector/
+│   │   ├── scramble-guide-modal/
+│   │   ├── cube-visualizer/
+│   │   ├── onboarding/
+│   │   └── ...
+│   │
+│   ├── lib/           # Utilities and helpers
+│   │   ├── animations.ts    # Framer Motion variants
+│   │   ├── sounds.ts        # Web Audio API
+│   │   ├── format-time.ts   # Time formatters
+│   │   └── cn.ts            # Class name utility
+│   │
+│   ├── store/         # Global state management
+│   │   ├── sessions-store.ts
+│   │   ├── settings-store.ts
+│   │   ├── i18n-store.ts
+│   │   ├── onboarding-store.ts
+│   │   ├── training-store.ts
+│   │   └── tutorial-store.ts
+│   │
+│   ├── config/        # Configuration
+│   │   └── i18n/      # Internationalization
+│   │       └── locales/
+│   │           ├── pt-BR.ts
+│   │           ├── en-US.ts
+│   │           └── es-ES.ts
+│   │
+│   ├── hooks/         # Custom hooks
+│   │   ├── use-translation.ts
+│   │   └── use-theme.ts
+│   │
+│   ├── types/         # TypeScript types
+│   │   └── solve.ts
+│   │
+│   └── layouts/       # Page layouts
+│       └── main-layout.tsx
+│
+└── @types/           # Global TypeScript definitions
 ```
 
 ## Padrões de Código
@@ -46,12 +83,36 @@ src/
 - **Hooks (.ts):** Lógica de negócio
 - **Stores (.ts):** Estado global
 
+### Feature-Based Organization
+
+Cada feature em `/src/features/` é **auto-contida**:
+- Componentes específicos da feature
+- Lógica de negócio (hooks, utils)
+- Testes da feature
+- Exportação via barrel (index.ts)
+
+**Benefícios:**
+- 🎯 **Alta coesão:** Código relacionado agrupado
+- 🔌 **Baixo acoplamento:** Features independentes
+- 📦 **Fácil remoção:** Deletar pasta = deletar feature
+- 🧪 **Testabilidade:** Testes colocados com código
+
+### Componentes Compartilhados
+
+`/src/shared/components/` contém apenas componentes **verdadeiramente reutilizáveis**:
+- Sistema de UI (Button, Card, Modal)
+- Navegação (Navbar, MobileNav)
+- Componentes usados em múltiplas features
+
+Se um componente é usado apenas em uma feature, ele fica em `/features/[feature]/components/`.
+
 ### Convenções
 
 - Comentários mínimos, apenas para lógica complexa
 - Comentários sempre em inglês
 - Código auto-documentado preferido
-- TypeScript strict mode
+- TypeScript strict mode habilitado
+- Barrel exports para facilitar imports
 
 ## Fluxo de Dados
 
@@ -62,6 +123,12 @@ graph TD
     C --> D[Zustand Store]
     D --> E[localStorage]
     D --> B
+    
+    F[Route Change] --> G[React Router]
+    G --> H[Lazy Load Feature]
+    H --> I[Suspense Boundary]
+    I --> J[RouteLoader]
+    I --> B
 ```
 
 ## Modelo de Dados
@@ -87,11 +154,95 @@ type Session = {
 
 ## Rotas
 
-| Rota | Página | Descrição |
-|------|--------|-----------|
-| `/` | HomePage | Timer principal |
-| `/history` | HistoryPage | Tabela de solves |
-| `/stats` | StatsPage | Gráficos e métricas |
-| `/training` | TrainingPage | Treino de casos |
-| `/tutorial` | TutorialPage | Tutorial passo-a-passo |
-| `/settings` | SettingsPage | Configurações |
+| Rota | Página | Lazy Loaded | Descrição |
+|------|--------|-------------|-----------|
+| `/` | home | ✅ | Timer principal e dashboard |
+| `/history` | history | ✅ | Tabela completa de solves |
+| `/stats` | stats | ✅ | Gráficos e métricas avançadas |
+| `/training` | training | ✅ | Treino de casos (PLL/OLL/F2L) |
+| `/tutorial` | tutorial | ✅ | Tutorial layer-by-layer |
+| `/settings` | settings | ✅ | Configurações do app |
+
+Todas as rotas usam **lazy loading** via `React.lazy()` para otimizar bundle size.
+
+## Code Splitting
+
+### Strategy
+
+1. **Route-based splitting:** Cada página é um chunk separado
+2. **Vendor separation:** Bibliotecas grandes isoladas (React, recharts, framer-motion)
+3. **Suspense boundaries:** `RouteLoader` exibido durante carregamento
+
+### Results
+
+- Main bundle: **135 KB** (gzipped: 40 KB)
+- Per-route chunks: **6-16 KB** each
+- Vendor chunks: Cached separadamente
+
+Veja [performance.md](./performance.md) para detalhes completos.
+
+## Design System
+
+### Componentes UI Base
+
+Localizados em `/src/shared/components/ui/`:
+
+- **Button:** 6 variantes, 4 tamanhos
+- **Card:** 3 variantes (surface, background, overlay)
+- **Modal:** Base para todos os modais
+
+### Theme System
+
+- **CSS Variables:** Cores semânticas por tema
+- **useTheme Hook:** Controle programático
+- **Suporte:** Dark (padrão) e Light
+
+## Internacionalização
+
+### Estrutura
+
+```
+/src/shared/config/i18n/
+  locales/
+    ├── pt-BR.ts    # Português (padrão)
+    ├── en-US.ts    # English
+    └── es-ES.ts    # Español
+```
+
+### Uso
+
+```tsx
+import { useI18nStore } from '@/shared/store/i18n-store';
+
+const { t } = useI18nStore();
+// t.timer.ready, t.scramble.title, etc.
+```
+
+## State Management
+
+### Zustand Stores
+
+Todos em `/src/shared/store/`:
+
+| Store | Persisted | Função |
+|-------|-----------|--------|
+| sessions-store | ✅ | Solves e sessões |
+| settings-store | ✅ | Configurações do usuário |
+| i18n-store | ✅ | Idioma ativo |
+| onboarding-store | ✅ | Estado do tour |
+| training-store | ✅ | Progresso de treino |
+| tutorial-store | ❌ | Estado do modal de tutorial |
+
+## Testing
+
+- **Framework:** Vitest + React Testing Library
+- **Location:** `__tests__/` dentro de cada feature
+- **Coverage:** Business logic (stats, scramble, hooks)
+
+## Build Process
+
+1. **TypeScript:** Compilação com strict mode
+2. **Vite:** Build tool com Rolldown
+3. **Code Splitting:** Manual chunks para vendors
+4. **PWA:** Service worker gerado automaticamente
+5. **Assets:** Otimização de imagens e fonts
