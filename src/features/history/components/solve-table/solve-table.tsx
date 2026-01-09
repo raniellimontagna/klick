@@ -1,5 +1,5 @@
-import { motion } from 'framer-motion';
-import { Eye, Trash2 } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { ConfirmDialog } from '@/shared';
 import { Button } from '@/shared/components/ui';
@@ -41,7 +41,8 @@ export function SolveTable({ onViewDetails }: SolveTableProps) {
 
   const filteredSolves = getFilteredSolves();
 
-  const handleDelete = (solve: Solve) => {
+  const handleDelete = (e: React.MouseEvent, solve: Solve) => {
+    e.stopPropagation();
     setDeleteConfirmSolve(solve);
   };
 
@@ -50,12 +51,6 @@ export function SolveTable({ onViewDetails }: SolveTableProps) {
       deleteSolve(deleteConfirmSolve.id);
       setDeleteConfirmSolve(null);
     }
-  };
-
-  const getPenaltyDisplay = (solve: Solve) => {
-    if (solve.penalty === 'DNF') return 'DNF';
-    if (solve.penalty === '+2') return '+2';
-    return '-';
   };
 
   const formatDate = (isoString: string) => {
@@ -74,115 +69,111 @@ export function SolveTable({ onViewDetails }: SolveTableProps) {
         variants={fadeIn}
         initial="hidden"
         animate="visible"
-        className="bg-gray-800 rounded-xl p-8 text-center border border-gray-700"
+        className="glass rounded-xl p-12 text-center"
       >
-        <p className="text-gray-400">{t.solveTable.empty}</p>
+        <p className="text-text-muted text-lg">{t.solveTable.empty}</p>
       </motion.div>
     );
   }
 
   return (
     <>
-      <motion.div
-        variants={fadeIn}
-        initial="hidden"
-        animate="visible"
-        className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden"
-      >
-        <div className="p-4 sm:p-6 border-b border-gray-700 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <h2 className="text-lg sm:text-xl font-bold text-white">{t.solveTable.title}</h2>
-          <div className="flex items-center gap-2">
-            <label htmlFor="filter" className="text-sm text-gray-400">
+      <div className="space-y-4">
+        {/* Header & Filter */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <h2 className="text-xl font-bold text-text-primary px-2">{t.solveTable.title}</h2>
+          <div className="flex items-center gap-3 bg-surface p-1 rounded-lg border border-white/5 w-full sm:w-auto">
+            <span className="text-sm text-text-muted pl-2 whitespace-nowrap">
               {t.solveTable.filter.label}:
-            </label>
+            </span>
             <select
-              id="filter"
               value={filter}
               onChange={(e) => setFilter(e.target.value as FilterOption)}
-              className="bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-primary text-sm"
+              className="bg-transparent text-text-primary py-1 px-2 rounded focus:outline-none focus:bg-white/5 text-sm w-full sm:w-auto"
             >
-              <option value="all">{t.solveTable.filter.all}</option>
-              <option value="last5">{t.solveTable.filter.last5}</option>
-              <option value="last12">{t.solveTable.filter.last12}</option>
-              <option value="last50">{t.solveTable.filter.last50}</option>
-              <option value="last100">{t.solveTable.filter.last100}</option>
+              <option value="all" className="bg-surface">
+                {t.solveTable.filter.all}
+              </option>
+              <option value="last5" className="bg-surface">
+                {t.solveTable.filter.last5}
+              </option>
+              <option value="last12" className="bg-surface">
+                {t.solveTable.filter.last12}
+              </option>
+              <option value="last50" className="bg-surface">
+                {t.solveTable.filter.last50}
+              </option>
+              <option value="last100" className="bg-surface">
+                {t.solveTable.filter.last100}
+              </option>
             </select>
           </div>
         </div>
 
-        <div className="overflow-x-auto">
+        {/* Desktop Table View */}
+        <div className="hidden md:block glass rounded-xl overflow-hidden border border-white/5">
           <table className="w-full">
-            <thead className="bg-gray-900/50">
+            <thead className="bg-surface/50 border-b border-white/5">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                <th className="px-6 py-4 text-left text-xs font-semibold text-text-muted uppercase tracking-wider">
                   {t.solveTable.columns.number}
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                <th className="px-6 py-4 text-left text-xs font-semibold text-text-muted uppercase tracking-wider">
                   {t.solveTable.columns.time}
                 </th>
-                <th className="hidden md:table-cell px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                <th className="px-6 py-4 text-left text-xs font-semibold text-text-muted uppercase tracking-wider">
                   {t.solveTable.columns.scramble}
                 </th>
-                <th className="hidden sm:table-cell px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                <th className="px-6 py-4 text-left text-xs font-semibold text-text-muted uppercase tracking-wider">
                   {t.solveTable.columns.date}
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                  {t.solveTable.columns.penalty}
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                <th className="px-6 py-4 text-right text-xs font-semibold text-text-muted uppercase tracking-wider">
                   {t.solveTable.columns.actions}
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-700">
+            <tbody className="divide-y divide-white/5">
               {filteredSolves.map((solve) => {
                 const solveNumber = allSolves.length - allSolves.indexOf(solve);
                 return (
-                  <tr key={solve.id} className="hover:bg-gray-700/30 transition-colors">
-                    <td className="px-4 py-3 text-sm text-gray-300">#{solveNumber}</td>
-                    <td className="px-4 py-3 text-sm font-mono font-semibold text-white">
-                      {solve.penalty === 'DNF' ? 'DNF' : formatTime(solve.effectiveMs)}
+                  <tr
+                    key={solve.id}
+                    onClick={() => onViewDetails?.(solve)}
+                    className="hover:bg-white/5 transition-colors cursor-pointer group"
+                  >
+                    <td className="px-6 py-4 text-sm text-text-secondary">#{solveNumber}</td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        <span
+                          className={`text-lg font-mono font-bold tracking-tight ${
+                            solve.penalty === 'DNF' ? 'text-danger' : 'text-text-primary'
+                          }`}
+                        >
+                          {solve.penalty === 'DNF' ? 'DNF' : formatTime(solve.effectiveMs)}
+                        </span>
+                        {solve.penalty === '+2' && (
+                          <span className="text-xs font-bold text-warning bg-warning/10 px-1.5 py-0.5 rounded border border-warning/20">
+                            +2
+                          </span>
+                        )}
+                      </div>
                     </td>
-                    <td className="hidden md:table-cell px-4 py-3 text-sm text-gray-400 max-w-xs truncate">
+                    <td className="px-6 py-4 text-sm text-text-muted font-mono max-w-xs truncate opacity-70 group-hover:opacity-100 transition-opacity">
                       {solve.scramble}
                     </td>
-                    <td className="hidden sm:table-cell px-4 py-3 text-sm text-gray-400">
+                    <td className="px-6 py-4 text-sm text-text-muted">
                       {formatDate(solve.createdAt)}
                     </td>
-                    <td className="px-4 py-3 text-sm">
-                      <span
-                        className={`inline-flex px-2 py-1 rounded text-xs font-medium ${
-                          solve.penalty === 'DNF'
-                            ? 'bg-red-500/20 text-red-400 border border-red-500/30'
-                            : solve.penalty === '+2'
-                              ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
-                              : 'bg-gray-700 text-gray-400'
-                        }`}
+                    <td className="px-6 py-4 text-right">
+                      <Button
+                        onClick={(e) => handleDelete(e, solve)}
+                        variant="ghost"
+                        size="icon"
+                        className="text-text-muted hover:text-danger hover:bg-danger/10 opacity-0 group-hover:opacity-100 transition-all focus:opacity-100"
+                        title={t.actions.delete}
                       >
-                        {getPenaltyDisplay(solve)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <Button
-                          onClick={() => onViewDetails?.(solve)}
-                          variant="ghost"
-                          size="icon"
-                          className="text-gray-400 hover:text-white hover:bg-gray-700 focus-visible:ring-offset-gray-900"
-                          title={t.actions.viewDetails}
-                        >
-                          <Eye size={16} />
-                        </Button>
-                        <Button
-                          onClick={() => handleDelete(solve)}
-                          variant="ghost"
-                          size="icon"
-                          className="text-red-400 hover:text-red-300 hover:bg-red-500/10 focus-visible:ring-red-500 focus-visible:ring-offset-gray-900"
-                          title={t.actions.delete}
-                        >
-                          <Trash2 size={16} />
-                        </Button>
-                      </div>
+                        <Trash2 size={18} />
+                      </Button>
                     </td>
                   </tr>
                 );
@@ -190,7 +181,60 @@ export function SolveTable({ onViewDetails }: SolveTableProps) {
             </tbody>
           </table>
         </div>
-      </motion.div>
+
+        {/* Mobile Card List View */}
+        <div className="md:hidden space-y-3">
+          <AnimatePresence>
+            {filteredSolves.map((solve) => {
+              const solveNumber = allSolves.length - allSolves.indexOf(solve);
+              return (
+                <motion.div
+                  key={solve.id}
+                  layout
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  onClick={() => onViewDetails?.(solve)}
+                  className="bg-surface/50 border border-white/5 rounded-xl p-4 active:scale-[0.98] transition-all cursor-pointer"
+                >
+                  <div className="flex justify-between items-start mb-2">
+                    <div className="flex flex-col">
+                      <span className="text-xs text-text-muted font-mono mb-1">
+                        #{solveNumber} • {formatDate(solve.createdAt)}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`text-2xl font-mono font-bold tracking-tight ${
+                            solve.penalty === 'DNF' ? 'text-danger' : 'text-text-primary'
+                          }`}
+                        >
+                          {solve.penalty === 'DNF' ? 'DNF' : formatTime(solve.effectiveMs)}
+                        </span>
+                        {solve.penalty === '+2' && (
+                          <span className="text-xs font-bold text-warning bg-warning/10 px-1.5 py-0.5 rounded border border-warning/20">
+                            +2
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      onClick={(e) => handleDelete(e, solve)}
+                      variant="ghost"
+                      size="icon"
+                      className="text-text-muted -mr-2 -mt-2 h-8 w-8"
+                    >
+                      <Trash2 size={16} />
+                    </Button>
+                  </div>
+                  <div className="text-xs text-text-tertiary font-mono truncate bg-background/50 p-2 rounded border border-white/5">
+                    {solve.scramble}
+                  </div>
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
+        </div>
+      </div>
 
       <ConfirmDialog
         isOpen={deleteConfirmSolve !== null}

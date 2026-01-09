@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { Target, TrendingUp, Zap } from 'lucide-react';
-import { Button, Card } from '@/shared/components/ui';
+import { Info, Target, TrendingUp, Zap } from 'lucide-react';
+import { Button } from '@/shared/components/ui';
 import { useTranslation } from '@/shared/hooks/use-translation';
 import { DistributionChart } from './distribution-chart';
 import { EvolutionChart } from './evolution-chart';
@@ -22,29 +22,37 @@ export function AdvancedStatsContent() {
       return {
         label: t.advancedStats.consistency.coefficientOfVariation.excellent,
         color: 'text-green-400',
+        bg: 'bg-green-400/10',
+        border: 'border-green-400/20',
       };
     if (cv < 15)
       return {
         label: t.advancedStats.consistency.coefficientOfVariation.good,
         color: 'text-blue-400',
+        bg: 'bg-blue-400/10',
+        border: 'border-blue-400/20',
       };
     if (cv < 20)
       return {
         label: t.advancedStats.consistency.coefficientOfVariation.average,
         color: 'text-yellow-400',
+        bg: 'bg-yellow-400/10',
+        border: 'border-yellow-400/20',
       };
     return {
       label: t.advancedStats.consistency.coefficientOfVariation.needsWork,
       color: 'text-red-400',
+      bg: 'bg-red-400/10',
+      border: 'border-red-400/20',
     };
   };
 
   const consistencyLevel = getConsistencyLevel(advancedStats.consistency.coefficientOfVariation);
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Tabs */}
-      <div className="flex border-b border-border px-6 bg-surface rounded-t-xl">
+    <div className="flex flex-col h-full space-y-6">
+      {/* Tabs - Pill Design */}
+      <div className="flex p-1 bg-black/20 backdrop-blur-md rounded-xl border border-white/5 overflow-x-auto">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -53,115 +61,128 @@ export function AdvancedStatsContent() {
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               variant="ghost"
-              className={`flex items-center gap-2 px-4 py-3 border-b-2 rounded-none transition-all duration-200 ${
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg transition-all duration-300 ${
                 isActive
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-text-secondary hover:text-text-primary'
+                  ? 'bg-primary/20 text-auth-active shadow-sm border border-primary/20'
+                  : 'text-text-muted hover:text-text-primary hover:bg-white/5'
               }`}
             >
               <Icon size={18} />
-              <span className="hidden sm:inline font-medium">{tab.label}</span>
+              <span className="font-medium whitespace-nowrap">{tab.label}</span>
             </Button>
           );
         })}
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6 bg-surface rounded-b-xl">
-        {!hasEnoughData && (
-          <div className="flex flex-col items-center justify-center h-full text-center py-12">
-            <TrendingUp size={48} className="text-text-secondary mb-4" />
-            <p className="text-text-primary mb-2 font-semibold">
+      <div className="min-h-[400px]">
+        {!hasEnoughData ? (
+          <div className="flex flex-col items-center justify-center h-full py-16 text-center border-2 border-dashed border-white/5 rounded-2xl bg-white/5">
+            <div className="bg-white/5 p-4 rounded-full mb-4">
+              <TrendingUp size={48} className="text-text-muted opacity-50" />
+            </div>
+            <h3 className="text-xl font-bold text-text-primary mb-2">
               {t.advancedStats.evolution.noData}
-            </p>
-            <p className="text-sm text-text-secondary">{t.advancedStats.evolution.tip}</p>
+            </h3>
+            <p className="text-text-muted max-w-md mx-auto">{t.advancedStats.evolution.tip}</p>
           </div>
-        )}
-
-        {hasEnoughData && (
+        ) : (
           <AnimatePresence mode="wait">
             {activeTab === 'evolution' && (
               <motion.div
                 key="evolution"
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                className="space-y-4"
+                exit={{ opacity: 0, y: -10 }}
+                className="space-y-6"
               >
-                <div>
-                  <h3 className="text-xl font-semibold text-text-primary mb-2">
-                    {t.advancedStats.evolution.title}
-                  </h3>
-                  <p className="text-text-secondary text-sm mb-6">
-                    {t.advancedStats.evolution.description}
-                  </p>
+                <div className="glass p-6 rounded-2xl border border-white/5">
+                  <div className="mb-6">
+                    <h3 className="text-lg font-bold text-text-primary flex items-center gap-2">
+                      <TrendingUp className="w-5 h-5 text-primary" />
+                      {t.advancedStats.evolution.title}
+                    </h3>
+                    <p className="text-sm text-text-muted mt-1">
+                      {t.advancedStats.evolution.description}
+                    </p>
+                  </div>
+                  <EvolutionChart data={chartData} />
                 </div>
-                <EvolutionChart data={chartData} />
               </motion.div>
             )}
 
             {activeTab === 'consistency' && (
               <motion.div
                 key="consistency"
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
+                exit={{ opacity: 0, y: -10 }}
                 className="space-y-6"
               >
-                <div>
-                  <h3 className="text-xl font-semibold text-text-primary mb-2">
-                    {t.advancedStats.consistency.title}
-                  </h3>
-                  <p className="text-text-secondary text-sm mb-6">
-                    {t.advancedStats.consistency.description}
-                  </p>
-                </div>
-
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Standard Deviation */}
-                  <Card variant="background">
-                    <h4 className="text-lg font-semibold text-text-primary mb-2">
+                  <div className="glass p-6 rounded-2xl border border-white/5 relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                      <Target size={64} />
+                    </div>
+                    <h4 className="text-lg font-bold text-text-primary mb-2 flex items-center gap-2">
                       {t.advancedStats.consistency.standardDeviation.title}
                     </h4>
-                    <p className="text-sm text-text-secondary mb-4">
+                    <p className="text-xs text-text-muted mb-6 h-8">
                       {t.advancedStats.consistency.standardDeviation.description}
                     </p>
-                    <div className="text-3xl font-bold text-primary">
-                      {(advancedStats.consistency.standardDeviation / 1000).toFixed(2)}
-                      <span className="text-sm text-text-secondary ml-2">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-4xl font-mono font-bold text-primary">
+                        {(advancedStats.consistency.standardDeviation / 1000).toFixed(2)}
+                      </span>
+                      <span className="text-sm font-bold text-text-muted">
                         {t.advancedStats.consistency.standardDeviation.value}
                       </span>
                     </div>
-                  </Card>
+                  </div>
 
                   {/* Coefficient of Variation */}
-                  <Card variant="background">
-                    <h4 className="text-lg font-semibold text-text-primary mb-2">
+                  <div
+                    className={`glass p-6 rounded-2xl border relative overflow-hidden transition-colors ${consistencyLevel.border}`}
+                  >
+                    <div
+                      className={`absolute inset-0 opacity-5 pointer-events-none ${consistencyLevel.bg}`}
+                    />
+                    <h4 className="text-lg font-bold text-text-primary mb-2">
                       {t.advancedStats.consistency.coefficientOfVariation.title}
                     </h4>
-                    <p className="text-sm text-text-secondary mb-4">
+                    <p className="text-xs text-text-muted mb-6 h-8">
                       {t.advancedStats.consistency.coefficientOfVariation.description}
                     </p>
-                    <div className="text-3xl font-bold text-primary mb-2">
-                      {advancedStats.consistency.coefficientOfVariation.toFixed(2)}
-                      <span className="text-sm text-text-secondary ml-2">
-                        {t.advancedStats.consistency.coefficientOfVariation.value}
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-baseline gap-2">
+                        <span className={`text-4xl font-mono font-bold ${consistencyLevel.color}`}>
+                          {advancedStats.consistency.coefficientOfVariation.toFixed(2)}
+                        </span>
+                        <span className="text-sm font-bold text-text-muted">
+                          {t.advancedStats.consistency.coefficientOfVariation.value}
+                        </span>
+                      </div>
+                      <span
+                        className={`inline-flex self-start items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${consistencyLevel.color} ${consistencyLevel.border} ${consistencyLevel.bg}`}
+                      >
+                        {consistencyLevel.label}
                       </span>
                     </div>
-                    <div className={`text-sm font-medium ${consistencyLevel.color}`}>
-                      {consistencyLevel.label}
-                    </div>
-                  </Card>
+                  </div>
                 </div>
 
                 {/* Interpretation */}
-                <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-6">
-                  <h4 className="text-lg font-semibold text-blue-600 dark:text-blue-400 mb-2">
-                    {t.advancedStats.consistency.interpretation.title}
-                  </h4>
-                  <p className="text-sm text-blue-700 dark:text-blue-300">
-                    {t.advancedStats.consistency.interpretation.description}
-                  </p>
+                <div className="glass p-5 rounded-xl border border-blue-500/20 bg-blue-500/5 flex gap-4">
+                  <Info className="flex-shrink-0 text-blue-400 w-6 h-6" />
+                  <div>
+                    <h4 className="font-bold text-blue-400 mb-1">
+                      {t.advancedStats.consistency.interpretation.title}
+                    </h4>
+                    <p className="text-sm text-blue-300/80 leading-relaxed">
+                      {t.advancedStats.consistency.interpretation.description}
+                    </p>
+                  </div>
                 </div>
               </motion.div>
             )}
@@ -169,47 +190,47 @@ export function AdvancedStatsContent() {
             {activeTab === 'performance' && (
               <motion.div
                 key="performance"
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
+                exit={{ opacity: 0, y: -10 }}
                 className="space-y-6"
               >
-                <div>
-                  <h3 className="text-xl font-semibold text-text-primary mb-2">
-                    {t.advancedStats.performance.title}
-                  </h3>
-                  <p className="text-text-secondary text-sm mb-6">
-                    {t.advancedStats.performance.description}
-                  </p>
-                </div>
-
                 {/* Average TPS */}
-                <Card variant="background">
-                  <h4 className="text-lg font-semibold text-text-primary mb-2">
-                    {t.advancedStats.performance.averageTPS.title}
-                  </h4>
-                  <p className="text-sm text-text-secondary mb-4">
-                    {t.advancedStats.performance.averageTPS.description}
-                  </p>
-                  <div className="text-3xl font-bold text-primary mb-2">
-                    {advancedStats.performance.averageTPS.toFixed(2)}
-                    <span className="text-sm text-text-secondary ml-2">
-                      {t.advancedStats.performance.averageTPS.value}
+                <div className="glass p-6 rounded-2xl border border-white/5 flex flex-col md:flex-row items-center justify-between gap-6">
+                  <div className="flex-1">
+                    <h4 className="text-lg font-bold text-text-primary mb-2 flex items-center gap-2">
+                      <Zap className="w-5 h-5 text-yellow-400" />
+                      {t.advancedStats.performance.averageTPS.title}
+                    </h4>
+                    <p className="text-sm text-text-muted">
+                      {t.advancedStats.performance.averageTPS.description}
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-end">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-4xl font-mono font-bold text-yellow-400">
+                        {advancedStats.performance.averageTPS.toFixed(2)}
+                      </span>
+                      <span className="text-sm font-bold text-text-muted">
+                        {t.advancedStats.performance.averageTPS.value}
+                      </span>
+                    </div>
+                    <span className="text-xs text-text-muted/50 mt-1">
+                      {t.advancedStats.performance.averageTPS.note}
                     </span>
                   </div>
-                  <p className="text-xs text-text-secondary">
-                    {t.advancedStats.performance.averageTPS.note}
-                  </p>
-                </Card>
+                </div>
 
                 {/* Distribution */}
-                <div>
-                  <h4 className="text-lg font-semibold text-text-primary mb-2">
-                    {t.advancedStats.performance.distribution.title}
-                  </h4>
-                  <p className="text-sm text-text-secondary mb-4">
-                    {t.advancedStats.performance.distribution.description}
-                  </p>
+                <div className="glass p-6 rounded-2xl border border-white/5">
+                  <div className="mb-6">
+                    <h4 className="text-lg font-bold text-text-primary mb-2">
+                      {t.advancedStats.performance.distribution.title}
+                    </h4>
+                    <p className="text-sm text-text-muted">
+                      {t.advancedStats.performance.distribution.description}
+                    </p>
+                  </div>
                   <DistributionChart distribution={advancedStats.performance.distribution} />
                 </div>
               </motion.div>

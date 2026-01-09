@@ -22,6 +22,14 @@ export const useI18nStore = create<I18nStore>()(
     }),
     {
       name: 'klick-i18n',
+      version: 1, // Bump version to clear usage of old non-partialized state
+      partialize: (state) => ({ language: state.language }),
+      onRehydrateStorage: () => (state) => {
+        if (state) {
+          // Ensure t is correctly set based on the rehydrated language
+          state.setLanguage(state.language);
+        }
+      },
     },
   ),
 );

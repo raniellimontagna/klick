@@ -46,6 +46,7 @@ export const enUS = {
     guide: 'How to read scrambles',
     guideModal: {
       title: 'Scramble Guide',
+      toggleVisualizer: 'Toggle 3D View',
       description:
         "Learn how to interpret Rubik's Cube 3×3 notation and execute scrambles correctly.",
       faces: {
@@ -112,7 +113,9 @@ export const enUS = {
     bestAo12: 'Best ao12',
     current: 'Current',
     best: 'Best',
+    worst: 'Worst',
     average: 'Average',
+    deviation: 'Standard Deviation',
     clear: 'Clear Statistics',
     clearConfirmTitle: 'Clear all solves?',
     clearConfirmMessage:
@@ -230,6 +233,27 @@ export const enUS = {
       penalty: 'Penalty',
       scramble: 'Scramble',
       date: 'Date',
+      finalTime: 'Final Time',
+      baseTime: 'Base Time',
+      visualizationUnavailable: 'Visualization unavailable',
+    },
+  },
+  history: {
+    description: 'Review every solve and track your progress over time.',
+    sessionProgress: 'Session Progress',
+    charts: {
+      noData: {
+        title: 'No data available',
+        description: 'Complete solves to visualize progress',
+      },
+      insufficientData: {
+        title: 'Insufficient Data',
+        description: 'Complete more solves to generate the chart',
+      },
+      tooltip: {
+        solve: 'Solve #',
+        penaltyApplied: 'Penalty applied',
+      },
     },
   },
   inspection: {

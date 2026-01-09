@@ -66,7 +66,7 @@ export function ScrambleBox({
                   className={`p-1 focus-visible:ring-blue-400 focus-visible:ring-offset-gray-800 transition-colors ${
                     showVisualizer ? 'text-primary' : 'text-gray-400 hover:text-primary'
                   }`}
-                  title="Toggle 3D View"
+                  title={t.scramble.guideModal.toggleVisualizer}
                 >
                   <Box size={18} />
                 </MotionButton>

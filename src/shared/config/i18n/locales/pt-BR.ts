@@ -46,6 +46,7 @@ export const ptBR = {
     guide: 'Como ler o embaralhamento',
     guideModal: {
       title: 'Guia de Embaralhamento',
+      toggleVisualizer: 'Alternar Visualização 3D',
       description:
         'Aprenda a interpretar a notação do cubo mágico 3×3 e execute o embaralhamento corretamente.',
       faces: {
@@ -113,7 +114,9 @@ export const ptBR = {
     bestAo12: 'Melhor ao12',
     current: 'Atual',
     best: 'Melhor',
+    worst: 'Pior',
     average: 'Média',
+    deviation: 'Desvio Padrão',
     clear: 'Limpar Estatísticas',
     clearConfirmTitle: 'Limpar todos os solves?',
     clearConfirmMessage:
@@ -232,6 +235,27 @@ export const ptBR = {
       penalty: 'Penalidade',
       scramble: 'Scramble',
       date: 'Data',
+      finalTime: 'Tempo Final',
+      baseTime: 'Tempo Base',
+      visualizationUnavailable: 'Visualização não disponível',
+    },
+  },
+  history: {
+    description: 'Veja todos os seus solves e acompanhe sua evolução.',
+    sessionProgress: 'Progresso da Sessão',
+    charts: {
+      noData: {
+        title: 'Nenhum dado disponível',
+        description: 'Complete solves para visualizar o progresso',
+      },
+      insufficientData: {
+        title: 'Dados Insuficientes',
+        description: 'Complete mais solves para gerar o gráfico',
+      },
+      tooltip: {
+        solve: 'Solve #',
+        penaltyApplied: 'Penalidade aplicada',
+      },
     },
   },
   inspection: {

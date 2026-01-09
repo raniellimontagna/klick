@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { useI18nStore } from '@/shared/store/i18n-store';
-import type { Solve } from '@/shared/types';
+import { useSessionsStore } from '@/shared/store/sessions-store';
+import type { Penalty, Solve } from '@/shared/types';
 
 interface PenaltyInfo {
   label: string;
@@ -11,7 +12,21 @@ interface PenaltyInfo {
 
 export function useSolveDetailsModal(solve: Solve | null) {
   const { t, language } = useI18nStore();
+  const { updateSolvePenalty } = useSessionsStore();
   const [copied, setCopied] = useState(false);
+
+  const togglePenalty = useCallback(
+    (penalty: Penalty) => {
+      if (!solve) return;
+
+      if (solve.penalty === penalty) {
+        updateSolvePenalty(solve.id, 'NONE');
+      } else {
+        updateSolvePenalty(solve.id, penalty);
+      }
+    },
+    [solve, updateSolvePenalty],
+  );
 
   const copyScramble = useCallback(() => {
     if (!solve) return;
@@ -77,5 +92,6 @@ export function useSolveDetailsModal(solve: Solve | null) {
     copyScramble,
     formatFullDate,
     penaltyInfo: getPenaltyInfo(),
+    togglePenalty,
   };
 }

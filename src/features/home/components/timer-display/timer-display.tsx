@@ -1,9 +1,9 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { Play, Square, Timer } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { fadeIn, formatTime } from '@/shared/lib';
 import { useI18nStore } from '@/shared/store/i18n-store';
 import type { Penalty, TimerState } from '@/shared/types';
-import { useEffect, useState } from 'react';
 
 interface TimerDisplayProps {
   timeMs: number;

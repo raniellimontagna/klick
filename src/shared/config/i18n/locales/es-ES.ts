@@ -46,6 +46,7 @@ export const esES = {
     guide: 'Cómo leer las mezclas',
     guideModal: {
       title: 'Guía de Mezcla',
+      toggleVisualizer: 'Alternar Vista 3D',
       description:
         'Aprende a interpretar la notación del Cubo de Rubik 3×3 y ejecutar las mezclas correctamente.',
       faces: {
@@ -113,7 +114,9 @@ export const esES = {
     bestAo12: 'Mejor ao12',
     current: 'Actual',
     best: 'Mejor',
+    worst: 'Peor',
     average: 'Promedio',
+    deviation: 'Desviación Estándar',
     clear: 'Limpiar Estadísticas',
     clearConfirmTitle: '¿Limpiar todos los solves?',
     clearConfirmMessage:
@@ -231,6 +234,27 @@ export const esES = {
       penalty: 'Penalización',
       scramble: 'Mezcla',
       date: 'Fecha',
+      finalTime: 'Tiempo Final',
+      baseTime: 'Tiempo Base',
+      visualizationUnavailable: 'Visualización no disponible',
+    },
+  },
+  history: {
+    description: 'Revisa todos tus solves y sigue tu progreso.',
+    sessionProgress: 'Progreso de la Sesión',
+    charts: {
+      noData: {
+        title: 'No hay datos disponibles',
+        description: 'Completa solves para visualizar el progreso',
+      },
+      insufficientData: {
+        title: 'Datos Insuficientes',
+        description: 'Completa más solves para generar el gráfico',
+      },
+      tooltip: {
+        solve: 'Solve #',
+        penaltyApplied: 'Penalización aplicada',
+      },
     },
   },
   inspection: {
