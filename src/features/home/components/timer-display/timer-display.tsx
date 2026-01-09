@@ -2,22 +2,50 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Play, Square, Timer } from 'lucide-react';
 import { fadeIn, formatTime } from '@/shared/lib';
 import { useI18nStore } from '@/shared/store/i18n-store';
-import type { TimerState } from '@/shared/types';
+import type { Penalty, TimerState } from '@/shared/types';
+import { useEffect, useState } from 'react';
 
 interface TimerDisplayProps {
   timeMs: number;
   state: TimerState;
+  penalty?: Penalty;
+  isNewBest?: boolean;
   'data-onboarding'?: string;
 }
 
 export function TimerDisplay({
   timeMs,
   state,
+  penalty = 'NONE',
+  isNewBest = false,
   'data-onboarding': dataOnboarding,
 }: TimerDisplayProps) {
   const { t } = useI18nStore();
+  const [flash, setFlash] = useState<'success' | 'failure' | 'best' | null>(null);
+
+  // Flash effect on stop
+  useEffect(() => {
+    if (state === 'stopped') {
+      if (penalty === 'DNF') {
+        setFlash('failure');
+      } else if (isNewBest) {
+        setFlash('best');
+      } else {
+        setFlash('success');
+      }
+
+      const timer = setTimeout(() => setFlash(null), 500);
+      return () => clearTimeout(timer);
+    } else {
+      setFlash(null);
+    }
+  }, [state, penalty, isNewBest]);
 
   const getStateColor = () => {
+    if (flash === 'failure') return 'text-red-500';
+    if (flash === 'best') return 'text-yellow-400';
+    if (flash === 'success') return 'text-green-500';
+
     switch (state) {
       case 'idle':
         return 'text-gray-400';
@@ -33,6 +61,8 @@ export function TimerDisplay({
   };
 
   const getStateIcon = () => {
+    if (flash === 'best') return <Timer size={32} className="text-yellow-400 animate-bounce" />;
+
     switch (state) {
       case 'idle':
         return <Timer size={32} className="text-gray-400" />;
@@ -48,6 +78,8 @@ export function TimerDisplay({
   };
 
   const getStateText = () => {
+    if (flash === 'best') return 'New Best!';
+
     switch (state) {
       case 'idle':
         return t.timer.ready;
@@ -68,7 +100,7 @@ export function TimerDisplay({
       data-onboarding={dataOnboarding}
     >
       <AnimatePresence mode="wait">
-        {state !== 'running' && state !== 'stopped' && (
+        {state !== 'running' && state !== 'stopped' && !flash && (
           <motion.div
             key={state}
             variants={fadeIn}
@@ -83,13 +115,29 @@ export function TimerDisplay({
             </p>
           </motion.div>
         )}
+        {flash && (
+          <motion.div
+            key="flash"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="flex items-center gap-3"
+          >
+            {getStateIcon()}
+            <p className={`text-xl sm:text-2xl font-semibold ${getStateColor()}`}>
+              {getStateText()}
+            </p>
+          </motion.div>
+        )}
       </AnimatePresence>
 
       <motion.div
         key={`${state}-${Math.floor(timeMs / 100)}`}
-        initial={{ scale: 0.95 }}
-        animate={{ scale: 1 }}
-        className={`text-5xl sm:text-6xl md:text-8xl font-bold font-mono tracking-tight tabular-nums ${getStateColor()}`}
+        layout
+        initial={{ scale: 0.9 }}
+        animate={{ scale: state === 'running' ? 1.1 : 1 }}
+        transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+        className={`text-5xl sm:text-6xl md:text-8xl font-bold font-mono tracking-tight tabular-nums ${getStateColor()} transition-colors duration-200`}
       >
         {formatTime(timeMs)}
       </motion.div>

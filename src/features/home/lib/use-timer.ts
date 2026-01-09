@@ -163,6 +163,9 @@ export function useTimer({
 
         if (state === 'running') {
           stopTimer();
+        } else if (state === 'stopped') {
+          reset();
+          // Optional: sound for reset?
         } else if (state === 'idle') {
           // Play ready sound when holding space
           if (shouldPlaySound(soundsEnabled)) {
@@ -201,7 +204,7 @@ export function useTimer({
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [state, soundsEnabled, startInspection, startTimer, stopTimer]);
+  }, [state, soundsEnabled, startInspection, startTimer, stopTimer, reset]);
 
   return {
     state,

@@ -1,74 +1,35 @@
 @import "tailwindcss";
 
 @theme {
-  /* Dark theme colors (default) */
-  --color-background: #0d1117;
-  --color-surface: #161b22;
-  --color-surface-hover: #1f2428;
-  --color-surface-secondary: #21262d;
-  --color-border: #30363d;
-  --color-text-primary: #e6edf3;
-  --color-text-secondary: #8b949e;
-  --color-text-tertiary: #6e7681;
-  --color-primary: #7c4dff;
-  --color-primary-hover: #6a3de8;
-  --color-accent: #39ff88;
-  --color-success: #3fb950;
-  --color-warning: #d29922;
-  --color-danger: #f85149;
-  --color-info: #58a6ff;
+  /* Premium Dark Theme */
+  --color-background: #09090b; /* Zinc 950 */
+  --color-surface: #18181b;    /* Zinc 900 */
+  --color-surface-hover: #27272a; /* Zinc 800 */
+  --color-surface-active: #3f3f46; /* Zinc 700 */
+  
+  --color-border: #27272a;     /* Zinc 800 */
+  
+  --color-text-primary: #f4f4f5;   /* Zinc 100 */
+  --color-text-secondary: #a1a1aa; /* Zinc 400 */
+  --color-text-muted: #71717a;     /* Zinc 500 */
+  
+  /* Brand Colors */
+  --color-primary: #8b5cf6;       /* Violet 500 */
+  --color-primary-hover: #7c3aed; /* Violet 600 */
+  --color-accent: #10b981;        /* Emerald 500 - for timers/success */
+  
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-info: #3b82f6;
 
-  /* Semantic colors */
-  --color-gray-50: #f6f8fa;
-  --color-gray-100: #eaeef2;
-  --color-gray-200: #d0d7de;
-  --color-gray-300: #afb8c1;
-  --color-gray-400: #8c959f;
-  --color-gray-500: #6e7681;
-  --color-gray-600: #57606a;
-  --color-gray-700: #424a53;
-  --color-gray-800: #32383f;
-  --color-gray-900: #24292f;
-
-  --font-family-sans: system-ui, -apple-system, sans-serif;
+  --font-family-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-family-mono: 'JetBrains Mono', monospace;
 }
 
 @layer base {
   :root {
     color-scheme: dark;
-  }
-
-  :root.light {
-    color-scheme: light;
-
-    /* Light theme colors */
-    --color-background: #ffffff;
-    --color-surface: #f6f8fa;
-    --color-surface-hover: #eaeef2;
-    --color-surface-secondary: #ffffff;
-    --color-border: #d0d7de;
-    --color-text-primary: #24292f;
-    --color-text-secondary: #57606a;
-    --color-text-tertiary: #6e7681;
-    --color-primary: #7c4dff;
-    --color-primary-hover: #6a3de8;
-    --color-accent: #39ff88;
-    --color-success: #1a7f37;
-    --color-warning: #9a6700;
-    --color-danger: #cf222e;
-    --color-info: #0969da;
-
-    /* Adjusted grays for light theme */
-    --color-gray-50: #24292f;
-    --color-gray-100: #32383f;
-    --color-gray-200: #424a53;
-    --color-gray-300: #57606a;
-    --color-gray-400: #6e7681;
-    --color-gray-500: #8c959f;
-    --color-gray-600: #afb8c1;
-    --color-gray-700: #d0d7de;
-    --color-gray-800: #eaeef2;
-    --color-gray-900: #f6f8fa;
   }
 
   body {
@@ -77,104 +38,30 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     font-family: var(--font-family-sans);
-    transition: background-color 0.2s ease, color 0.2s ease;
+    transition: background-color 0.3s ease, color 0.3s ease;
   }
 
-  /* Override Tailwind gray colors with theme-aware variables */
-  .bg-gray-700 {
-    background-color: var(--color-gray-700) !important;
+  /* Glassmorphism Utility */
+  .glass {
+    background: rgba(24, 24, 27, 0.6); /* Zinc 900 with opacity */
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
   }
 
-  .bg-gray-800 {
-    background-color: var(--color-gray-800) !important;
+  .glass-hover:hover {
+    background: rgba(39, 39, 42, 0.7);
+    border-color: rgba(255, 255, 255, 0.1);
   }
+}
 
-  .bg-gray-900 {
-    background-color: var(--color-gray-900) !important;
-  }
+@layer utilities {
+  /* Text Utilities */
+  .text-primary { color: var(--color-text-primary); }
+  .text-secondary { color: var(--color-text-secondary); }
+  .text-muted { color: var(--color-text-muted); }
 
-  .hover\:bg-gray-600:hover {
-    background-color: var(--color-gray-600) !important;
-  }
-
-  .hover\:bg-gray-700:hover {
-    background-color: var(--color-gray-700) !important;
-  }
-
-  .text-white {
-    color: var(--color-text-primary) !important;
-  }
-
-  .text-gray-200 {
-    color: var(--color-gray-200) !important;
-  }
-
-  .text-gray-300 {
-    color: var(--color-gray-300) !important;
-  }
-
-  .text-gray-400 {
-    color: var(--color-gray-400) !important;
-  }
-
-  .border-gray-600 {
-    border-color: var(--color-gray-600) !important;
-  }
-
-  .border-gray-700 {
-    border-color: var(--color-gray-700) !important;
-  }
-
-  .hover\:text-white:hover {
-    color: var(--color-text-primary) !important;
-  }
-
-  /* Semantic color utilities */
-  .bg-surface {
-    background-color: var(--color-surface);
-  }
-
-  .bg-surface-hover:hover {
-    background-color: var(--color-surface-hover);
-  }
-
-  .bg-surface-secondary {
-    background-color: var(--color-surface-secondary);
-  }
-
-  .border-default {
-    border-color: var(--color-border);
-  }
-
-  .text-primary {
-    color: var(--color-text-primary);
-  }
-
-  .text-secondary {
-    color: var(--color-text-secondary);
-  }
-
-  .text-tertiary {
-    color: var(--color-text-tertiary);
-  }
-
-  /* Utility for elements that must stay white regardless of theme */
-  .text-fixed-white {
-    color: #f6f8fa !important;
-  }
-
-  /* Modal backdrop - adjust opacity for light theme */
-  :root.light .bg-black\/50 {
-    background-color: rgba(0, 0, 0, 0.4) !important;
-  }
-
-  /* Ensure ring offset colors work in both themes */
-  .ring-offset-gray-900 {
-    --tw-ring-offset-color: var(--color-background);
-  }
-
-  .ring-offset-gray-800 {
-    --tw-ring-offset-color: var(--color-surface);
-  }
+  /* Background Utilities */
+  .bg-surface { background-color: var(--color-surface); }
 }
 

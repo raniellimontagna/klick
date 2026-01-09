@@ -8,7 +8,7 @@ interface TopbarProps {
 
 export function Topbar({ onManageClick }: TopbarProps) {
   return (
-    <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b border-border bg-background/95 px-4 backdrop-blur-sm sm:px-6">
+    <header className="sticky top-0 z-10 flex h-16 items-center justify-between glass border-0 border-b border-white/5 px-4 sm:px-6">
       <div className="flex items-center gap-4">
         <PuzzleSelector />
       </div>

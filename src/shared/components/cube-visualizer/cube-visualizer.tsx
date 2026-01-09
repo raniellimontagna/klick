@@ -45,7 +45,7 @@ export function CubeVisualizer({ config, className = '' }: CubeVisualizerProps) 
 
         {/* Cube faces */}
         {faces.length > 0 && (
-          <div className="flex gap-4 items-center justify-center flex-wrap">
+          <div className="flex gap-2 sm:gap-4 items-center justify-center flex-wrap">
             {faces.map((face) => (
               <CubeFace
                 key={`${face.label}-${face.colors.join('-')}`}

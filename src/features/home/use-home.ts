@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useOnboardingStore } from '@/features/home/lib/onboarding/onboarding-store';
 import { useSessionsStore } from '@/shared/store/sessions-store';
 import { useSettingsStore } from '@/shared/store/settings-store';
@@ -23,7 +23,7 @@ export function useHome() {
   const onboardingActive = useOnboardingStore((state) => state.isActive);
   const startOnboarding = useOnboardingStore((state) => state.startOnboarding);
 
-  const { state, timeMs, inspectionTimeLeft, reset } = useTimer({
+  const { state, timeMs, inspectionTimeLeft } = useTimer({
     inspectionDuration: settings.inspectionDuration,
     soundsEnabled: settings.soundsEnabled,
     onInspectionEnd: (overtime: number) => {
@@ -61,9 +61,16 @@ export function useHome() {
     }
   }, [hasCompletedOnboarding, onboardingActive, startOnboarding]);
 
+  // Feedback state
+  const [isNewBest, setIsNewBest] = useState(false);
+  const [lastPenalty, setLastPenalty] = useState<Penalty>('NONE');
+
   // Save solve logic
+  const solveProcessedRef = useRef(false);
+
   useEffect(() => {
-    if (state === 'stopped' && timeMs > 0 && scramble) {
+    if (state === 'stopped' && timeMs > 0 && scramble && !solveProcessedRef.current) {
+      solveProcessedRef.current = true;
       let penalty: Penalty = 'NONE';
 
       if (settings.autoInspectionPenalty) {
@@ -75,6 +82,12 @@ export function useHome() {
         }
       }
 
+      // Check if it's a new best single
+      const currentBest = useSessionsStore.getState().getSingle();
+      const isPB = penalty !== 'DNF' && (currentBest.value === 0 || timeMs < currentBest.value);
+      setIsNewBest(isPB);
+      setLastPenalty(penalty);
+
       addSolve({
         timeMs,
         penalty,
@@ -83,7 +96,15 @@ export function useHome() {
 
       generateNewScramble();
       setInspectionOvertime(0);
-      reset();
+      // reset(); // DON'T RESET to allow feedback to show
+    } else if (state !== 'stopped') {
+      solveProcessedRef.current = false;
+
+      if (state === 'idle') {
+        // Reset feedback when starting new solve attempt (entering idle)
+        setIsNewBest(false);
+        setLastPenalty('NONE');
+      }
     }
   }, [
     state,
@@ -93,7 +114,6 @@ export function useHome() {
     settings.autoInspectionPenalty,
     addSolve,
     generateNewScramble,
-    reset,
   ]);
 
   // Keyboard shortcuts
@@ -115,6 +135,7 @@ export function useHome() {
         const lastSolve = session?.solves.at(-1);
         if (lastSolve) {
           updateSolvePenalty(lastSolve.id, lastSolve.penalty === '+2' ? 'NONE' : '+2');
+          setLastPenalty(lastSolve.penalty === '+2' ? 'NONE' : '+2'); // Update local feedback
         }
       } else if (e.key === 'd' || e.key === 'D') {
         e.preventDefault();
@@ -122,6 +143,7 @@ export function useHome() {
         const lastSolve = session?.solves.at(-1);
         if (lastSolve) {
           updateSolvePenalty(lastSolve.id, lastSolve.penalty === 'DNF' ? 'NONE' : 'DNF');
+          setLastPenalty(lastSolve.penalty === 'DNF' ? 'NONE' : 'DNF'); // Update local feedback
         }
       }
     };
@@ -140,5 +162,7 @@ export function useHome() {
     setShowStatsInfo,
     generateNewScramble,
     cubeState,
+    isNewBest,
+    lastPenalty,
   };
 }

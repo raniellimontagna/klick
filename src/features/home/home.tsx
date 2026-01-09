@@ -1,7 +1,7 @@
-import { motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { HelpCircle, Timer } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/shared';
-import { CubeVisualizer } from '@/shared/components/cube-visualizer/cube-visualizer';
 import { formatAverage } from '@/shared/lib';
 import { useI18nStore } from '@/shared/store/i18n-store';
 import { useSessionsStore } from '@/shared/store/sessions-store';
@@ -26,6 +26,8 @@ export function Home() {
     setShowStatsInfo,
     generateNewScramble,
     cubeState,
+    isNewBest,
+    lastPenalty,
   } = useHome();
 
   // Stats
@@ -37,57 +39,61 @@ export function Home() {
     { label: t.stats.bestAo12, value: getBestAo12() },
   ];
 
+  // Visualizer State (Persistent across scrambles)
+  const [showVisualizer, setShowVisualizer] = useState(false);
+
+  // Open by default on desktop
+  useEffect(() => {
+    if (window.matchMedia('(min-width: 640px)').matches) {
+      setShowVisualizer(true);
+    }
+  }, []);
+
   return (
     <div className="flex flex-col h-full items-center justify-center min-h-[80vh] relative">
       {/* Timer & Scramble Area - Always Centered */}
-      <div className="flex flex-col items-center w-full max-w-4xl z-10 space-y-8 md:space-y-12">
+      <div className="flex flex-col items-center w-full max-w-4xl z-10 space-y-6 md:space-y-12">
         {/* Scramble - Fades out during solve */}
-        <motion.div
-          className="w-full"
-          animate={{ opacity: isFocusMode ? 0 : 1, y: isFocusMode ? -20 : 0 }}
-          transition={{ duration: 0.3 }}
-        >
-          <ScrambleBox
-            scramble={scramble}
-            onNewScramble={generateNewScramble}
-            data-onboarding="scramble"
-          />
-
-          {cubeState && (
+        <div className="w-full relative">
+          <AnimatePresence mode="wait">
             <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              className="mt-4"
+              key={scramble}
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: isFocusMode ? 0 : 1, y: isFocusMode ? -20 : 0 }}
+              exit={{ opacity: 0, y: 10 }}
+              transition={{ duration: 0.3 }}
+              className="w-full"
             >
-              <CubeVisualizer
-                config={{
-                  faces: [
-                    { label: 'U', colors: cubeState.U },
-                    { label: 'F', colors: cubeState.F },
-                    { label: 'R', colors: cubeState.R },
-                    { label: 'D', colors: cubeState.D },
-                    { label: 'L', colors: cubeState.L },
-                    { label: 'B', colors: cubeState.B },
-                  ],
-                }}
-                className="bg-transparent border-none p-0"
+              <ScrambleBox
+                scramble={scramble}
+                onNewScramble={generateNewScramble}
+                cubeState={cubeState}
+                showVisualizer={showVisualizer}
+                onToggleVisualizer={() => setShowVisualizer(!showVisualizer)}
+                data-onboarding="scramble"
               />
             </motion.div>
-          )}
-        </motion.div>
+          </AnimatePresence>
+        </div>
 
         {/* Timer Display - Scales up during solve */}
         <div className="flex flex-col items-center justify-center">
           {state === 'inspection' && (
             <InspectionDisplay timeLeft={inspectionTimeLeft} state={state} />
           )}
-          <TimerDisplay state={state} timeMs={timeMs} data-onboarding="timer" />
+          <TimerDisplay
+            state={state}
+            timeMs={timeMs}
+            isNewBest={isNewBest}
+            penalty={lastPenalty}
+            data-onboarding="timer"
+          />
         </div>
       </div>
 
       {/* Stats & Footer - Fades out during solve */}
       <motion.div
-        className="w-full max-w-6xl mt-auto space-y-8 pt-12"
+        className="w-full max-w-6xl mt-auto space-y-6 sm:space-y-8 pt-6 sm:pt-12"
         animate={{ opacity: isFocusMode ? 0 : 1 }}
         transition={{ duration: 0.3 }}
       >
@@ -120,7 +126,8 @@ export function Home() {
         </div>
 
         {/* Shortcuts Hint */}
-        <div className="flex flex-wrap justify-center gap-4 py-4 border-t border-border/30">
+        {/* Shortcuts Hint - Hidden on mobile/touch devices */}
+        <div className="hidden sm:flex flex-wrap justify-center gap-4 py-4 border-t border-border/30">
           <div className="flex items-center gap-2 text-xs text-text-tertiary">
             <kbd className="px-1.5 py-0.5 bg-surface border border-border rounded font-mono">
               space

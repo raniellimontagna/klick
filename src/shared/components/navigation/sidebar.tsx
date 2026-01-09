@@ -18,8 +18,8 @@ export function Sidebar({ className }: { className?: string }) {
   ];
 
   return (
-    <aside className={cn('flex flex-col border-r border-border bg-surface z-20', className)}>
-      <div className="flex h-16 items-center px-6 border-b border-border">
+    <aside className={cn('flex flex-col glass border-0 border-r border-white/5 z-20', className)}>
+      <div className="flex h-16 items-center px-6 border-b border-white/5">
         <Link to="/" className="flex items-center gap-2 transition-opacity hover:opacity-80">
           <Logo size="sm" />
         </Link>
@@ -51,7 +51,7 @@ export function Sidebar({ className }: { className?: string }) {
         })}
       </nav>
 
-      <div className="p-4 border-t border-border">
+      <div className="p-4 border-t border-white/5">
         <div className="text-xs text-text-muted text-center">{t.app.tagline}</div>
       </div>
     </aside>
