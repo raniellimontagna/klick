@@ -1,4 +1,4 @@
-import { Languages } from 'lucide-react';
+import { Global } from '@solar-icons/react';
 import { useState } from 'react';
 import {
   DropdownMenu,
@@ -40,7 +40,7 @@ export function LanguageSelector() {
     <DropdownMenu open={isOpen} onOpenChange={setIsOpen}>
       <DropdownMenuTrigger asChild>
         <DropdownMenuTriggerButton
-          icon={<Languages size={18} />}
+          icon={<Global size={18} />}
           label={getButtonLabel()}
           isOpen={isOpen}
         />

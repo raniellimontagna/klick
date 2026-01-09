@@ -1,5 +1,5 @@
+import { Play, Stop, Stopwatch } from '@solar-icons/react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Play, Square, Timer } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { cn, fadeIn, formatTime } from '@/shared/lib';
 import { useI18nStore } from '@/shared/store/i18n-store';
@@ -63,17 +63,17 @@ export function TimerDisplay({
   };
 
   const getStateIcon = () => {
-    if (flash === 'best') return <Timer size={32} className="text-yellow-400 animate-bounce" />;
+    if (flash === 'best') return <Stopwatch size={32} className="text-yellow-400 animate-bounce" />;
 
     switch (state) {
       case 'idle':
-        return <Timer size={32} className="text-text-muted" />;
+        return <Stopwatch size={32} className="text-text-muted" />;
       case 'inspection':
-        return <Timer size={32} className="text-warning animate-pulse" />;
+        return <Stopwatch size={32} className="text-warning animate-pulse" />;
       case 'running':
         return <Play size={32} className="text-accent" />;
       case 'stopped':
-        return <Square size={32} className="text-text-primary" />;
+        return <Stop size={32} className="text-text-primary" />;
       default:
         return null;
     }

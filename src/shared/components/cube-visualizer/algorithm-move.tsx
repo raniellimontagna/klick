@@ -1,5 +1,5 @@
+import { AltArrowRight, UndoLeftRound, UndoRightRound } from '@solar-icons/react';
 import { motion } from 'framer-motion';
-import { ArrowRight, RotateCcw, RotateCw } from 'lucide-react';
 
 interface AlgorithmMoveProps {
   move: string;
@@ -17,13 +17,13 @@ export function AlgorithmMove({ move, description, compact = false }: AlgorithmM
         <code className="text-xs font-mono font-bold text-primary">{move}</code>
         {is180 ? (
           <div className="flex">
-            <RotateCw className="w-3 h-3 text-primary" />
-            <RotateCw className="w-3 h-3 text-primary -ml-1.5" />
+            <UndoRightRound size={12} className="text-primary" />
+            <UndoRightRound size={12} className="text-primary -ml-1.5" />
           </div>
         ) : isClockwise ? (
-          <RotateCw className="w-3 h-3 text-primary" />
+          <UndoRightRound size={12} className="text-primary" />
         ) : (
-          <RotateCcw className="w-3 h-3 text-primary" />
+          <UndoLeftRound size={12} className="text-primary" />
         )}
       </div>
     );
@@ -39,18 +39,18 @@ export function AlgorithmMove({ move, description, compact = false }: AlgorithmM
         <code className="text-sm font-mono font-bold text-primary">{move}</code>
         {is180 ? (
           <div className="flex">
-            <RotateCw className="w-4 h-4 text-primary" />
-            <RotateCw className="w-4 h-4 text-primary -ml-2" />
+            <UndoRightRound size={16} className="text-primary" />
+            <UndoRightRound size={16} className="text-primary -ml-2" />
           </div>
         ) : isClockwise ? (
-          <RotateCw className="w-4 h-4 text-primary" />
+          <UndoRightRound size={16} className="text-primary" />
         ) : (
-          <RotateCcw className="w-4 h-4 text-primary" />
+          <UndoLeftRound size={16} className="text-primary" />
         )}
       </div>
       {description && (
         <>
-          <ArrowRight className="w-4 h-4 text-text-secondary" />
+          <AltArrowRight size={16} className="text-text-secondary" />
           <span className="text-xs text-text-secondary">{description}</span>
         </>
       )}

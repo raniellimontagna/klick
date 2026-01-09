@@ -1,5 +1,5 @@
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
-import { Check, ChevronDown } from 'lucide-react';
+import { AltArrowDown, CheckCircle } from '@solar-icons/react';
 import { type ComponentPropsWithoutRef, type ElementRef, forwardRef, type ReactNode } from 'react';
 import { cn } from '@/shared/lib/utils';
 
@@ -73,7 +73,7 @@ const DropdownMenuCheckboxItem = forwardRef<
   >
     <span className="absolute left-2.5 flex h-4 w-4 items-center justify-center">
       <DropdownMenuPrimitive.ItemIndicator>
-        <Check className="h-4 w-4 text-primary" />
+        <CheckCircle size={16} className="text-primary" />
       </DropdownMenuPrimitive.ItemIndicator>
     </span>
     {children}
@@ -162,9 +162,10 @@ const DropdownMenuTriggerButton = forwardRef<
   >
     {icon && <span className="shrink-0 text-primary">{icon}</span>}
     <span className="truncate">{label}</span>
-    <ChevronDown
+    <AltArrowDown
+      size={16}
       className={cn(
-        'w-4 h-4 text-text-muted transition-transform duration-200 shrink-0',
+        'text-text-muted transition-transform duration-200 shrink-0',
         isOpen && 'rotate-180',
       )}
     />

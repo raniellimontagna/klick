@@ -1,5 +1,5 @@
+import { GraphUp } from '@solar-icons/react';
 import { motion } from 'framer-motion';
-import { TrendingUp } from 'lucide-react';
 import { PageHeader } from '@/shared';
 import { fadeIn } from '@/shared/lib';
 import { useI18nStore } from '@/shared/store/i18n-store';
@@ -18,7 +18,7 @@ export function Stats() {
       <PageHeader
         title={t.navigation.stats}
         description={t.pages.stats.description}
-        icon={<TrendingUp className="w-8 h-8" />}
+        icon={<GraphUp size={32} />}
       />
 
       <div className="min-h-[600px]">

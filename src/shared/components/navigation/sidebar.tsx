@@ -1,4 +1,11 @@
-import { BarChart2, BookOpen, Dumbbell, History, Settings, Timer } from 'lucide-react';
+import {
+  BookMinimalistic,
+  ChartSquare,
+  Dumbbell,
+  History,
+  Settings,
+  Stopwatch,
+} from '@solar-icons/react';
 import { Link, useLocation } from 'react-router-dom';
 import { Logo } from '@/shared';
 import { useTranslation } from '@/shared/hooks/use-translation';
@@ -9,11 +16,11 @@ export function Sidebar({ className }: { className?: string }) {
   const { t } = useTranslation();
 
   const links = [
-    { href: '/', label: t.navigation.home, icon: Timer },
+    { href: '/', label: t.navigation.home, icon: Stopwatch },
     { href: '/history', label: t.navigation.history, icon: History },
-    { href: '/stats', label: t.navigation.stats, icon: BarChart2 },
+    { href: '/stats', label: t.navigation.stats, icon: ChartSquare },
     { href: '/training', label: t.navigation.training, icon: Dumbbell },
-    { href: '/tutorial', label: t.navigation.tutorial, icon: BookOpen },
+    { href: '/tutorial', label: t.navigation.tutorial, icon: BookMinimalistic },
     { href: '/settings', label: t.navigation.settings, icon: Settings },
   ];
 

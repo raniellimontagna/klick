@@ -1,4 +1,4 @@
-import { FolderOpen, Settings } from 'lucide-react';
+import { FolderOpen, Settings } from '@solar-icons/react';
 import { useState } from 'react';
 import {
   DropdownMenu,

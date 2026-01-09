@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { Info, Target, TrendingUp, Zap } from 'lucide-react';
+import { Bolt, InfoCircle, Target, GraphUp } from '@solar-icons/react';
 import { Button } from '@/shared/components/ui';
 import { useTranslation } from '@/shared/hooks/use-translation';
 import { DistributionChart } from './distribution-chart';
@@ -11,10 +11,10 @@ export function AdvancedStatsContent() {
   const { activeTab, setActiveTab, chartData, advancedStats, hasEnoughData } =
     useAdvancedStatsContent();
 
-  const tabs: { id: Tab; label: string; icon: typeof TrendingUp }[] = [
-    { id: 'evolution', label: t.advancedStats.tabs.evolution, icon: TrendingUp },
+  const tabs: { id: Tab; label: string; icon: typeof GraphUp }[] = [
+    { id: 'evolution', label: t.advancedStats.tabs.evolution, icon: GraphUp },
     { id: 'consistency', label: t.advancedStats.tabs.consistency, icon: Target },
-    { id: 'performance', label: t.advancedStats.tabs.performance, icon: Zap },
+    { id: 'performance', label: t.advancedStats.tabs.performance, icon: Bolt },
   ];
 
   const getConsistencyLevel = (cv: number) => {
@@ -79,7 +79,7 @@ export function AdvancedStatsContent() {
         {!hasEnoughData ? (
           <div className="flex flex-col items-center justify-center h-full py-16 text-center border-2 border-dashed border-white/5 rounded-2xl bg-white/5">
             <div className="bg-white/5 p-4 rounded-full mb-4">
-              <TrendingUp size={48} className="text-text-muted opacity-50" />
+              <GraphUp size={48} className="text-text-muted opacity-50" />
             </div>
             <h3 className="text-xl font-bold text-text-primary mb-2">
               {t.advancedStats.evolution.noData}
@@ -99,7 +99,7 @@ export function AdvancedStatsContent() {
                 <div className="glass p-6 rounded-2xl border border-white/5">
                   <div className="mb-6">
                     <h3 className="text-lg font-bold text-text-primary flex items-center gap-2">
-                      <TrendingUp className="w-5 h-5 text-primary" />
+                      <GraphUp size={20} className="text-primary" />
                       {t.advancedStats.evolution.title}
                     </h3>
                     <p className="text-sm text-text-muted mt-1">
@@ -174,7 +174,7 @@ export function AdvancedStatsContent() {
 
                 {/* Interpretation */}
                 <div className="glass p-5 rounded-xl border border-blue-500/20 bg-blue-500/5 flex gap-4">
-                  <Info className="flex-shrink-0 text-blue-400 w-6 h-6" />
+                  <InfoCircle size={24} className="flex-shrink-0 text-blue-400" />
                   <div>
                     <h4 className="font-bold text-blue-400 mb-1">
                       {t.advancedStats.consistency.interpretation.title}
@@ -199,7 +199,7 @@ export function AdvancedStatsContent() {
                 <div className="glass p-6 rounded-2xl border border-white/5 flex flex-col md:flex-row items-center justify-between gap-6">
                   <div className="flex-1">
                     <h4 className="text-lg font-bold text-text-primary mb-2 flex items-center gap-2">
-                      <Zap className="w-5 h-5 text-yellow-400" />
+                      <Bolt size={20} className="text-yellow-400" />
                       {t.advancedStats.performance.averageTPS.title}
                     </h4>
                     <p className="text-sm text-text-muted">

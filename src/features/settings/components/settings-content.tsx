@@ -1,5 +1,5 @@
+import { CloudDownload, CloudUpload, Moon, Sun } from '@solar-icons/react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Download, Moon, Sun, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
 import {
   Button,
@@ -192,12 +192,12 @@ export function SettingsContent() {
           >
             {theme === 'light' ? (
               <>
-                <Sun className="w-4 h-4" />
+                <Sun size={16} />
                 <span className="text-sm">{t.settings.theme.light}</span>
               </>
             ) : (
               <>
-                <Moon className="w-4 h-4" />
+                <Moon size={16} />
                 <span className="text-sm">{t.settings.theme.dark}</span>
               </>
             )}
@@ -221,7 +221,7 @@ export function SettingsContent() {
             variant="secondary"
             className="flex items-center justify-center gap-2 px-4 py-3 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30"
           >
-            <Download className="w-4 h-4" />
+            <CloudDownload size={16} />
             <span className="text-sm font-medium">{t.settings.exportImport.exportCurrent}</span>
           </Button>
           <Button
@@ -229,7 +229,7 @@ export function SettingsContent() {
             variant="secondary"
             className="flex items-center justify-center gap-2 px-4 py-3 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30"
           >
-            <Download className="w-4 h-4" />
+            <CloudDownload size={16} />
             <span className="text-sm font-medium">{t.settings.exportImport.exportAll}</span>
           </Button>
         </div>
@@ -249,7 +249,7 @@ export function SettingsContent() {
             variant="secondary"
             className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-border hover:bg-border/80 text-text-primary border-none"
           >
-            <Upload className="w-4 h-4" />
+            <CloudUpload size={16} />
             <span className="text-sm font-medium">{t.settings.exportImport.import}</span>
           </Button>
           <input

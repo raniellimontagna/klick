@@ -1,5 +1,5 @@
+import { AltArrowDown } from '@solar-icons/react';
 import { motion } from 'framer-motion';
-import { ChevronDown } from 'lucide-react';
 import { forwardRef, type ReactNode } from 'react';
 import { Button } from '@/shared';
 
@@ -49,7 +49,7 @@ export const HeaderDropdownButton = forwardRef<HTMLButtonElement, HeaderDropdown
           transition={{ duration: 0.2 }}
           className="shrink-0"
         >
-          <ChevronDown size={14} className="text-text-muted sm:w-4 sm:h-4" />
+          <AltArrowDown size={14} className="text-text-muted sm:w-4 sm:h-4" />
         </motion.div>
       </Button>
     );

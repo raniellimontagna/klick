@@ -1,4 +1,4 @@
-import { AlertTriangle, X } from 'lucide-react';
+import { CloseCircle, DangerTriangle } from '@solar-icons/react';
 import { Button, Modal } from '@/shared/components/ui';
 
 interface ConfirmDialogProps {
@@ -57,7 +57,7 @@ export function ConfirmDialog({
       {/* Header */}
       <div className="flex items-start justify-between p-6 border-b border-white/10">
         <div className="flex items-center gap-3">
-          <AlertTriangle className={`${styles.iconColor} shrink-0`} size={24} />
+          <DangerTriangle className={`${styles.iconColor} shrink-0`} size={24} />
           <h2 className="text-xl font-bold text-text-primary">{title}</h2>
         </div>
         <Button
@@ -66,7 +66,7 @@ export function ConfirmDialog({
           size="icon"
           className="text-text-secondary hover:text-text-primary hover:bg-white/10"
         >
-          <X size={20} />
+          <CloseCircle size={20} />
         </Button>
       </div>
 

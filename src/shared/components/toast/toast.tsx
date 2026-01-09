@@ -1,5 +1,5 @@
+import { CheckCircle, CloseCircle, DangerCircle, InfoCircle } from '@solar-icons/react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertCircle, CheckCircle, Info, X, XCircle } from 'lucide-react';
 import { Button } from '@/shared/components/ui';
 import { slideInRight } from '@/shared/lib';
 import { useToast } from './use-toast';
@@ -20,13 +20,13 @@ export function Toast({ message, type = 'info', duration = 3000, onClose }: Toas
     const size = 18;
     switch (type) {
       case 'success':
-        return <CheckCircle size={size} className="text-green-500 shrink-0" />;
+        return <CheckCircle size={size} className="text-green-500 shrink-0" weight="Bold" />;
       case 'error':
-        return <XCircle size={size} className="text-red-500 shrink-0" />;
+        return <CloseCircle size={size} className="text-red-500 shrink-0" weight="Bold" />;
       case 'warning':
-        return <AlertCircle size={size} className="text-orange-500 shrink-0" />;
+        return <DangerCircle size={size} className="text-orange-500 shrink-0" weight="Bold" />;
       default:
-        return <Info size={size} className="text-blue-500 shrink-0" />;
+        return <InfoCircle size={size} className="text-blue-500 shrink-0" weight="Bold" />;
     }
   };
 
@@ -48,7 +48,7 @@ export function Toast({ message, type = 'info', duration = 3000, onClose }: Toas
             size="icon"
             className="ml-2 text-text-secondary hover:text-text-primary transition-colors"
           >
-            <X size={18} />
+            <CloseCircle size={18} />
           </Button>
         </motion.div>
       )}

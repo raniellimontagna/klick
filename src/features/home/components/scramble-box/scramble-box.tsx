@@ -1,5 +1,5 @@
+import { Box, CheckCircle, Copy, QuestionCircle, Restart } from '@solar-icons/react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Box, Check, Copy, HelpCircle, RefreshCw } from 'lucide-react';
 import type { CubeState } from '@/features/home/lib/scramble/cube-solver';
 import { CubeVisualizer } from '@/shared/components/cube-visualizer/cube-visualizer';
 import { ScrambleGuideModal } from '@/shared/components/scramble-guide-modal/scramble-guide-modal';
@@ -56,7 +56,7 @@ export function ScrambleBox({
                 className="text-text-muted hover:text-text-primary p-1 focus-visible:ring-primary focus-visible:ring-offset-background"
                 title={t.scramble.guide}
               >
-                <HelpCircle size={18} />
+                <QuestionCircle size={18} />
               </MotionButton>
               {cubeState && (
                 <MotionButton
@@ -85,7 +85,7 @@ export function ScrambleBox({
               >
                 {copied ? (
                   <>
-                    <Check size={16} className="text-green-500" />
+                    <CheckCircle size={16} className="text-green-500" />
                     <span className="hidden sm:inline">{t.scramble.copySuccess}</span>
                   </>
                 ) : (
@@ -103,7 +103,7 @@ export function ScrambleBox({
                 className="h-10 flex items-center justify-center gap-2 px-4 py-2 text-sm flex-1 sm:flex-none font-bold uppercase tracking-wider shadow-lg shadow-primary/20"
                 title={`${t.scramble.new} (N)`}
               >
-                <RefreshCw size={16} />
+                <Restart size={16} />
                 <span className="hidden sm:inline">{t.scramble.new}</span>
               </MotionButton>
             </div>

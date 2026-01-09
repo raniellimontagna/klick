@@ -1,5 +1,5 @@
+import { CloseCircle, Download } from '@solar-icons/react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Download, X } from 'lucide-react';
 import { Button } from '@/shared/components/ui';
 import { useI18nStore } from '@/shared/store/i18n-store';
 import { usePWAUpdatePrompt } from './use-pwa-update-prompt';
@@ -50,7 +50,7 @@ export function PWAUpdatePrompt() {
                 className="shrink-0 w-8 h-8"
                 aria-label={t.pwa.close}
               >
-                <X className="w-5 h-5 text-text-secondary" />
+                <CloseCircle size={20} className="text-text-secondary" />
               </Button>
             </div>
           </div>

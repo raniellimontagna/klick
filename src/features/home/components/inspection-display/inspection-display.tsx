@@ -1,5 +1,5 @@
+import { ClockCircle, DangerTriangle } from '@solar-icons/react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertTriangle, Clock } from 'lucide-react';
 import { useI18nStore } from '@/shared/store/i18n-store';
 import type { TimerState } from '@/shared/types';
 
@@ -35,9 +35,9 @@ export function InspectionDisplay({ timeLeft, state }: InspectionDisplayProps) {
     const className = getColor();
 
     if (isCritical || isDanger) {
-      return <AlertTriangle size={size} className={className} />;
+      return <DangerTriangle size={size} className={className} />;
     }
-    return <Clock size={size} className={className} />;
+    return <ClockCircle size={size} className={className} />;
   };
 
   return (
@@ -72,7 +72,7 @@ export function InspectionDisplay({ timeLeft, state }: InspectionDisplayProps) {
             exit={{ opacity: 0, y: -10 }}
             className="flex items-center gap-2 text-lg sm:text-2xl font-bold text-danger uppercase tracking-widest"
           >
-            <AlertTriangle size={20} className="sm:w-6 sm:h-6" />
+            <DangerTriangle size={20} className="sm:w-6 sm:h-6" />
             <span>{getMessage()}</span>
           </motion.div>
         )}

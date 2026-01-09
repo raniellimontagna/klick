@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import type { LucideIcon } from 'lucide-react';
+import type { ComponentType } from 'react';
 import { Card } from '@/shared/components/ui';
 import { cn, scale } from '@/shared/lib';
 
@@ -8,7 +8,7 @@ type StatCardVariant = 'primary' | 'secondary' | 'accent';
 interface StatCardProps {
   label: string;
   value: string;
-  icon?: LucideIcon;
+  icon?: ComponentType<{ size?: number; className?: string }>;
   variant?: StatCardVariant;
   className?: string;
 }

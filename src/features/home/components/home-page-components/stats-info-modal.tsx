@@ -1,4 +1,4 @@
-import { Award, Target, TrendingUp, Trophy, X } from 'lucide-react';
+import { CloseCircle, CupFirst, GraphUp, MedalRibbon, Target } from '@solar-icons/react';
 import { Button, Modal } from '@/shared/components/ui';
 import { useI18nStore } from '@/shared/store/i18n-store';
 
@@ -21,28 +21,28 @@ export function StatsInfoModal({ isOpen, onClose }: StatsInfoModalProps) {
     },
     {
       id: 'ao5',
-      icon: TrendingUp,
+      icon: GraphUp,
       color: 'text-text-muted',
       bgColor: 'bg-white/5',
       data: t.stats.info.ao5,
     },
     {
       id: 'ao12',
-      icon: TrendingUp,
+      icon: GraphUp,
       color: 'text-text-muted',
       bgColor: 'bg-white/5',
       data: t.stats.info.ao12,
     },
     {
       id: 'bestAo5',
-      icon: Award,
+      icon: MedalRibbon,
       color: 'text-accent',
       bgColor: 'bg-accent/10',
       data: t.stats.info.bestAo5,
     },
     {
       id: 'bestAo12',
-      icon: Trophy,
+      icon: CupFirst,
       color: 'text-accent',
       bgColor: 'bg-accent/10',
       data: t.stats.info.bestAo12,
@@ -66,7 +66,7 @@ export function StatsInfoModal({ isOpen, onClose }: StatsInfoModalProps) {
           size="icon"
           className="text-text-secondary hover:text-text-primary hover:bg-white/10"
         >
-          <X size={24} />
+          <CloseCircle size={24} />
         </Button>
       </div>
 

@@ -1,4 +1,4 @@
-import { BookOpen, Dumbbell, History, Home, Settings, TrendingUp } from 'lucide-react';
+import { BookMinimalistic, Dumbbell, GraphUp, History, Home, Settings } from '@solar-icons/react';
 import { NavLink } from 'react-router-dom';
 import { useTranslation } from '@/shared/hooks/use-translation';
 
@@ -8,9 +8,9 @@ export function Navbar() {
   const navItems = [
     { to: '/', icon: Home, label: t.navigation.home },
     { to: '/history', icon: History, label: t.navigation.history },
-    { to: '/stats', icon: TrendingUp, label: t.navigation.stats },
+    { to: '/stats', icon: GraphUp, label: t.navigation.stats },
     { to: '/training', icon: Dumbbell, label: t.navigation.training },
-    { to: '/tutorial', icon: BookOpen, label: t.navigation.tutorial },
+    { to: '/tutorial', icon: BookMinimalistic, label: t.navigation.tutorial },
     { to: '/settings', icon: Settings, label: t.navigation.settings },
   ];
 

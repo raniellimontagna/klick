@@ -1,5 +1,5 @@
+import { Refresh } from '@solar-icons/react';
 import { motion } from 'framer-motion';
-import { Loader2 } from 'lucide-react';
 
 export const RouteLoader = () => {
   return (
@@ -26,7 +26,7 @@ export const RouteLoader = () => {
               ease: 'easeInOut',
             }}
           >
-            <Loader2 className="w-8 h-8 text-primary" />
+            <Refresh size={32} className="text-primary" />
           </motion.div>
         </motion.div>
 

@@ -1,5 +1,5 @@
+import { Dumbbell } from '@solar-icons/react';
 import { motion } from 'framer-motion';
-import { Dumbbell } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Button, Card, PageHeader } from '@/shared';
 import { useTranslation } from '@/shared/hooks/use-translation';
@@ -24,7 +24,7 @@ export function Training() {
       <PageHeader
         title={t.training.title}
         description={t.pages.training.description}
-        icon={<Dumbbell className="w-8 h-8" />}
+        icon={<Dumbbell size={32} />}
       />
 
       <motion.div variants={slideUp} initial="initial" animate="animate">

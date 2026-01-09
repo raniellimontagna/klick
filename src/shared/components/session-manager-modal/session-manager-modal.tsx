@@ -1,4 +1,4 @@
-import { Edit2, FolderOpen, Plus, Trash2, X } from 'lucide-react';
+import { AddCircle, CloseCircle, FolderOpen, Pen, TrashBin2 } from '@solar-icons/react';
 import { ConfirmDialog, Toast } from '@/shared';
 import { Button, Modal } from '@/shared/components/ui';
 import { useI18nStore } from '@/shared/store/i18n-store';
@@ -65,7 +65,7 @@ export function SessionManagerModal({ isOpen, onClose }: SessionManagerModalProp
             className="hover:bg-white/10 text-text-secondary hover:text-text-primary"
             aria-label={t.actions.close}
           >
-            <X size={20} className="text-text-muted" />
+            <CloseCircle size={20} className="text-text-muted" />
           </Button>
         </div>
 
@@ -94,7 +94,7 @@ export function SessionManagerModal({ isOpen, onClose }: SessionManagerModalProp
                 disabled={!newSessionName.trim()}
                 className="flex items-center gap-2 px-4 py-2"
               >
-                <Plus size={18} />
+                <AddCircle size={18} />
                 <span className="hidden sm:inline">{t.actions.create}</span>
               </Button>
             </div>
@@ -180,7 +180,7 @@ export function SessionManagerModal({ isOpen, onClose }: SessionManagerModalProp
                           className="hover:bg-white/10"
                           title={t.sessions.rename}
                         >
-                          <Edit2 size={16} className="text-text-muted hover:text-text-primary" />
+                          <Pen size={16} className="text-text-muted hover:text-text-primary" />
                         </Button>
                         <Button
                           onClick={() => setDeletingId(session.id)}
@@ -189,7 +189,7 @@ export function SessionManagerModal({ isOpen, onClose }: SessionManagerModalProp
                           className="text-red-400 hover:bg-red-600/20"
                           title={t.sessions.delete}
                         >
-                          <Trash2 size={16} className="text-red-400" />
+                          <TrashBin2 size={16} className="text-red-400" />
                         </Button>
                       </div>
                     </div>

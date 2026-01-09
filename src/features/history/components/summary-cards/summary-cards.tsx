@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Clock, Medal } from 'lucide-react';
+import { AltArrowDown, AltArrowUp, ClockCircle, MedalRibbon } from '@solar-icons/react';
 import { formatTime } from '@/shared/lib';
 import { useI18nStore } from '@/shared/store/i18n-store';
 import type { Solve } from '@/shared/types';
@@ -32,25 +32,25 @@ export function SummaryCards({ solves }: SummaryCardsProps) {
     {
       label: t.stats.best,
       value: best,
-      icon: Medal,
+      icon: MedalRibbon,
       color: 'text-warning',
     },
     {
       label: t.stats.average,
       value: average,
-      icon: Clock,
+      icon: ClockCircle,
       color: 'text-primary',
     },
     {
       label: t.stats.worst,
       value: worst,
-      icon: ArrowUp,
+      icon: AltArrowUp,
       color: 'text-danger',
     },
     {
       label: t.stats.deviation,
       value: stdDev,
-      icon: ArrowDown,
+      icon: AltArrowDown,
       color: 'text-text-muted',
     },
   ];

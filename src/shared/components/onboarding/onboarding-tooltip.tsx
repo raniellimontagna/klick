@@ -1,5 +1,5 @@
+import { AltArrowLeft, AltArrowRight, CloseCircle } from '@solar-icons/react';
 import { motion } from 'framer-motion';
-import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { ONBOARDING_STEPS } from '@/features/home/lib/onboarding/config';
 import {
@@ -207,7 +207,7 @@ export function OnboardingTooltip({ step }: OnboardingTooltipProps) {
           className="absolute top-3 right-3 sm:top-4 sm:right-4 text-text-muted hover:text-text-primary transition-colors"
           title={t.onboarding.skip}
         >
-          <X size={18} className="sm:w-5 sm:h-5" />
+          <CloseCircle size={18} className="sm:w-5 sm:h-5" />
         </Button>
       )}
 
@@ -236,7 +236,7 @@ export function OnboardingTooltip({ step }: OnboardingTooltipProps) {
             variant="ghost"
             className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 text-text-muted hover:text-text-primary hover:bg-white/5 border-none text-sm sm:text-base"
           >
-            <ChevronLeft size={16} className="sm:w-[18px] sm:h-[18px]" />
+            <AltArrowLeft size={16} className="sm:w-[18px] sm:h-[18px]" />
             <span className="hidden sm:inline">{t.onboarding.previous}</span>
           </Button>
         )}
@@ -257,7 +257,7 @@ export function OnboardingTooltip({ step }: OnboardingTooltipProps) {
           >
             <span className="hidden sm:inline">{t.onboarding.next}</span>
             <span className="sm:hidden">Próx.</span>
-            <ChevronRight size={16} className="sm:w-[18px] sm:h-[18px]" />
+            <AltArrowRight size={16} className="sm:w-[18px] sm:h-[18px]" />
           </Button>
         )}
       </div>

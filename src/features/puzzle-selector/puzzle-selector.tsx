@@ -1,4 +1,4 @@
-import { Box, Grid3X3, Layers, Pentagon, Triangle } from 'lucide-react';
+import { Box, Layers, Widget } from '@solar-icons/react';
 import type { ElementType } from 'react';
 import { useState } from 'react';
 import {
@@ -14,11 +14,11 @@ import type { PuzzleType } from '@/shared/types';
 
 const PUZZLES: { type: PuzzleType; label: string; icon: ElementType }[] = [
   { type: '3x3', label: '3x3x3', icon: Box },
-  { type: '2x2', label: '2x2x2', icon: Grid3X3 },
-  { type: '4x4', label: '4x4x4', icon: Grid3X3 },
-  { type: '5x5', label: '5x5x5', icon: Grid3X3 },
-  { type: 'pyraminx', label: 'Pyraminx', icon: Triangle },
-  { type: 'megaminx', label: 'Megaminx', icon: Pentagon },
+  { type: '2x2', label: '2x2x2', icon: Widget },
+  { type: '4x4', label: '4x4x4', icon: Widget },
+  { type: '5x5', label: '5x5x5', icon: Widget },
+  { type: 'pyraminx', label: 'Pyraminx', icon: Box },
+  { type: 'megaminx', label: 'Megaminx', icon: Box },
   { type: 'skewb', label: 'Skewb', icon: Layers },
   { type: 'square1', label: 'Square-1', icon: Box },
 ];

@@ -30,10 +30,6 @@ export default defineConfig({
           if (id.includes('node_modules/framer-motion')) {
             return 'animation';
           }
-          // Separate icon library
-          if (id.includes('node_modules/lucide-react')) {
-            return 'icons';
-          }
           // Separate state management
           if (id.includes('node_modules/zustand')) {
             return 'state';

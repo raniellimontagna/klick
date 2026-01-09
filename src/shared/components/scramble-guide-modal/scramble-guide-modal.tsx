@@ -1,4 +1,4 @@
-import { Book, X } from 'lucide-react';
+import { Book, CloseCircle } from '@solar-icons/react';
 import { Button, Modal } from '@/shared/components/ui';
 import { useI18nStore } from '@/shared/store/i18n-store';
 
@@ -43,7 +43,7 @@ export const ScrambleGuideModal = ({ isOpen, onClose }: ScrambleGuideModalProps)
             className="text-text-secondary hover:text-text-primary hover:bg-white/10"
             aria-label={t.actions.close}
           >
-            <X className="h-5 w-5" />
+            <CloseCircle size={20} />
           </Button>
         </div>
 

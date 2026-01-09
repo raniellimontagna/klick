@@ -1,5 +1,5 @@
+import { Settings as SettingsIcon } from '@solar-icons/react';
 import { motion } from 'framer-motion';
-import { Settings as SettingsIcon } from 'lucide-react';
 import { PageHeader } from '@/shared';
 import { fadeIn } from '@/shared/lib';
 import { useI18nStore } from '@/shared/store/i18n-store';
@@ -18,7 +18,7 @@ export function Settings() {
       <PageHeader
         title={t.navigation.settings}
         description={t.pages.settings.description}
-        icon={<SettingsIcon className="w-8 h-8" />}
+        icon={<SettingsIcon size={32} />}
       />
 
       <SettingsContent />

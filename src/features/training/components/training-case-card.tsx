@@ -1,4 +1,4 @@
-import { Check, Clipboard } from 'lucide-react';
+import { CheckCircle, ClipboardList } from '@solar-icons/react';
 import { useEffect, useState } from 'react';
 import { type TrainingStatus, useTrainingStore } from '@/features/training/training-store';
 import type { TrainingCase } from '@/features/training/types';
@@ -154,12 +154,12 @@ export function TrainingCaseCard({ trainingCase }: TrainingCaseCardProps) {
                   >
                     {isCopied ? (
                       <span className="inline-flex items-center gap-2">
-                        <Check className="w-4 h-4" />
+                        <CheckCircle size={16} />
                         {t.training.actions.copiedAlgorithm}
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-2">
-                        <Clipboard className="w-4 h-4" />
+                        <ClipboardList size={16} />
                         {t.training.actions.copyAlgorithm}
                       </span>
                     )}

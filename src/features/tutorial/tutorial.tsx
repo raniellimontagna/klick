@@ -1,5 +1,5 @@
+import { BookMinimalistic, Home, MedalRibbon, UndoLeftRound } from '@solar-icons/react';
 import { motion } from 'framer-motion';
-import { Award, BookOpen, Home, RotateCcw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '@/shared';
 import { Button } from '@/shared/components/ui';
@@ -37,7 +37,7 @@ export function Tutorial() {
             transition={{ type: 'spring', stiffness: 200, damping: 15, delay: 0.2 }}
             className="w-24 h-24 mx-auto mb-6 bg-success/20 rounded-full flex items-center justify-center border-2 border-success/30"
           >
-            <Award className="w-12 h-12 text-success" />
+            <MedalRibbon size={48} className="text-success" />
           </motion.div>
 
           <motion.h1
@@ -68,7 +68,7 @@ export function Tutorial() {
               onClick={handleGoToTimer}
               className="flex items-center justify-center gap-2 px-8 py-3 font-bold shadow-lg shadow-primary/20"
             >
-              <Home className="w-5 h-5" />
+              <Home size={20} />
               {t.tutorial.completion.goToTimer}
             </Button>
             <Button
@@ -76,7 +76,7 @@ export function Tutorial() {
               variant="ghost"
               className="flex items-center justify-center gap-2 px-6 py-3 text-text-muted hover:text-text-primary hover:bg-white/5"
             >
-              <RotateCcw className="w-5 h-5" />
+              <UndoLeftRound size={20} />
               {t.tutorial.completion.restart}
             </Button>
           </motion.div>
@@ -95,7 +95,7 @@ export function Tutorial() {
       <PageHeader
         title={t.navigation.tutorial}
         description={t.pages.tutorial.description}
-        icon={<BookOpen className="w-8 h-8" />}
+        icon={<BookMinimalistic size={32} />}
       />
 
       <div className="bg-white/5 backdrop-blur-md rounded-2xl p-6 sm:p-8 shadow-2xl border border-white/10">

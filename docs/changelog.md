@@ -7,7 +7,7 @@ All notable changes and implementation milestones for the Klick project.
 ### Performance Optimization
 - **Bundle Size Reduction:** Main bundle reduced from 904 KB to 135 KB (~70% reduction)
 - **Route-based Code Splitting:** Implemented lazy loading for all route components
-- **Vendor Chunk Separation:** Split React, recharts, framer-motion, lucide-react into separate chunks
+- **Vendor Chunk Separation:** Split React, recharts, framer-motion
 - **RouteLoader Component:** Created animated loading screen with cube theme and progress indicators
 
 ### Bug Fixes

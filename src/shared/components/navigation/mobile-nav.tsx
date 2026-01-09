@@ -1,5 +1,14 @@
+import {
+  BookMinimalistic,
+  CloseCircle,
+  Dumbbell,
+  GraphUp,
+  HamburgerMenu,
+  History,
+  Home,
+  Settings,
+} from '@solar-icons/react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { BookOpen, Dumbbell, History, Home, Menu, Settings, TrendingUp, X } from 'lucide-react';
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { NavLink } from 'react-router-dom';
@@ -13,9 +22,9 @@ export function MobileNav() {
   const navItems = [
     { to: '/', icon: Home, label: t.navigation.home },
     { to: '/history', icon: History, label: t.navigation.history },
-    { to: '/stats', icon: TrendingUp, label: t.navigation.stats },
+    { to: '/stats', icon: GraphUp, label: t.navigation.stats },
     { to: '/training', icon: Dumbbell, label: t.navigation.training },
-    { to: '/tutorial', icon: BookOpen, label: t.navigation.tutorial },
+    { to: '/tutorial', icon: BookMinimalistic, label: t.navigation.tutorial },
     { to: '/settings', icon: Settings, label: t.navigation.settings },
   ];
 
@@ -30,7 +39,7 @@ export function MobileNav() {
         className="h-10 w-10 flex items-center justify-center rounded-xl glass-button border border-white/10 hover:border-white/20 hover:bg-white/10 text-text-primary transition-all"
         aria-label="Menu"
       >
-        <Menu className="w-5 h-5" />
+        <HamburgerMenu size={20} />
       </button>
 
       {/* Drawer */}
@@ -64,7 +73,7 @@ export function MobileNav() {
                         className="text-text-secondary hover:text-text-primary"
                         aria-label="Fechar menu"
                       >
-                        <X className="w-4 h-4" />
+                        <CloseCircle size={16} />
                       </Button>
                     </div>
 

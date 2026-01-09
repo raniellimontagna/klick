@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { Trash2 } from 'lucide-react';
+import { TrashBin2 } from '@solar-icons/react';
 import { useState } from 'react';
 import { ConfirmDialog } from '@/shared';
 import { Button } from '@/shared/components/ui';
@@ -172,7 +172,7 @@ export function SolveTable({ onViewDetails }: SolveTableProps) {
                         className="text-text-muted hover:text-danger hover:bg-danger/10 opacity-0 group-hover:opacity-100 transition-all focus:opacity-100"
                         title={t.actions.delete}
                       >
-                        <Trash2 size={18} />
+                        <TrashBin2 size={18} />
                       </Button>
                     </td>
                   </tr>
@@ -223,7 +223,7 @@ export function SolveTable({ onViewDetails }: SolveTableProps) {
                       size="icon"
                       className="text-text-muted -mr-2 -mt-2 h-8 w-8"
                     >
-                      <Trash2 size={16} />
+                      <TrashBin2 size={16} />
                     </Button>
                   </div>
                   <div className="text-xs text-text-tertiary font-mono truncate bg-background/50 p-2 rounded border border-white/5">

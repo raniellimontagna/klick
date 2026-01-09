@@ -1,5 +1,5 @@
+import { History as HistoryIcon } from '@solar-icons/react';
 import { motion } from 'framer-motion';
-import { History as HistoryIcon } from 'lucide-react';
 import { useState } from 'react';
 import { PageHeader } from '@/shared';
 import { fadeIn } from '@/shared/lib';
@@ -41,7 +41,7 @@ export function History() {
       <PageHeader
         title={t.navigation.history}
         description={t.pages.history.description}
-        icon={<HistoryIcon className="w-8 h-8" />}
+        icon={<HistoryIcon size={32} />}
       />
 
       <div className="space-y-8">

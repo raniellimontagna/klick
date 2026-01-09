@@ -1,4 +1,4 @@
-import { TrendingUp } from 'lucide-react';
+import { GraphUp } from '@solar-icons/react';
 import {
   CartesianGrid,
   Line,
@@ -22,7 +22,7 @@ export function HistoryCharts({ solves }: HistoryChartsProps) {
   if (solves.length === 0) {
     return (
       <div className="h-64 w-full flex flex-col items-center justify-center text-text-muted/50 border-2 border-dashed border-white/5 rounded-xl">
-        <TrendingUp size={48} className="mb-4 opacity-50" />
+        <GraphUp size={48} className="mb-4 opacity-50" />
         <p className="text-sm font-medium">{t.history.charts.noData.title}</p>
         <p className="text-xs mt-1">{t.history.charts.noData.description}</p>
       </div>
@@ -33,7 +33,7 @@ export function HistoryCharts({ solves }: HistoryChartsProps) {
   if (solves.length < 2) {
     return (
       <div className="h-64 w-full flex flex-col items-center justify-center text-text-muted/50 border-2 border-dashed border-white/5 rounded-xl">
-        <TrendingUp size={48} className="mb-4 opacity-50" />
+        <GraphUp size={48} className="mb-4 opacity-50" />
         <p className="text-sm font-medium">{t.history.charts.insufficientData.title}</p>
         <p className="text-xs mt-1">{t.history.charts.insufficientData.description}</p>
       </div>

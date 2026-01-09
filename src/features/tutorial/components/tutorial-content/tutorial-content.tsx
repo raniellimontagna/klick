@@ -1,14 +1,14 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  AlertTriangle,
-  Award,
-  BookOpen,
-  ChevronLeft,
-  ChevronRight,
+  DangerTriangle,
+  MedalRibbon,
+  BookMinimalistic,
+  AltArrowLeft,
+  AltArrowRight,
   Lightbulb,
-  Sparkles,
+  MagicStick3,
   Target,
-} from 'lucide-react';
+} from '@solar-icons/react';
 import type { TutorialStep } from '@/features/tutorial/tutorial-store';
 import { CubeVisualizer } from '@/shared/components/cube-visualizer';
 import { Button } from '@/shared/components/ui';
@@ -27,7 +27,7 @@ function TutorialStepContent({ step }: { step: TutorialStep }) {
       <div className="space-y-6">
         <div className="flex items-center gap-4 mb-6">
           <div className="p-4 bg-primary/20 rounded-2xl border border-primary/30">
-            <BookOpen className="w-10 h-10 text-primary" />
+            <BookMinimalistic size={40} className="text-primary" />
           </div>
           <div>
             <h3 className="text-2xl sm:text-3xl font-black text-text-primary">{intro.title}</h3>
@@ -41,7 +41,7 @@ function TutorialStepContent({ step }: { step: TutorialStep }) {
 
         <div className="bg-white/5 rounded-xl p-5 border border-white/10 space-y-4">
           <p className="font-bold text-[10px] uppercase tracking-widest text-text-muted flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-primary" />
+            <MagicStick3 size={16} className="text-primary" />
             {intro.whatYouWillLearn}
           </p>
           <ul className="space-y-3">
@@ -83,7 +83,7 @@ function TutorialStepContent({ step }: { step: TutorialStep }) {
 
       {stepData.goal && (
         <div className="bg-info/10 border border-info/30 rounded-xl p-4 flex items-start gap-3">
-          <Target className="w-5 h-5 text-info shrink-0 mt-0.5" />
+          <Target size={20} className="text-info shrink-0 mt-0.5" />
           <div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-info mb-1">
               {t.tutorial.steps.labels.goal}
@@ -153,7 +153,7 @@ function TutorialStepContent({ step }: { step: TutorialStep }) {
 
       {stepData.tip && (
         <div className="bg-success/10 border border-success/30 rounded-xl p-4 flex items-start gap-3">
-          <Lightbulb className="w-5 h-5 text-success shrink-0 mt-0.5" />
+          <Lightbulb size={20} className="text-success shrink-0 mt-0.5" />
           <div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-success mb-1">
               {t.tutorial.steps.labels.tip}
@@ -167,7 +167,7 @@ function TutorialStepContent({ step }: { step: TutorialStep }) {
         <div className="bg-success/10 border border-success/30 rounded-xl p-4 space-y-3">
           {(stepData.tips as string[]).map((tipText: string) => (
             <div key={`${step}-tip-${tipText.substring(0, 20)}`} className="flex items-start gap-3">
-              <Lightbulb className="w-4 h-4 text-success shrink-0 mt-0.5" />
+              <Lightbulb size={16} className="text-success shrink-0 mt-0.5" />
               <p className="text-sm text-text-primary">{tipText}</p>
             </div>
           ))}
@@ -176,7 +176,7 @@ function TutorialStepContent({ step }: { step: TutorialStep }) {
 
       {stepData.important && (
         <div className="bg-danger/10 border border-danger/30 rounded-xl p-4 flex items-start gap-3">
-          <AlertTriangle className="w-5 h-5 text-danger shrink-0 mt-0.5" />
+          <DangerTriangle size={20} className="text-danger shrink-0 mt-0.5" />
           <div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-danger mb-1">
               {t.tutorial.steps.labels.important}
@@ -188,7 +188,7 @@ function TutorialStepContent({ step }: { step: TutorialStep }) {
 
       {stepData.congratulations && (
         <div className="bg-success/10 border border-success/30 rounded-2xl p-6 text-center">
-          <Award className="w-12 h-12 text-success mx-auto mb-3" />
+          <MedalRibbon size={48} className="text-success mx-auto mb-3" />
           <p className="text-xl font-black text-success mb-2">
             🎉 {stepData.congratulations as string}
           </p>
@@ -259,7 +259,7 @@ export function TutorialContent() {
           variant="ghost"
           className="flex items-center gap-2 px-4 py-2.5 text-text-muted hover:text-text-primary hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
         >
-          <ChevronLeft className="w-5 h-5" />
+          <AltArrowLeft size={20} />
           <span className="hidden sm:inline font-medium">
             {t.tutorial.steps.navigation.previous}
           </span>
@@ -272,7 +272,7 @@ export function TutorialContent() {
           <span>
             {isLastStep ? t.tutorial.steps.navigation.finish : t.tutorial.steps.navigation.next}
           </span>
-          {!isLastStep && <ChevronRight className="w-5 h-5" />}
+          {!isLastStep && <AltArrowRight size={20} />}
         </Button>
       </div>
     </div>

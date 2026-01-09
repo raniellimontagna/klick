@@ -1,5 +1,5 @@
+import { QuestionCircle, Stopwatch } from '@solar-icons/react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { HelpCircle, Timer } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Button } from '@/shared';
 import { formatAverage } from '@/shared/lib';
@@ -105,7 +105,7 @@ export function Home() {
               className="text-[10px] font-black uppercase tracking-[0.2em] text-text-muted flex items-center gap-2"
               data-onboarding="stats-header"
             >
-              <Timer className="w-3.5 h-3.5" />
+              <Stopwatch size={14} />
               {t.navigation.stats}
             </h2>
             <Button
@@ -116,7 +116,7 @@ export function Home() {
               className="text-text-muted hover:text-text-primary transition-colors h-8 w-8"
               data-onboarding="stats-info-button"
             >
-              <HelpCircle className="w-4 h-4" />
+              <QuestionCircle size={16} />
             </Button>
           </div>
 

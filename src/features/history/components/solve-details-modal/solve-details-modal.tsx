@@ -1,4 +1,10 @@
-import { AlertTriangle, Calendar, Clock, Copy, X } from 'lucide-react';
+import {
+  CalendarMinimalistic,
+  ClockCircle,
+  CloseCircle,
+  Copy,
+  DangerTriangle,
+} from '@solar-icons/react';
 import { useMemo } from 'react';
 import { solveCubeState } from '@/features/home/lib/scramble/cube-solver';
 import { CubeVisualizer } from '@/shared/components/cube-visualizer/cube-visualizer';
@@ -60,7 +66,7 @@ export function SolveDetailsModal({
             {t.solveTable.details.title} #{solveNumber}
           </h2>
           <span className="text-sm text-text-muted flex items-center gap-2 mt-1">
-            <Calendar size={14} />
+            <CalendarMinimalistic size={14} />
             {formatFullDate(solve.createdAt)}
           </span>
         </div>
@@ -69,7 +75,7 @@ export function SolveDetailsModal({
           onClick={onClose}
           className="p-2 rounded-xl glass-button border border-white/10 hover:border-white/20 hover:bg-white/10 text-text-secondary hover:text-text-primary transition-all"
         >
-          <X size={20} />
+          <CloseCircle size={20} />
         </button>
       </div>
 
@@ -171,7 +177,7 @@ export function SolveDetailsModal({
           <div className="grid grid-cols-2 gap-4">
             <div className="glass p-4 rounded-xl border border-white/5">
               <div className="flex items-center gap-2 mb-1 text-text-muted">
-                <Clock size={16} />
+                <ClockCircle size={16} />
                 <span className="text-xs font-bold uppercase">{t.solveTable.details.baseTime}</span>
               </div>
               <span className="text-xl font-mono font-semibold text-text-secondary">
@@ -180,7 +186,7 @@ export function SolveDetailsModal({
             </div>
             <div className="glass p-4 rounded-xl border border-white/5">
               <div className="flex items-center gap-2 mb-1 text-text-muted">
-                <AlertTriangle size={16} />
+                <DangerTriangle size={16} />
                 <span className="text-xs font-bold uppercase">{t.solveTable.details.penalty}</span>
               </div>
               <span className={`text-xl font-bold ${penaltyInfo.color}`}>
