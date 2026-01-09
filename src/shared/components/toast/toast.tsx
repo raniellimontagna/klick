@@ -46,7 +46,7 @@ export function Toast({ message, type = 'info', duration = 3000, onClose }: Toas
             onClick={handleClose}
             variant="ghost"
             size="icon"
-            className="ml-2 text-gray-300 hover:text-white"
+            className="ml-2 text-text-secondary hover:text-text-primary transition-colors"
           >
             <X size={18} />
           </Button>

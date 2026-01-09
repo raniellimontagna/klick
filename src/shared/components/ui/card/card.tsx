@@ -4,7 +4,7 @@ import { cn } from '@/shared/lib';
 const variantClasses = {
   surface: 'bg-surface border border-border',
   background: 'bg-background border border-border',
-  overlay: 'bg-gray-900/50 border border-gray-700',
+  overlay: 'bg-black/60 backdrop-blur-md border border-white/10',
 };
 
 const paddingClasses = {

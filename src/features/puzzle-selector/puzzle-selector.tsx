@@ -46,12 +46,15 @@ export function PuzzleSelector() {
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-3 py-2 text-sm font-medium transition-colors rounded-lg hover:bg-surface-hover text-text-primary"
+        className="h-10 flex items-center gap-2 px-3 sm:px-4 text-sm font-medium transition-all rounded-xl glass-button border border-white/10 hover:border-white/20 hover:bg-white/10 text-text-primary"
       >
         <activePuzzleData.icon className="w-5 h-5 text-primary" />
         <span>{activePuzzleData.label}</span>
         <ChevronDown
-          className={cn('w-4 h-4 transition-transform duration-200', isOpen && 'rotate-180')}
+          className={cn(
+            'w-4 h-4 text-text-muted transition-transform duration-200',
+            isOpen && 'rotate-180',
+          )}
         />
       </button>
 

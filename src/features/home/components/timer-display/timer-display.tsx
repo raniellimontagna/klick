@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { Play, Square, Timer } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { fadeIn, formatTime } from '@/shared/lib';
+import { cn, fadeIn, formatTime } from '@/shared/lib';
 import { useI18nStore } from '@/shared/store/i18n-store';
 import type { Penalty, TimerState } from '@/shared/types';
 
@@ -10,6 +10,7 @@ interface TimerDisplayProps {
   state: TimerState;
   penalty?: Penalty;
   isNewBest?: boolean;
+  isFocusMode?: boolean;
   'data-onboarding'?: string;
 }
 
@@ -18,6 +19,7 @@ export function TimerDisplay({
   state,
   penalty = 'NONE',
   isNewBest = false,
+  isFocusMode = false,
   'data-onboarding': dataOnboarding,
 }: TimerDisplayProps) {
   const { t } = useI18nStore();
@@ -48,15 +50,15 @@ export function TimerDisplay({
 
     switch (state) {
       case 'idle':
-        return 'text-gray-400';
+        return 'text-text-muted';
       case 'inspection':
-        return 'text-yellow-400';
+        return 'text-warning';
       case 'running':
         return 'text-accent';
       case 'stopped':
-        return 'text-white';
+        return 'text-text-primary';
       default:
-        return 'text-white';
+        return 'text-text-primary';
     }
   };
 
@@ -65,13 +67,13 @@ export function TimerDisplay({
 
     switch (state) {
       case 'idle':
-        return <Timer size={32} className="text-gray-400" />;
+        return <Timer size={32} className="text-text-muted" />;
       case 'inspection':
-        return <Timer size={32} className="text-yellow-400 animate-pulse" />;
+        return <Timer size={32} className="text-warning animate-pulse" />;
       case 'running':
         return <Play size={32} className="text-accent" />;
       case 'stopped':
-        return <Square size={32} className="text-white" />;
+        return <Square size={32} className="text-text-primary" />;
       default:
         return null;
     }
@@ -110,7 +112,9 @@ export function TimerDisplay({
             className="flex items-center gap-3"
           >
             {getStateIcon()}
-            <p className={`text-xl sm:text-2xl font-semibold ${getStateColor()}`}>
+            <p
+              className={`text-xl sm:text-2xl font-bold uppercase tracking-[0.2em] ${getStateColor()}`}
+            >
               {getStateText()}
             </p>
           </motion.div>
@@ -124,7 +128,9 @@ export function TimerDisplay({
             className="flex items-center gap-3"
           >
             {getStateIcon()}
-            <p className={`text-xl sm:text-2xl font-semibold ${getStateColor()}`}>
+            <p
+              className={`text-xl sm:text-2xl font-bold uppercase tracking-[0.2em] ${getStateColor()}`}
+            >
               {getStateText()}
             </p>
           </motion.div>
@@ -135,9 +141,15 @@ export function TimerDisplay({
         key={`${state}-${Math.floor(timeMs / 100)}`}
         layout
         initial={{ scale: 0.9 }}
-        animate={{ scale: state === 'running' ? 1.1 : 1 }}
+        animate={{ scale: state === 'running' ? 1.2 : 1 }}
         transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-        className={`text-5xl sm:text-6xl md:text-8xl font-bold font-mono tracking-tight tabular-nums ${getStateColor()} transition-colors duration-200`}
+        className={cn(
+          'font-mono font-black tabular-nums transition-colors duration-200',
+          isFocusMode
+            ? 'text-7xl sm:text-8xl md:text-9xl tracking-tighter'
+            : 'text-5xl sm:text-6xl md:text-8xl tracking-tight',
+          getStateColor(),
+        )}
       >
         {formatTime(timeMs)}
       </motion.div>
@@ -147,7 +159,7 @@ export function TimerDisplay({
           variants={fadeIn}
           initial="hidden"
           animate="visible"
-          className="text-xs sm:text-sm text-gray-500 text-center max-w-xs"
+          className="text-xs sm:text-sm text-text-muted text-center max-w-xs font-medium uppercase tracking-widest opacity-60"
         >
           {t.timer.holdSpace}
         </motion.p>

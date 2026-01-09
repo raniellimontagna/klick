@@ -41,17 +41,19 @@ export function ScrambleBox({
         animate="visible"
         data-onboarding={dataOnboarding}
       >
-        <div className="bg-surface rounded-xl sm:rounded-2xl p-3 sm:p-6 shadow-lg border border-white/5">
+        <div className="bg-white/5 backdrop-blur-md rounded-xl sm:rounded-2xl p-4 sm:p-7 shadow-2xl border border-white/10">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-3">
             <div className="flex items-center gap-2">
-              <h2 className="text-base sm:text-lg font-semibold text-muted">{t.scramble.title}</h2>
+              <h2 className="text-xs sm:text-sm font-bold uppercase tracking-widest text-text-muted">
+                {t.scramble.title}
+              </h2>
               <MotionButton
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.9 }}
                 onClick={openGuide}
                 variant="ghost"
                 size="icon"
-                className="text-gray-400 hover:text-blue-400 p-1 focus-visible:ring-blue-400 focus-visible:ring-offset-gray-800"
+                className="text-text-muted hover:text-text-primary p-1 focus-visible:ring-primary focus-visible:ring-offset-background"
                 title={t.scramble.guide}
               >
                 <HelpCircle size={18} />
@@ -63,8 +65,8 @@ export function ScrambleBox({
                   onClick={onToggleVisualizer}
                   variant="ghost"
                   size="icon"
-                  className={`p-1 focus-visible:ring-blue-400 focus-visible:ring-offset-gray-800 transition-colors ${
-                    showVisualizer ? 'text-primary' : 'text-gray-400 hover:text-primary'
+                  className={`p-1 focus-visible:ring-primary focus-visible:ring-offset-background transition-colors ${
+                    showVisualizer ? 'text-primary' : 'text-text-muted hover:text-text-primary'
                   }`}
                   title={t.scramble.guideModal.toggleVisualizer}
                 >
@@ -78,7 +80,7 @@ export function ScrambleBox({
                 whileTap={{ scale: 0.95 }}
                 onClick={copyToClipboard}
                 variant="secondary"
-                className="flex items-center justify-center gap-2 px-3 py-2 text-sm bg-gray-700 hover:bg-gray-600 flex-1 sm:flex-none border-none"
+                className="h-10 flex items-center justify-center gap-2 px-4 py-2 text-sm bg-white/5 hover:bg-white/10 text-text-primary flex-1 sm:flex-none border border-white/10"
                 title={t.scramble.copy}
               >
                 {copied ? (
@@ -98,7 +100,7 @@ export function ScrambleBox({
                 whileTap={{ scale: 0.95 }}
                 onClick={onNewScramble}
                 variant="primary"
-                className="flex items-center justify-center gap-2 px-3 py-2 text-sm flex-1 sm:flex-none font-medium"
+                className="h-10 flex items-center justify-center gap-2 px-4 py-2 text-sm flex-1 sm:flex-none font-bold uppercase tracking-wider shadow-lg shadow-primary/20"
                 title={`${t.scramble.new} (N)`}
               >
                 <RefreshCw size={16} />
@@ -112,7 +114,7 @@ export function ScrambleBox({
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3 }}
-            className="font-mono text-lg sm:text-2xl text-primary wrap-break-word leading-relaxed text-center sm:text-left"
+            className="font-mono text-xl sm:text-3xl font-black text-text-primary wrap-break-word leading-relaxed text-center sm:text-left tracking-tight"
           >
             {scramble || t.scramble.generating}
           </motion.div>

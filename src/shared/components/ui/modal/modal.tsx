@@ -54,7 +54,7 @@ export function Modal({
             className={`relative w-full ${sizeClasses[size]} ${containerClassName}`}
           >
             <div
-              className={`bg-gray-800 border border-gray-700 shadow-2xl rounded-2xl overflow-hidden ${className}`}
+              className={`glass border border-white/10 shadow-2xl rounded-2xl overflow-hidden ${className}`}
             >
               {children}
             </div>

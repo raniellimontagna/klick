@@ -34,7 +34,7 @@ export const HeaderDropdownButton = forwardRef<HTMLButtonElement, HeaderDropdown
         aria-expanded={isOpen}
         variant="secondary"
         size="sm"
-        className="flex items-center gap-1.5 sm:gap-2 px-2.5 py-2 sm:px-3 sm:py-2.5 md:px-4 md:py-2.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg sm:rounded-xl min-w-0 text-white"
+        className="h-10 flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 glass-button border border-white/10 hover:border-white/20 hover:bg-white/10 rounded-xl min-w-0 text-text-primary transition-all"
       >
         <span className="shrink-0 text-primary">{icon}</span>
         <span
@@ -49,7 +49,7 @@ export const HeaderDropdownButton = forwardRef<HTMLButtonElement, HeaderDropdown
           transition={{ duration: 0.2 }}
           className="shrink-0"
         >
-          <ChevronDown size={14} className="text-gray-400 sm:w-4 sm:h-4" />
+          <ChevronDown size={14} className="text-text-muted sm:w-4 sm:h-4" />
         </motion.div>
       </Button>
     );

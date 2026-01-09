@@ -22,15 +22,15 @@ export function StatsInfoModal({ isOpen, onClose }: StatsInfoModalProps) {
     {
       id: 'ao5',
       icon: TrendingUp,
-      color: 'text-gray-300',
-      bgColor: 'bg-gray-700/50',
+      color: 'text-text-muted',
+      bgColor: 'bg-white/5',
       data: t.stats.info.ao5,
     },
     {
       id: 'ao12',
       icon: TrendingUp,
-      color: 'text-gray-300',
-      bgColor: 'bg-gray-700/50',
+      color: 'text-text-muted',
+      bgColor: 'bg-white/5',
       data: t.stats.info.ao12,
     },
     {
@@ -58,13 +58,13 @@ export function StatsInfoModal({ isOpen, onClose }: StatsInfoModalProps) {
       containerClassName="p-4"
       className="flex flex-col max-h-[85vh]"
     >
-      <div className="flex items-center justify-between p-6 border-b border-gray-700 shrink-0">
-        <h2 className="text-2xl font-bold text-white">{t.stats.info.title}</h2>
+      <div className="flex items-center justify-between p-6 border-b border-white/10 shrink-0">
+        <h2 className="text-2xl font-bold text-text-primary">{t.stats.info.title}</h2>
         <Button
           onClick={onClose}
           variant="ghost"
           size="icon"
-          className="text-gray-400 hover:text-white hover:bg-gray-700"
+          className="text-text-secondary hover:text-text-primary hover:bg-white/10"
         >
           <X size={24} />
         </Button>
@@ -76,19 +76,19 @@ export function StatsInfoModal({ isOpen, onClose }: StatsInfoModalProps) {
           return (
             <div
               key={section.id}
-              className={`rounded-xl p-5 ${section.bgColor} border border-gray-700`}
+              className={`rounded-xl p-5 ${section.bgColor} border border-white/5`}
             >
               <div className="flex items-center gap-3 mb-4">
                 <div className={`${section.color}`}>
                   <Icon size={24} />
                 </div>
-                <h3 className="text-lg font-bold text-white">{section.data.title}</h3>
+                <h3 className="text-lg font-bold text-text-primary">{section.data.title}</h3>
               </div>
 
-              <p className="text-gray-300 mb-3 leading-relaxed">{section.data.description}</p>
+              <p className="text-text-secondary mb-3 leading-relaxed">{section.data.description}</p>
 
-              <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
-                <p className="text-sm text-gray-400 font-mono whitespace-pre-line">
+              <div className="bg-black/20 rounded-lg p-4 border border-white/5">
+                <p className="text-sm text-text-muted font-mono whitespace-pre-line">
                   <span className="text-accent font-semibold">Exemplo:</span>
                   {'\n'}
                   {section.data.example}
@@ -107,19 +107,21 @@ export function StatsInfoModal({ isOpen, onClose }: StatsInfoModalProps) {
         })}
 
         <div className="rounded-xl p-5 bg-red-500/10 border border-red-500/30">
-          <h3 className="text-lg font-bold text-white mb-4">{t.stats.info.penalties.title}</h3>
+          <h3 className="text-lg font-bold text-text-primary mb-4">
+            {t.stats.info.penalties.title}
+          </h3>
           <div className="space-y-3">
-            <div className="bg-gray-900/50 rounded-lg p-3 border border-gray-700">
-              <p className="text-gray-300 text-sm">{t.stats.info.penalties.plus2}</p>
+            <div className="bg-black/20 rounded-lg p-3 border border-white/5">
+              <p className="text-text-secondary text-sm">{t.stats.info.penalties.plus2}</p>
             </div>
-            <div className="bg-gray-900/50 rounded-lg p-3 border border-gray-700">
-              <p className="text-gray-300 text-sm">{t.stats.info.penalties.dnf}</p>
+            <div className="bg-black/20 rounded-lg p-3 border border-white/5">
+              <p className="text-text-secondary text-sm">{t.stats.info.penalties.dnf}</p>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="p-6 border-t border-gray-700 shrink-0">
+      <div className="p-6 border-t border-white/10 shrink-0">
         <Button onClick={onClose} className="w-full px-4 py-3 font-medium">
           {t.actions.close}
         </Button>

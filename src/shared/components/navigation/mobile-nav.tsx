@@ -24,15 +24,14 @@ export function MobileNav() {
   return (
     <div className="md:hidden">
       {/* Menu Button */}
-      <Button
+      <button
+        type="button"
         onClick={() => setIsOpen(true)}
-        variant="ghost"
-        size="icon"
-        className="text-text-secondary hover:text-text-primary"
+        className="h-10 w-10 flex items-center justify-center rounded-xl glass-button border border-white/10 hover:border-white/20 hover:bg-white/10 text-text-primary transition-all"
         aria-label="Menu"
       >
-        <Menu className="w-6 h-6" />
-      </Button>
+        <Menu className="w-5 h-5" />
+      </button>
 
       {/* Drawer */}
       {typeof document !== 'undefined' &&

@@ -14,7 +14,7 @@ export function Topbar({ onManageClick }: TopbarProps) {
       </div>
 
       <div className="flex items-center gap-3">
-        <SessionSwitcher onManageClick={onManageClick} />
+        <SessionSwitcher onManageClick={onManageClick} data-onboarding="sessions" />
         <LanguageSelector />
 
         {/* Mobile Nav Logic usually handled here or in MainLayout, keeping existing MobileNav for now */}

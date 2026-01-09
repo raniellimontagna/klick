@@ -188,7 +188,7 @@ export function OnboardingTooltip({ step }: OnboardingTooltipProps) {
       initial={{ opacity: 0, scale: 0.9, y: 20 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.9, y: 20 }}
-      className="fixed z-10000 bg-gray-800 rounded-xl sm:rounded-2xl shadow-2xl border-2 border-primary p-4 sm:p-6 max-w-md"
+      className="fixed z-[10000] bg-white/10 backdrop-blur-md rounded-xl sm:rounded-2xl shadow-2xl border-2 border-primary p-4 sm:p-6 max-w-md"
       style={{
         top: position.top,
         left: position.left,
@@ -204,8 +204,8 @@ export function OnboardingTooltip({ step }: OnboardingTooltipProps) {
           onClick={skipOnboarding}
           variant="ghost"
           size="icon"
-          className="absolute top-3 right-3 sm:top-4 sm:right-4 text-gray-400 hover:text-white"
-          aria-label={t.advancedStats.close}
+          className="absolute top-3 right-3 sm:top-4 sm:right-4 text-text-muted hover:text-text-primary transition-colors"
+          title={t.onboarding.skip}
         >
           <X size={18} className="sm:w-5 sm:h-5" />
         </Button>
@@ -213,7 +213,7 @@ export function OnboardingTooltip({ step }: OnboardingTooltipProps) {
 
       {/* Progress */}
       {showProgress && (
-        <div className="text-xs sm:text-sm text-gray-400 mb-2 sm:mb-3">
+        <div className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-text-muted mb-2 sm:mb-3">
           {t.onboarding.progress
             .replace('{current}', String(currentIndex))
             .replace('{total}', String(totalSteps))}
@@ -224,7 +224,7 @@ export function OnboardingTooltip({ step }: OnboardingTooltipProps) {
       <h3 className="text-lg sm:text-xl font-bold text-white mb-2 sm:mb-3 pr-6">
         {stepContent.title}
       </h3>
-      <p className="text-sm sm:text-base text-gray-300 mb-4 sm:mb-6 leading-relaxed">
+      <p className="text-sm sm:text-base text-text-secondary mb-4 sm:mb-6 leading-relaxed">
         {stepContent.description}
       </p>
 
@@ -233,13 +233,11 @@ export function OnboardingTooltip({ step }: OnboardingTooltipProps) {
         {!isFirst && (
           <Button
             onClick={previousStep}
-            variant="secondary"
-            size="sm"
-            className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white border-none text-sm sm:text-base"
+            variant="ghost"
+            className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 text-text-muted hover:text-text-primary hover:bg-white/5 border-none text-sm sm:text-base"
           >
             <ChevronLeft size={16} className="sm:w-[18px] sm:h-[18px]" />
             <span className="hidden sm:inline">{t.onboarding.previous}</span>
-            <span className="sm:hidden">Ant.</span>
           </Button>
         )}
 

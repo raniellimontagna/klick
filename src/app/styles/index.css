@@ -53,6 +53,12 @@
     background: rgba(39, 39, 42, 0.7);
     border-color: rgba(255, 255, 255, 0.1);
   }
+
+  .glass-button {
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
 }
 
 @layer utilities {

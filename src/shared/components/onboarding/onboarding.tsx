@@ -14,7 +14,7 @@ export function Onboarding() {
   const stepConfig = ONBOARDING_STEPS[currentStep];
 
   return (
-    <AnimatePresence mode="wait">
+    <AnimatePresence>
       <Spotlight key="spotlight" targetSelector={stepConfig.targetSelector} isActive={isActive} />
       <OnboardingTooltip key={`tooltip-${currentStep}`} step={currentStep} />
     </AnimatePresence>

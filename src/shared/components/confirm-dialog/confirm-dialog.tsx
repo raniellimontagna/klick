@@ -55,16 +55,16 @@ export function ConfirmDialog({
       className="max-h-[90vh]"
     >
       {/* Header */}
-      <div className="flex items-start justify-between p-6 border-b border-gray-700">
+      <div className="flex items-start justify-between p-6 border-b border-white/10">
         <div className="flex items-center gap-3">
           <AlertTriangle className={`${styles.iconColor} shrink-0`} size={24} />
-          <h2 className="text-xl font-bold text-white">{title}</h2>
+          <h2 className="text-xl font-bold text-text-primary">{title}</h2>
         </div>
         <Button
           onClick={onClose}
           variant="ghost"
           size="icon"
-          className="text-gray-400 hover:text-white hover:bg-gray-700"
+          className="text-text-secondary hover:text-text-primary hover:bg-white/10"
         >
           <X size={20} />
         </Button>
@@ -72,15 +72,15 @@ export function ConfirmDialog({
 
       {/* Content */}
       <div className="p-6">
-        <p className="text-gray-300 leading-relaxed">{message}</p>
+        <p className="text-text-secondary leading-relaxed">{message}</p>
       </div>
 
       {/* Actions */}
-      <div className="flex gap-3 p-6 border-t border-gray-700">
+      <div className="flex gap-3 p-6 border-t border-white/10">
         <Button
           onClick={onClose}
           variant="secondary"
-          className="flex-1 px-4 py-2.5 bg-gray-700 hover:bg-gray-600 text-white border-none"
+          className="flex-1 px-4 py-2.5 bg-white/5 hover:bg-white/10 text-text-primary border-none"
         >
           {cancelText}
         </Button>

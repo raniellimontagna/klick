@@ -86,6 +86,7 @@ export function Home() {
             timeMs={timeMs}
             isNewBest={isNewBest}
             penalty={lastPenalty}
+            isFocusMode={isFocusMode}
             data-onboarding="timer"
           />
         </div>
@@ -100,8 +101,11 @@ export function Home() {
         {/* Stats Grid */}
         <div className="space-y-4">
           <div className="flex items-center justify-between px-2">
-            <h2 className="text-lg font-bold text-text-muted flex items-center gap-2">
-              <Timer className="w-5 h-5" />
+            <h2
+              className="text-[10px] font-black uppercase tracking-[0.2em] text-text-muted flex items-center gap-2"
+              data-onboarding="stats-header"
+            >
+              <Timer className="w-3.5 h-3.5" />
               {t.navigation.stats}
             </h2>
             <Button
@@ -109,9 +113,10 @@ export function Home() {
               size="icon"
               onClick={() => setShowStatsInfo(true)}
               aria-label={t.stats.help}
-              className="text-text-muted hover:text-text-primary"
+              className="text-text-muted hover:text-text-primary transition-colors h-8 w-8"
+              data-onboarding="stats-info-button"
             >
-              <HelpCircle className="w-5 h-5" />
+              <HelpCircle className="w-4 h-4" />
             </Button>
           </div>
 
@@ -127,19 +132,26 @@ export function Home() {
 
         {/* Shortcuts Hint */}
         {/* Shortcuts Hint - Hidden on mobile/touch devices */}
-        <div className="hidden sm:flex flex-wrap justify-center gap-4 py-4 border-t border-border/30">
-          <div className="flex items-center gap-2 text-xs text-text-tertiary">
-            <kbd className="px-1.5 py-0.5 bg-surface border border-border rounded font-mono">
+        <div
+          data-onboarding="shortcuts"
+          className="hidden sm:flex flex-wrap justify-center gap-6 py-6 border-t border-white/5 opacity-40 hover:opacity-100 transition-opacity"
+        >
+          <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-text-muted">
+            <kbd className="px-1.5 py-0.5 bg-white/5 border border-white/10 rounded font-mono text-text-primary">
               space
             </kbd>
             <span>{t.shortcuts.space}</span>
           </div>
-          <div className="flex items-center gap-2 text-xs text-text-tertiary">
-            <kbd className="px-1.5 py-0.5 bg-surface border border-border rounded font-mono">N</kbd>
+          <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-text-muted">
+            <kbd className="px-1.5 py-0.5 bg-white/5 border border-white/10 rounded font-mono text-text-primary">
+              N
+            </kbd>
             <span>{t.shortcuts.newScramble}</span>
           </div>
-          <div className="flex items-center gap-2 text-xs text-text-tertiary">
-            <kbd className="px-1.5 py-0.5 bg-surface border border-border rounded font-mono">P</kbd>
+          <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-text-muted">
+            <kbd className="px-1.5 py-0.5 bg-white/5 border border-white/10 rounded font-mono text-text-primary">
+              P
+            </kbd>
             <span>{t.shortcuts.togglePlus2}</span>
           </div>
         </div>

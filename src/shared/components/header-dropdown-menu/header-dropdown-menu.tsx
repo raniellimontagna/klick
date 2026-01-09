@@ -149,7 +149,7 @@ export function HeaderDropdownMenu({
             initial="hidden"
             animate="visible"
             exit="hidden"
-            className={`${menuPositionClass} ${widthClass} bg-gray-800 border border-gray-700 rounded-xl shadow-xl z-1000 overflow-hidden`}
+            className={`${menuPositionClass} ${widthClass} glass border border-white/10 rounded-xl shadow-2xl z-1000 overflow-hidden`}
             style={mobileStyle ?? desktopStyle}
           >
             {children}

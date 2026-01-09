@@ -53,19 +53,19 @@ export function SessionManagerModal({ isOpen, onClose }: SessionManagerModalProp
         className="flex flex-col max-h-[90vh]"
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-700">
+        <div className="flex items-center justify-between p-6 border-b border-white/10">
           <div className="flex items-center gap-3">
             <FolderOpen className="text-primary" size={24} />
-            <h2 className="text-xl font-bold text-white">{t.sessions.manage}</h2>
+            <h2 className="text-xl font-bold text-text-primary">{t.sessions.manage}</h2>
           </div>
           <Button
             onClick={onClose}
             variant="ghost"
             size="icon"
-            className="hover:bg-gray-700"
+            className="hover:bg-white/10 text-text-secondary hover:text-text-primary"
             aria-label={t.actions.close}
           >
-            <X size={20} className="text-gray-400" />
+            <X size={20} className="text-text-muted" />
           </Button>
         </div>
 
@@ -75,7 +75,7 @@ export function SessionManagerModal({ isOpen, onClose }: SessionManagerModalProp
           <div className="mb-6">
             <label
               htmlFor="new-session-name"
-              className="block text-sm font-medium text-gray-300 mb-2"
+              className="block text-sm font-medium text-text-secondary mb-2"
             >
               {t.sessions.create}
             </label>
@@ -87,7 +87,7 @@ export function SessionManagerModal({ isOpen, onClose }: SessionManagerModalProp
                 onChange={(e) => setNewSessionName(e.target.value)}
                 onKeyDown={(e) => handleKeyDown(e, handleCreate)}
                 placeholder={t.sessions.namePlaceholder}
-                className="flex-1 px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-primary"
+                className="flex-1 px-4 py-2 bg-black/20 border border-white/10 rounded-lg text-text-primary placeholder-text-muted focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
               />
               <Button
                 onClick={handleCreate}
@@ -102,15 +102,20 @@ export function SessionManagerModal({ isOpen, onClose }: SessionManagerModalProp
 
           {/* Sessions List */}
           <div>
-            <label htmlFor="session-list" className="block text-sm font-medium text-gray-300 mb-2">
+            <label
+              htmlFor="session-list"
+              className="block text-sm font-medium text-text-secondary mb-2"
+            >
               {t.sessions.title}
             </label>
             <div className="space-y-2">
               {sessions.map((session) => (
                 <div
                   key={session.id}
-                  className={`p-4 bg-gray-700 rounded-lg border-2 transition-colors ${
-                    session.id === activeSessionId ? 'border-primary' : 'border-transparent'
+                  className={`p-4 bg-white/5 rounded-lg border-2 transition-colors ${
+                    session.id === activeSessionId
+                      ? 'border-primary'
+                      : 'border-transparent hover:border-white/10'
                   }`}
                 >
                   {editingId === session.id ? (
@@ -121,7 +126,7 @@ export function SessionManagerModal({ isOpen, onClose }: SessionManagerModalProp
                         value={editingName}
                         onChange={(e) => setEditingName(e.target.value)}
                         onKeyDown={(e) => handleKeyDown(e, handleSaveEdit)}
-                        className="flex-1 px-3 py-2 bg-gray-600 border border-gray-500 rounded-lg text-white focus:outline-none focus:border-primary"
+                        className="flex-1 px-3 py-2 bg-black/20 border border-white/10 rounded-lg text-text-primary focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                       />
                       <Button
                         onClick={handleSaveEdit}
@@ -135,7 +140,7 @@ export function SessionManagerModal({ isOpen, onClose }: SessionManagerModalProp
                         onClick={handleCancelEdit}
                         variant="secondary"
                         size="sm"
-                        className="px-3 py-2 bg-gray-600 hover:bg-gray-500 text-white border-none"
+                        className="px-3 py-2 bg-white/10 hover:bg-white/20 text-text-primary border-none"
                       >
                         {t.actions.cancel}
                       </Button>
@@ -151,14 +156,14 @@ export function SessionManagerModal({ isOpen, onClose }: SessionManagerModalProp
                         className="flex-1 w-full justify-start text-left text-white"
                       >
                         <div className="flex items-center gap-2">
-                          <p className="font-medium text-white">{session.name}</p>
+                          <p className="font-medium text-text-primary">{session.name}</p>
                           {session.id === activeSessionId && (
                             <span className="text-xs px-2 py-0.5 bg-primary/20 text-primary border border-primary/30 rounded">
                               Ativa
                             </span>
                           )}
                         </div>
-                        <p className="text-sm text-gray-400 mt-1">
+                        <p className="text-sm text-text-muted mt-1">
                           {session.solves.length}{' '}
                           {getSolveCountText(
                             session.solves.length,
@@ -172,10 +177,10 @@ export function SessionManagerModal({ isOpen, onClose }: SessionManagerModalProp
                           onClick={() => handleStartEdit(session.id, session.name)}
                           variant="ghost"
                           size="icon"
-                          className="hover:bg-gray-600"
+                          className="hover:bg-white/10"
                           title={t.sessions.rename}
                         >
-                          <Edit2 size={16} className="text-gray-400" />
+                          <Edit2 size={16} className="text-text-muted hover:text-text-primary" />
                         </Button>
                         <Button
                           onClick={() => setDeletingId(session.id)}
@@ -196,11 +201,11 @@ export function SessionManagerModal({ isOpen, onClose }: SessionManagerModalProp
         </div>
 
         {/* Footer */}
-        <div className="p-6 border-t border-gray-700 flex justify-end">
+        <div className="p-6 border-t border-white/10 flex justify-end">
           <Button
             onClick={onClose}
             variant="secondary"
-            className="px-6 py-2 bg-gray-700 hover:bg-gray-600 text-white border-none"
+            className="px-6 py-2 bg-white/5 hover:bg-white/10 text-text-primary border-none"
           >
             {t.actions.close}
           </Button>

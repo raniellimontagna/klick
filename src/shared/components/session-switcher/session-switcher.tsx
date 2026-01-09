@@ -55,18 +55,18 @@ export function SessionSwitcher({
               key={session.id}
               onClick={() => handleSessionSelect(session.id)}
               variant="ghost"
-              className={`w-full px-3 sm:px-4 py-2.5 sm:py-3 justify-start text-left hover:bg-gray-700 border-b border-gray-700/50 last:border-b-0 focus-visible:ring-offset-gray-900 ${
+              className={`w-full px-3 sm:px-4 py-2.5 sm:py-3 justify-start text-left hover:bg-white/10 border-b border-white/5 last:border-b-0 ${
                 session.id === activeSessionId
-                  ? 'bg-gray-800 text-white'
-                  : 'text-gray-300 hover:bg-gray-850'
+                  ? 'bg-white/10 text-text-primary'
+                  : 'text-text-secondary hover:text-text-primary'
               }`}
             >
               <div className="flex items-center justify-between gap-2 w-full">
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs sm:text-sm font-medium text-white truncate">
+                  <p className="text-xs sm:text-sm font-medium text-text-primary truncate">
                     {session.name}
                   </p>
-                  <p className="text-xs text-gray-400 mt-0.5">
+                  <p className="text-xs text-text-muted mt-0.5">
                     {session.solves.length} {getSolveCountText(session.solves.length)}
                   </p>
                 </div>
@@ -85,10 +85,12 @@ export function SessionSwitcher({
             onManageClick();
           }}
           variant="ghost"
-          className="w-full px-3 sm:px-4 py-2.5 sm:py-3 flex items-center gap-2 justify-start text-gray-200 hover:bg-gray-850"
+          className="w-full px-3 sm:px-4 py-2.5 sm:py-3 flex items-center gap-2 justify-start text-text-secondary hover:bg-white/10 hover:text-text-primary border-t border-white/5"
         >
           <Settings size={16} className="text-primary shrink-0 w-4 h-4" />
-          <span className="text-xs sm:text-sm font-medium text-white">{t.sessions.manage}</span>
+          <span className="text-xs sm:text-sm font-medium text-text-primary">
+            {t.sessions.manage}
+          </span>
         </Button>
       </HeaderDropdownMenu>
     </div>

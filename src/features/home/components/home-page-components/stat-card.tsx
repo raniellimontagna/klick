@@ -10,6 +10,7 @@ interface StatCardProps {
   value: string;
   icon?: LucideIcon;
   variant?: StatCardVariant;
+  className?: string;
 }
 
 const variantClasses: Record<StatCardVariant, string> = {
@@ -18,7 +19,13 @@ const variantClasses: Record<StatCardVariant, string> = {
   accent: 'bg-accent/20 border-accent/40',
 };
 
-export function StatCard({ label, value, icon: Icon, variant = 'secondary' }: StatCardProps) {
+export function StatCard({
+  label,
+  value,
+  icon: Icon,
+  variant = 'secondary',
+  className,
+}: StatCardProps) {
   return (
     <motion.div
       variants={scale}
@@ -30,13 +37,26 @@ export function StatCard({ label, value, icon: Icon, variant = 'secondary' }: St
       <Card
         variant="surface"
         padding="none"
-        className={cn('p-3 sm:p-4 transition-all bg-gray-800', variantClasses[variant])}
+        className={cn(
+          'p-3 sm:p-4 transition-all bg-white/5 backdrop-blur-sm border-white/5 hover:border-white/10 group',
+          variantClasses[variant],
+          className,
+        )}
       >
         <div className="flex items-center gap-2 mb-2">
-          {Icon && <Icon size={16} className="text-gray-400 sm:w-5 sm:h-5" />}
-          <h3 className="text-xs sm:text-sm font-medium text-gray-400">{label}</h3>
+          {Icon && (
+            <Icon
+              size={16}
+              className="text-text-muted group-hover:text-primary transition-colors sm:w-5 sm:h-5"
+            />
+          )}
+          <h3 className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-text-muted">
+            {label}
+          </h3>
         </div>
-        <p className="text-xl sm:text-2xl font-bold text-white tabular-nums">{value}</p>
+        <p className="text-xl sm:text-2xl font-bold text-text-primary tabular-nums tracking-tight">
+          {value}
+        </p>
       </Card>
     </motion.div>
   );

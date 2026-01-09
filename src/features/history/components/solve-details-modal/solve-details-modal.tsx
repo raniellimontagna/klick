@@ -64,14 +64,13 @@ export function SolveDetailsModal({
             {formatFullDate(solve.createdAt)}
           </span>
         </div>
-        <Button
+        <button
+          type="button"
           onClick={onClose}
-          variant="ghost"
-          size="icon"
-          className="text-text-muted hover:text-text-primary hover:bg-white/5 rounded-full"
+          className="p-2 rounded-xl glass-button border border-white/10 hover:border-white/20 hover:bg-white/10 text-text-secondary hover:text-text-primary transition-all"
         >
-          <X size={24} />
-        </Button>
+          <X size={20} />
+        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 sm:p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -154,14 +153,14 @@ export function SolveDetailsModal({
               <Button
                 onClick={() => togglePenalty('+2')}
                 variant={solve.penalty === '+2' ? 'primary' : 'secondary'}
-                className={`font-bold transition-all ${solve.penalty === '+2' ? 'bg-warning text-gray-900 hover:bg-warning/90' : 'bg-surface hover:bg-surface-hover border border-white/5'}`}
+                className={`font-bold transition-all ${solve.penalty === '+2' ? 'bg-warning text-black hover:bg-warning/90' : 'bg-white/5 hover:bg-white/10 border border-white/10'}`}
               >
                 +2
               </Button>
               <Button
                 onClick={() => togglePenalty('DNF')}
                 variant={solve.penalty === 'DNF' ? 'primary' : 'secondary'}
-                className={`font-bold transition-all ${solve.penalty === 'DNF' ? 'bg-danger text-white hover:bg-danger/90' : 'bg-surface hover:bg-surface-hover border border-white/5'}`}
+                className={`font-bold transition-all ${solve.penalty === 'DNF' ? 'bg-danger text-white hover:bg-danger/90' : 'bg-white/5 hover:bg-white/10 border border-white/10'}`}
               >
                 DNF
               </Button>

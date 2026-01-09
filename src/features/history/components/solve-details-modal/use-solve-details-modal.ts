@@ -55,9 +55,9 @@ export function useSolveDetailsModal(solve: Solve | null) {
     if (!solve) {
       return {
         label: t.penalties.none,
-        color: 'text-gray-400',
-        bgColor: 'bg-gray-700',
-        borderColor: 'border-gray-600',
+        color: 'text-text-muted',
+        bgColor: 'bg-white/5',
+        borderColor: 'border-white/10',
       };
     }
 
@@ -81,9 +81,9 @@ export function useSolveDetailsModal(solve: Solve | null) {
 
     return {
       label: t.penalties.none,
-      color: 'text-gray-400',
-      bgColor: 'bg-gray-700',
-      borderColor: 'border-gray-600',
+      color: 'text-text-muted',
+      bgColor: 'bg-white/5',
+      borderColor: 'border-white/10',
     };
   }, [solve, t.penalties]);
 

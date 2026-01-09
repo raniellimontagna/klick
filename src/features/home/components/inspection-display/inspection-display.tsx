@@ -18,9 +18,9 @@ export function InspectionDisplay({ timeLeft, state }: InspectionDisplayProps) {
   const isCritical = timeLeft > 17;
 
   const getColor = () => {
-    if (isCritical) return 'text-red-500';
-    if (isDanger) return 'text-orange-500';
-    if (isWarning) return 'text-yellow-500';
+    if (isCritical) return 'text-danger';
+    if (isDanger) return 'text-warning';
+    if (isWarning) return 'text-warning';
     return 'text-accent';
   };
 
@@ -58,7 +58,7 @@ export function InspectionDisplay({ timeLeft, state }: InspectionDisplayProps) {
           key={Math.ceil(timeLeft)}
           initial={{ scale: 1.2, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          className={`text-4xl sm:text-5xl md:text-6xl font-bold ${getColor()}`}
+          className={`text-5xl sm:text-6xl md:text-8xl font-black font-mono tracking-tighter ${getColor()}`}
         >
           {Math.ceil(timeLeft)}s
         </motion.div>
@@ -70,7 +70,7 @@ export function InspectionDisplay({ timeLeft, state }: InspectionDisplayProps) {
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="flex items-center gap-2 text-lg sm:text-2xl font-bold text-red-500"
+            className="flex items-center gap-2 text-lg sm:text-2xl font-bold text-danger uppercase tracking-widest"
           >
             <AlertTriangle size={20} className="sm:w-6 sm:h-6" />
             <span>{getMessage()}</span>
