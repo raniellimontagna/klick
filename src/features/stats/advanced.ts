@@ -90,7 +90,7 @@ export function calculateStandardDeviation(solves: Solve[]): number {
   }
 
   const mean = validTimes.reduce((acc, t) => acc + t, 0) / validTimes.length;
-  const squaredDiffs = validTimes.map((t) => Math.pow(t - mean, 2));
+  const squaredDiffs = validTimes.map((t) => (t - mean) ** 2);
   const variance = squaredDiffs.reduce((acc, d) => acc + d, 0) / validTimes.length;
 
   return Math.sqrt(variance);

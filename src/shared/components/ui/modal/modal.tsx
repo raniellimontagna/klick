@@ -1,6 +1,6 @@
-import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
 interface ModalProps {
   isOpen: boolean;
@@ -53,7 +53,9 @@ export function Modal({
             transition={{ duration: 0.2 }}
             className={`relative w-full ${sizeClasses[size]} ${containerClassName}`}
           >
-            <div className={`bg-gray-800 border border-gray-700 shadow-2xl rounded-2xl overflow-hidden ${className}`}>
+            <div
+              className={`bg-gray-800 border border-gray-700 shadow-2xl rounded-2xl overflow-hidden ${className}`}
+            >
               {children}
             </div>
           </motion.div>

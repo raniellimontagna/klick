@@ -33,7 +33,7 @@ const withDefaults = (progress: TrainingState | undefined): TrainingState => {
   for (const [caseId, value] of Object.entries(progress)) {
     merged[caseId] = {
       repetitions: Math.max(0, value.repetitions ?? 0),
-      goal: value.goal && value.goal > 0 ? value.goal : defaultProgress[caseId]?.goal ?? 50,
+      goal: value.goal && value.goal > 0 ? value.goal : (defaultProgress[caseId]?.goal ?? 50),
       status: value.status ?? 'learning',
       notes: value.notes ?? '',
     };
@@ -60,12 +60,13 @@ export const useTrainingStore = create<TrainingStore>()(
         if (!Number.isFinite(amount) || amount === 0) return;
 
         set((state) => {
-          const current = state.progress[caseId] ?? defaultProgress[caseId] ?? {
-            repetitions: 0,
-            goal: 50,
-            status: 'learning' as TrainingStatus,
-            notes: '',
-          };
+          const current = state.progress[caseId] ??
+            defaultProgress[caseId] ?? {
+              repetitions: 0,
+              goal: 50,
+              status: 'learning' as TrainingStatus,
+              notes: '',
+            };
           const repetitions = Math.max(0, current.repetitions + amount);
 
           if (repetitions === current.repetitions) {
@@ -182,8 +183,8 @@ export const useTrainingStore = create<TrainingStore>()(
       name: 'klick-training',
       version: 1,
       merge: (_persistedState, currentState) => {
-        const persistedProgress =
-          (_persistedState as { state?: { progress?: TrainingState } })?.state?.progress;
+        const persistedProgress = (_persistedState as { state?: { progress?: TrainingState } })
+          ?.state?.progress;
         return {
           ...currentState,
           progress: withDefaults(persistedProgress),

@@ -17,7 +17,7 @@ export function ToggleButton({ value, onValueChange, className, ...props }: Togg
       className={cn(
         'relative w-12 h-6 rounded-full transition-colors p-0 justify-start focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
         value ? 'bg-primary' : 'bg-border',
-        className
+        className,
       )}
       {...props}
     >

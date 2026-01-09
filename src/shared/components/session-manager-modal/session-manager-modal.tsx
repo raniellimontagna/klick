@@ -1,7 +1,7 @@
-import { X, Plus, Edit2, Trash2, FolderOpen } from 'lucide-react';
-import { useI18nStore } from '@/shared/store/i18n-store';
-import { Toast, ConfirmDialog } from '@/shared';
+import { Edit2, FolderOpen, Plus, Trash2, X } from 'lucide-react';
+import { ConfirmDialog, Toast } from '@/shared';
 import { Button, Modal } from '@/shared/components/ui';
+import { useI18nStore } from '@/shared/store/i18n-store';
 import { useSessionManagerModal } from './use-session-manager-modal';
 
 interface SessionManagerModalProps {
@@ -102,10 +102,7 @@ export function SessionManagerModal({ isOpen, onClose }: SessionManagerModalProp
 
           {/* Sessions List */}
           <div>
-            <label
-              htmlFor="session-list"
-              className="block text-sm font-medium text-gray-300 mb-2"
-            >
+            <label htmlFor="session-list" className="block text-sm font-medium text-gray-300 mb-2">
               {t.sessions.title}
             </label>
             <div className="space-y-2">

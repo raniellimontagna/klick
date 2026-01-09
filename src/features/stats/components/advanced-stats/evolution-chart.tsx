@@ -59,7 +59,10 @@ export function EvolutionChart({ data }: EvolutionChartProps) {
               color: textColor,
             }}
             labelStyle={{ color: textColor }}
-            formatter={(value: number) => [`${value.toFixed(2)}s`, '']}
+            formatter={(value: string | undefined) => [
+              value != null ? `${Number(value).toFixed(2)}s` : '',
+              '',
+            ]}
           />
           <Legend wrapperStyle={{ color: textColor }} />
           <Line

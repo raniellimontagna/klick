@@ -1,4 +1,4 @@
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis, } from 'recharts';
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import type { TimeDistribution } from '@/features/stats/advanced';
 import { useTheme } from '@/shared/hooks/use-theme';
 import { useTranslation } from '@/shared/hooks/use-translation';
@@ -55,7 +55,10 @@ export function DistributionChart({ distribution }: DistributionChartProps) {
               color: textColor,
             }}
             labelStyle={{ color: textColor }}
-            formatter={(value: number) => [value, t.advancedStats.performance.distribution.yAxis]}
+            formatter={(value: number | string | (number | string)[] | undefined) => [
+              value ?? 0,
+              t.advancedStats.performance.distribution.yAxis,
+            ]}
           />
           <Bar dataKey="count" fill="#7C4DFF" radius={[8, 8, 0, 0]} />
         </BarChart>

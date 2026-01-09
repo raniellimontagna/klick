@@ -25,7 +25,7 @@ export const trainingCases: TrainingCase[] = [
     titleKey: 'training.cases.pll.zPerm.title',
     descriptionKey: 'training.cases.pll.zPerm.description',
     tipKey: 'training.cases.pll.zPerm.tip',
-    algorithms: ['M2 U M2 U M\' U2 M2 U2 M\''],
+    algorithms: ["M2 U M2 U M' U2 M2 U2 M'"],
   },
   {
     id: 'oll-sune',

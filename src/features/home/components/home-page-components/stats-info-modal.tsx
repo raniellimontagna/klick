@@ -1,4 +1,4 @@
-import { X, Target, TrendingUp, Award, Trophy } from 'lucide-react';
+import { Award, Target, TrendingUp, Trophy, X } from 'lucide-react';
 import { Button, Modal } from '@/shared/components/ui';
 import { useI18nStore } from '@/shared/store/i18n-store';
 
@@ -85,9 +85,7 @@ export function StatsInfoModal({ isOpen, onClose }: StatsInfoModalProps) {
                 <h3 className="text-lg font-bold text-white">{section.data.title}</h3>
               </div>
 
-              <p className="text-gray-300 mb-3 leading-relaxed">
-                {section.data.description}
-              </p>
+              <p className="text-gray-300 mb-3 leading-relaxed">{section.data.description}</p>
 
               <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
                 <p className="text-sm text-gray-400 font-mono whitespace-pre-line">
@@ -109,9 +107,7 @@ export function StatsInfoModal({ isOpen, onClose }: StatsInfoModalProps) {
         })}
 
         <div className="rounded-xl p-5 bg-red-500/10 border border-red-500/30">
-          <h3 className="text-lg font-bold text-white mb-4">
-            {t.stats.info.penalties.title}
-          </h3>
+          <h3 className="text-lg font-bold text-white mb-4">{t.stats.info.penalties.title}</h3>
           <div className="space-y-3">
             <div className="bg-gray-900/50 rounded-lg p-3 border border-gray-700">
               <p className="text-gray-300 text-sm">{t.stats.info.penalties.plus2}</p>
@@ -124,10 +120,7 @@ export function StatsInfoModal({ isOpen, onClose }: StatsInfoModalProps) {
       </div>
 
       <div className="p-6 border-t border-gray-700 shrink-0">
-        <Button
-          onClick={onClose}
-          className="w-full px-4 py-3 font-medium"
-        >
+        <Button onClick={onClose} className="w-full px-4 py-3 font-medium">
           {t.actions.close}
         </Button>
       </div>

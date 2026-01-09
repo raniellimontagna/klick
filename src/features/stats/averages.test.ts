@@ -1,11 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { Solve } from '@/shared/types';
 import {
-  calculateSingle,
   calculateAo5,
   calculateAo12,
   calculateBestAo5,
   calculateBestAo12,
+  calculateSingle,
 } from './averages';
 
 // Helper to create a solve

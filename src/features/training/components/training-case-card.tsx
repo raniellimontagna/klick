@@ -1,12 +1,12 @@
-import { useEffect, useState } from 'react';
 import { Check, Clipboard } from 'lucide-react';
-import { Card, Button } from '@/shared/components/ui';
-import { cn } from '@/shared/lib';
-import { useTranslation } from '@/shared/hooks/use-translation';
+import { useEffect, useState } from 'react';
+import { type TrainingStatus, useTrainingStore } from '@/features/training/training-store';
 import type { TrainingCase } from '@/features/training/types';
-import { useTrainingStore, type TrainingStatus } from '@/features/training/training-store';
-import { CubeVisualizer } from '@/shared/components/cube-visualizer';
 import { getTrainingVisualization } from '@/features/training/visualizations';
+import { CubeVisualizer } from '@/shared/components/cube-visualizer';
+import { Button, Card } from '@/shared/components/ui';
+import { useTranslation } from '@/shared/hooks/use-translation';
+import { cn } from '@/shared/lib';
 
 interface TrainingCaseCardProps {
   trainingCase: TrainingCase;
@@ -71,8 +71,8 @@ export function TrainingCaseCard({ trainingCase }: TrainingCaseCardProps) {
 
   const progressLabel = hasGoal
     ? t.training.progress.target
-      .replace('{current}', repetitions.toString())
-      .replace('{goal}', goal.toString())
+        .replace('{current}', repetitions.toString())
+        .replace('{goal}', goal.toString())
     : t.training.progress.noGoal.replace('{current}', repetitions.toString());
 
   const showGoalReached = hasGoal && repetitions >= goal;

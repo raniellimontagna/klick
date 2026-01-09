@@ -1,14 +1,14 @@
 import { useState } from 'react';
-import { Outlet, Link } from 'react-router-dom';
+import { Link, Outlet } from 'react-router-dom';
 import {
-  Navbar,
-  MobileNav,
-  Logo,
   LanguageSelector,
-  SessionSwitcher,
-  SessionManagerModal,
+  Logo,
+  MobileNav,
+  Navbar,
   Onboarding,
   PWAUpdatePrompt,
+  SessionManagerModal,
+  SessionSwitcher,
   useTranslation,
 } from '@/shared';
 

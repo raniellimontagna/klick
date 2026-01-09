@@ -2,8 +2,10 @@ import { motion, useMotionValue, useTransform } from 'framer-motion';
 import { forwardRef, useEffect, useState } from 'react';
 import { cn } from '@/shared/lib';
 
-
-export type RangeSliderProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'> & {
+export type RangeSliderProps = Omit<
+  React.InputHTMLAttributes<HTMLInputElement>,
+  'value' | 'onChange'
+> & {
   value: number;
   onChange: (value: number) => void;
 };
@@ -18,7 +20,6 @@ export const RangeSlider = forwardRef<HTMLInputElement, RangeSliderProps>(functi
   const progressX = useMotionValue(0);
   const progressWidth = useTransform(progressX, (v) => `${v * 100}%`);
   const thumbX = useTransform(progressX, (v) => `calc(${v * 100}% - 10px)`);
-
 
   useEffect(() => {
     progressX.set(internalValue);
@@ -66,4 +67,3 @@ export const RangeSlider = forwardRef<HTMLInputElement, RangeSliderProps>(functi
     </div>
   );
 });
-

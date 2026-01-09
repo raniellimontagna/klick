@@ -1,10 +1,13 @@
 import { motion } from 'framer-motion';
-import { X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { ONBOARDING_STEPS } from '@/features/home/lib/onboarding/config';
+import {
+  type OnboardingStep,
+  useOnboardingStore,
+} from '@/features/home/lib/onboarding/onboarding-store';
 import { Button } from '@/shared/components/ui';
 import { useTranslation } from '@/shared/hooks/use-translation';
-import { useOnboardingStore, type OnboardingStep } from '@/features/home/lib/onboarding/onboarding-store';
-import { ONBOARDING_STEPS } from '@/features/home/lib/onboarding/config';
 
 interface OnboardingTooltipProps {
   step: OnboardingStep;

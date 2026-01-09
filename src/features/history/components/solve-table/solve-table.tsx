@@ -1,11 +1,11 @@
-import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Trash2, Eye } from 'lucide-react';
-import { useI18nStore } from '@/shared/store/i18n-store';
-import { useSessionsStore } from '@/shared/store/sessions-store';
+import { Eye, Trash2 } from 'lucide-react';
+import { useState } from 'react';
 import { ConfirmDialog } from '@/shared';
 import { Button } from '@/shared/components/ui';
 import { fadeIn, formatTime } from '@/shared/lib';
+import { useI18nStore } from '@/shared/store/i18n-store';
+import { useSessionsStore } from '@/shared/store/sessions-store';
 import type { Solve } from '@/shared/types';
 
 type FilterOption = 'all' | 'last5' | 'last12' | 'last50' | 'last100';
@@ -151,12 +151,13 @@ export function SolveTable({ onViewDetails }: SolveTableProps) {
                     </td>
                     <td className="px-4 py-3 text-sm">
                       <span
-                        className={`inline-flex px-2 py-1 rounded text-xs font-medium ${solve.penalty === 'DNF'
-                          ? 'bg-red-500/20 text-red-400 border border-red-500/30'
-                          : solve.penalty === '+2'
-                            ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
-                            : 'bg-gray-700 text-gray-400'
-                          }`}
+                        className={`inline-flex px-2 py-1 rounded text-xs font-medium ${
+                          solve.penalty === 'DNF'
+                            ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                            : solve.penalty === '+2'
+                              ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
+                              : 'bg-gray-700 text-gray-400'
+                        }`}
                       >
                         {getPenaltyDisplay(solve)}
                       </span>

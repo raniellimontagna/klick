@@ -1,9 +1,9 @@
 import { motion } from 'framer-motion';
 import { Settings as SettingsIcon } from 'lucide-react';
-import { SettingsContent } from './components/settings-content';
 import { PageHeader } from '@/shared';
-import { useI18nStore } from '@/shared/store/i18n-store';
 import { fadeIn } from '@/shared/lib';
+import { useI18nStore } from '@/shared/store/i18n-store';
+import { SettingsContent } from './components/settings-content';
 
 export function Settings() {
   const { t } = useI18nStore();

@@ -1,8 +1,8 @@
+import { AnimatePresence, motion } from 'framer-motion';
 import { Play, Square, Timer } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
-import type { TimerState } from '@/shared/types';
-import { useI18nStore } from '@/shared/store/i18n-store';
 import { fadeIn, formatTime } from '@/shared/lib';
+import { useI18nStore } from '@/shared/store/i18n-store';
+import type { TimerState } from '@/shared/types';
 
 interface TimerDisplayProps {
   timeMs: number;

@@ -1,9 +1,9 @@
 import { motion } from 'framer-motion';
 import { TrendingUp } from 'lucide-react';
-import { AdvancedStatsContent } from './components/advanced-stats/advanced-stats-content';
 import { PageHeader } from '@/shared';
-import { useI18nStore } from '@/shared/store/i18n-store';
 import { fadeIn } from '@/shared/lib';
+import { useI18nStore } from '@/shared/store/i18n-store';
+import { AdvancedStatsContent } from './components/advanced-stats/advanced-stats-content';
 
 export function Stats() {
   const { t } = useI18nStore();

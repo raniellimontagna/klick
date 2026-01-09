@@ -1,2 +1,2 @@
 // Tutorial feature - Tutorial e onboarding
-export { Tutorial } from './tutorial'
+export { Tutorial } from './tutorial';

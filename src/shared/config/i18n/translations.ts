@@ -1,6 +1,6 @@
-import { ptBR } from './locales/pt-BR';
 import { enUS } from './locales/en-US';
 import { esES } from './locales/es-ES';
+import { ptBR } from './locales/pt-BR';
 
 export const translations = {
   'pt-BR': ptBR,

@@ -1,13 +1,13 @@
-import { Copy, RefreshCw, Check, HelpCircle } from 'lucide-react';
-import {motion } from 'framer-motion';
-import { Button } from '@/shared/components/ui';
-import { useI18nStore } from '@/shared/store/i18n-store';
-import { slideDown } from '@/shared/lib';
-import { useScrambleBox } from './use-scramble-box';
+import { motion } from 'framer-motion';
+import { Check, Copy, HelpCircle, RefreshCw } from 'lucide-react';
 import { ScrambleGuideModal } from '@/shared/components/scramble-guide-modal/scramble-guide-modal';
 import { useScrambleGuideModal } from '@/shared/components/scramble-guide-modal/use-scramble-guide-modal';
+import { Button } from '@/shared/components/ui';
+import { slideDown } from '@/shared/lib';
+import { useI18nStore } from '@/shared/store/i18n-store';
+import { useScrambleBox } from './use-scramble-box';
 
-const MotionButton = motion(Button);
+const MotionButton = motion.create(Button);
 
 interface ScrambleBoxProps {
   scramble: string;

@@ -1,13 +1,13 @@
+import { AnimatePresence, motion } from 'framer-motion';
 import {
-  useEffect,
-  useMemo,
-  useState,
   type CSSProperties,
   type ReactNode,
   type RefObject,
+  useEffect,
+  useMemo,
+  useState,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { motion, AnimatePresence } from 'framer-motion';
 import { slideDown } from '@/shared/lib';
 
 interface HeaderDropdownMenuProps {
@@ -103,11 +103,11 @@ export function HeaderDropdownMenu({
 
   const mobileStyle = isMobileViewport
     ? {
-      top: mobileStyles.top,
-      left: mobileStyles.left,
-      right: mobileStyles.right,
-      maxHeight: mobileStyles.maxHeight > 0 ? `${mobileStyles.maxHeight}px` : undefined,
-    }
+        top: mobileStyles.top,
+        left: mobileStyles.left,
+        right: mobileStyles.right,
+        maxHeight: mobileStyles.maxHeight > 0 ? `${mobileStyles.maxHeight}px` : undefined,
+      }
     : undefined;
 
   const desktopStyle = useMemo(() => {

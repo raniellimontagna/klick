@@ -1,13 +1,13 @@
 import { motion } from 'framer-motion';
-import { useState } from 'react';
 import { History as HistoryIcon } from 'lucide-react';
+import { useState } from 'react';
 import { PageHeader } from '@/shared';
-import { SolveTable } from './components/solve-table/solve-table';
-import { SolveDetailsModal } from './components/solve-details-modal/solve-details-modal';
+import { fadeIn } from '@/shared/lib';
 import { useI18nStore } from '@/shared/store/i18n-store';
 import { useSessionsStore } from '@/shared/store/sessions-store';
-import { fadeIn } from '@/shared/lib';
 import type { Solve } from '@/shared/types';
+import { SolveDetailsModal } from './components/solve-details-modal/solve-details-modal';
+import { SolveTable } from './components/solve-table/solve-table';
 
 export function History() {
   const { t } = useI18nStore();

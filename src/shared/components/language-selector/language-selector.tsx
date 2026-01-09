@@ -1,9 +1,9 @@
+import { Check, Languages } from 'lucide-react';
 import { useRef, useState } from 'react';
-import { Languages, Check } from 'lucide-react';
-import { useI18nStore } from '@/shared/store/i18n-store';
 import { HeaderDropdownButton, HeaderDropdownMenu } from '@/shared';
 import { Button } from '@/shared/components/ui';
 import type { Language } from '@/shared/config/i18n/translations';
+import { useI18nStore } from '@/shared/store/i18n-store';
 
 export function LanguageSelector() {
   const [isOpen, setIsOpen] = useState(false);

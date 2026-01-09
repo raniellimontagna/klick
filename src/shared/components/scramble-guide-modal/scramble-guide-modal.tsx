@@ -1,4 +1,4 @@
-import { X, Book } from 'lucide-react';
+import { Book, X } from 'lucide-react';
 import { Button, Modal } from '@/shared/components/ui';
 import { useI18nStore } from '@/shared/store/i18n-store';
 
@@ -9,12 +9,6 @@ type ScrambleGuideModalProps = {
 
 export const ScrambleGuideModal = ({ isOpen, onClose }: ScrambleGuideModalProps) => {
   const { t } = useI18nStore();
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      onClose();
-    }
-  };
 
   const faceColors = {
     R: 'bg-red-500',
@@ -35,7 +29,7 @@ export const ScrambleGuideModal = ({ isOpen, onClose }: ScrambleGuideModalProps)
       containerClassName="p-4 max-w-2xl"
       className="max-h-[90vh]"
     >
-      <div onKeyDown={handleKeyDown} className="max-h-[90vh] overflow-y-auto p-6">
+      <div className="max-h-[90vh] overflow-y-auto p-6">
         {/* Header */}
         <div className="mb-6 flex items-center justify-between">
           <div className="flex items-center gap-2">

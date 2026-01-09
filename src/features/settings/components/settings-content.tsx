@@ -1,11 +1,18 @@
-import { Download, Upload, Sun, Moon } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { Download, Moon, Sun, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
-import { Button, ToggleButton, RangeSlider, RadioGroup, RadioButton, Card } from '@/shared/components/ui';
-import { useSettingsStore } from '@/shared/store/settings-store';
-import { useSessionsStore } from '@/shared/store/sessions-store';
-import { useI18nStore } from '@/shared/store/i18n-store';
+import {
+  Button,
+  Card,
+  RadioButton,
+  RadioGroup,
+  RangeSlider,
+  ToggleButton,
+} from '@/shared/components/ui';
 import { useTheme } from '@/shared/hooks/use-theme';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useI18nStore } from '@/shared/store/i18n-store';
+import { useSessionsStore } from '@/shared/store/sessions-store';
+import { useSettingsStore } from '@/shared/store/settings-store';
 
 type ExportImportMessage = {
   type: 'success' | 'error';
@@ -97,10 +104,11 @@ export function SettingsContent() {
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className={`p-4 rounded-lg border ${message.type === 'success'
-              ? 'bg-green-500/10 border-green-500/30 text-green-600 dark:text-green-400'
-              : 'bg-red-500/10 border-red-500/30 text-red-600 dark:text-red-400'
-              }`}
+            className={`p-4 rounded-lg border ${
+              message.type === 'success'
+                ? 'bg-green-500/10 border-green-500/30 text-green-600 dark:text-green-400'
+                : 'bg-red-500/10 border-red-500/30 text-red-600 dark:text-red-400'
+            }`}
           >
             {message.text}
           </motion.div>
@@ -177,9 +185,10 @@ export function SettingsContent() {
           <Button
             onClick={toggleTheme}
             variant="secondary"
-            className={`flex items-center gap-2 px-4 py-2 font-medium border transition-colors ${theme !== 'light'
-              && 'bg-blue-500/20 text-blue-600 dark:text-blue-400 border-blue-500/30'
-              }`}
+            className={`flex items-center gap-2 px-4 py-2 font-medium border transition-colors ${
+              theme !== 'light' &&
+              'bg-blue-500/20 text-blue-600 dark:text-blue-400 border-blue-500/30'
+            }`}
           >
             {theme === 'light' ? (
               <>

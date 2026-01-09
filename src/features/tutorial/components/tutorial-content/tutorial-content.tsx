@@ -1,12 +1,12 @@
-import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronLeft, ChevronRight, BookOpen } from 'lucide-react';
-import { Button } from '@/shared/components/ui';
-import { useTutorialContent } from './use-tutorial-content';
-import { useI18nStore } from '@/shared/store/i18n-store';
-import { translations } from '@/shared/config/i18n/translations';
+import { AnimatePresence, motion } from 'framer-motion';
+import { BookOpen, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { TutorialStep } from '@/features/tutorial/tutorial-store';
 import { CubeVisualizer } from '@/shared/components/cube-visualizer';
+import { Button } from '@/shared/components/ui';
+import { translations } from '@/shared/config/i18n/translations';
+import { useI18nStore } from '@/shared/store/i18n-store';
 import { getTutorialVisualizationConfig } from './tutorial-visualizations';
+import { useTutorialContent } from './use-tutorial-content';
 
 function TutorialStepContent({ step }: { step: TutorialStep }) {
   const { language } = useI18nStore();
@@ -222,10 +222,7 @@ export function TutorialContent() {
           <span className="sm:hidden">Ant.</span>
         </Button>
 
-        <Button
-          onClick={handleNext}
-          className="flex items-center gap-2 px-6 py-2 font-medium"
-        >
+        <Button onClick={handleNext} className="flex items-center gap-2 px-6 py-2 font-medium">
           <span>
             {isLastStep ? t.tutorial.steps.navigation.finish : t.tutorial.steps.navigation.next}
           </span>

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { generate3x3Scramble } from './generate3x3';
 
 describe('generate3x3Scramble', () => {

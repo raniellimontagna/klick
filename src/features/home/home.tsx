@@ -1,20 +1,20 @@
 import { motion } from 'framer-motion';
+import { HelpCircle, Keyboard, Timer } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-import { Keyboard, HelpCircle, Timer } from 'lucide-react';
-import { PageHeader, Button } from '@/shared';
-import { TimerDisplay } from './components/timer-display/timer-display';
-import { ScrambleBox } from './components/scramble-box/scramble-box';
-import { InspectionDisplay } from './components/inspection-display/inspection-display';
-import { StatsInfoModal } from './components/home-page-components/stats-info-modal';
-import { StatCard } from './components/home-page-components/stat-card';
-import { useTimer } from './lib/use-timer';
-import { generate3x3Scramble } from './lib/scramble/generate3x3';
+import { useOnboardingStore } from '@/features/home/lib/onboarding/onboarding-store';
+import { Button, PageHeader } from '@/shared';
+import { fadeIn, formatAverage, slideUp } from '@/shared/lib';
+import { useI18nStore } from '@/shared/store/i18n-store';
 import { useSessionsStore } from '@/shared/store/sessions-store';
 import { useSettingsStore } from '@/shared/store/settings-store';
-import { useI18nStore } from '@/shared/store/i18n-store';
-import { useOnboardingStore } from '@/features/home/lib/onboarding/onboarding-store';
-import { slideUp, fadeIn, formatAverage } from '@/shared/lib';
 import type { Penalty } from '@/shared/types';
+import { StatCard } from './components/home-page-components/stat-card';
+import { StatsInfoModal } from './components/home-page-components/stats-info-modal';
+import { InspectionDisplay } from './components/inspection-display/inspection-display';
+import { ScrambleBox } from './components/scramble-box/scramble-box';
+import { TimerDisplay } from './components/timer-display/timer-display';
+import { generate3x3Scramble } from './lib/scramble/generate3x3';
+import { useTimer } from './lib/use-timer';
 
 export function Home() {
   const [scramble, setScramble] = useState('');

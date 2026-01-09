@@ -362,7 +362,7 @@ export const ptBR = {
       description:
         'Segure a barra de ESPAÇO para armar o timer. Solte para iniciar a inspeção (15s). Pressione ESPAÇO novamente para iniciar/parar o cronômetro.',
     },
-  stats: {
+    stats: {
       title: 'Estatísticas',
       description:
         'Acompanhe seu desempenho com métricas como Single (melhor tempo), ao5 e ao12 (médias). Clique em "📈" para ver estatísticas avançadas!',
@@ -435,7 +435,7 @@ export const ptBR = {
         jPerm: {
           title: 'J-Perm (direita)',
           description: 'Permuta dois cantos adjacentes e duas arestas opostas.',
-          tip: 'O início em F\' prepara o bloco; mantenha o ritmo e planeje o U final.',
+          tip: "O início em F' prepara o bloco; mantenha o ritmo e planeje o U final.",
         },
         zPerm: {
           title: 'Z-Perm',
@@ -447,7 +447,7 @@ export const ptBR = {
         sune: {
           title: 'Sune',
           description: 'Caso clássico com um canto orientado; orienta todas as peças amarelas.',
-          tip: 'Treine o gatilho R U R\' e mantenha o cotovelo parado para ganhar velocidade.',
+          tip: "Treine o gatilho R U R' e mantenha o cotovelo parado para ganhar velocidade.",
         },
         antisune: {
           title: 'Anti-Sune',
@@ -457,7 +457,7 @@ export const ptBR = {
         hPattern: {
           title: 'H-Pattern',
           description: 'Todos os cantos orientados e arestas invertidas em pares opostos.',
-          tip: 'Execute o bloco F...f\' sem pausar; pense em duas metades fluidas.',
+          tip: "Execute o bloco F...f' sem pausar; pense em duas metades fluidas.",
         },
       },
       f2l: {
@@ -469,12 +469,12 @@ export const ptBR = {
         backSlot: {
           title: 'Inserção Slot Traseiro',
           description: 'Canto e aresta prontos para o slot traseiro direito.',
-          tip: 'Visualize o slot enquanto executa R U\' R\'; mantenha o punho solto.',
+          tip: "Visualize o slot enquanto executa R U' R'; mantenha o punho solto.",
         },
         edgeOver: {
           title: 'Aresta sobre o Slot',
           description: 'Aresta posicionada acima do slot formando par com giro frontal.',
-          tip: 'Use U\' F\' para criar o par e devolva a face frontal com controle.',
+          tip: "Use U' F' para criar o par e devolva a face frontal com controle.",
         },
       },
     },

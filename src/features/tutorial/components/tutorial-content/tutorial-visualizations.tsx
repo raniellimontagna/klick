@@ -1,58 +1,18 @@
 import type { ReactNode } from 'react';
-import { CUBE_COLORS, type CubeVisualizationConfig } from '@/shared/components/cube-visualizer';
 import type { TutorialStep } from '@/features/tutorial/tutorial-store';
+import { CUBE_COLORS, type CubeVisualizationConfig } from '@/shared/components/cube-visualizer';
 
 const { WHITE, YELLOW, BLUE, ORANGE, GREEN, RED, GRAY } = CUBE_COLORS;
 
 type TutorialTranslation = Record<string, unknown>;
 
-const WHITE_CROSS_FACE = [
-  GRAY,
-  WHITE,
-  GRAY,
-  WHITE,
-  WHITE,
-  WHITE,
-  GRAY,
-  WHITE,
-  GRAY,
-] as const;
+const WHITE_CROSS_FACE = [GRAY, WHITE, GRAY, WHITE, WHITE, WHITE, GRAY, WHITE, GRAY] as const;
 
-const WHITE_CORNERS_FACE = [
-  WHITE,
-  GRAY,
-  WHITE,
-  GRAY,
-  WHITE,
-  GRAY,
-  WHITE,
-  GRAY,
-  WHITE,
-] as const;
+const WHITE_CORNERS_FACE = [WHITE, GRAY, WHITE, GRAY, WHITE, GRAY, WHITE, GRAY, WHITE] as const;
 
-const SECOND_LAYER_FRONT = [
-  BLUE,
-  BLUE,
-  BLUE,
-  GREEN,
-  GREEN,
-  GREEN,
-  WHITE,
-  WHITE,
-  WHITE,
-] as const;
+const SECOND_LAYER_FRONT = [BLUE, BLUE, BLUE, GREEN, GREEN, GREEN, WHITE, WHITE, WHITE] as const;
 
-const YELLOW_CROSS_FACE = [
-  YELLOW,
-  GRAY,
-  YELLOW,
-  GRAY,
-  YELLOW,
-  GRAY,
-  YELLOW,
-  GRAY,
-  YELLOW,
-] as const;
+const YELLOW_CROSS_FACE = [YELLOW, GRAY, YELLOW, GRAY, YELLOW, GRAY, YELLOW, GRAY, YELLOW] as const;
 
 const YELLOW_EDGES_FACE = [
   YELLOW,
@@ -78,17 +38,7 @@ const YELLOW_CORNERS_FACE = [
   GRAY,
 ] as const;
 
-const SOLVED_FRONT = [
-  ORANGE,
-  ORANGE,
-  ORANGE,
-  GREEN,
-  GREEN,
-  GREEN,
-  WHITE,
-  WHITE,
-  WHITE,
-] as const;
+const SOLVED_FRONT = [ORANGE, ORANGE, ORANGE, GREEN, GREEN, GREEN, WHITE, WHITE, WHITE] as const;
 
 const SOLVED_TOP = [
   YELLOW,
@@ -102,17 +52,7 @@ const SOLVED_TOP = [
   YELLOW,
 ] as const;
 
-const SOLVED_SIDE = [
-  RED,
-  RED,
-  RED,
-  BLUE,
-  BLUE,
-  BLUE,
-  WHITE,
-  WHITE,
-  WHITE,
-] as const;
+const SOLVED_SIDE = [RED, RED, RED, BLUE, BLUE, BLUE, WHITE, WHITE, WHITE] as const;
 
 const splitLabelAndAlgorithm = (value: string): { label: string; algorithm: string } => {
   const [label, ...rest] = value.split(':');
@@ -176,7 +116,9 @@ export function getTutorialVisualizationConfig(
             label: '⬆️',
           },
         ],
-        tip: (t.whiteCross as Record<string, string>).intuitive ?? ((t.whiteCross as Record<string, string[]>).tips?.[0] || ''),
+        tip:
+          (t.whiteCross as Record<string, string>).intuitive ??
+          ((t.whiteCross as Record<string, string[]>).tips?.[0] || ''),
       };
     case 'whiteCorners':
       return {
@@ -202,7 +144,12 @@ export function getTutorialVisualizationConfig(
             label: '⬅️',
           },
         ],
-        content: buildSecondLayerContent((t.secondLayer as Record<string, Record<string, string>>).algorithms as Record<string, string>),
+        content: buildSecondLayerContent(
+          (t.secondLayer as Record<string, Record<string, string>>).algorithms as Record<
+            string,
+            string
+          >,
+        ),
         tip: (t.secondLayer as Record<string, string>).tip,
       };
     case 'yellowCross':
@@ -216,7 +163,12 @@ export function getTutorialVisualizationConfig(
             label: '⬆️',
           },
         ],
-        content: buildPatternsContent((t.yellowCross as Record<string, Record<string, string>>).patterns as Record<string, string>),
+        content: buildPatternsContent(
+          (t.yellowCross as Record<string, Record<string, string>>).patterns as Record<
+            string,
+            string
+          >,
+        ),
         tip: (t.yellowCross as Record<string, string>).tip,
       };
     case 'yellowEdges':

@@ -1,10 +1,10 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { TrendingUp, Target, Zap } from 'lucide-react';
+import { Target, TrendingUp, Zap } from 'lucide-react';
 import { Button, Card } from '@/shared/components/ui';
 import { useTranslation } from '@/shared/hooks/use-translation';
-import { EvolutionChart } from './evolution-chart';
 import { DistributionChart } from './distribution-chart';
-import { useAdvancedStatsContent, type Tab } from './use-advanced-stats-modal';
+import { EvolutionChart } from './evolution-chart';
+import { type Tab, useAdvancedStatsContent } from './use-advanced-stats-modal';
 
 export function AdvancedStatsContent() {
   const { t } = useTranslation();
@@ -53,10 +53,11 @@ export function AdvancedStatsContent() {
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               variant="ghost"
-              className={`flex items-center gap-2 px-4 py-3 border-b-2 rounded-none transition-all duration-200 ${isActive
+              className={`flex items-center gap-2 px-4 py-3 border-b-2 rounded-none transition-all duration-200 ${
+                isActive
                   ? 'border-primary text-primary'
                   : 'border-transparent text-text-secondary hover:text-text-primary'
-                }`}
+              }`}
             >
               <Icon size={18} />
               <span className="hidden sm:inline font-medium">{tab.label}</span>
@@ -215,7 +216,6 @@ export function AdvancedStatsContent() {
             )}
           </AnimatePresence>
         )}
-
       </div>
     </div>
   );

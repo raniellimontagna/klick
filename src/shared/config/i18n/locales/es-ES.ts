@@ -434,7 +434,7 @@ export const esES = {
         jPerm: {
           title: 'J-Perm (derecha)',
           description: 'Intercambia dos esquinas adyacentes y dos aristas opuestas.',
-          tip: 'El inicio con F\' prepara el bloque; planifica el último U con anticipación.',
+          tip: "El inicio con F' prepara el bloque; planifica el último U con anticipación.",
         },
         zPerm: {
           title: 'Z-Perm',
@@ -447,7 +447,7 @@ export const esES = {
           title: 'Sune',
           description:
             'Caso clásico con una esquina orientada; orienta las piezas amarillas restantes.',
-          tip: 'Practica el gatillo R U R\' y mantén el codo fijo para ganar velocidad.',
+          tip: "Practica el gatillo R U R' y mantén el codo fijo para ganar velocidad.",
         },
         antisune: {
           title: 'Anti-Sune',
@@ -457,7 +457,7 @@ export const esES = {
         hPattern: {
           title: 'Patrón H',
           description: 'Todas las esquinas orientadas con aristas invertidas en pares opuestos.',
-          tip: 'Ejecuta el bloque F...f\' como dos mitades fluidas sin detenerte.',
+          tip: "Ejecuta el bloque F...f' como dos mitades fluidas sin detenerte.",
         },
       },
       f2l: {
@@ -469,12 +469,12 @@ export const esES = {
         backSlot: {
           title: 'Inserción Hueco Trasero',
           description: 'Esquina y arista listas para el hueco trasero derecho.',
-          tip: 'Observa el hueco mientras ejecutas R U\' R\'; mantén la muñeca relajada.',
+          tip: "Observa el hueco mientras ejecutas R U' R'; mantén la muñeca relajada.",
         },
         edgeOver: {
           title: 'Arista sobre el Hueco',
           description: 'Arista colocada encima del hueco formando par con un giro frontal.',
-          tip: 'Usa U\' F\' para formar el par y devuelve la cara frontal con control.',
+          tip: "Usa U' F' para formar el par y devuelve la cara frontal con control.",
         },
       },
     },

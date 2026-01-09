@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion';
 import type { LucideIcon } from 'lucide-react';
 import { Card } from '@/shared/components/ui';
-import { cn, scale, } from '@/shared/lib';
+import { cn, scale } from '@/shared/lib';
 
 type StatCardVariant = 'primary' | 'secondary' | 'accent';
 
@@ -30,10 +30,7 @@ export function StatCard({ label, value, icon: Icon, variant = 'secondary' }: St
       <Card
         variant="surface"
         padding="none"
-        className={cn(
-          'p-3 sm:p-4 transition-all bg-gray-800',
-          variantClasses[variant],
-        )}
+        className={cn('p-3 sm:p-4 transition-all bg-gray-800', variantClasses[variant])}
       >
         <div className="flex items-center gap-2 mb-2">
           {Icon && <Icon size={16} className="text-gray-400 sm:w-5 sm:h-5" />}

@@ -1,14 +1,14 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Session, Solve, Penalty } from '@/shared/types';
 import {
-  calculateSingle,
+  type Average,
   calculateAo5,
   calculateAo12,
   calculateBestAo5,
   calculateBestAo12,
-  type Average,
+  calculateSingle,
 } from '@/features/stats/averages';
+import type { Penalty, Session, Solve } from '@/shared/types';
 
 interface SessionsStore {
   sessions: Session[];

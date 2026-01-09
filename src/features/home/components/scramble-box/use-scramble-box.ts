@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
-import { useSettingsStore } from '@/shared/store/settings-store';
 import { shouldPlaySound, sounds } from '@/shared/lib';
+import { useSettingsStore } from '@/shared/store/settings-store';
 
 export function useScrambleBox(scramble: string) {
   const [copied, setCopied] = useState(false);

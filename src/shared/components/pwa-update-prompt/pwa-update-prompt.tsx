@@ -1,4 +1,4 @@
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Download, X } from 'lucide-react';
 import { Button } from '@/shared/components/ui';
 import { useI18nStore } from '@/shared/store/i18n-store';

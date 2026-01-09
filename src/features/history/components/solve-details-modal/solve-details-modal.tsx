@@ -1,9 +1,9 @@
-import { X, Copy, Clock, Calendar, AlertTriangle } from 'lucide-react';
-import { Button, Modal, Card } from '@/shared/components/ui';
-import { useI18nStore } from '@/shared/store/i18n-store';
+import { AlertTriangle, Calendar, Clock, Copy, X } from 'lucide-react';
+import { Button, Card, Modal } from '@/shared/components/ui';
 import { formatTime } from '@/shared/lib';
-import { useSolveDetailsModal } from './use-solve-details-modal';
+import { useI18nStore } from '@/shared/store/i18n-store';
 import type { Solve } from '@/shared/types';
+import { useSolveDetailsModal } from './use-solve-details-modal';
 
 interface SolveDetailsModalProps {
   isOpen: boolean;
@@ -53,9 +53,7 @@ export function SolveDetailsModal({ isOpen, onClose, solve, solveNumber }: Solve
                 {solve.penalty === 'DNF' ? 'DNF' : formatTime(solve.effectiveMs)}
               </span>
               {solve.penalty === '+2' && (
-                <span className="text-lg text-gray-400">
-                  ({formatTime(solve.timeMs)} + 2s)
-                </span>
+                <span className="text-lg text-gray-400">({formatTime(solve.timeMs)} + 2s)</span>
               )}
             </div>
           </div>
@@ -67,8 +65,9 @@ export function SolveDetailsModal({ isOpen, onClose, solve, solveNumber }: Solve
             <h3 className="text-lg font-bold text-white">{t.solveTable.details.penalty}</h3>
           </div>
           <span
-            className={`inline-flex px-4 py-2 rounded-lg text-sm font-medium border ${penaltyInfo.bgColor
-              } ${penaltyInfo.color} ${penaltyInfo.borderColor}`}
+            className={`inline-flex px-4 py-2 rounded-lg text-sm font-medium border ${
+              penaltyInfo.bgColor
+            } ${penaltyInfo.color} ${penaltyInfo.borderColor}`}
           >
             {penaltyInfo.label}
           </span>
@@ -76,9 +75,7 @@ export function SolveDetailsModal({ isOpen, onClose, solve, solveNumber }: Solve
 
         <Card variant="overlay" padding="none" className="p-5">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-lg font-bold text-white">
-              {t.solveTable.details.scramble}
-            </h3>
+            <h3 className="text-lg font-bold text-white">{t.solveTable.details.scramble}</h3>
             <Button
               onClick={copyScramble}
               variant="secondary"

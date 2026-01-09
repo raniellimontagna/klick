@@ -1,4 +1,5 @@
 // Stats feature - Estatísticas avançadas
-export { Stats } from './stats'
-export * from './lib/averages'
-export * from './lib/advanced'
+
+export * from './lib/advanced';
+export * from './lib/averages';
+export { Stats } from './stats';

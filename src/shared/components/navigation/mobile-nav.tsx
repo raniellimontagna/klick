@@ -1,8 +1,8 @@
+import { AnimatePresence, motion } from 'framer-motion';
+import { BookOpen, Dumbbell, History, Home, Menu, Settings, TrendingUp, X } from 'lucide-react';
 import { useState } from 'react';
-import { NavLink } from 'react-router-dom';
-import { Menu, X, Home, History, TrendingUp, BookOpen, Settings, Dumbbell } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { createPortal } from 'react-dom';
+import { NavLink } from 'react-router-dom';
 import { Button } from '@/shared/components/ui';
 import { useTranslation } from '@/shared/hooks/use-translation';
 

@@ -1,8 +1,8 @@
-import { useRef, useState } from 'react';
 import { FolderOpen, Settings } from 'lucide-react';
-import { useSessionsStore } from '@/shared/store/sessions-store';
+import { useRef, useState } from 'react';
+import { Button, HeaderDropdownButton, HeaderDropdownMenu } from '@/shared';
 import { useI18nStore } from '@/shared/store/i18n-store';
-import { HeaderDropdownButton, HeaderDropdownMenu, Button } from '@/shared';
+import { useSessionsStore } from '@/shared/store/sessions-store';
 
 interface SessionSwitcherProps {
   onManageClick: () => void;

@@ -1,10 +1,10 @@
-export { CubeVisualizer } from './cube-visualizer';
-export { CubeFace } from './cube-face';
 export { AlgorithmMove } from './algorithm-move';
-export { CUBE_COLORS } from './types';
+export { CubeFace } from './cube-face';
+export { CubeVisualizer } from './cube-visualizer';
 export type {
+  AlgorithmData,
   CubeColor,
   CubeFaceData,
-  AlgorithmData,
   CubeVisualizationConfig,
 } from './types';
+export { CUBE_COLORS } from './types';

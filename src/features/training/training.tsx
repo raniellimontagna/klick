@@ -1,12 +1,12 @@
-import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Dumbbell } from 'lucide-react';
-import { PageHeader, Button, Card } from '@/shared';
+import { useMemo, useState } from 'react';
+import { Button, Card, PageHeader } from '@/shared';
 import { useTranslation } from '@/shared/hooks/use-translation';
 import { cn, slideUp, staggerContainer } from '@/shared/lib';
-import { trainingCategories, trainingCases } from './lib/training-data/cases';
-import type { TrainingCategory } from './lib/training-data/types';
 import { TrainingCaseCard } from './components/training-case-card';
+import { trainingCases, trainingCategories } from './lib/training-data/cases';
+import type { TrainingCategory } from './lib/training-data/types';
 
 export function Training() {
   const { t } = useTranslation();
@@ -53,9 +53,7 @@ export function Training() {
 
       <motion.div variants={slideUp} initial="initial" animate="animate">
         <Card variant="surface" className="space-y-2">
-          <h2 className="text-lg font-semibold text-text-primary">
-            {categoryContent.label}
-          </h2>
+          <h2 className="text-lg font-semibold text-text-primary">{categoryContent.label}</h2>
           <p className="text-sm text-text-secondary">{categoryContent.description}</p>
           <p className="text-xs text-text-tertiary">{t.training.description}</p>
         </Card>

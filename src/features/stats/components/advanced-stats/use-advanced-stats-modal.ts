@@ -1,11 +1,11 @@
-import { useState, useMemo } from 'react';
-import { useSessionsStore } from '@/shared/store/sessions-store';
+import { useMemo, useState } from 'react';
 import {
-  prepareChartData,
-  calculateAdvancedStats,
-  type ChartDataPoint,
   type AdvancedStats,
+  type ChartDataPoint,
+  calculateAdvancedStats,
+  prepareChartData,
 } from '@/features/stats/advanced';
+import { useSessionsStore } from '@/shared/store/sessions-store';
 
 export type Tab = 'evolution' | 'consistency' | 'performance';
 

@@ -1,5 +1,5 @@
-import { CheckCircle, XCircle, Info, AlertCircle, X } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
+import { AlertCircle, CheckCircle, Info, X, XCircle } from 'lucide-react';
 import { Button } from '@/shared/components/ui';
 import { slideInRight } from '@/shared/lib';
 import { useToast } from './use-toast';
