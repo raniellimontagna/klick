@@ -1,5 +1,5 @@
-import type { CubeVisualizationConfig } from '@/components/cubeVisualizer';
-import { CUBE_COLORS } from '@/components/cubeVisualizer';
+import type { CubeVisualizationConfig } from '@/shared/components/cube-visualizer';
+import { CUBE_COLORS } from '@/shared/components/cube-visualizer';
 
 const { YELLOW } = CUBE_COLORS;
 

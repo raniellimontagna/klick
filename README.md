@@ -191,56 +191,77 @@ Clique no botão **Estatísticas Avançadas** (📈) no header para acessar:
 
 ## 📁 Estrutura do Projeto
 
+**Arquitetura baseada em features** - Cada feature é auto-contida com seus componentes, lógica e testes:
+
 ```
 src/
-├── components/         # React components compartilhados
-│   ├── navigation/
-│   ├── pageHeader/
-│   ├── timerDisplay/
-│   ├── scrambleBox/
-│   ├── onboarding/
-│   ├── advancedStatsModal/
-│   ├── sessionManagerModal/
-│   └── ui/
-├── features/           # Regras de negócio e dados
-│   ├── timer/
-│   ├── scramble/
-│   ├── stats/
-│   ├── onboarding/
-│   └── training/
-├── stores/             # Zustand stores
-│   ├── sessionsStore.ts
-│   ├── settingsStore.ts
-│   ├── trainingStore.ts
-│   ├── i18nStore.ts
-│   └── onboardingStore.ts
-├── pages/
-│   ├── homePage/
-│   │   ├── HomePage.tsx
-│   │   └── components/
-│   │       ├── StatCard.tsx
-│   │       └── StatsInfoModal.tsx
-│   ├── trainingPage/
-│   │   ├── TrainingPage.tsx
-│   │   └── components/
-│   │       └── TrainingCaseCard.tsx
-│   ├── historyPage/
-│   ├── statsPage/
-│   ├── tutorialPage/
-│   └── settingsPage/
-├── i18n/               # Internacionalização
-│   └── locales/
-│       ├── pt-BR.ts
-│       ├── en-US.ts
-│       └── es-ES.ts
-├── hooks/              # Custom hooks
-│   ├── useTranslation.ts
-│   └── useTheme.ts
-├── utils/              # Utilitários (formatters, animações, sons)
-├── types/              # Tipagens compartilhadas
-└── test/              # Test configuration
-    └── setup.ts
+├── features/                      # Features completas e independentes
+│   ├── home/                     # Timer principal e dashboard
+│   │   ├── components/           # Componentes da feature
+│   │   │   ├── timer-display/
+│   │   │   ├── scramble-box/
+│   │   │   ├── inspection-display/
+│   │   │   ├── stat-card/
+│   │   │   └── home-page-components/
+│   │   ├── lib/                  # Lógica de negócio
+│   │   │   ├── useTimer.ts
+│   │   │   ├── scramble/
+│   │   │   └── onboarding/
+│   │   ├── __tests__/            # Testes da feature
+│   │   ├── home.tsx              # Componente principal
+│   │   └── index.ts              # Barrel export
+│   │
+│   ├── history/                  # Histórico de solves
+│   ├── stats/                    # Estatísticas avançadas
+│   ├── training/                 # Treinamento (OLL/PLL/F2L)
+│   ├── settings/                 # Configurações
+│   └── tutorial/                 # Tutorial para iniciantes
+│
+├── shared/                       # Código compartilhado entre features
+│   ├── components/               # Componentes UI reutilizáveis
+│   │   ├── ui/                   # Sistema de design (Button, Card, etc)
+│   │   ├── navigation/           # Navbar e MobileNav
+│   │   ├── logo/
+│   │   ├── page-header/
+│   │   ├── session-switcher/
+│   │   ├── language-selector/
+│   │   ├── cube-visualizer/
+│   │   ├── onboarding/
+│   │   └── ...
+│   ├── lib/                      # Utilitários (formatters, animations, sounds)
+│   ├── store/                    # Zustand stores
+│   │   └── stores/
+│   │       ├── sessionsStore.ts
+│   │       ├── settingsStore.ts
+│   │       ├── i18nStore.ts
+│   │       ├── onboardingStore.ts
+│   │       ├── trainingStore.ts
+│   │       └── tutorialStore.ts
+│   ├── config/                   # Configurações globais
+│   │   └── i18n/                # Internacionalização
+│   │       └── locales/
+│   │           ├── pt-BR.ts
+│   │           ├── en-US.ts
+│   │           └── es-ES.ts
+│   ├── hooks/                    # Hooks compartilhados
+│   │   └── hooks/
+│   │       ├── useTranslation.ts
+│   │       └── useTheme.ts
+│   └── index.ts                  # Barrel export principal
+│
+├── layouts/                      # Layouts da aplicação
+│   └── MainLayout.tsx
+├── AppRouter.tsx                 # Configuração de rotas
+├── App.tsx                       # Componente raiz
+└── main.tsx                      # Entry point
 ```
+
+### Benefícios da arquitetura
+
+- **Coesão**: Cada feature agrupa componentes, lógica e testes relacionados
+- **Escalabilidade**: Adicionar features é simples - basta criar nova pasta
+- **Reutilização**: `shared/` contém apenas código verdadeiramente compartilhado
+- **Manutenibilidade**: Fácil localizar e modificar código de uma feature específica
 
 ## 💻 Code Standards
 

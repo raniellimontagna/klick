@@ -1,12 +1,16 @@
 import { useState } from 'react';
 import { Outlet, Link } from 'react-router-dom';
-import { Navbar, MobileNav } from '../components/navigation';
-import { Logo } from '../components/logo/Logo';
-import { LanguageSelector } from '../components/languageSelector/LanguageSelector';
-import { SessionSwitcher, SessionManagerModal } from '../components';
-import { Onboarding } from '../components/onboarding/Onboarding';
-import { PWAUpdatePrompt } from '../components/pwaUpdatePrompt/PWAUpdatePrompt';
-import { useTranslation } from '../hooks/useTranslation';
+import {
+  Navbar,
+  MobileNav,
+  Logo,
+  LanguageSelector,
+  SessionSwitcher,
+  SessionManagerModal,
+  Onboarding,
+  PWAUpdatePrompt,
+  useTranslation,
+} from '@/shared';
 
 export function MainLayout() {
   const { t } = useTranslation();
