@@ -1,0 +1,106 @@
+@import "tailwindcss";
+
+@theme {
+  /* Premium Dark Theme */
+  --color-background: #09090b; /* Zinc 950 */
+  --color-surface: #18181b;    /* Zinc 900 */
+  --color-surface-hover: #27272a; /* Zinc 800 */
+  --color-surface-active: #3f3f46; /* Zinc 700 */
+  
+  --color-border: #27272a;     /* Zinc 800 */
+  
+  --color-text-primary: #f4f4f5;   /* Zinc 100 */
+  --color-text-secondary: #a1a1aa; /* Zinc 400 */
+  --color-text-muted: #71717a;     /* Zinc 500 */
+  
+  /* Brand Colors */
+  --color-primary: #8b5cf6;       /* Violet 500 */
+  --color-primary-hover: #7c3aed; /* Violet 600 */
+  --color-accent: #10b981;        /* Emerald 500 - for timers/success */
+  
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-info: #3b82f6;
+
+  --font-family-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-family-mono: 'JetBrains Mono', monospace;
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-text-primary);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-family: var(--font-family-sans);
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+
+  /* Glassmorphism Utility */
+  .glass {
+    background: rgba(24, 24, 27, 0.6); /* Zinc 900 with opacity */
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .glass-hover:hover {
+    background: rgba(39, 39, 42, 0.7);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .glass-button {
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+}
+
+@layer utilities {
+  /* Text Utilities */
+  .text-primary { color: var(--color-text-primary); }
+  .text-secondary { color: var(--color-text-secondary); }
+  .text-muted { color: var(--color-text-muted); }
+
+  /* Background Utilities */
+  .bg-surface { background-color: var(--color-surface); }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+  transition: background-color 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}

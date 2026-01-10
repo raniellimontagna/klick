@@ -1,14 +1,44 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
-import tailwindcss from '@tailwindcss/vite';
-import { VitePWA } from 'vite-plugin-pwa';
 import path from 'node:path';
+import tailwindcss from '@tailwindcss/vite';
+import react from '@vitejs/plugin-react';
+import { defineConfig } from 'vite';
+import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
     },
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          // Separate React and related libraries
+          if (
+            id.includes('node_modules/react') ||
+            id.includes('node_modules/react-dom') ||
+            id.includes('node_modules/react-router-dom')
+          ) {
+            return 'react-vendor';
+          }
+          // Separate charts library (recharts is quite large)
+          if (id.includes('node_modules/recharts')) {
+            return 'charts';
+          }
+          // Separate animation libraries
+          if (id.includes('node_modules/framer-motion')) {
+            return 'animation';
+          }
+          // Separate state management
+          if (id.includes('node_modules/zustand')) {
+            return 'state';
+          }
+        },
+      },
+    },
+    // Increase chunk size warning limit (optional, but helps avoid warnings for vendor chunks)
+    chunkSizeWarningLimit: 600,
   },
   plugins: [
     react(),
