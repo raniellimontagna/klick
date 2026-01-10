@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.2.0](https://github.com/raniellimontagna/klick/compare/v1.1.0...v1.2.0) (2026-01-10)
+
+
+### Features
+
+* adds multi-puzzle support and cube visualization ([5bdbe75](https://github.com/raniellimontagna/klick/commit/5bdbe754b880121c7524842bc38d1aa728d47d09))
+* applies glassmorphism UI theme and refines styles ([1474d80](https://github.com/raniellimontagna/klick/commit/1474d8045f8f731a6b08dce9238e544a5fdf9952))
+* enhance average calculation to handle legacy solves and improve effective time resolution ([2667d3e](https://github.com/raniellimontagna/klick/commit/2667d3eac5eb510ac6d8d35e2f079db6ee63ef2e))
+* enhances UI with new dark theme, timer feedback, and 3D visualizer ([0575104](https://github.com/raniellimontagna/klick/commit/0575104091f8417f7d68260e4e3142098bccc681))
+* integrates Radix UI DropdownMenu component ([83e915e](https://github.com/raniellimontagna/klick/commit/83e915e58179ca28edc921ea8102df3bc3fac27f))
+
+
+### Performance Improvements
+
+* implement route-based code splitting and optimize bundle size ([aa534bf](https://github.com/raniellimontagna/klick/commit/aa534bffeea7ddd52c439ae8261ade93aa2deddc))
+
 ## [1.1.0](https://github.com/RanielliMontagna/klick/compare/v1.0.0...v1.1.0) (2025-10-29)
 
 
