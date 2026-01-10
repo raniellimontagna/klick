@@ -1,5 +1,5 @@
-import { AnimatePresence, motion } from 'framer-motion';
 import { TrashBin2 } from '@solar-icons/react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useState } from 'react';
 import { ConfirmDialog } from '@/shared';
 import { Button } from '@/shared/components/ui';

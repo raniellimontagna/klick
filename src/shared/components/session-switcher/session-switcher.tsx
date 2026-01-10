@@ -54,7 +54,7 @@ export function SessionSwitcher({
                 key={session.id}
                 onClick={() => handleSessionSelect(session.id)}
                 className={cn(
-                  'flex items-center justify-between gap-2 py-3',
+                  'flex items-center justify-between gap-2 py-3 mb-1 last:mb-0',
                   session.id === activeSessionId && 'bg-white/10 text-text-primary',
                 )}
               >

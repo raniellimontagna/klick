@@ -1,14 +1,14 @@
-import { AnimatePresence, motion } from 'framer-motion';
 import {
-  DangerTriangle,
-  MedalRibbon,
-  BookMinimalistic,
   AltArrowLeft,
   AltArrowRight,
+  BookMinimalistic,
+  DangerTriangle,
   Lightbulb,
   MagicStick3,
+  MedalRibbon,
   Target,
 } from '@solar-icons/react';
+import { AnimatePresence, motion } from 'framer-motion';
 import type { TutorialStep } from '@/features/tutorial/tutorial-store';
 import { CubeVisualizer } from '@/shared/components/cube-visualizer';
 import { Button } from '@/shared/components/ui';

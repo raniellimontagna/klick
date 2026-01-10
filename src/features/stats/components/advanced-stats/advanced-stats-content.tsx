@@ -1,5 +1,5 @@
+import { Bolt, GraphUp, InfoCircle, Target } from '@solar-icons/react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Bolt, InfoCircle, Target, GraphUp } from '@solar-icons/react';
 import { Button } from '@/shared/components/ui';
 import { useTranslation } from '@/shared/hooks/use-translation';
 import { DistributionChart } from './distribution-chart';
