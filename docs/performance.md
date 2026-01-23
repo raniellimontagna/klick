@@ -17,7 +17,7 @@ Main app bundle:         135.40 kB │ gzip:  40.13 kB  ✅ (-70% reduction)
 React vendor:            217.73 kB │ gzip:  69.84 kB
 Charts (recharts):       345.90 kB │ gzip: 101.21 kB
 Animation (framer):      125.69 kB │ gzip:  41.44 kB
-Icons (lucide):            9.84 kB │ gzip:   3.72 kB
+Icons (solar-icons):     9.84 kB │ gzip:   3.72 kB
 State (zustand):           2.54 kB │ gzip:   1.24 kB
 Route chunks:            6-16 kB each
 ```

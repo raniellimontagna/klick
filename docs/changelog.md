@@ -17,6 +17,11 @@ All notable changes and implementation milestones for the Klick project.
 - **Deprecated API:** Updated `motion()` to `motion.create()` in scramble-box component
   - Fixes deprecation warning from framer-motion
 
+### UI/UX
+- **Icon System:** Migrated from Lucide React to Solar Icons
+  - Updated all icon usages across the application
+  - Consistent styling with Solar Linear/Bold variants
+
 ### Build
 - **Vite Configuration:** Added manual chunks configuration for optimal code splitting
 - **TypeScript Compatibility:** Fixed rolldown-vite type issues with function-based manualChunks

@@ -20,7 +20,7 @@
 | Framer Motion | 12 | Animações fluidas |
 | React Router | 7 | Navegação client-side |
 | Recharts | 3 | Gráficos responsivos |
-| Lucide React | 0.548 | Biblioteca de ícones |
+| Solar Icons | 1.0.1 | Biblioteca de ícones |
 | Vitest | 4 | Testes unitários |
 | Biome | 2 | Linting e formatting |
 | vite-plugin-pwa | 1 | PWA support |
