@@ -57,7 +57,7 @@ export default function AppRouter() {
               </Suspense>
             }
           />
-        <Route
+          <Route
             path="settings"
             element={
               <Suspense fallback={<RouteLoader />}>

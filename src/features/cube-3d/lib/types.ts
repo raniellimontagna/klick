@@ -1,11 +1,11 @@
 export const CUBE_3D_COLORS = {
-  WHITE: '#f0f0f0',
-  YELLOW: '#ffd500',
-  RED: '#ff3838',
-  BLUE: '#0051ba',
-  ORANGE: '#ff8c00',
-  GREEN: '#00d800',
-  BLACK: '#1a1a1a', // Internal faces
+  WHITE: '#FFFFFF', // Pure White
+  YELLOW: '#FFD500', // Vibrant Yellow
+  RED: '#CC0000', // Deep Red
+  BLUE: '#0045AD', // Classic Cube Blue
+  ORANGE: '#FF9500', // Bright Orange (distinct from Red)
+  GREEN: '#009E60', // Classic Cube Green
+  BLACK: '#181818', // Inner faces (slightly lighter than pure black for definition)
 } as const;
 
 // Position of a cubie (x, y, z in -1, 0, 1)
