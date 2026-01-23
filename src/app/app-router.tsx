@@ -10,6 +10,7 @@ const Stats = lazy(() => import('@/features/stats').then((m) => ({ default: m.St
 const Training = lazy(() => import('@/features/training').then((m) => ({ default: m.Training })));
 const Tutorial = lazy(() => import('@/features/tutorial').then((m) => ({ default: m.Tutorial })));
 const Settings = lazy(() => import('@/features/settings').then((m) => ({ default: m.Settings })));
+const Cube3D = lazy(() => import('@/features/cube-3d').then((m) => ({ default: m.Cube3D })));
 
 export default function AppRouter() {
   return (
@@ -56,11 +57,19 @@ export default function AppRouter() {
               </Suspense>
             }
           />
-          <Route
+        <Route
             path="settings"
             element={
               <Suspense fallback={<RouteLoader />}>
                 <Settings />
+              </Suspense>
+            }
+          />
+          <Route
+            path="cube-3d"
+            element={
+              <Suspense fallback={<RouteLoader />}>
+                <Cube3D />
               </Suspense>
             }
           />

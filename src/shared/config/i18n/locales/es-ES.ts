@@ -10,6 +10,7 @@ export const esES = {
     training: 'Entrenamiento',
     tutorial: 'Tutorial',
     settings: 'Configuración',
+    cube3d: 'Cubo 3D',
   },
   pages: {
     home: {

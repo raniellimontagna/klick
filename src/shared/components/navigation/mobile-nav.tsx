@@ -1,5 +1,6 @@
 import {
   BookMinimalistic,
+  Box,
   CloseCircle,
   Dumbbell,
   GraphUp,
@@ -25,6 +26,7 @@ export function MobileNav() {
     { to: '/stats', icon: GraphUp, label: t.navigation.stats },
     { to: '/training', icon: Dumbbell, label: t.navigation.training },
     { to: '/tutorial', icon: BookMinimalistic, label: t.navigation.tutorial },
+    { to: '/cube-3d', icon: Box, label: t.navigation.cube3d },
     { to: '/settings', icon: Settings, label: t.navigation.settings },
   ];
 
