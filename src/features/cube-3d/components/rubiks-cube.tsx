@@ -1,8 +1,8 @@
-import { useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
+import { useRef } from 'react';
 import type { Group } from 'three';
-import { type CubieData } from '../lib/types';
 import type { MoveDefinition } from '../lib/moves';
+import type { CubieData } from '../lib/types';
 import { Cubie } from './cubie';
 
 interface RubiksCubeProps {
@@ -47,7 +47,7 @@ export function RubiksCube({ cubies, moveQueue, completeMove }: RubiksCubeProps)
         cubies.forEach((cubie) => {
           // Check if cubie is in the rotating layer
           if (move.layers.includes(cubie.position[coordIndex])) {
-            const mesh = cubieRefs.current[cubie.id];
+            const mesh = cubieRefs.current[cubie.uid];
             // Using THREE.Object3D.attach preserves world transform
             if (mesh) pivot.attach(mesh);
           }
@@ -59,6 +59,8 @@ export function RubiksCube({ cubies, moveQueue, completeMove }: RubiksCubeProps)
     // 2. Process active Animation Frame
     if (isAnimating.current && currentMove.current && pivotRef.current) {
       const move = currentMove.current;
+      // Apply rotation in the direction specified by the move
+      // Direction is unified across visual, position, and face updates
       const target = (Math.PI / 2) * move.direction;
       const speed = 5; // Slower speed (approx 0.3s per move)
 
@@ -103,19 +105,19 @@ export function RubiksCube({ cubies, moveQueue, completeMove }: RubiksCubeProps)
   });
 
   return (
-    <group ref={groupRef}>
+    <group ref={groupRef} frustumCulled={false}>
       {/* Invisible pivot group for rotations */}
-      <group ref={pivotRef} />
+      <group ref={pivotRef} frustumCulled={false} />
 
       {cubies.map((cubie) => (
         <Cubie
-          key={cubie.id}
+          key={cubie.uid}
           ref={(el) => {
-            if (el) cubieRefs.current[cubie.id] = el;
+            if (el) cubieRefs.current[cubie.uid] = el;
           }}
           position={cubie.position}
           rotation={[0, 0, 0]} // Explicitly force rotation reset on render
-          colors={cubie.faces}
+          faces={cubie.faces}
         />
       ))}
     </group>

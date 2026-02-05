@@ -8,15 +8,24 @@ export const CUBE_3D_COLORS = {
   BLACK: '#181818', // Inner faces (slightly lighter than pure black for definition)
 } as const;
 
-// Position of a cubie (x, y, z in -1, 0, 1)
-export type CubiePosition = [number, number, number];
+// 3D vector type for positions and normals
+export type Vec3 = [number, number, number];
 
-// Colors of each face of a cubie (Right, Left, Up, Down, Front, Back)
-// The order of the faces in BoxGeometry is: right, left, up, down, front, back
-export type CubieFaces = [string, string, string, string, string, string];
+// Position of a cubie (x, y, z in -1, 0, 1)
+export type CubiePosition = Vec3;
+
+// A face with a normal vector and its color
+export interface CubieFace {
+  id: string; // Unique identifier for the face (e.g., 'RIGHT', 'LEFT', etc.)
+  normal: Vec3; // Direction this face points: [±1,0,0], [0,±1,0], [0,0,±1]
+  color: string;
+}
+
+// 6 faces per cubie
+export type CubieFaces = CubieFace[];
 
 export interface CubieData {
-  id: string;
+  uid: string; // Unique ID, immutable - NOT based on position
   position: CubiePosition;
   faces: CubieFaces;
 }
@@ -24,3 +33,13 @@ export interface CubieData {
 export interface CubeState {
   cubies: CubieData[];
 }
+
+// Standard face normals for reference
+export const FACE_NORMALS: Record<string, Vec3> = {
+  RIGHT: [1, 0, 0],
+  LEFT: [-1, 0, 0],
+  UP: [0, 1, 0],
+  DOWN: [0, -1, 0],
+  FRONT: [0, 0, 1],
+  BACK: [0, 0, -1],
+} as const;
