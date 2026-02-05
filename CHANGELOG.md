@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.3.0](https://github.com/raniellimontagna/klick/compare/v1.2.0...v1.3.0) (2026-02-05)
+
+
+### Features
+
+* 3d cube ([caac8a2](https://github.com/raniellimontagna/klick/commit/caac8a276dedd77f0f6c9f058da2b3d0c20793dd))
+* adds 3D Rubik's Cube visualizer feature ([8abc0d2](https://github.com/raniellimontagna/klick/commit/8abc0d28286c9ca2bc5fb58ac5021f1c1950b61b))
+* adds animated 3D Rubik's Cube visualizer ([59acb41](https://github.com/raniellimontagna/klick/commit/59acb41423fbf71c2ba41aa23420fed61986f096))
+* adds immersive UI, contact shadows, sound, and undo ([d948d0f](https://github.com/raniellimontagna/klick/commit/d948d0fd960949951fd1801066bdf0dc991aa99e))
+* adds keyboard controls and fixes animation issues ([406f3ef](https://github.com/raniellimontagna/klick/commit/406f3efcbeca9dc2deed80069fb744052236d1f8))
+* enhances 3D cube with new features and docs ([5e8f66d](https://github.com/raniellimontagna/klick/commit/5e8f66d051ae39f8c712397359f9c1b0a8bda88a))
+* implements advanced 3D cube features and immersive UI ([6d43bea](https://github.com/raniellimontagna/klick/commit/6d43bea3b42c4e31215f54d18ecb89e19020c8df))
+* implements drag-to-rotate interaction and scramble skip ([f8f7c08](https://github.com/raniellimontagna/klick/commit/f8f7c08f9ddbbca9dcd2043c73ac3125a8fff5c7))
+* redesigns cube UI with modern action bar ([97650c6](https://github.com/raniellimontagna/klick/commit/97650c6dfa398532273ea91382bfb53b218058a9))
+
 ## [1.2.0](https://github.com/raniellimontagna/klick/compare/v1.1.0...v1.2.0) (2026-01-10)
 
 
