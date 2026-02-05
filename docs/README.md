@@ -15,6 +15,7 @@ Cronômetro de cubo mágico com UI limpa, métricas visuais e feedback instantâ
 | [Componentes](./components.md) | Biblioteca de componentes reutilizáveis |
 | [Internacionalização](./i18n.md) | Sistema de traduções (pt-BR, en-US, es-ES) |
 | [PWA](./pwa.md) | Progressive Web App e offline support |
+| [Cube 3D - Melhorias](./cube-3d-improvements.md) | Roadmap de melhorias para o visualizador 3D |
 
 ## 🎯 Quick Start
 

@@ -18,7 +18,7 @@ export function CubeScene({
   return (
     <Canvas
       dpr={[1, 2]}
-      camera={{ position: [5, 4, 5], fov: 45 }}
+      camera={{ position: [6, 5, 6], fov: 40 }}
       style={{ background: '#0D1117' }}
     >
       {/* Lighting setup - simple but effective */}
@@ -35,8 +35,8 @@ export function CubeScene({
 
       <OrbitControls
         enablePan={false}
-        minDistance={5}
-        maxDistance={15}
+        minDistance={6}
+        maxDistance={12}
         autoRotate={false}
         autoRotateSpeed={0.8}
       />

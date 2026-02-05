@@ -1,12 +1,18 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useScrambleStore } from '@/shared/store/scramble-store';
 import { CubeScene } from './components/cube-scene';
+import { CubeControls } from './components/cube-controls';
+import { MoveIndicator } from './components/move-indicator';
+import { MOVES } from './lib/moves';
 import { useCubeKeyboard } from './use-cube-keyboard';
 import { useCubeState } from './use-cube-state';
 
 export function Cube3D() {
   const { cubies, reset, applyScramble, applyMove, moveQueue, completeMove } = useCubeState();
   const { scramble } = useScrambleStore();
+
+  const [lastMove, setLastMove] = useState<string | null>(null);
+  const isAnimating = moveQueue.length > 0;
 
   // Enable keyboard controls
   useCubeKeyboard({ applyMove });
@@ -23,6 +29,27 @@ export function Cube3D() {
     }
   }, [scramble, reset, applyScramble]);
 
+  // Track last move from queue
+  useEffect(() => {
+    if (moveQueue.length > 0) {
+      const currentMove = moveQueue[0];
+
+      // Find matching notation
+      const moveNotation = Object.entries(MOVES).find(
+        ([_, def]) =>
+          def.axis === currentMove.axis &&
+          def.direction === currentMove.direction &&
+          JSON.stringify(def.layers) === JSON.stringify(currentMove.layers),
+      );
+
+      if (moveNotation) {
+        setLastMove(moveNotation[0]);
+        const timer = setTimeout(() => setLastMove(null), 2000);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [moveQueue]);
+
   return (
     <div className="flex flex-col w-full h-[calc(100vh-4rem)] overflow-hidden">
       {/* Header */}
@@ -32,7 +59,8 @@ export function Cube3D() {
           <p className="text-xs text-white/50">Drag to rotate • Scroll to zoom</p>
         </div>
 
-        <div className="flex gap-2 items-center">
+        <div className="flex gap-4 items-center">
+          <CubeControls onReset={reset} isAnimating={isAnimating} />
           <span className="text-sm font-mono text-primary/80 bg-surface/50 px-3 py-1 rounded border border-white/5">
             {scramble || 'No Scramble'}
           </span>
@@ -40,7 +68,8 @@ export function Cube3D() {
       </div>
 
       {/* Canvas Container - fills remaining space */}
-      <div className="flex-1 w-full bg-[#0D1117]">
+      <div className="flex-1 w-full bg-[#0D1117] relative">
+        <MoveIndicator lastMove={lastMove} />
         <CubeScene cubies={cubies} moveQueue={moveQueue} completeMove={completeMove} />
       </div>
     </div>

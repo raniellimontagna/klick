@@ -70,16 +70,19 @@ export function RubiksCube({ cubies, moveQueue, completeMove }: RubiksCubeProps)
 
     // 2. Process animation frame
     if (isAnimating.current && pivotRef.current) {
-      const speed = 6;
-      const diff = targetAngle.current - currentAngle.current;
-      const step = Math.sign(diff) * Math.min(Math.abs(diff), speed * delta);
+      const duration = 0.25; // seconds
+      const progress = Math.min(1, currentAngle.current + delta / duration);
+      currentAngle.current = progress;
 
-      currentAngle.current += step;
-      pivotRef.current.rotation[currentAxis.current] = currentAngle.current;
+      // Cubic ease-out: f(t) = 1 - (1 - t)^3
+      const easeOutCubic = 1 - Math.pow(1 - progress, 3);
+      const angle = targetAngle.current * easeOutCubic;
+
+      pivotRef.current.rotation[currentAxis.current] = angle;
       pivotRef.current.updateMatrixWorld();
 
       // Check completion
-      if (Math.abs(targetAngle.current - currentAngle.current) < 0.001) {
+      if (progress >= 1) {
         // Snap to target
         pivotRef.current.rotation[currentAxis.current] = targetAngle.current;
         pivotRef.current.updateMatrixWorld();

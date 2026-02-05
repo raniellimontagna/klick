@@ -50,7 +50,20 @@ export const Cubie = forwardRef<Group, CubieProps>(function Cubie(
   ref,
 ) {
   return (
-    <group position={position} rotation={rotation} ref={ref} {...props} frustumCulled={false}>
+    <group
+      position={position}
+      rotation={rotation}
+      ref={ref}
+      {...props}
+      frustumCulled={false}
+      onPointerOver={(e) => {
+        e.stopPropagation();
+        document.body.style.cursor = 'grab';
+      }}
+      onPointerOut={() => {
+        document.body.style.cursor = 'default';
+      }}
+    >
       {/* Black Rounded Base */}
       <RoundedBox
         args={[BASE_SIZE, BASE_SIZE, BASE_SIZE]}
