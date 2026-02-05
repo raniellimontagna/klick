@@ -1,5 +1,7 @@
 import { ContactShadows, OrbitControls } from '@react-three/drei';
 import { Canvas } from '@react-three/fiber';
+import { useState } from 'react';
+import { useCubeInteraction } from '../hooks/use-cube-interaction';
 import type { MoveDefinition } from '../lib/moves';
 import type { CubieData } from '../lib/types';
 import { RubiksCube } from './rubiks-cube';
@@ -8,13 +10,23 @@ interface CubeSceneProps {
   cubies?: CubieData[]; // Optional initially to prevent immediate crash if parent not updated
   moveQueue?: MoveDefinition[];
   completeMove?: () => void;
+  applyMove?: (move: string) => void;
 }
 
 export function CubeScene({
   cubies = [],
   moveQueue = [],
   completeMove = () => {},
+  applyMove = () => {},
 }: CubeSceneProps) {
+  const [orbitEnabled, setOrbitEnabled] = useState(true);
+
+  const { handlePointerDown, handlePointerUp } = useCubeInteraction({
+    enabled: true,
+    applyMove,
+    setOrbitEnabled,
+  });
+
   return (
     <Canvas
       dpr={[1, 1.5]}
@@ -33,7 +45,13 @@ export function CubeScene({
 
       <group position={[0, 0.5, 0]}>
         {cubies.length > 0 && (
-          <RubiksCube cubies={cubies} moveQueue={moveQueue} completeMove={completeMove} />
+          <RubiksCube
+            cubies={cubies}
+            moveQueue={moveQueue}
+            completeMove={completeMove}
+            onPointerDown={handlePointerDown}
+            onPointerUp={handlePointerUp}
+          />
         )}
       </group>
 
@@ -54,6 +72,7 @@ export function CubeScene({
         autoRotate={false}
         autoRotateSpeed={0.8}
         makeDefault
+        enabled={orbitEnabled}
       />
     </Canvas>
   );

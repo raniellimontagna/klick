@@ -1,14 +1,17 @@
+import type { ThreeEvent } from '@react-three/fiber';
 import { useFrame } from '@react-three/fiber';
 import { useRef } from 'react';
 import type { Group } from 'three';
 import type { MoveDefinition } from '../lib/moves';
-import type { CubieData } from '../lib/types';
+import type { CubieFace, CubieData, Vec3 } from '../lib/types';
 import { Cubie } from './cubie';
 
 interface RubiksCubeProps {
   cubies: CubieData[];
   moveQueue: MoveDefinition[];
   completeMove: () => void;
+  onPointerDown?: (e: ThreeEvent<PointerEvent>, position: Vec3, face: CubieFace) => void;
+  onPointerUp?: (e: ThreeEvent<PointerEvent>) => void;
 }
 
 // Extended type to access uid if present
@@ -16,7 +19,13 @@ interface QueuedMove extends MoveDefinition {
   uid?: string;
 }
 
-export function RubiksCube({ cubies, moveQueue, completeMove }: RubiksCubeProps) {
+export function RubiksCube({
+  cubies,
+  moveQueue,
+  completeMove,
+  onPointerDown,
+  onPointerUp,
+}: RubiksCubeProps) {
   const groupRef = useRef<Group>(null);
   const pivotRef = useRef<Group>(null);
 
@@ -121,6 +130,8 @@ export function RubiksCube({ cubies, moveQueue, completeMove }: RubiksCubeProps)
           position={cubie.position}
           rotation={[0, 0, 0]}
           faces={cubie.faces}
+          onPointerDown={onPointerDown}
+          onPointerUp={onPointerUp}
         />
       ))}
     </group>

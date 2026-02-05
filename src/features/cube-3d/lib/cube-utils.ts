@@ -44,12 +44,42 @@ function createCubieFaces(x: number, y: number, z: number): CubieFace[] {
   const { BLACK, RED, ORANGE, YELLOW, WHITE, GREEN, BLUE } = CUBE_3D_COLORS;
 
   return [
-    { id: 'RIGHT', normal: FACE_NORMALS.RIGHT, color: x === 1 ? RED : BLACK },
-    { id: 'LEFT', normal: FACE_NORMALS.LEFT, color: x === -1 ? ORANGE : BLACK },
-    { id: 'UP', normal: FACE_NORMALS.UP, color: y === 1 ? WHITE : BLACK },
-    { id: 'DOWN', normal: FACE_NORMALS.DOWN, color: y === -1 ? YELLOW : BLACK },
-    { id: 'FRONT', normal: FACE_NORMALS.FRONT, color: z === 1 ? GREEN : BLACK },
-    { id: 'BACK', normal: FACE_NORMALS.BACK, color: z === -1 ? BLUE : BLACK },
+    {
+      id: 'RIGHT',
+      normal: FACE_NORMALS.RIGHT,
+      colorKey: x === 1 ? 'RIGHT' : 'BLACK',
+      color: x === 1 ? RED : BLACK,
+    },
+    {
+      id: 'LEFT',
+      normal: FACE_NORMALS.LEFT,
+      colorKey: x === -1 ? 'LEFT' : 'BLACK',
+      color: x === -1 ? ORANGE : BLACK,
+    },
+    {
+      id: 'UP',
+      normal: FACE_NORMALS.UP,
+      colorKey: y === 1 ? 'UP' : 'BLACK',
+      color: y === 1 ? WHITE : BLACK,
+    },
+    {
+      id: 'DOWN',
+      normal: FACE_NORMALS.DOWN,
+      colorKey: y === -1 ? 'DOWN' : 'BLACK',
+      color: y === -1 ? YELLOW : BLACK,
+    },
+    {
+      id: 'FRONT',
+      normal: FACE_NORMALS.FRONT,
+      colorKey: z === 1 ? 'FRONT' : 'BLACK',
+      color: z === 1 ? GREEN : BLACK,
+    },
+    {
+      id: 'BACK',
+      normal: FACE_NORMALS.BACK,
+      colorKey: z === -1 ? 'BACK' : 'BLACK',
+      color: z === -1 ? BLUE : BLACK,
+    },
   ];
 }
 
@@ -92,6 +122,7 @@ export function applyMoveToState(state: CubeState, move: MoveDefinition): CubeSt
     const newFaces = cubie.faces.map((face) => ({
       id: face.id,
       color: face.color,
+      colorKey: face.colorKey,
       normal: rotateVector(face.normal, move.axis, move.direction),
     }));
 

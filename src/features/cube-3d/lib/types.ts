@@ -1,3 +1,5 @@
+export type FaceColorKey = 'UP' | 'DOWN' | 'LEFT' | 'RIGHT' | 'FRONT' | 'BACK' | 'BLACK';
+
 export const CUBE_3D_COLORS = {
   WHITE: '#FFFFFF', // Pure White
   YELLOW: '#FFD500', // Vibrant Yellow
@@ -18,7 +20,8 @@ export type CubiePosition = Vec3;
 export interface CubieFace {
   id: string; // Unique identifier for the face (e.g., 'RIGHT', 'LEFT', etc.)
   normal: Vec3; // Direction this face points: [±1,0,0], [0,±1,0], [0,0,±1]
-  color: string;
+  colorKey: FaceColorKey;
+  color: string; // Current hex color (can be updated by theme)
 }
 
 // 6 faces per cubie

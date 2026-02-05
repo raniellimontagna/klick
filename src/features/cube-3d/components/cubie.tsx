@@ -1,12 +1,16 @@
 import { RoundedBox } from '@react-three/drei';
+import type { ThreeEvent } from '@react-three/fiber';
 import { forwardRef } from 'react';
 import type { Group } from 'three';
-import { CUBE_3D_COLORS, type CubieFaces, type Vec3 } from '../lib/types';
+import { useCubeTheme } from '../hooks/use-cube-theme';
+import type { CubieFace, CubieFaces, Vec3 } from '../lib/types';
 
 interface CubieProps {
   position: [number, number, number];
   rotation?: [number, number, number];
   faces: CubieFaces;
+  onPointerDown?: (e: ThreeEvent<PointerEvent>, position: Vec3, face: CubieFace) => void;
+  onPointerUp?: (e: ThreeEvent<PointerEvent>) => void;
 }
 
 // Configuration for placement of face plates
@@ -49,6 +53,9 @@ export const Cubie = forwardRef<Group, CubieProps>(function Cubie(
   { position, faces, rotation, ...props },
   ref,
 ) {
+  const { getCurrentPalette } = useCubeTheme();
+  const palette = getCurrentPalette();
+
   return (
     <group
       position={position}
@@ -72,7 +79,7 @@ export const Cubie = forwardRef<Group, CubieProps>(function Cubie(
         frustumCulled={false}
       >
         <meshStandardMaterial
-          color={CUBE_3D_COLORS.BLACK}
+          color={palette.BLACK}
           roughness={0.5}
           metalness={0.1}
           depthWrite={true}
@@ -81,7 +88,10 @@ export const Cubie = forwardRef<Group, CubieProps>(function Cubie(
 
       {/* Face Plates - positioned based on each face's current normal */}
       {faces.map((face) => {
-        if (face.color === CUBE_3D_COLORS.BLACK) return null;
+        // Resolve color from palette using the key
+        const faceColor = palette[face.colorKey] || face.color;
+
+        if (face.colorKey === 'BLACK') return null;
 
         const visualIndex = normalToFaceIndex(face.normal);
         if (visualIndex === -1) return null;
@@ -94,6 +104,10 @@ export const Cubie = forwardRef<Group, CubieProps>(function Cubie(
             position={config.pos as [number, number, number]}
             rotation={config.rot as [number, number, number]}
             frustumCulled={false}
+            onPointerDown={(e) => {
+              props.onPointerDown?.(e, position, face);
+            }}
+            onPointerUp={props.onPointerUp}
           >
             <RoundedBox
               args={[FACE_SIZE, FACE_SIZE, THICKNESS]}
@@ -102,7 +116,7 @@ export const Cubie = forwardRef<Group, CubieProps>(function Cubie(
               frustumCulled={false}
             >
               <meshPhysicalMaterial
-                color={face.color}
+                color={faceColor}
                 roughness={0.2}
                 metalness={0.0}
                 clearcoat={1}

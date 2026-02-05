@@ -144,13 +144,23 @@ Visualizador 3D interativo do cubo de Rubik usando Three.js.
 - **Estado:** `use-cube-state.ts` - Fila de movimentos e estado lógico
 - **Animação:** `rubiks-cube.tsx` - Rotações via pivot groups + easing
 - **Renderização:** `cubie.tsx` - Peças individuais com clearcoat material
+- **Áudio:** `use-cube-sound.ts` - Sintetizador procedural via Web Audio API
+- **Estado:** `use-cube-state.ts` - Gerencia lógica, fila, histórico e undo
 - **Sincronização:** Integrado com `scramble-store` global
 
 ### Melhorias Implementadas
 
+#### Visual & Interação
 - ✅ Easing cubic ease-out (0.25s)
 - ✅ Cursores interativos (grab)
-- ✅ Atalhos de teclado WCA
+- ✅ Sombras de contato realistas
+- ✅ Layout imersivo "Overlay"
+
+#### Funcionalidades
+- ✅ **Histórico de Movimentos:** Lista completa com scroll automático + Undo ilimitado
+- ✅ **Sons Procedurais:** Cliques percussivos sintetizados em tempo real (sem assets)
+- ✅ **Temas de Cores:** Presets (Standard, Pastel, Ocean, Neon...) + Customização por face
+
 
 ---
 

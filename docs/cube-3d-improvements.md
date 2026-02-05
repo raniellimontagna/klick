@@ -87,38 +87,23 @@
 
 ~~5. **Ambiente HDRI** ✅~~
 
-~~6. **Efeitos Sonoros** ✅~~
-   - Som de "click" ao finalizar rotação
-   - Requer assets de áudio
+### Efeitos Sonoros
+- **Status:** Concluído
+- **Descrição:** Síntese de áudio procedural (Web Audio API)
+- **Arquivo:** `src/features/cube-3d/hooks/use-cube-sound.ts`
+- **Detalhes:** Sons de "click" sintetizados em tempo real (osciladores triangle/sine), zero assets externos.
 
-~~7. **Histórico de Movimentos** ✅~~
-   - Lista dos últimos N movimentos
-   - Botão para desfazer
+### Histórico de Movimentos & Undo
+- **Status:** Concluído
+- **Descrição:** Lista de movimentos scrollável e funcão de desfazer
+- **Arquivo:** `src/features/cube-3d/components/move-history.tsx`, `use-cube-state.ts`
+- **Detalhes:** Histórico persiste na sessão, scroll automático, botão undo reverte último movimento.
 
-### 🔴 Difícil
-
-8. **Rotação por Arraste (Drag-to-Rotate)**
-   - Detectar clique em face específica
-   - Arrastar para girar aquela camada
-   - Conflito com OrbitControls
-
-9. **Solver (Algoritmo de Resolução)**
-   - Integrar algoritmo (Kociemba ou similar)
-   - Mostrar solução passo-a-passo
-   - Animação automática da solução
-
-10. **Timer de Speedcubing**
-    - Cronômetro que inicia no primeiro movimento
-    - Para automaticamente quando resolvido
-    - Detecção de estado "solved"
-
-11. **Suporte Mobile Completo**
-    - Gestos touch otimizados
-    - Separar rotação de câmera vs. rotação de face
-
-12. **Temas de Cores**
-    - Presets: Standard, Pastel, Cyberpunk, High Contrast
-    - Customização de cores por face
+### Temas de Cores
+- **Status:** Concluído
+- **Descrição:** Sistema de temas com presets e customização manual
+- **Arquivo:** `src/features/cube-3d/lib/cube-themes.ts`, `components/theme-selector.tsx`
+- **Detalhes:** 9 Presets + Customização individual de faces. Persistência via Zustand.
 
 ---
 

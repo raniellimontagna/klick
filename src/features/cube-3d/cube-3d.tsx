@@ -4,6 +4,7 @@ import { CubeControls } from './components/cube-controls';
 import { CubeScene } from './components/cube-scene';
 import { MoveHistory } from './components/move-history';
 import { MoveIndicator } from './components/move-indicator';
+import { ThemeSelector } from './components/theme-selector';
 import { useCubeSound } from './hooks/use-cube-sound';
 import { MOVES } from './lib/moves';
 import { useCubeKeyboard } from './use-cube-keyboard';
@@ -56,8 +57,6 @@ export function Cube3D() {
 
   return (
     <div className="relative w-full h-[calc(100vh-4rem)] bg-[#0D1117] overflow-hidden">
-      {/* Immersive Layout - All controls are overlays on the canvas */}
-
       {/* 1. Canvas Background */}
       <div className="absolute inset-0 z-0">
         <CubeScene
@@ -67,14 +66,17 @@ export function Cube3D() {
             completeMove();
             playClick();
           }}
+          applyMove={applyMove}
         />
       </div>
 
       {/* 2. Top Left - Title & Scramble */}
-      <div className="absolute top-6 left-6 z-10 pointer-events-none">
-        <h1 className="text-2xl font-bold text-white/90 drop-shadow-md mb-2">3D Visualizer</h1>
+      <div className="absolute top-4 left-4 md:top-6 md:left-6 z-10 pointer-events-none flex flex-col gap-2">
+        <h1 className="text-xl md:text-2xl font-bold text-white/90 drop-shadow-md">
+          3D Visualizer
+        </h1>
         <div className="pointer-events-auto inline-block">
-          <span className="text-sm font-mono text-primary/90 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-lg border border-white/10 shadow-sm">
+          <span className="text-xs md:text-sm font-mono text-primary/90 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-lg border border-white/10 shadow-sm">
             {scramble || 'Press Scramble to Start'}
           </span>
         </div>
@@ -82,19 +84,20 @@ export function Cube3D() {
 
       {/* 3. Top Right - Move Indicator & Help */}
       <MoveIndicator lastMove={lastMove} />
-      <div className="absolute top-6 right-6 z-0 text-right pointer-events-none opacity-50 hidden md:block">
+      <div className="absolute top-6 right-6 z-0 text-right pointer-events-none opacity-50 hidden lg:block">
         <p className="text-xs text-white">Drag to rotate • Scroll to zoom</p>
       </div>
 
       {/* 4. Bottom Center - History */}
-      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 w-full max-w-2xl px-4 flex justify-center pointer-events-none">
+      <div className="absolute bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-10 w-full max-w-2xl px-4 flex justify-center pointer-events-none">
         <div className="pointer-events-auto">
           <MoveHistory history={history} onUndo={undo} disabled={isAnimating} />
         </div>
       </div>
 
-      {/* 5. Bottom Right - Controls */}
-      <div className="absolute bottom-6 right-6 z-10 pointer-events-auto">
+      {/* 5. Bottom Right - Controls & Themes */}
+      <div className="absolute bottom-4 right-4 md:bottom-6 md:right-6 z-10 pointer-events-auto flex items-center gap-2">
+        <ThemeSelector />
         <CubeControls onReset={reset} isAnimating={isAnimating} />
       </div>
     </div>
