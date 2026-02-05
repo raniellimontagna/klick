@@ -10,6 +10,7 @@ export const ptBR = {
     training: 'Treino',
     tutorial: 'Tutorial',
     settings: 'Configurações',
+    cube3d: 'Cubo 3D',
   },
   pages: {
     home: {

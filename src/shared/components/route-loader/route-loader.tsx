@@ -14,7 +14,7 @@ export const RouteLoader = () => {
           }}
           className="relative"
         >
-          <div className="w-16 h-16 bg-gradient-to-br from-primary/20 to-accent/20 rounded-lg border-2 border-primary/40 shadow-lg shadow-primary/20" />
+          <div className="w-16 h-16 bg-linear-to-br from-primary/20 to-accent/20 rounded-lg border-2 border-primary/40 shadow-lg shadow-primary/20" />
           <motion.div
             className="absolute inset-0 flex items-center justify-center"
             animate={{
@@ -54,7 +54,7 @@ export const RouteLoader = () => {
         {/* Optional progress bar */}
         <div className="w-48 h-1 bg-surface rounded-full overflow-hidden">
           <motion.div
-            className="h-full bg-gradient-to-r from-primary to-accent"
+            className="h-full bg-linear-to-r from-primary to-accent"
             initial={{ x: '-100%' }}
             animate={{ x: '100%' }}
             transition={{

@@ -1,14 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useOnboardingStore } from '@/features/home/lib/onboarding/onboarding-store';
+import { useScrambleStore } from '@/shared/store/scramble-store';
 import { useSessionsStore } from '@/shared/store/sessions-store';
 import { useSettingsStore } from '@/shared/store/settings-store';
 import type { Penalty } from '@/shared/types';
 import type { CubeState } from './lib/scramble/cube-solver';
-import { generateScramble } from './lib/scramble/scramble-manager';
 import { useTimer } from './lib/use-timer';
 
 export function useHome() {
-  const [scramble, setScramble] = useState('');
+  const { scramble, generateNewScramble } = useScrambleStore();
   const [inspectionOvertime, setInspectionOvertime] = useState(0);
   const [showStatsInfo, setShowStatsInfo] = useState(false);
   const [cubeState, setCubeState] = useState<CubeState | null>(null);
@@ -32,11 +32,6 @@ export function useHome() {
   });
 
   const isFocusMode = state === 'running' || state === 'inspection';
-
-  const generateNewScramble = useCallback(() => {
-    const newScramble = generateScramble(currentPuzzle);
-    setScramble(newScramble);
-  }, [currentPuzzle]);
 
   // Calculate cube state whenever scramble changes
   useEffect(() => {

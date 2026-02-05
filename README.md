@@ -17,7 +17,7 @@
 - 📚 **Guia para iniciantes** - Aprenda a ler scrambles de cubo mágico
 - 📤 **Exportar/Importar** - Backup e migração de dados em JSON
 - � **Onboarding interativo** - Tour guiado em 7 passos para novos usuários
-- �🎯 **Ícones modernos** com Lucide React
+- �🎯 **Ícones modernos** com Solar Icons
 - ✨ **Animações fluidas** com Framer Motion
 - 📱 **PWA** - Instalável e funciona offline
 - ♿ **Interface moderna** com alto contraste e acessibilidade
@@ -197,7 +197,7 @@ Clique no botão **Estatísticas Avançadas** (📈) no header para acessar:
 - **Vite** (build tool ultrarrápido)
 - **Tailwind CSS v4** (estilização com CSS nativo e CSS variables)
 - **Zustand** (gerenciamento de estado com persistência)
-- **Lucide React** (biblioteca de ícones moderna)
+- **Solar Icons** (biblioteca de ícones moderna)
 - **Framer Motion** (animações fluidas e performáticas)
 - **Recharts** (gráficos responsivos e customizáveis)
 - **Web Audio API** (sistema de sons sintetizados)
@@ -307,7 +307,7 @@ src/
 - [x] Design mobile-first com breakpoints responsivos
 - [x] Feedback visual aprimorado (toasts, animações, transições)
 - [x] **Tema claro e escuro** com toggle no Settings
-- [x] Ícones modernos com Lucide React
+- [x] Ícones modernos com Solar Icons
 
 #### Estatísticas
 - [x] Cálculo de Single, ao5, ao12, best ao5, best ao12

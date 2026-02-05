@@ -1,5 +1,5 @@
 import { Box, Layers, Widget } from '@solar-icons/react';
-import type { ElementType } from 'react';
+import type { ComponentType } from 'react';
 import { useState } from 'react';
 import {
   DropdownMenu,
@@ -12,7 +12,11 @@ import {
 import { useSessionsStore } from '@/shared/store/sessions-store';
 import type { PuzzleType } from '@/shared/types';
 
-const PUZZLES: { type: PuzzleType; label: string; icon: ElementType }[] = [
+const PUZZLES: {
+  type: PuzzleType;
+  label: string;
+  icon: ComponentType<{ size?: number; className?: string }>;
+}[] = [
   { type: '3x3', label: '3x3x3', icon: Box },
   { type: '2x2', label: '2x2x2', icon: Widget },
   { type: '4x4', label: '4x4x4', icon: Widget },

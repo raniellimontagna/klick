@@ -10,6 +10,7 @@ export const enUS = {
     training: 'Training',
     tutorial: 'Tutorial',
     settings: 'Settings',
+    cube3d: '3D Cube',
   },
   pages: {
     home: {

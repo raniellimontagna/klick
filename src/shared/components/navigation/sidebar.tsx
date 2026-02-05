@@ -1,5 +1,6 @@
 import {
   BookMinimalistic,
+  Box,
   ChartSquare,
   Dumbbell,
   History,
@@ -21,6 +22,7 @@ export function Sidebar({ className }: { className?: string }) {
     { href: '/stats', label: t.navigation.stats, icon: ChartSquare },
     { href: '/training', label: t.navigation.training, icon: Dumbbell },
     { href: '/tutorial', label: t.navigation.tutorial, icon: BookMinimalistic },
+    { href: '/cube-3d', label: t.navigation.cube3d, icon: Box },
     { href: '/settings', label: t.navigation.settings, icon: Settings },
   ];
 

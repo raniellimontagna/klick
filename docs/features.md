@@ -126,6 +126,44 @@ Eventos sonoros via Web Audio API:
 
 ---
 
+## Cube 3D (`/src/features/cube-3d/`)
+
+Visualizador 3D interativo do cubo de Rubik usando Three.js.
+
+### Controles
+
+| Atalho | Ação |
+|--------|------|
+| `R, L, U, D, F, B` | Movimentos clockwise |
+| `Shift + tecla` | Movimentos counter-clockwise (') |
+| Mouse drag | Rotacionar câmera |
+| Scroll | Zoom in/out |
+
+### Arquitetura
+
+- **Estado:** `use-cube-state.ts` - Fila de movimentos e estado lógico
+- **Animação:** `rubiks-cube.tsx` - Rotações via pivot groups + easing
+- **Renderização:** `cubie.tsx` - Peças individuais com clearcoat material
+- **Áudio:** `use-cube-sound.ts` - Sintetizador procedural via Web Audio API
+- **Estado:** `use-cube-state.ts` - Gerencia lógica, fila, histórico e undo
+- **Sincronização:** Integrado com `scramble-store` global
+
+### Melhorias Implementadas
+
+#### Visual & Interação
+- ✅ Easing cubic ease-out (0.25s)
+- ✅ Cursores interativos (grab)
+- ✅ Sombras de contato realistas
+- ✅ Layout imersivo "Overlay"
+
+#### Funcionalidades
+- ✅ **Histórico de Movimentos:** Lista completa com scroll automático + Undo ilimitado
+- ✅ **Sons Procedurais:** Cliques percussivos sintetizados em tempo real (sem assets)
+- ✅ **Temas de Cores:** Presets (Standard, Pastel, Ocean, Neon...) + Customização por face
+
+
+---
+
 ## Export/Import
 
 - **Exportar:** JSON da sessão atual ou todas
