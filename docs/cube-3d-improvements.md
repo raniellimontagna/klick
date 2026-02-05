@@ -67,6 +67,12 @@
 - **Arquivo:** `src/features/cube-3d/cube-3d.tsx`
 - **Detalhes:** Header removido, controles flutuantes, tipografia refinada.
 
+### Drag-to-Rotate (Swipe)
+- **Status:** Concluído
+- **Descrição:** Interação por arraste para girar fatias do cubo
+- **Arquivo:** `src/features/cube-3d/hooks/use-cube-interaction.ts`
+- **Detalhes:** Detecta face clicada, mapeia swipe 2D -> 3D, integra com OrbitControls.
+
 ---
 
 ## 📋 Próximas Melhorias (Por Ordem de Complexidade)

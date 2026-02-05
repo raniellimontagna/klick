@@ -31,9 +31,9 @@ export function useCubeInteraction({
     (e: ThreeEvent<PointerEvent>, cubiePos: Vec3, face: CubieFace) => {
       if (!enabled) return;
 
-      // Stop propagation to prevent OrbitControls from handling this pointer down
       e.stopPropagation();
       setOrbitEnabled(false);
+      document.body.style.cursor = 'grabbing';
 
       dragState.current = {
         isDragging: true,
@@ -43,8 +43,6 @@ export function useCubeInteraction({
         faceId: face.id,
       };
 
-      // Ensure we get the pointerup event even if released outside the cubie
-      // In R3F, we need to capture the pointer on the canvas element
       if (e.nativeEvent.target instanceof Element) {
         e.nativeEvent.target.setPointerCapture(e.pointerId);
       }
@@ -59,33 +57,31 @@ export function useCubeInteraction({
 
       e.stopPropagation();
       setOrbitEnabled(true);
+      document.body.style.cursor = 'default';
 
       if (e.nativeEvent.target instanceof Element) {
         try {
           e.nativeEvent.target.releasePointerCapture(e.pointerId);
         } catch {
-          // Ignore release errors if pointer wasn't captured
+          // Ignore
         }
       }
 
       const endPos = new Vector2(e.clientX, e.clientY);
       const delta = endPos.sub(state.startPos);
 
-      // If drag was long enough, process it
       if (delta.length() > SWIPE_THRESHOLD) {
         const { cubiePos, faceNormal } = state;
         const [nx, ny, nz] = faceNormal;
         const [cx, cy, cz] = cubiePos;
 
-        // Determine swipe direction dominance (horizontal vs vertical)
         const isHorizontal = Math.abs(delta.x) > Math.abs(delta.y);
         const directionSign = isHorizontal ? Math.sign(delta.x) : Math.sign(delta.y);
 
         let move: string | null = null;
 
-        // Mapping 2D swipe to 3D move based on face normal
+        // UP/DOWN face (Y axis)
         if (Math.abs(ny) === 1) {
-          // UP/DOWN
           const isUp = ny === 1;
           if (isHorizontal) {
             if (cz === 1) move = directionSign > 0 ? "F'" : 'F';
@@ -96,12 +92,12 @@ export function useCubeInteraction({
             else if (cx === 0) move = directionSign > 0 ? "M'" : 'M';
             else if (cx === -1) move = directionSign > 0 ? 'L' : "L'";
           }
-          // Flip logic for DOWN face
           if (!isUp && move) {
             move = move.includes("'") ? move.replace("'", '') : move + "'";
           }
-        } else if (Math.abs(nx) === 1) {
-          // RIGHT/LEFT
+        }
+        // RIGHT/LEFT face (X axis)
+        else if (Math.abs(nx) === 1) {
           const isRight = nx === 1;
           const dir = isRight ? directionSign : -directionSign;
           if (isHorizontal) {
@@ -113,8 +109,9 @@ export function useCubeInteraction({
             else if (cz === 0) move = dir > 0 ? "S'" : 'S';
             else if (cz === -1) move = dir > 0 ? 'B' : "B'";
           }
-        } else if (Math.abs(nz) === 1) {
-          // FRONT/BACK
+        }
+        // FRONT/BACK face (Z axis)
+        else if (Math.abs(nz) === 1) {
           const isFront = nz === 1;
           const dir = isFront ? directionSign : -directionSign;
           if (isHorizontal) {

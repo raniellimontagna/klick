@@ -10,8 +10,10 @@ interface RubiksCubeProps {
   cubies: CubieData[];
   moveQueue: MoveDefinition[];
   completeMove: () => void;
+  startMove?: () => void;
   onPointerDown?: (e: ThreeEvent<PointerEvent>, position: Vec3, face: CubieFace) => void;
   onPointerUp?: (e: ThreeEvent<PointerEvent>) => void;
+  cubeGeneration?: number;
 }
 
 // Extended type to access uid if present
@@ -23,8 +25,10 @@ export function RubiksCube({
   cubies,
   moveQueue,
   completeMove,
+  startMove,
   onPointerDown,
   onPointerUp,
+  cubeGeneration = 0,
 }: RubiksCubeProps) {
   const groupRef = useRef<Group>(null);
   const pivotRef = useRef<Group>(null);
@@ -42,7 +46,26 @@ export function RubiksCube({
   useFrame((_, delta) => {
     const queuedMove = moveQueue[0] as QueuedMove | undefined;
 
-    // 1. Start new animation if not animating and queue has moves
+    // 1. Handle animation abort (e.g. Skip Scramble or Reset mid-animation)
+    if (isAnimating.current && (!queuedMove || queuedMove.uid !== currentMoveUid.current)) {
+      if (pivotRef.current) {
+        // Force detach all cubies back to main group
+        while (pivotRef.current.children.length > 0) {
+          const child = pivotRef.current.children[0];
+          groupRef.current?.attach(child);
+          child.rotation.set(0, 0, 0); // Ensure rotation is reset
+          child.updateMatrix();
+        }
+        // Reset pivot
+        pivotRef.current.rotation.set(0, 0, 0);
+        pivotRef.current.updateMatrixWorld();
+      }
+      isAnimating.current = false;
+      currentMoveUid.current = null;
+      return;
+    }
+
+    // 2. Start new animation if not animating and queue has moves
     if (!isAnimating.current) {
       if (!queuedMove) return;
 
@@ -57,6 +80,9 @@ export function RubiksCube({
       targetAngle.current = (Math.PI / 2) * queuedMove.direction;
       currentAngle.current = 0;
       isAnimating.current = true;
+
+      // Notify state manager that animation started
+      startMove?.();
 
       // Setup pivot
       if (pivotRef.current) {
@@ -123,7 +149,7 @@ export function RubiksCube({
 
       {cubies.map((cubie) => (
         <Cubie
-          key={cubie.uid}
+          key={`${cubeGeneration}-${cubie.uid}`}
           ref={(el) => {
             if (el) cubieRefs.current[cubie.uid] = el;
           }}

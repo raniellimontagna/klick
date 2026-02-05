@@ -7,17 +7,21 @@ import type { CubieData } from '../lib/types';
 import { RubiksCube } from './rubiks-cube';
 
 interface CubeSceneProps {
-  cubies?: CubieData[]; // Optional initially to prevent immediate crash if parent not updated
+  cubies?: CubieData[];
   moveQueue?: MoveDefinition[];
   completeMove?: () => void;
+  startMove?: () => void;
   applyMove?: (move: string) => void;
+  cubeGeneration?: number;
 }
 
 export function CubeScene({
   cubies = [],
   moveQueue = [],
   completeMove = () => {},
+  startMove = () => {},
   applyMove = () => {},
+  cubeGeneration = 0,
 }: CubeSceneProps) {
   const [orbitEnabled, setOrbitEnabled] = useState(true);
 
@@ -31,7 +35,7 @@ export function CubeScene({
     <Canvas
       dpr={[1, 1.5]}
       camera={{ position: [6, 5, 6], fov: 40 }}
-      style={{ background: '#0D1117' }}
+      style={{ background: '#0D1117', touchAction: 'none' }}
       shadows
     >
       <color attach="background" args={['#0D1117']} />
@@ -49,8 +53,10 @@ export function CubeScene({
             cubies={cubies}
             moveQueue={moveQueue}
             completeMove={completeMove}
+            startMove={startMove}
             onPointerDown={handlePointerDown}
             onPointerUp={handlePointerUp}
+            cubeGeneration={cubeGeneration}
           />
         )}
       </group>
