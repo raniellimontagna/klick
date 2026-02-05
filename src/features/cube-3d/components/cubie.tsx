@@ -27,10 +27,13 @@ const FACE_CONFIGS = [
 
 /**
  * Maps a normal vector to its corresponding face index.
+ * Uses Math.round to handle floating point precision issues.
  * [1,0,0]→0, [-1,0,0]→1, [0,1,0]→2, [0,-1,0]→3, [0,0,1]→4, [0,0,-1]→5
  */
 function normalToFaceIndex(normal: Vec3): number {
-  const [x, y, z] = normal;
+  const x = Math.round(normal[0]);
+  const y = Math.round(normal[1]);
+  const z = Math.round(normal[2]);
 
   if (x === 1) return 0; // RIGHT
   if (x === -1) return 1; // LEFT
@@ -48,9 +51,7 @@ export const Cubie = forwardRef<Group, CubieProps>(function Cubie(
 ) {
   return (
     <group position={position} rotation={rotation} ref={ref} {...props} frustumCulled={false}>
-      {/* 
-        1. Core: Black Rounded Base 
-      */}
+      {/* Black Rounded Base */}
       <RoundedBox
         args={[BASE_SIZE, BASE_SIZE, BASE_SIZE]}
         radius={0.08}
@@ -65,13 +66,10 @@ export const Cubie = forwardRef<Group, CubieProps>(function Cubie(
         />
       </RoundedBox>
 
-      {/* 
-        2. Face Plates - positioned based on each face's current normal
-      */}
+      {/* Face Plates - positioned based on each face's current normal */}
       {faces.map((face) => {
         if (face.color === CUBE_3D_COLORS.BLACK) return null;
 
-        // Get the visual index based on where this face's normal points NOW
         const visualIndex = normalToFaceIndex(face.normal);
         if (visualIndex === -1) return null;
 
@@ -84,7 +82,6 @@ export const Cubie = forwardRef<Group, CubieProps>(function Cubie(
             rotation={config.rot as [number, number, number]}
             frustumCulled={false}
           >
-            {/* The colored plate */}
             <RoundedBox
               args={[FACE_SIZE, FACE_SIZE, THICKNESS]}
               radius={0.04}

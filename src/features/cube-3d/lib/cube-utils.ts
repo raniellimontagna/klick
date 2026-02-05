@@ -12,36 +12,25 @@ import {
 /**
  * Rotates a 3D vector 90° around the specified axis.
  * Uses right-hand rule: dir=1 is CCW when looking from +axis toward origin.
- *
- * This single function is used for BOTH cubie positions AND face normals,
- * ensuring mathematical consistency.
  */
 export function rotateVector(vec: Vec3, axis: 'x' | 'y' | 'z', dir: 1 | -1): Vec3 {
   const [x, y, z] = vec;
 
-  // 90° rotation matrices:
-  // X-axis: [[1,0,0], [0,0,-1], [0,1,0]] for dir=1
-  // Y-axis: [[0,0,1], [0,1,0], [-1,0,0]] for dir=1
-  // Z-axis: [[0,-1,0], [1,0,0], [0,0,1]] for dir=1
-
   if (axis === 'x') {
-    // Rotate in YZ plane
-    // dir=1 (CCW from +X): (y,z) → (-z, y)
-    // dir=-1 (CW from +X): (y,z) → (z, -y)
+    // dir=1: (y,z) → (-z, y)
+    // dir=-1: (y,z) → (z, -y)
     return dir === 1 ? [x, -z, y] : [x, z, -y];
   }
 
   if (axis === 'y') {
-    // Rotate in XZ plane
-    // dir=1 (CCW from +Y): (x,z) → (z, -x)
-    // dir=-1 (CW from +Y): (x,z) → (-z, x)
+    // dir=1: (x,z) → (z, -x)
+    // dir=-1: (x,z) → (-z, x)
     return dir === 1 ? [z, y, -x] : [-z, y, x];
   }
 
   if (axis === 'z') {
-    // Rotate in XY plane
-    // dir=1 (CCW from +Z): (x,y) → (-y, x)
-    // dir=-1 (CW from +Z): (x,y) → (y, -x)
+    // dir=1: (x,y) → (-y, x)
+    // dir=-1: (x,y) → (y, -x)
     return dir === 1 ? [-y, x, z] : [y, -x, z];
   }
 
@@ -50,7 +39,6 @@ export function rotateVector(vec: Vec3, axis: 'x' | 'y' | 'z', dir: 1 | -1): Vec
 
 /**
  * Creates the initial face colors for a cubie based on its position.
- * Each face gets a normal vector and a color based on whether it's exposed.
  */
 function createCubieFaces(x: number, y: number, z: number): CubieFace[] {
   const { BLACK, RED, ORANGE, YELLOW, WHITE, GREEN, BLUE } = CUBE_3D_COLORS;
@@ -87,7 +75,6 @@ export function createSolvedCube(): CubeState {
 
 /**
  * Applies a move to the cube state.
- * Uses rotateVector for BOTH position AND face normals - no separate logic.
  */
 export function applyMoveToState(state: CubeState, move: MoveDefinition): CubeState {
   const axisIndex = move.axis === 'x' ? 0 : move.axis === 'y' ? 1 : 2;
@@ -101,10 +88,10 @@ export function applyMoveToState(state: CubeState, move: MoveDefinition): CubeSt
     // Rotate position
     const newPosition = rotateVector(cubie.position, move.axis, move.direction);
 
-    // Rotate ALL face normals using the SAME function
+    // Rotate ALL face normals
     const newFaces = cubie.faces.map((face) => ({
-      id: face.id, // ID is stable
-      color: face.color, // Color stays attached to the face
+      id: face.id,
+      color: face.color,
       normal: rotateVector(face.normal, move.axis, move.direction),
     }));
 

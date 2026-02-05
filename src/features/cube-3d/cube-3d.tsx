@@ -1,11 +1,15 @@
 import { useEffect } from 'react';
 import { useScrambleStore } from '@/shared/store/scramble-store';
 import { CubeScene } from './components/cube-scene';
+import { useCubeKeyboard } from './use-cube-keyboard';
 import { useCubeState } from './use-cube-state';
 
 export function Cube3D() {
-  const { cubies, reset, applyScramble, moveQueue, completeMove } = useCubeState();
+  const { cubies, reset, applyScramble, applyMove, moveQueue, completeMove } = useCubeState();
   const { scramble } = useScrambleStore();
+
+  // Enable keyboard controls
+  useCubeKeyboard({ applyMove });
 
   // Sync cube state with global scramble
   useEffect(() => {

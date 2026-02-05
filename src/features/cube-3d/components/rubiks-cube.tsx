@@ -11,44 +11,56 @@ interface RubiksCubeProps {
   completeMove: () => void;
 }
 
+// Extended type to access uid if present
+interface QueuedMove extends MoveDefinition {
+  uid?: string;
+}
+
 export function RubiksCube({ cubies, moveQueue, completeMove }: RubiksCubeProps) {
   const groupRef = useRef<Group>(null);
   const pivotRef = useRef<Group>(null);
 
-  // Animation state Refs (mutable to avoid re-renders during loop)
+  // Animation state
   const isAnimating = useRef(false);
-  const currentMove = useRef<MoveDefinition | null>(null);
+  const currentMoveUid = useRef<string | null>(null);
   const currentAngle = useRef(0);
+  const targetAngle = useRef(0);
+  const currentAxis = useRef<'x' | 'y' | 'z'>('x');
 
   // Map of cubie IDs to their ThreeJS Group objects
   const cubieRefs = useRef<Record<string, Group>>({});
 
   useFrame((_, delta) => {
-    // 1. Start Animation if idle and queue has moves
+    const queuedMove = moveQueue[0] as QueuedMove | undefined;
+
+    // 1. Start new animation if not animating and queue has moves
     if (!isAnimating.current) {
-      if (moveQueue.length === 0) return;
+      if (!queuedMove) return;
 
-      const move = moveQueue[0];
-      currentMove.current = move;
-      isAnimating.current = true;
+      // Skip if we already animated this exact move (StrictMode protection)
+      if (queuedMove.uid && currentMoveUid.current === queuedMove.uid) {
+        return;
+      }
+
+      // Start animation
+      currentMoveUid.current = queuedMove.uid || null;
+      currentAxis.current = queuedMove.axis;
+      targetAngle.current = (Math.PI / 2) * queuedMove.direction;
       currentAngle.current = 0;
+      isAnimating.current = true;
 
-      // Reset pivot to origin
+      // Setup pivot
       if (pivotRef.current) {
         const pivot = pivotRef.current;
         pivot.rotation.set(0, 0, 0);
         pivot.position.set(0, 0, 0);
         pivot.updateMatrixWorld();
 
-        // Attach affected cubies to pivot group
-        // Axis mapping: x=0, y=1, z=2 in position array
-        const coordIndex = move.axis === 'x' ? 0 : move.axis === 'y' ? 1 : 2;
-
+        // Attach affected cubies
+        const coordIndex = queuedMove.axis === 'x' ? 0 : queuedMove.axis === 'y' ? 1 : 2;
         cubies.forEach((cubie) => {
-          // Check if cubie is in the rotating layer
-          if (move.layers.includes(cubie.position[coordIndex])) {
+          if (queuedMove.layers.includes(cubie.position[coordIndex])) {
             const mesh = cubieRefs.current[cubie.uid];
-            // Using THREE.Object3D.attach preserves world transform
             if (mesh) pivot.attach(mesh);
           }
         });
@@ -56,49 +68,38 @@ export function RubiksCube({ cubies, moveQueue, completeMove }: RubiksCubeProps)
       return;
     }
 
-    // 2. Process active Animation Frame
-    if (isAnimating.current && currentMove.current && pivotRef.current) {
-      const move = currentMove.current;
-      // Apply rotation in the direction specified by the move
-      // Direction is unified across visual, position, and face updates
-      const target = (Math.PI / 2) * move.direction;
-      const speed = 5; // Slower speed (approx 0.3s per move)
-
-      const diff = target - currentAngle.current;
+    // 2. Process animation frame
+    if (isAnimating.current && pivotRef.current) {
+      const speed = 6;
+      const diff = targetAngle.current - currentAngle.current;
       const step = Math.sign(diff) * Math.min(Math.abs(diff), speed * delta);
 
       currentAngle.current += step;
-
-      // Apply rotation to pivot
-      pivotRef.current.rotation[move.axis] = currentAngle.current;
+      pivotRef.current.rotation[currentAxis.current] = currentAngle.current;
       pivotRef.current.updateMatrixWorld();
 
-      // Check completion (snap distance)
-      if (Math.abs(target - currentAngle.current) < 0.001) {
-        // Snap to exact target rotation
-        pivotRef.current.rotation[move.axis] = target;
+      // Check completion
+      if (Math.abs(targetAngle.current - currentAngle.current) < 0.001) {
+        // Snap to target
+        pivotRef.current.rotation[currentAxis.current] = targetAngle.current;
         pivotRef.current.updateMatrixWorld();
 
         // Detach children back to main group
         while (pivotRef.current.children.length > 0) {
           const child = pivotRef.current.children[0];
           groupRef.current?.attach(child);
-
-          // CRITICAL: Reset physical rotation to zero.
-          // The logical state update will calculate the correct faces for the new position.
           child.rotation.set(0, 0, 0);
           child.updateMatrix();
         }
 
-        // Reset pivot for next use
+        // Reset pivot
         pivotRef.current.rotation.set(0, 0, 0);
         pivotRef.current.updateMatrixWorld();
 
-        // Reset Logic state
+        // Reset animation state
         isAnimating.current = false;
-        currentMove.current = null;
 
-        // Signal logical update
+        // Signal completion to state
         completeMove();
       }
     }
@@ -106,7 +107,6 @@ export function RubiksCube({ cubies, moveQueue, completeMove }: RubiksCubeProps)
 
   return (
     <group ref={groupRef} frustumCulled={false}>
-      {/* Invisible pivot group for rotations */}
       <group ref={pivotRef} frustumCulled={false} />
 
       {cubies.map((cubie) => (
@@ -116,7 +116,7 @@ export function RubiksCube({ cubies, moveQueue, completeMove }: RubiksCubeProps)
             if (el) cubieRefs.current[cubie.uid] = el;
           }}
           position={cubie.position}
-          rotation={[0, 0, 0]} // Explicitly force rotation reset on render
+          rotation={[0, 0, 0]}
           faces={cubie.faces}
         />
       ))}
