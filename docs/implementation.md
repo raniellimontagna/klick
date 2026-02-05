@@ -1,6 +1,146 @@
-# Features
+# Implementação
 
-## Timer (`/src/features/timer/`)
+## Componentes UI Base
+
+### Button
+
+Botão reutilizável com variantes.
+
+```tsx
+<Button variant="primary" size="md">
+  Salvar
+</Button>
+```
+
+| Variante | Uso |
+|----------|-----|
+| `primary` | Ação principal |
+| `secondary` | Ação secundária |
+| `ghost` | Botão sutil |
+| `danger` | Ação destrutiva |
+| `success` | Confirmação |
+| `warning` | Alerta |
+
+| Tamanho | Descrição |
+|---------|-----------|
+| `sm` | Pequeno |
+| `md` | Médio (padrão) |
+| `lg` | Grande |
+| `icon` | Apenas ícone |
+
+### Card
+
+Container reutilizável.
+
+```tsx
+<Card variant="surface" padding="md">
+  Conteúdo
+</Card>
+```
+
+---
+
+## Componentes Core
+
+| Componente | Path | Descrição |
+|------------|------|-----------|
+| `RouteLoader` | `/route-loader/` | Tela de loading para lazy routes com animações |
+| `Logo` | `/logo/` | Logo do app |
+| `PageHeader` | `/page-header/` | Header de página |
+| `Toast` | `/toast/` | Notificações temporárias |
+
+---
+
+## Componentes por Feature
+
+Componentes específicos de features ficam em `/src/features/[feature]/components/`:
+
+| Componente | Feature | Descrição |
+|------------|---------|-----------|
+| `TimerDisplay` | home | Display do cronômetro com estados |
+| `ScrambleBox` | home | Box do scramble copiável |
+| `InspectionDisplay` | home | Contagem regressiva de inspeção |
+| `StatCard` | home | Card de estatísticas animado |
+| `SolveTable` | history | Tabela de solves com filtros |
+| `AdvancedStatsModal` | stats | Modal com gráficos e métricas |
+| `TutorialModal` | tutorial | Tutorial layer-by-layer |
+
+---
+
+## Navegação
+
+| Componente | Descrição |
+|------------|-----------|
+| `Navbar` | Navegação desktop (links horizontais) |
+| `MobileNav` | Menu hamburger mobile (drawer lateral) |
+
+---
+
+## Dropdowns
+
+| Componente | Path | Descrição |
+|------------|------|-----------|
+| `LanguageSelector` | `/language-selector/` | Seletor de idioma com flags |
+| `SessionSwitcher` | `/session-switcher/` | Troca e gerenciamento de sessões |
+
+---
+
+## Modais
+
+| Componente | Path | Descrição |
+|------------|------|-----------|
+| `ConfirmDialog` | `/confirm-dialog/` | Diálogo de confirmação genérico |
+| `ScrambleGuideModal` | `/scramble-guide-modal/` | Guia de embaralhamento para iniciantes |
+
+---
+
+## Onboarding
+
+| Componente | Descrição |
+|------------|-----------|
+| `Onboarding` | Container principal do sistema de onboarding |
+| `Spotlight` | Highlight radial de elementos com borda |
+| `OnboardingTooltip` | Tooltip com navegação e progresso |
+
+---
+
+## Utilitários
+
+| Componente | Path | Descrição |
+|------------|------|-----------|
+| `PWAUpdatePrompt` | `/pwa-update-prompt/` | Prompt de atualização do PWA |
+| `CubeVisualizer` | `/cube-visualizer/` | Visualização 2D do cubo |
+
+---
+
+## Padrões de Componentes
+
+### Estrutura
+
+```
+/componentName/
+├── ComponentName.tsx    # Componente principal
+├── useComponentName.ts  # Hook com lógica (se necessário)
+└── index.ts             # Barrel export
+```
+
+### Separação de Responsabilidades
+
+- **Componentes (.tsx):** Apenas renderização e UI
+- **Hooks (.ts):** Toda a lógica de negócio
+
+### Animações
+
+Usar variantes de `/src/shared/lib/animations.ts`:
+- `fadeIn`, `slideUp`, `slideDown`, `scale`
+- `AnimatePresence` para enter/exit
+- `whileHover`, `whileTap` para micro-interações
+
+---
+
+# Features Implementadas
+
+## Timer
 
 ### Estados
 
@@ -25,7 +165,7 @@ idle → inspection → running → stopped
 
 ---
 
-## Scramble (`/src/features/scramble/`)
+## Scramble
 
 ### Gerador 3×3
 
@@ -35,7 +175,7 @@ idle → inspection → running → stopped
 
 ---
 
-## Estatísticas (`/src/features/stats/`)
+## Estatísticas
 
 ### Métricas Básicas
 
@@ -63,7 +203,7 @@ idle → inspection → running → stopped
 
 ---
 
-## Onboarding (`/src/features/onboarding/`)
+## Onboarding
 
 Tour interativo em 7 passos:
 
@@ -77,7 +217,7 @@ Tour interativo em 7 passos:
 
 ---
 
-## Training (`/src/features/training/`)
+## Training
 
 ### Categorias
 
@@ -104,7 +244,7 @@ Tutorial layer-by-layer com 7 etapas:
 2. **Esquinas Brancas:** R U R'
 3. **Segunda Camada:** Algoritmos esq/dir
 4. **Cruz Amarela:** F R U R' U' F'
-5. **Alinhar Aristas:** R U R' U R U2 R'
+5. **Alinhar Aresta:** R U R' U R U2 R'
 6. **Posicionar Esquinas:** U R U' L' U R' U' L
 7. **Resolver Cubo:** R' D' R D
 
@@ -126,7 +266,7 @@ Eventos sonoros via Web Audio API:
 
 ---
 
-## Cube 3D (`/src/features/cube-3d/`)
+## Cube 3D
 
 Visualizador 3D interativo do cubo de Rubik usando Three.js.
 
@@ -145,7 +285,6 @@ Visualizador 3D interativo do cubo de Rubik usando Three.js.
 - **Animação:** `rubiks-cube.tsx` - Rotações via pivot groups + easing
 - **Renderização:** `cubie.tsx` - Peças individuais com clearcoat material
 - **Áudio:** `use-cube-sound.ts` - Sintetizador procedural via Web Audio API
-- **Estado:** `use-cube-state.ts` - Gerencia lógica, fila, histórico e undo
 - **Sincronização:** Integrado com `scramble-store` global
 
 ### Melhorias Implementadas
@@ -160,7 +299,6 @@ Visualizador 3D interativo do cubo de Rubik usando Three.js.
 - ✅ **Histórico de Movimentos:** Lista completa com scroll automático + Undo ilimitado
 - ✅ **Sons Procedurais:** Cliques percussivos sintetizados em tempo real (sem assets)
 - ✅ **Temas de Cores:** Presets (Standard, Pastel, Ocean, Neon...) + Customização por face
-
 
 ---
 

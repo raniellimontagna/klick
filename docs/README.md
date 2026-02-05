@@ -8,14 +8,13 @@ Cronômetro de cubo mágico com UI limpa, métricas visuais e feedback instantâ
 
 | Documento | Descrição |
 |-----------|-----------|
-| [Visão Geral](./overview.md) | Proposta de valor, stack e arquitetura geral |
-| [Arquitetura](./architecture.md) | Estrutura de pastas, padrões e fluxo de dados |
-| [Features](./features.md) | Todas as funcionalidades implementadas |
-| [Stores](./stores.md) | Estado global com Zustand |
-| [Componentes](./components.md) | Biblioteca de componentes reutilizáveis |
-| [Internacionalização](./i18n.md) | Sistema de traduções (pt-BR, en-US, es-ES) |
-| [PWA](./pwa.md) | Progressive Web App e offline support |
-| [Cube 3D - Melhorias](./cube-3d-improvements.md) | Roadmap de melhorias para o visualizador 3D |
+| [technical.md](./technical.md) | Arquitetura, stack tecnológica e padrões de código |
+| [implementation.md](./implementation.md) | Componentes e features implementadas |
+| [changelog.md](./changelog.md) | Histórico completo de implementação |
+| [performance.md](./performance.md) | Otimizações de bundle e métricas |
+| [i18n.md](./i18n.md) | Sistema de internacionalização |
+| [stores.md](./stores.md) | Gerenciamento de estado com Zustand |
+| [pwa.md](./pwa.md) | Progressive Web App e offline support |
 
 ## 🎯 Quick Start
 

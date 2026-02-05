@@ -26,13 +26,15 @@ Você é um **engenheiro front-end sênior**. Gere uma aplicação web tipo **cs
 **Documentação organizada em múltiplos arquivos:**
 
 - `PROJECT.md` - Especificação técnica e regras de desenvolvimento
-- `README.md` - Guia de uso e características do produto
+- `README.md` - Guia rápido de uso
 - `docs/` - Documentação técnica detalhada:
-  - `docs/changelog.md` - Histórico de implementação
-  - `docs/architecture.md` - Estrutura e organização do código
-  - `docs/performance.md` - Otimizações de bundle e performance
-  - `docs/components.md` - Componentes disponíveis
-  - `docs/features.md` - Funcionalidades implementadas
+  - `docs/technical.md` - Arquitetura, stack e padrões de código
+  - `docs/implementation.md` - Componentes e features implementadas
+  - `docs/changelog.md` - Histórico completo de implementação
+  - `docs/performance.md` - Otimizações de bundle
+  - `docs/i18n.md` - Sistema de internacionalização
+  - `docs/stores.md` - Gerenciamento de estado
+  - `docs/pwa.md` - Progressive Web App
 
 ---
 
@@ -263,10 +265,11 @@ Todas as funcionalidades especificadas foram implementadas e testadas. O aplicat
 ### Documentação
 
 Para informações detalhadas, consulte:
-- **[docs/changelog.md](./docs/changelog.md)** - Histórico completo de todas as fases
-- **[docs/architecture.md](./docs/architecture.md)** - Arquitetura e estrutura do projeto
+- **[docs/technical.md](./docs/technical.md)** - Arquitetura, stack e padrões de código
+- **[docs/implementation.md](./docs/implementation.md)** - Componentes e features implementadas
+- **[docs/changelog.md](./docs/changelog.md)** - Histórico completo de implementação
 - **[docs/performance.md](./docs/performance.md)** - Otimizações de bundle e performance
-- **[README.md](./README.md)** - Guia de uso e características
+- **[README.md](./README.md)** - Guia rápido de uso
 
 ### Próximas Melhorias (Opcional)
 
