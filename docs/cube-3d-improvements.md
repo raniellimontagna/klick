@@ -19,97 +19,53 @@
 - **Arquivo:** `src/features/cube-3d/use-cube-keyboard.ts`
 - **Teclas:** R, L, U, D, F, B (com Shift para movimentos reversos)
 
-### Botões de Controle
-- **Status:** Concluído
-- **Descrição:** UI com botões Scramble e Reset
-- **Arquivo:** `src/features/cube-3d/components/cube-controls.tsx`
-- **Detalhes:** Botões desabilitam durante animações, integrados com `scramble-store`
-
-### Indicador de Movimento
-- **Status:** Concluído
-- **Descrição:** Badge mostrando último movimento executado
-- **Arquivo:** `src/features/cube-3d/components/move-indicator.tsx`
-- **Detalhes:** Posicionado no canto superior direito, fade-in/out com 2s de duração
-
-### Ajustes de Câmera
-- **Status:** Concluído
-- **Descrição:** Melhor ângulo inicial e limites de zoom ajustados
-- **Arquivo:** `src/features/cube-3d/components/cube-scene.tsx`
-- **Detalhes:** Posição `[6, 5, 6]`, FOV `40`, zoom `6-12`
-
-### Sombras de Contato
-- **Status:** Concluído
-- **Descrição:** ContactShadows para efeito de apoio no chão
-- **Arquivo:** `src/features/cube-3d/components/cube-scene.tsx`
-- **Detalhes:** Opacity `0.4`, blur `2`, scale `10`, posicionado em `[0, -1.5, 0]`
-
-### Ambiente HDRI (Substituído)
-- **Status:** Adaptado (HDRI removido por crash)
-- **Descrição:** Sistema de iluminação proprietário robusto
-- **Arquivo:** `src/features/cube-3d/components/cube-scene.tsx`
-- **Detalhes:** ContactShadows mantido. Iluminação 3-point + Hemisphere para simular ambiente premium sem crash.
-
 ### Efeitos Sonoros
 - **Status:** Concluído
 - **Descrição:** Síntese de áudio procedural (Web Audio API)
 - **Arquivo:** `src/features/cube-3d/hooks/use-cube-sound.ts`
-- **Detalhes:** Sons de "click" sintetizados em tempo real (osciladores triangle/sine), zero assets externos.
+- **Detalhes:** Sons de "click" sintetizados em tempo real (osciladores triangle/sine).
 
-### Histórico de Movimentos & Undo
+### Temas de Cores & Customização
 - **Status:** Concluído
-- **Descrição:** Lista de movimentos scrollável e funcão de desfazer
-- **Arquivo:** `src/features/cube-3d/components/move-history.tsx`, `use-cube-state.ts`
-- **Detalhes:** Histórico persiste na sessão, scroll automático, botão undo reverte último movimento.
-
-### UI Imersiva
-- **Status:** Concluído
-- **Descrição:** Layout Fullscreen com overlays Glassmorphism
-- **Arquivo:** `src/features/cube-3d/cube-3d.tsx`
-- **Detalhes:** Header removido, controles flutuantes, tipografia refinada.
+- **Descrição:** Sistema de temas com presets e customização manual
+- **Arquivo:** `src/features/cube-3d/lib/cube-themes.ts`, `components/theme-selector.tsx`
+- **Detalhes:** 9 Presets + Customização individual de faces. Persistência via Zustand.
 
 ### Drag-to-Rotate (Swipe)
 - **Status:** Concluído
 - **Descrição:** Interação por arraste para girar fatias do cubo
 - **Arquivo:** `src/features/cube-3d/hooks/use-cube-interaction.ts`
-- **Detalhes:** Detecta face clicada, mapeia swipe 2D -> 3D, integra com OrbitControls.
+- **Detalhes:** Mapeamento vetorial 2D -> 3D.
+
+### Skip Scramble (Estabilizado)
+- **Status:** Concluído
+- **Descrição:** Pulo instantâneo da animação de embaralhamento
+- **Arquivo:** `use-cube-state.ts`, `rubiks-cube.tsx`
+- **Detalhes:** Sistema de "Geração" para forçar reset visual do React e evitar desync.
 
 ---
 
-## 📋 Próximas Melhorias (Por Ordem de Complexidade)
-
-### 🟢 Fácil
-
-~~1. **Botões de Controle (Scramble/Reset)** ✅~~
-
-~~2. **Indicador de Movimento** ✅~~
-
-~~3. **Ajustes de Câmera** ✅~~
-
-~~4. **Histórico de Movimentos**~~
-
-### 🟡 Médio
-
-~~4. **Sombras de Contato** ✅~~
-
-~~5. **Ambiente HDRI** ✅~~
-
-### Efeitos Sonoros
+### Redesign Moderno (Chrome Cube Lab Style)
 - **Status:** Concluído
-- **Descrição:** Síntese de áudio procedural (Web Audio API)
-- **Arquivo:** `src/features/cube-3d/hooks/use-cube-sound.ts`
-- **Detalhes:** Sons de "click" sintetizados em tempo real (osciladores triangle/sine), zero assets externos.
+- **Descrição:** Layout imersivo sem scroll e Barra de Ações profissional.
+- **Arquivo:** `cube-3d.tsx`, `components/cube-action-bar.tsx`
+- **Detalhes:** Fundo degradê radial, Action Bar centralizada (Undo, Realign, Scramble, Reset, Themes), layout responsivo `h-full`.
 
-### Histórico de Movimentos & Undo
+### Realign Camera
 - **Status:** Concluído
-- **Descrição:** Lista de movimentos scrollável e funcão de desfazer
-- **Arquivo:** `src/features/cube-3d/components/move-history.tsx`, `use-cube-state.ts`
-- **Detalhes:** Histórico persiste na sessão, scroll automático, botão undo reverte último movimento.
+- **Descrição:** Função para resetar a visão para o ângulo ideal `[6, 5, 6]`.
+- **Arquivo:** `components/cube-scene.tsx`, `cube-3d.tsx`
+- **Detalhes:** Reset via ref no `OrbitControls` acionado por um contador de realinhamento.
 
-### Temas de Cores
-- **Status:** Concluído
-- **Descrição:** Sistema de temas com presets e customização manual
-- **Arquivo:** `src/features/cube-3d/lib/cube-themes.ts`, `components/theme-selector.tsx`
-- **Detalhes:** 9 Presets + Customização individual de faces. Persistência via Zustand.
+---
+
+## 📋 Próximas Melhorias (Ideias)
+
+### 🔴 Difícil / Avançado
+1. **Tutorial Interativo (Solver)**: Guia passo a passo para resolver o cubo.
+2. **Timer de Speedcube**: Cronômetro integrado com estatísticas WCA.
+3. **Efeitos de Partículas**: Celebração visual ao resolver o cubo.
+
 
 ---
 
@@ -118,11 +74,4 @@
 ### Arquitetura Atual
 - **Estado:** `use-cube-state.ts` - Gerencia estado lógico e fila de movimentos
 - **Animação:** `rubiks-cube.tsx` - Controla rotações visuais via pivot groups
-- **Renderização:** `cubie.tsx` - Renderiza cada peça individual
-- **Teclado:** `use-cube-keyboard.ts` - Mapeia teclas para movimentos
-
-### Pontos de Atenção
-- Animações usam `useFrame` do @react-three/fiber
-- Sistema de UID previne duplicação em StrictMode
-- Faces são posicionadas via normais vetoriais
-- Clearcoat material para efeito plástico premium
+- **Restauração:** `cubeGeneration` no `use-cube-state.ts` previne quebra visual no skip.

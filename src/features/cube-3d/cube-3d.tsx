@@ -1,14 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useScrambleStore } from '@/shared/store/scramble-store';
-import { CubeControls } from './components/cube-controls';
 import { CubeScene } from './components/cube-scene';
 import { MoveHistory } from './components/move-history';
 import { MoveIndicator } from './components/move-indicator';
-import { ThemeSelector } from './components/theme-selector';
 import { useCubeSound } from './hooks/use-cube-sound';
 import { MOVES } from './lib/moves';
 import { useCubeKeyboard } from './use-cube-keyboard';
 import { useCubeState } from './use-cube-state';
+import { CubeActionBar } from './components/cube-action-bar';
 import { DoubleAltArrowRight } from '@solar-icons/react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -27,10 +26,15 @@ export function Cube3D() {
     startMove,
     cubeGeneration,
   } = useCubeState();
+  const [realignCounter, setRealignCounter] = useState(0);
   const { scramble } = useScrambleStore();
   const { playClick } = useCubeSound();
-
   const [lastMove, setLastMove] = useState<string | null>(null);
+
+  const handleRealign = () => {
+    setRealignCounter((prev) => prev + 1);
+  };
+
   const isAnimating = moveQueue.length > 0;
 
   // Enable keyboard controls
@@ -70,8 +74,15 @@ export function Cube3D() {
   }, [moveQueue]);
 
   return (
-    <div className="relative w-full h-[calc(100vh-4rem)] bg-[#0D1117] overflow-hidden">
-      {/* 1. Canvas Background */}
+    <div className="relative h-full w-full overflow-hidden bg-[#0D1117] rounded-3xl shadow-2xl transition-all duration-500">
+      {/* Premium Radial Background */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background: 'radial-gradient(circle at center, #2C333D 0%, #0D1117 100%)',
+        }}
+      />
+
       <div className="absolute inset-0 z-0">
         <CubeScene
           cubies={cubies}
@@ -83,6 +94,7 @@ export function Cube3D() {
           startMove={startMove}
           applyMove={applyMove}
           cubeGeneration={cubeGeneration}
+          realignCounter={realignCounter}
         />
       </div>
 
@@ -98,18 +110,12 @@ export function Cube3D() {
         </div>
       </div>
 
-      {/* 3. Top Right - Move Indicator & Help */}
+      {/* 3. Top Right - Move Indicator only */}
       <MoveIndicator lastMove={lastMove} />
-      <div className="absolute top-6 right-6 z-0 text-right pointer-events-none opacity-50 hidden lg:block">
-        <p className="text-xs text-white">Drag to rotate • Scroll to zoom</p>
-      </div>
 
-      {/* 4. Bottom Center - History */}
-      <div className="absolute bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-10 w-full max-w-2xl px-4 flex justify-center pointer-events-none">
-        <div className="pointer-events-auto">
-          <MoveHistory history={history} onUndo={undo} disabled={isAnimating} />
-        </div>
-      </div>
+      {/* Moved Help Text to Bottom Right to avoid overlap */}
+
+      {/* 4. Removed isolated history block - integrated into bottom stack above */}
 
       {/* Scramble Overlay */}
       {/* Scramble Status UI - Non-intrusive */}
@@ -145,10 +151,37 @@ export function Cube3D() {
         )}
       </AnimatePresence>
 
-      {/* 5. Bottom Right - Controls & Themes */}
-      <div className="absolute bottom-4 right-4 md:bottom-6 md:right-6 z-10 pointer-events-auto flex items-center gap-2">
-        <ThemeSelector />
-        <CubeControls onReset={reset} isAnimating={isAnimating} />
+      {/* 5. Bottom Control Area - Stacked History & Actions */}
+      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-4 w-full max-w-2xl px-4 pointer-events-none">
+        {/* History - Only visible if there are moves */}
+        <AnimatePresence>
+          {history.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 10 }}
+              className="pointer-events-auto"
+            >
+              <MoveHistory history={history} onUndo={undo} disabled={isAnimating} />
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Action Bar */}
+        <div className="pointer-events-auto">
+          <CubeActionBar
+            onUndo={undo}
+            onReset={reset}
+            onRealign={handleRealign}
+            isAnimating={isAnimating}
+            historyLength={history.length}
+          />
+        </div>
+      </div>
+
+      {/* 6. Help Text - Bottom Right (Subtle) */}
+      <div className="absolute bottom-6 right-6 z-10 pointer-events-none opacity-30 hidden lg:block">
+        <p className="text-[10px] uppercase tracking-widest text-white">Drag • Scroll • Click</p>
       </div>
     </div>
   );

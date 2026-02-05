@@ -34,12 +34,12 @@ export function ThemeSelector() {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
-          variant="secondary"
+          variant="ghost"
           size="sm"
-          className="gap-2 bg-black/40 backdrop-blur-md border border-white/10 hover:bg-black/60"
+          className="h-9 px-3 gap-2 hover:bg-white/5 text-white/70 border-none shadow-none"
         >
-          <Palette size={16} />
-          <span>Themes</span>
+          <Palette size={18} />
+          <span className="hidden md:inline">Themes</span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent

@@ -1,6 +1,6 @@
 import { ContactShadows, OrbitControls } from '@react-three/drei';
 import { Canvas } from '@react-three/fiber';
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useCubeInteraction } from '../hooks/use-cube-interaction';
 import type { MoveDefinition } from '../lib/moves';
 import type { CubieData } from '../lib/types';
@@ -13,6 +13,7 @@ interface CubeSceneProps {
   startMove?: () => void;
   applyMove?: (move: string) => void;
   cubeGeneration?: number;
+  realignCounter?: number;
 }
 
 export function CubeScene({
@@ -22,8 +23,20 @@ export function CubeScene({
   startMove = () => {},
   applyMove = () => {},
   cubeGeneration = 0,
+  realignCounter = 0,
 }: CubeSceneProps) {
   const [orbitEnabled, setOrbitEnabled] = useState(true);
+
+  // We use any here to avoid complex three-stdlib resolution issues while still
+  // allowing access to the .reset() method of the OrbitControls instance.
+  const controlsRef = useRef<any>(null);
+
+  // Realign camera when counter changes
+  useEffect(() => {
+    if (controlsRef.current && realignCounter > 0) {
+      controlsRef.current.reset();
+    }
+  }, [realignCounter]);
 
   const { handlePointerDown, handlePointerUp } = useCubeInteraction({
     enabled: true,
@@ -35,11 +48,10 @@ export function CubeScene({
     <Canvas
       dpr={[1, 1.5]}
       camera={{ position: [6, 5, 6], fov: 40 }}
-      style={{ background: '#0D1117', touchAction: 'none' }}
+      style={{ touchAction: 'none' }}
+      gl={{ alpha: true }}
       shadows
     >
-      <color attach="background" args={['#0D1117']} />
-
       {/* Lighting setup - Premium balance (No HDRI to prevent crash) */}
       <ambientLight intensity={0.7} />
       <hemisphereLight intensity={0.5} color="#ffffff" groundColor="#000000" />
@@ -72,6 +84,7 @@ export function CubeScene({
       />
 
       <OrbitControls
+        ref={controlsRef}
         enablePan={false}
         minDistance={6}
         maxDistance={12}
