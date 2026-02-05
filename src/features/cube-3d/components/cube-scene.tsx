@@ -1,4 +1,4 @@
-import { OrbitControls } from '@react-three/drei';
+import { ContactShadows, OrbitControls } from '@react-three/drei';
 import { Canvas } from '@react-three/fiber';
 import type { MoveDefinition } from '../lib/moves';
 import type { CubieData } from '../lib/types';
@@ -17,21 +17,35 @@ export function CubeScene({
 }: CubeSceneProps) {
   return (
     <Canvas
-      dpr={[1, 2]}
+      dpr={[1, 1.5]}
       camera={{ position: [6, 5, 6], fov: 40 }}
       style={{ background: '#0D1117' }}
+      shadows
     >
-      {/* Lighting setup - simple but effective */}
-      <ambientLight intensity={0.6} />
-      <directionalLight position={[5, 10, 5]} intensity={1} />
-      <directionalLight position={[-5, -5, -5]} intensity={0.3} />
-      <pointLight position={[0, 5, 0]} intensity={0.5} />
+      <color attach="background" args={['#0D1117']} />
 
-      <group>
+      {/* Lighting setup - Premium balance (No HDRI to prevent crash) */}
+      <ambientLight intensity={0.7} />
+      <hemisphereLight intensity={0.5} color="#ffffff" groundColor="#000000" />
+      <directionalLight position={[10, 10, 5]} intensity={1.8} castShadow />
+      <directionalLight position={[-10, -5, -5]} intensity={0.8} />
+      <spotLight position={[0, 10, 0]} intensity={1} angle={0.5} penumbra={1} />
+
+      <group position={[0, 0.5, 0]}>
         {cubies.length > 0 && (
           <RubiksCube cubies={cubies} moveQueue={moveQueue} completeMove={completeMove} />
         )}
       </group>
+
+      <ContactShadows
+        position={[0, -1.5, 0]}
+        opacity={0.4}
+        scale={10}
+        blur={2.5}
+        far={4.5}
+        resolution={256}
+        color="#000000"
+      />
 
       <OrbitControls
         enablePan={false}
@@ -39,6 +53,7 @@ export function CubeScene({
         maxDistance={12}
         autoRotate={false}
         autoRotateSpeed={0.8}
+        makeDefault
       />
     </Canvas>
   );

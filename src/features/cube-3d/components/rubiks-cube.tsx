@@ -75,7 +75,7 @@ export function RubiksCube({ cubies, moveQueue, completeMove }: RubiksCubeProps)
       currentAngle.current = progress;
 
       // Cubic ease-out: f(t) = 1 - (1 - t)^3
-      const easeOutCubic = 1 - Math.pow(1 - progress, 3);
+      const easeOutCubic = 1 - (1 - progress) ** 3;
       const angle = targetAngle.current * easeOutCubic;
 
       pivotRef.current.rotation[currentAxis.current] = angle;

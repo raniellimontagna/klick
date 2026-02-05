@@ -12,7 +12,11 @@ import {
 import { useSessionsStore } from '@/shared/store/sessions-store';
 import type { PuzzleType } from '@/shared/types';
 
-const PUZZLES: { type: PuzzleType; label: string; icon: ComponentType<any> }[] = [
+const PUZZLES: {
+  type: PuzzleType;
+  label: string;
+  icon: ComponentType<{ size?: number; className?: string }>;
+}[] = [
   { type: '3x3', label: '3x3x3', icon: Box },
   { type: '2x2', label: '2x2x2', icon: Widget },
   { type: '4x4', label: '4x4x4', icon: Widget },

@@ -37,6 +37,36 @@
 - **Arquivo:** `src/features/cube-3d/components/cube-scene.tsx`
 - **Detalhes:** Posição `[6, 5, 6]`, FOV `40`, zoom `6-12`
 
+### Sombras de Contato
+- **Status:** Concluído
+- **Descrição:** ContactShadows para efeito de apoio no chão
+- **Arquivo:** `src/features/cube-3d/components/cube-scene.tsx`
+- **Detalhes:** Opacity `0.4`, blur `2`, scale `10`, posicionado em `[0, -1.5, 0]`
+
+### Ambiente HDRI (Substituído)
+- **Status:** Adaptado (HDRI removido por crash)
+- **Descrição:** Sistema de iluminação proprietário robusto
+- **Arquivo:** `src/features/cube-3d/components/cube-scene.tsx`
+- **Detalhes:** ContactShadows mantido. Iluminação 3-point + Hemisphere para simular ambiente premium sem crash.
+
+### Efeitos Sonoros
+- **Status:** Concluído
+- **Descrição:** Síntese de áudio procedural (Web Audio API)
+- **Arquivo:** `src/features/cube-3d/hooks/use-cube-sound.ts`
+- **Detalhes:** Sons de "click" sintetizados em tempo real (osciladores triangle/sine), zero assets externos.
+
+### Histórico de Movimentos & Undo
+- **Status:** Concluído
+- **Descrição:** Lista de movimentos scrollável e funcão de desfazer
+- **Arquivo:** `src/features/cube-3d/components/move-history.tsx`, `use-cube-state.ts`
+- **Detalhes:** Histórico persiste na sessão, scroll automático, botão undo reverte último movimento.
+
+### UI Imersiva
+- **Status:** Concluído
+- **Descrição:** Layout Fullscreen com overlays Glassmorphism
+- **Arquivo:** `src/features/cube-3d/cube-3d.tsx`
+- **Detalhes:** Header removido, controles flutuantes, tipografia refinada.
+
 ---
 
 ## 📋 Próximas Melhorias (Por Ordem de Complexidade)
@@ -49,23 +79,19 @@
 
 ~~3. **Ajustes de Câmera** ✅~~
 
-4. **Histórico de Movimentos**
+~~4. **Histórico de Movimentos**~~
 
 ### 🟡 Médio
 
-4. **Sombras de Contato**
-   - `ContactShadows` do @react-three/drei
-   - Dar sensação de "apoio" ao cubo
+~~4. **Sombras de Contato** ✅~~
 
-5. **Ambiente HDRI**
-   - `Environment` preset (city/studio)
-   - Reflexos realistas no clearcoat das peças
+~~5. **Ambiente HDRI** ✅~~
 
-6. **Efeitos Sonoros**
+~~6. **Efeitos Sonoros** ✅~~
    - Som de "click" ao finalizar rotação
    - Requer assets de áudio
 
-7. **Histórico de Movimentos**
+~~7. **Histórico de Movimentos** ✅~~
    - Lista dos últimos N movimentos
    - Botão para desfazer
 

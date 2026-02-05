@@ -1,15 +1,19 @@
 import { useEffect, useState } from 'react';
 import { useScrambleStore } from '@/shared/store/scramble-store';
-import { CubeScene } from './components/cube-scene';
 import { CubeControls } from './components/cube-controls';
+import { CubeScene } from './components/cube-scene';
+import { MoveHistory } from './components/move-history';
 import { MoveIndicator } from './components/move-indicator';
+import { useCubeSound } from './hooks/use-cube-sound';
 import { MOVES } from './lib/moves';
 import { useCubeKeyboard } from './use-cube-keyboard';
 import { useCubeState } from './use-cube-state';
 
 export function Cube3D() {
-  const { cubies, reset, applyScramble, applyMove, moveQueue, completeMove } = useCubeState();
+  const { cubies, reset, applyScramble, applyMove, moveQueue, completeMove, history, undo } =
+    useCubeState();
   const { scramble } = useScrambleStore();
+  const { playClick } = useCubeSound();
 
   const [lastMove, setLastMove] = useState<string | null>(null);
   const isAnimating = moveQueue.length > 0;
@@ -51,26 +55,47 @@ export function Cube3D() {
   }, [moveQueue]);
 
   return (
-    <div className="flex flex-col w-full h-[calc(100vh-4rem)] overflow-hidden">
-      {/* Header */}
-      <div className="p-4 border-b border-white/10 flex flex-col md:flex-row justify-between items-center gap-4 bg-surface/20">
-        <div>
-          <h1 className="text-xl font-bold text-white/90">3D Visualizer</h1>
-          <p className="text-xs text-white/50">Drag to rotate • Scroll to zoom</p>
-        </div>
+    <div className="relative w-full h-[calc(100vh-4rem)] bg-[#0D1117] overflow-hidden">
+      {/* Immersive Layout - All controls are overlays on the canvas */}
 
-        <div className="flex gap-4 items-center">
-          <CubeControls onReset={reset} isAnimating={isAnimating} />
-          <span className="text-sm font-mono text-primary/80 bg-surface/50 px-3 py-1 rounded border border-white/5">
-            {scramble || 'No Scramble'}
+      {/* 1. Canvas Background */}
+      <div className="absolute inset-0 z-0">
+        <CubeScene
+          cubies={cubies}
+          moveQueue={moveQueue}
+          completeMove={() => {
+            completeMove();
+            playClick();
+          }}
+        />
+      </div>
+
+      {/* 2. Top Left - Title & Scramble */}
+      <div className="absolute top-6 left-6 z-10 pointer-events-none">
+        <h1 className="text-2xl font-bold text-white/90 drop-shadow-md mb-2">3D Visualizer</h1>
+        <div className="pointer-events-auto inline-block">
+          <span className="text-sm font-mono text-primary/90 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-lg border border-white/10 shadow-sm">
+            {scramble || 'Press Scramble to Start'}
           </span>
         </div>
       </div>
 
-      {/* Canvas Container - fills remaining space */}
-      <div className="flex-1 w-full bg-[#0D1117] relative">
-        <MoveIndicator lastMove={lastMove} />
-        <CubeScene cubies={cubies} moveQueue={moveQueue} completeMove={completeMove} />
+      {/* 3. Top Right - Move Indicator & Help */}
+      <MoveIndicator lastMove={lastMove} />
+      <div className="absolute top-6 right-6 z-0 text-right pointer-events-none opacity-50 hidden md:block">
+        <p className="text-xs text-white">Drag to rotate • Scroll to zoom</p>
+      </div>
+
+      {/* 4. Bottom Center - History */}
+      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 w-full max-w-2xl px-4 flex justify-center pointer-events-none">
+        <div className="pointer-events-auto">
+          <MoveHistory history={history} onUndo={undo} disabled={isAnimating} />
+        </div>
+      </div>
+
+      {/* 5. Bottom Right - Controls */}
+      <div className="absolute bottom-6 right-6 z-10 pointer-events-auto">
+        <CubeControls onReset={reset} isAnimating={isAnimating} />
       </div>
     </div>
   );
