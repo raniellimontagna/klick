@@ -205,6 +205,7 @@ export const ptBR = {
     cannotDeleteLast: 'Não é possível deletar a última sessão',
     solveCount: 'solves',
     solveCountSingular: 'solve',
+    active: 'Ativa',
   },
   solveTable: {
     title: 'Histórico de Solves',

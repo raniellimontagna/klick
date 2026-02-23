@@ -1,8 +1,8 @@
-import { UndoLeft, Restart, UndoLeftRound, Maximize } from '@solar-icons/react';
+import { Maximize, Restart, UndoLeft, UndoLeftRound } from '@solar-icons/react';
+import { motion } from 'framer-motion';
 import { Button } from '@/shared/components/ui/button';
 import { useScrambleStore } from '@/shared/store/scramble-store';
 import { ThemeSelector } from './theme-selector';
-import { motion } from 'framer-motion';
 
 interface CubeActionBarProps {
   onUndo: () => void;

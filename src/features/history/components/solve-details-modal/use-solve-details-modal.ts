@@ -37,8 +37,8 @@ export function useSolveDetailsModal(solve: Solve | null) {
   }, [solve]);
 
   const formatFullDate = useCallback(
-    (isoString: string) => {
-      const date = new Date(isoString);
+    (dateInput: Date | string) => {
+      const date = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
       return new Intl.DateTimeFormat(language, {
         day: '2-digit',
         month: 'long',

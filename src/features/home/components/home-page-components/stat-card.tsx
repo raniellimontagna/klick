@@ -19,15 +19,15 @@ const variantClasses: Record<StatCardVariant, string> = {
   accent: 'bg-accent/20 border-accent/40',
 };
 
-export function StatCard({
+export const StatCard: React.FC<StatCardProps> = ({
   label,
   value,
   icon: Icon,
   variant = 'secondary',
   className,
-}: StatCardProps) {
+}: StatCardProps): React.ReactElement => {
   return (
-    <motion.div
+    <motion.li
       variants={scale}
       initial="hidden"
       animate="visible"
@@ -38,7 +38,7 @@ export function StatCard({
         variant="surface"
         padding="none"
         className={cn(
-          'p-3 sm:p-4 transition-all bg-white/5 backdrop-blur-sm border-white/5 hover:border-white/10 group',
+          'p-3 sm:p-4 transition-all bg-white/5 backdrop-blur-sm border-white/5 hover:border-white/10 group h-full',
           variantClasses[variant],
           className,
         )}
@@ -58,6 +58,6 @@ export function StatCard({
           {value}
         </p>
       </Card>
-    </motion.div>
+    </motion.li>
   );
-}
+};

@@ -203,6 +203,7 @@ export const enUS = {
     cannotDeleteLast: 'Cannot delete the last session',
     solveCount: 'solves',
     solveCountSingular: 'solve',
+    active: 'Active',
   },
   solveTable: {
     title: 'Solve History',

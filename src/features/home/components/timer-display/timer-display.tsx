@@ -14,14 +14,14 @@ interface TimerDisplayProps {
   'data-onboarding'?: string;
 }
 
-export function TimerDisplay({
+export const TimerDisplay: React.FC<TimerDisplayProps> = ({
   timeMs,
   state,
   penalty = 'NONE',
   isNewBest = false,
   isFocusMode = false,
   'data-onboarding': dataOnboarding,
-}: TimerDisplayProps) {
+}: TimerDisplayProps): React.ReactElement => {
   const { t } = useI18nStore();
   const [flash, setFlash] = useState<'success' | 'failure' | 'best' | null>(null);
 
@@ -43,7 +43,7 @@ export function TimerDisplay({
     }
   }, [state, penalty, isNewBest]);
 
-  const getStateColor = () => {
+  const getStateColor = (): string => {
     if (flash === 'failure') return 'text-red-500';
     if (flash === 'best') return 'text-yellow-400';
     if (flash === 'success') return 'text-green-500';
@@ -62,7 +62,7 @@ export function TimerDisplay({
     }
   };
 
-  const getStateIcon = () => {
+  const getStateIcon = (): React.ReactNode => {
     if (flash === 'best') return <Stopwatch size={32} className="text-yellow-400 animate-bounce" />;
 
     switch (state) {
@@ -79,7 +79,7 @@ export function TimerDisplay({
     }
   };
 
-  const getStateText = () => {
+  const getStateText = (): string => {
     if (flash === 'best') return 'New Best!';
 
     switch (state) {
@@ -97,9 +97,10 @@ export function TimerDisplay({
   };
 
   return (
-    <div
+    <section
       className="flex flex-col items-center justify-center space-y-4 px-4"
       data-onboarding={dataOnboarding}
+      aria-label="Temporizador de cubo mágico"
     >
       <AnimatePresence mode="wait">
         {state !== 'running' && state !== 'stopped' && !flash && (
@@ -110,6 +111,7 @@ export function TimerDisplay({
             animate="visible"
             exit="exit"
             className="flex items-center gap-3"
+            aria-live="polite"
           >
             {getStateIcon()}
             <p
@@ -126,6 +128,7 @@ export function TimerDisplay({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
             className="flex items-center gap-3"
+            aria-live="assertive"
           >
             {getStateIcon()}
             <p
@@ -150,6 +153,8 @@ export function TimerDisplay({
             : 'text-5xl sm:text-6xl md:text-8xl tracking-tight',
           getStateColor(),
         )}
+        role="timer"
+        aria-valuenow={timeMs}
       >
         {formatTime(timeMs)}
       </motion.div>
@@ -164,6 +169,6 @@ export function TimerDisplay({
           {t.timer.holdSpace}
         </motion.p>
       )}
-    </div>
+    </section>
   );
-}
+};

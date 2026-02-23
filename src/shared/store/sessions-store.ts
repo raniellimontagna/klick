@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import {
@@ -8,7 +9,13 @@ import {
   calculateBestAo12,
   calculateSingle,
 } from '@/features/stats/averages';
-import type { Penalty, PuzzleType, Session, Solve } from '@/shared/types';
+import {
+  type Penalty,
+  type PuzzleType,
+  type Session,
+  SessionSchema,
+  type Solve,
+} from '@/shared/types';
 
 interface SessionsStore {
   sessions: Session[];
@@ -61,7 +68,7 @@ export const useSessionsStore = create<SessionsStore>()(
       sessions: [initialSession],
       activeSessionId: initialSession.id,
 
-      createSession: (name, puzzleType) =>
+      createSession: (name: string, puzzleType?: PuzzleType): void => {
         set((state) => {
           const newSession: Session = {
             id: crypto.randomUUID(),
@@ -73,9 +80,10 @@ export const useSessionsStore = create<SessionsStore>()(
             sessions: [...state.sessions, newSession],
             activeSessionId: newSession.id,
           };
-        }),
+        });
+      },
 
-      deleteSession: (id) =>
+      deleteSession: (id: string): void => {
         set((state) => {
           const filtered = state.sessions.filter((s) => s.id !== id);
           const newActiveId =
@@ -86,28 +94,27 @@ export const useSessionsStore = create<SessionsStore>()(
             sessions: filtered,
             activeSessionId: newActiveId,
           };
-        }),
+        });
+      },
 
-      renameSession: (id, name) =>
+      renameSession: (id: string, name: string): void => {
         set((state) => ({
           sessions: state.sessions.map((s) => (s.id === id ? { ...s, name } : s)),
-        })),
+        }));
+      },
 
-      setActiveSession: (id) => set({ activeSessionId: id }),
+      setActiveSession: (id: string): void => {
+        set({ activeSessionId: id });
+      },
 
-      switchPuzzleType: (type) =>
+      switchPuzzleType: (type: PuzzleType): void => {
         set((state) => {
-          // Find last active session of this type (or any)
-          // Ideally we would track 'lastActiveSessionId' per puzzle type, but for now just find the first one
-          // or the one with latest lastPlayed (if we tracked that).
-          // Simple approach: find first session of this type.
           const existingSession = state.sessions.find((s) => s.puzzleType === type);
 
           if (existingSession) {
             return { activeSessionId: existingSession.id };
           }
 
-          // Create new session if none exists
           const newSession: Session = {
             id: crypto.randomUUID(),
             name: 'Sessão 1',
@@ -119,14 +126,15 @@ export const useSessionsStore = create<SessionsStore>()(
             sessions: [...state.sessions, newSession],
             activeSessionId: newSession.id,
           };
-        }),
+        });
+      },
 
-      getActiveSession: () => {
+      getActiveSession: (): Session | undefined => {
         const state = get();
         return state.sessions.find((s) => s.id === state.activeSessionId);
       },
 
-      addSolve: (solveData) =>
+      addSolve: (solveData: Omit<Solve, 'id' | 'createdAt' | 'effectiveMs'>): void => {
         set((state) => {
           const effectiveMs = calculateEffectiveMs(solveData.timeMs, solveData.penalty);
 
@@ -144,9 +152,10 @@ export const useSessionsStore = create<SessionsStore>()(
                 : session,
             ),
           };
-        }),
+        });
+      },
 
-      updateSolvePenalty: (solveId, penalty) =>
+      updateSolvePenalty: (solveId: string, penalty: Penalty): void => {
         set((state) => ({
           sessions: state.sessions.map((session) => ({
             ...session,
@@ -160,24 +169,27 @@ export const useSessionsStore = create<SessionsStore>()(
                 : solve,
             ),
           })),
-        })),
+        }));
+      },
 
-      deleteSolve: (solveId) =>
+      deleteSolve: (solveId: string): void => {
         set((state) => ({
           sessions: state.sessions.map((session) => ({
             ...session,
             solves: session.solves.filter((s) => s.id !== solveId),
           })),
-        })),
+        }));
+      },
 
-      clearCurrentSession: () =>
+      clearCurrentSession: (): void => {
         set((state) => ({
           sessions: state.sessions.map((session) =>
             session.id === state.activeSessionId ? { ...session, solves: [] } : session,
           ),
-        })),
+        }));
+      },
 
-      exportCurrentSession: () => {
+      exportCurrentSession: (): string => {
         const session = get().getActiveSession();
         if (!session) {
           return JSON.stringify([], null, 2);
@@ -185,48 +197,36 @@ export const useSessionsStore = create<SessionsStore>()(
         return JSON.stringify([session], null, 2);
       },
 
-      exportAllSessions: () => {
+      exportAllSessions: (): string => {
         const state = get();
         return JSON.stringify(state.sessions, null, 2);
       },
 
-      importSessions: (jsonString, mode) => {
+      importSessions: (
+        jsonString: string,
+        mode: 'merge' | 'replace',
+      ): { success: boolean; error?: string } => {
         try {
-          // Parse JSON
           const parsed = JSON.parse(jsonString);
 
-          // Valida se é um array
-          if (!Array.isArray(parsed)) {
+          const sessionsArraySchema = z.array(SessionSchema);
+          const result = sessionsArraySchema.safeParse(parsed);
+
+          if (!result.success) {
             return {
               success: false,
-              error: 'Invalid format: expected an array of sessions',
+              error:
+                'Estrutura de sessão inválida: ' +
+                result.error.issues.map((i) => i.message).join(', '),
             };
           }
 
-          // Valida estrutura básica de cada sessão
-          const isValid = parsed.every(
-            (session) =>
-              typeof session === 'object' &&
-              session !== null &&
-              typeof session.id === 'string' &&
-              typeof session.name === 'string' &&
-              Array.isArray(session.solves),
-          );
+          const imported = result.data;
 
-          if (!isValid) {
-            return {
-              success: false,
-              error: 'Invalid session structure',
-            };
-          }
-
-          const imported = parsed as Session[];
-
-          // Se não há sessões válidas, retorna erro
           if (imported.length === 0) {
             return {
               success: false,
-              error: 'No valid sessions found',
+              error: 'Nenhuma sessão válida encontrada',
             };
           }
 
@@ -236,46 +236,44 @@ export const useSessionsStore = create<SessionsStore>()(
                 sessions: imported,
                 activeSessionId: imported[0].id,
               };
-            } else {
-              // merge
-              return {
-                sessions: [...state.sessions, ...imported],
-                activeSessionId: state.activeSessionId,
-              };
             }
+            return {
+              sessions: [...state.sessions, ...imported],
+              activeSessionId: state.activeSessionId,
+            };
           });
 
           return { success: true };
-        } catch (error) {
+        } catch (error: unknown) {
           return {
             success: false,
-            error: error instanceof Error ? error.message : 'Unknown error',
+            error: error instanceof Error ? error.message : 'Erro desconhecido',
           };
         }
       },
 
       // Statistics getters
-      getSingle: () => {
+      getSingle: (): Average => {
         const session = get().getActiveSession();
         return calculateSingle(session?.solves || []);
       },
 
-      getAo5: () => {
+      getAo5: (): Average | null => {
         const session = get().getActiveSession();
         return calculateAo5(session?.solves || []);
       },
 
-      getAo12: () => {
+      getAo12: (): Average | null => {
         const session = get().getActiveSession();
         return calculateAo12(session?.solves || []);
       },
 
-      getBestAo5: () => {
+      getBestAo5: (): Average | null => {
         const session = get().getActiveSession();
         return calculateBestAo5(session?.solves || []);
       },
 
-      getBestAo12: () => {
+      getBestAo12: (): Average | null => {
         const session = get().getActiveSession();
         return calculateBestAo12(session?.solves || []);
       },

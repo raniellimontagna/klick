@@ -12,7 +12,7 @@ import { ScrambleBox } from './components/scramble-box/scramble-box';
 import { TimerDisplay } from './components/timer-display/timer-display';
 import { useHome } from './use-home';
 
-export function Home() {
+export const Home: React.FC = (): React.ReactElement => {
   const { t } = useI18nStore();
   const { getSingle, getAo5, getAo12, getBestAo5, getBestAo12 } = useSessionsStore(); // Stats retrieval remains in component or could be moved to hook if strictly following pattern, but easy enough here.
 
@@ -50,9 +50,12 @@ export function Home() {
   }, []);
 
   return (
-    <div className="flex flex-col h-full items-center justify-center min-h-[80vh] relative">
+    <main className="flex flex-col h-full items-center justify-center min-h-[80vh] relative">
       {/* Timer & Scramble Area - Always Centered */}
-      <div className="flex flex-col items-center w-full max-w-4xl z-10 space-y-6 md:space-y-12">
+      <section
+        className="flex flex-col items-center w-full max-w-4xl z-10 space-y-6 md:space-y-12"
+        aria-label="Área de Treino"
+      >
         {/* Scramble - Fades out during solve */}
         <div className="w-full relative">
           <AnimatePresence mode="wait">
@@ -90,7 +93,7 @@ export function Home() {
             data-onboarding="timer"
           />
         </div>
-      </div>
+      </section>
 
       {/* Stats & Footer - Fades out during solve */}
       <motion.div
@@ -99,9 +102,10 @@ export function Home() {
         transition={{ duration: 0.3 }}
       >
         {/* Stats Grid */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between px-2">
+        <section className="space-y-4" aria-labelledby="stats-heading">
+          <header className="flex items-center justify-between px-2">
             <h2
+              id="stats-heading"
               className="text-[10px] font-black uppercase tracking-[0.2em] text-text-muted flex items-center gap-2"
               data-onboarding="stats-header"
             >
@@ -118,21 +122,20 @@ export function Home() {
             >
               <QuestionCircle size={16} />
             </Button>
-          </div>
+          </header>
 
-          <div
+          <ul
             className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4"
             data-onboarding="stats"
           >
             {stats.map((stat) => (
               <StatCard key={stat.label} label={stat.label} value={formatAverage(stat.value)} />
             ))}
-          </div>
-        </div>
+          </ul>
+        </section>
 
-        {/* Shortcuts Hint */}
         {/* Shortcuts Hint - Hidden on mobile/touch devices */}
-        <div
+        <footer
           data-onboarding="shortcuts"
           className="hidden sm:flex flex-wrap justify-center gap-6 py-6 border-t border-white/5 opacity-40 hover:opacity-100 transition-opacity"
         >
@@ -154,10 +157,10 @@ export function Home() {
             </kbd>
             <span>{t.shortcuts.togglePlus2}</span>
           </div>
-        </div>
+        </footer>
       </motion.div>
 
       <StatsInfoModal isOpen={showStatsInfo} onClose={() => setShowStatsInfo(false)} />
-    </div>
+    </main>
   );
-}
+};

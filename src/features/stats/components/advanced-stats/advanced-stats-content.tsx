@@ -1,13 +1,13 @@
 import { Bolt, GraphUp, InfoCircle, Target } from '@solar-icons/react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Button } from '@/shared/components/ui';
-import { useTranslation } from '@/shared/hooks/use-translation';
+import { useI18nStore } from '@/shared/store/i18n-store';
 import { DistributionChart } from './distribution-chart';
 import { EvolutionChart } from './evolution-chart';
 import { type Tab, useAdvancedStatsContent } from './use-advanced-stats-modal';
 
-export function AdvancedStatsContent() {
-  const { t } = useTranslation();
+export const AdvancedStatsContent: React.FC = (): React.ReactElement => {
+  const { t } = useI18nStore();
   const { activeTab, setActiveTab, chartData, advancedStats, hasEnoughData } =
     useAdvancedStatsContent();
 
@@ -21,29 +21,29 @@ export function AdvancedStatsContent() {
     if (cv < 10)
       return {
         label: t.advancedStats.consistency.coefficientOfVariation.excellent,
-        color: 'text-green-400',
-        bg: 'bg-green-400/10',
-        border: 'border-green-400/20',
+        color: 'text-success',
+        bg: 'bg-success/10',
+        border: 'border-success/20',
       };
     if (cv < 15)
       return {
         label: t.advancedStats.consistency.coefficientOfVariation.good,
-        color: 'text-blue-400',
-        bg: 'bg-blue-400/10',
-        border: 'border-blue-400/20',
+        color: 'text-info',
+        bg: 'bg-info/10',
+        border: 'border-info/20',
       };
     if (cv < 20)
       return {
         label: t.advancedStats.consistency.coefficientOfVariation.average,
-        color: 'text-yellow-400',
-        bg: 'bg-yellow-400/10',
-        border: 'border-yellow-400/20',
+        color: 'text-warning',
+        bg: 'bg-warning/10',
+        border: 'border-warning/20',
       };
     return {
       label: t.advancedStats.consistency.coefficientOfVariation.needsWork,
-      color: 'text-red-400',
-      bg: 'bg-red-400/10',
-      border: 'border-red-400/20',
+      color: 'text-danger',
+      bg: 'bg-danger/10',
+      border: 'border-danger/20',
     };
   };
 
@@ -52,7 +52,10 @@ export function AdvancedStatsContent() {
   return (
     <div className="flex flex-col h-full space-y-6">
       {/* Tabs - Pill Design */}
-      <div className="flex p-1 bg-black/20 backdrop-blur-md rounded-xl border border-white/5 overflow-x-auto">
+      <nav
+        className="flex p-1 bg-black/20 backdrop-blur-md rounded-xl border border-white/5 overflow-x-auto print:hidden"
+        aria-label="Abas de estatísticas"
+      >
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -61,9 +64,10 @@ export function AdvancedStatsContent() {
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               variant="ghost"
+              aria-current={isActive ? 'page' : undefined}
               className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg transition-all duration-300 ${
                 isActive
-                  ? 'bg-primary/20 text-auth-active shadow-sm border border-primary/20'
+                  ? 'bg-primary/20 text-primary shadow-sm border border-primary/20'
                   : 'text-text-muted hover:text-text-primary hover:bg-white/5'
               }`}
             >
@@ -72,12 +76,12 @@ export function AdvancedStatsContent() {
             </Button>
           );
         })}
-      </div>
+      </nav>
 
       {/* Content */}
       <div className="min-h-[400px]">
         {!hasEnoughData ? (
-          <div className="flex flex-col items-center justify-center h-full py-16 text-center border-2 border-dashed border-white/5 rounded-2xl bg-white/5">
+          <section className="flex flex-col items-center justify-center h-full py-16 text-center border-2 border-dashed border-white/5 rounded-2xl bg-white/5">
             <div className="bg-white/5 p-4 rounded-full mb-4">
               <GraphUp size={48} className="text-text-muted opacity-50" />
             </div>
@@ -85,19 +89,20 @@ export function AdvancedStatsContent() {
               {t.advancedStats.evolution.noData}
             </h3>
             <p className="text-text-muted max-w-md mx-auto">{t.advancedStats.evolution.tip}</p>
-          </div>
+          </section>
         ) : (
           <AnimatePresence mode="wait">
             {activeTab === 'evolution' && (
-              <motion.div
+              <motion.section
                 key="evolution"
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
                 className="space-y-6"
+                aria-label={t.advancedStats.evolution.title}
               >
                 <div className="glass p-6 rounded-2xl border border-white/5">
-                  <div className="mb-6">
+                  <header className="mb-6">
                     <h3 className="text-lg font-bold text-text-primary flex items-center gap-2">
                       <GraphUp size={20} className="text-primary" />
                       {t.advancedStats.evolution.title}
@@ -105,27 +110,31 @@ export function AdvancedStatsContent() {
                     <p className="text-sm text-text-muted mt-1">
                       {t.advancedStats.evolution.description}
                     </p>
-                  </div>
+                  </header>
                   <EvolutionChart data={chartData} />
                 </div>
-              </motion.div>
+              </motion.section>
             )}
 
             {activeTab === 'consistency' && (
-              <motion.div
+              <motion.section
                 key="consistency"
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
                 className="space-y-6"
+                aria-label={t.advancedStats.tabs.consistency}
               >
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Standard Deviation */}
                   <div className="glass p-6 rounded-2xl border border-white/5 relative overflow-hidden group">
-                    <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                    <div
+                      className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"
+                      aria-hidden="true"
+                    >
                       <Target size={64} />
                     </div>
-                    <h4 className="text-lg font-bold text-text-primary mb-2 flex items-center gap-2">
+                    <h4 className="text-lg font-bold text-text-primary mb-2">
                       {t.advancedStats.consistency.standardDeviation.title}
                     </h4>
                     <p className="text-xs text-text-muted mb-6 h-8">
@@ -143,11 +152,8 @@ export function AdvancedStatsContent() {
 
                   {/* Coefficient of Variation */}
                   <div
-                    className={`glass p-6 rounded-2xl border relative overflow-hidden transition-colors ${consistencyLevel.border}`}
+                    className={`glass p-6 rounded-2xl border relative overflow-hidden transition-colors ${consistencyLevel.border} ${consistencyLevel.bg}`}
                   >
-                    <div
-                      className={`absolute inset-0 opacity-5 pointer-events-none ${consistencyLevel.bg}`}
-                    />
                     <h4 className="text-lg font-bold text-text-primary mb-2">
                       {t.advancedStats.consistency.coefficientOfVariation.title}
                     </h4>
@@ -164,7 +170,7 @@ export function AdvancedStatsContent() {
                         </span>
                       </div>
                       <span
-                        className={`inline-flex self-start items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${consistencyLevel.color} ${consistencyLevel.border} ${consistencyLevel.bg}`}
+                        className={`inline-flex self-start items-center px-2.5 py-0.5 rounded-full text-xs font-bold border ${consistencyLevel.color} ${consistencyLevel.border} bg-white/5`}
                       >
                         {consistencyLevel.label}
                       </span>
@@ -173,33 +179,34 @@ export function AdvancedStatsContent() {
                 </div>
 
                 {/* Interpretation */}
-                <div className="glass p-5 rounded-xl border border-blue-500/20 bg-blue-500/5 flex gap-4">
-                  <InfoCircle size={24} className="flex-shrink-0 text-blue-400" />
+                <aside className="glass p-5 rounded-xl border border-info/20 bg-info/5 flex gap-4">
+                  <InfoCircle size={24} className="shrink-0 text-info" aria-hidden="true" />
                   <div>
-                    <h4 className="font-bold text-blue-400 mb-1">
+                    <h4 className="font-bold text-info mb-1">
                       {t.advancedStats.consistency.interpretation.title}
                     </h4>
-                    <p className="text-sm text-blue-300/80 leading-relaxed">
+                    <p className="text-sm text-text-secondary leading-relaxed">
                       {t.advancedStats.consistency.interpretation.description}
                     </p>
                   </div>
-                </div>
-              </motion.div>
+                </aside>
+              </motion.section>
             )}
 
             {activeTab === 'performance' && (
-              <motion.div
+              <motion.section
                 key="performance"
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
                 className="space-y-6"
+                aria-label={t.advancedStats.tabs.performance}
               >
                 {/* Average TPS */}
                 <div className="glass p-6 rounded-2xl border border-white/5 flex flex-col md:flex-row items-center justify-between gap-6">
                   <div className="flex-1">
                     <h4 className="text-lg font-bold text-text-primary mb-2 flex items-center gap-2">
-                      <Bolt size={20} className="text-yellow-400" />
+                      <Bolt size={20} className="text-warning" />
                       {t.advancedStats.performance.averageTPS.title}
                     </h4>
                     <p className="text-sm text-text-muted">
@@ -208,7 +215,7 @@ export function AdvancedStatsContent() {
                   </div>
                   <div className="flex flex-col items-end">
                     <div className="flex items-baseline gap-2">
-                      <span className="text-4xl font-mono font-bold text-yellow-400">
+                      <span className="text-4xl font-mono font-bold text-warning">
                         {advancedStats.performance.averageTPS.toFixed(2)}
                       </span>
                       <span className="text-sm font-bold text-text-muted">
@@ -223,21 +230,21 @@ export function AdvancedStatsContent() {
 
                 {/* Distribution */}
                 <div className="glass p-6 rounded-2xl border border-white/5">
-                  <div className="mb-6">
+                  <header className="mb-6">
                     <h4 className="text-lg font-bold text-text-primary mb-2">
                       {t.advancedStats.performance.distribution.title}
                     </h4>
                     <p className="text-sm text-text-muted">
                       {t.advancedStats.performance.distribution.description}
                     </p>
-                  </div>
+                  </header>
                   <DistributionChart distribution={advancedStats.performance.distribution} />
                 </div>
-              </motion.div>
+              </motion.section>
             )}
           </AnimatePresence>
         )}
       </div>
     </div>
   );
-}
+};

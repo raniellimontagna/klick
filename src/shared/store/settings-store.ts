@@ -18,10 +18,11 @@ export const useSettingsStore = create<SettingsStore>()(
   persist(
     (set) => ({
       settings: defaultSettings,
-      updateSettings: (newSettings) =>
+      updateSettings: (newSettings): void => {
         set((state) => ({
           settings: { ...state.settings, ...newSettings },
-        })),
+        }));
+      },
     }),
     {
       name: 'klick-settings',

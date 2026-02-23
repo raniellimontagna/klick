@@ -3,11 +3,25 @@ import { useOnboardingStore } from '@/features/home/lib/onboarding/onboarding-st
 import { useScrambleStore } from '@/shared/store/scramble-store';
 import { useSessionsStore } from '@/shared/store/sessions-store';
 import { useSettingsStore } from '@/shared/store/settings-store';
-import type { Penalty } from '@/shared/types';
+import type { Penalty, TimerState } from '@/shared/types';
 import type { CubeState } from './lib/scramble/cube-solver';
 import { useTimer } from './lib/use-timer';
 
-export function useHome() {
+export interface UseHomeReturn {
+  scramble: string;
+  state: TimerState;
+  timeMs: number;
+  inspectionTimeLeft: number;
+  isFocusMode: boolean;
+  showStatsInfo: boolean;
+  setShowStatsInfo: (show: boolean) => void;
+  generateNewScramble: () => void;
+  cubeState: CubeState | null;
+  isNewBest: boolean;
+  lastPenalty: Penalty;
+}
+
+export const useHome = (): UseHomeReturn => {
   const { scramble, generateNewScramble } = useScrambleStore();
   const [inspectionOvertime, setInspectionOvertime] = useState(0);
   const [showStatsInfo, setShowStatsInfo] = useState(false);
@@ -160,4 +174,4 @@ export function useHome() {
     isNewBest,
     lastPenalty,
   };
-}
+};

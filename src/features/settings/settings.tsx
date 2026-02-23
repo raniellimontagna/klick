@@ -5,7 +5,7 @@ import { fadeIn } from '@/shared/lib';
 import { useI18nStore } from '@/shared/store/i18n-store';
 import { SettingsContent } from './components/settings-content';
 
-export function Settings() {
+export const Settings: React.FC = (): React.ReactElement => {
   const { t } = useI18nStore();
 
   return (
@@ -21,7 +21,9 @@ export function Settings() {
         icon={<SettingsIcon size={32} />}
       />
 
-      <SettingsContent />
+      <section className="mt-8">
+        <SettingsContent />
+      </section>
     </motion.div>
   );
-}
+};

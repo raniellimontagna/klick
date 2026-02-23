@@ -1,7 +1,4 @@
 import { Palette, Restart } from '@solar-icons/react';
-import { Button } from '@/shared/components/ui/button';
-import { useCubeTheme } from '../hooks/use-cube-theme';
-import { THEME_PRESETS } from '../lib/cube-themes';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,6 +6,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/shared/components/ui';
+import { Button } from '@/shared/components/ui/button';
+import { useCubeTheme } from '../hooks/use-cube-theme';
+import { THEME_PRESETS } from '../lib/cube-themes';
 
 export function ThemeSelector() {
   const {

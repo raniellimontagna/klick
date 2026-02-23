@@ -13,11 +13,13 @@ export const useScrambleStore = create<ScrambleStore>((set, get) => ({
   scramble: '',
   currentPuzzle: '3x3',
 
-  generateNewScramble: (puzzleType) => {
+  generateNewScramble: (puzzleType): void => {
     const type = puzzleType || get().currentPuzzle;
     const newScramble = generateScramble(type);
     set({ scramble: newScramble, currentPuzzle: type });
   },
 
-  setScramble: (scramble) => set({ scramble }),
+  setScramble: (scramble): void => {
+    set({ scramble });
+  },
 }));

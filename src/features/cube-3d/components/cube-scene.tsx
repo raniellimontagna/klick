@@ -1,6 +1,6 @@
 import { ContactShadows, OrbitControls } from '@react-three/drei';
 import { Canvas } from '@react-three/fiber';
-import { useState, useRef, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useCubeInteraction } from '../hooks/use-cube-interaction';
 import type { MoveDefinition } from '../lib/moves';
 import type { CubieData } from '../lib/types';
@@ -16,20 +16,21 @@ interface CubeSceneProps {
   realignCounter?: number;
 }
 
-export function CubeScene({
+import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
+
+export const CubeScene: React.FC<CubeSceneProps> = ({
   cubies = [],
   moveQueue = [],
-  completeMove = () => {},
-  startMove = () => {},
-  applyMove = () => {},
+  completeMove = (): void => {},
+  startMove = (): void => {},
+  applyMove = (): void => {},
   cubeGeneration = 0,
   realignCounter = 0,
-}: CubeSceneProps) {
+}: CubeSceneProps): React.ReactElement => {
   const [orbitEnabled, setOrbitEnabled] = useState(true);
 
-  // We use any here to avoid complex three-stdlib resolution issues while still
-  // allowing access to the .reset() method of the OrbitControls instance.
-  const controlsRef = useRef<any>(null);
+  // Correctly type the OrbitControls ref to avoid 'any'
+  const controlsRef = useRef<OrbitControlsImpl>(null);
 
   // Realign camera when counter changes
   useEffect(() => {
@@ -95,4 +96,4 @@ export function CubeScene({
       />
     </Canvas>
   );
-}
+};
