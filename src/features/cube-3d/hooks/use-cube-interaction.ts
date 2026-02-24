@@ -20,11 +20,16 @@ interface UseCubeInteractionProps {
 // Threshold to consider a drag as a swipe (in pixels)
 const SWIPE_THRESHOLD = 20;
 
-export function useCubeInteraction({
+export interface UseCubeInteractionReturn {
+  handlePointerDown: (e: ThreeEvent<PointerEvent>, cubiePos: Vec3, face: CubieFace) => void;
+  handlePointerUp: (e: ThreeEvent<PointerEvent>) => void;
+}
+
+export const useCubeInteraction = ({
   enabled,
   applyMove,
   setOrbitEnabled,
-}: UseCubeInteractionProps) {
+}: UseCubeInteractionProps): UseCubeInteractionReturn => {
   const dragState = useRef<DragState | null>(null);
 
   const handlePointerDown = useCallback(
@@ -134,4 +139,4 @@ export function useCubeInteraction({
   );
 
   return { handlePointerDown, handlePointerUp };
-}
+};

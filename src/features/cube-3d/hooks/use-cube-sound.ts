@@ -5,7 +5,13 @@ interface WindowWithWebkit extends Window {
   webkitAudioContext?: typeof AudioContext;
 }
 
-export function useCubeSound() {
+export interface UseCubeSoundReturn {
+  playClick: () => void;
+  toggleSound: () => void;
+  enabled: boolean;
+}
+
+export const useCubeSound = (): UseCubeSoundReturn => {
   const audioContextRef = useRef<AudioContext | null>(null);
   const [enabled, setEnabled] = useState(true);
 
@@ -91,4 +97,4 @@ export function useCubeSound() {
   }, []);
 
   return { playClick, toggleSound, enabled };
-}
+};

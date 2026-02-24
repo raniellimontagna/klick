@@ -1,5 +1,8 @@
+import { DoubleAltArrowRight } from '@solar-icons/react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
 import { useScrambleStore } from '@/shared/store/scramble-store';
+import { CubeActionBar } from './components/cube-action-bar';
 import { CubeScene } from './components/cube-scene';
 import { MoveHistory } from './components/move-history';
 import { MoveIndicator } from './components/move-indicator';
@@ -7,9 +10,6 @@ import { useCubeSound } from './hooks/use-cube-sound';
 import { MOVES } from './lib/moves';
 import { useCubeKeyboard } from './use-cube-keyboard';
 import { useCubeState } from './use-cube-state';
-import { CubeActionBar } from './components/cube-action-bar';
-import { DoubleAltArrowRight } from '@solar-icons/react';
-import { motion, AnimatePresence } from 'framer-motion';
 
 export function Cube3D() {
   const {

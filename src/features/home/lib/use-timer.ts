@@ -18,11 +18,11 @@ interface UseTimerOptions {
   onInspectionEnd?: (timeOverMs: number) => void;
 }
 
-export function useTimer({
+export const useTimer = ({
   inspectionDuration = 15,
   soundsEnabled = false,
   onInspectionEnd,
-}: UseTimerOptions = {}): UseTimerReturn {
+}: UseTimerOptions = {}): UseTimerReturn => {
   const [state, setState] = useState<TimerState>('idle');
   const [timeMs, setTimeMs] = useState(0);
   const [inspectionTimeLeft, setInspectionTimeLeft] = useState(inspectionDuration);
@@ -215,4 +215,4 @@ export function useTimer({
     stopTimer,
     reset,
   };
-}
+};

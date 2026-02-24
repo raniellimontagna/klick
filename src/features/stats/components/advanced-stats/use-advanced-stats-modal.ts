@@ -9,7 +9,17 @@ import { useSessionsStore } from '@/shared/store/sessions-store';
 
 export type Tab = 'evolution' | 'consistency' | 'performance';
 
-export function useAdvancedStatsContent() {
+export interface UseAdvancedStatsContentReturn {
+  isOpen: boolean;
+  setIsOpen: (isOpen: boolean) => void;
+  activeTab: Tab;
+  setActiveTab: (tab: Tab) => void;
+  chartData: ChartDataPoint[];
+  advancedStats: AdvancedStats;
+  hasEnoughData: boolean;
+}
+
+export const useAdvancedStatsContent = (): UseAdvancedStatsContentReturn => {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('evolution');
 
@@ -39,4 +49,4 @@ export function useAdvancedStatsContent() {
     advancedStats,
     hasEnoughData,
   };
-}
+};

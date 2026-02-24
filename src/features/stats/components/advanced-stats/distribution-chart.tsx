@@ -1,13 +1,15 @@
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import type { TimeDistribution } from '@/features/stats/advanced';
-import { useTranslation } from '@/shared/hooks/use-translation';
+import { useI18nStore } from '@/shared/store/i18n-store';
 
 type DistributionChartProps = {
   distribution: TimeDistribution;
 };
 
-export function DistributionChart({ distribution }: DistributionChartProps) {
-  const { t } = useTranslation();
+export const DistributionChart: React.FC<DistributionChartProps> = ({
+  distribution,
+}: DistributionChartProps): React.ReactElement => {
+  const { t } = useI18nStore();
 
   const chartData = distribution.ranges.map((range, index) => ({
     range,
@@ -15,14 +17,14 @@ export function DistributionChart({ distribution }: DistributionChartProps) {
   }));
 
   return (
-    <div className="w-full h-80">
+    <div className="w-full h-80" role="img" aria-label="Gráfico de distribuição de tempos">
       <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={100}>
         <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 5 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--color-white-5)" vertical={false} />
           <XAxis
             dataKey="range"
-            stroke="rgba(255,255,255,0.3)"
-            tick={{ fill: 'rgba(255,255,255,0.5)', fontSize: 10 }}
+            stroke="var(--color-text-muted)"
+            tick={{ fill: 'var(--color-text-muted)', fontSize: 10 }}
             angle={-45}
             textAnchor="end"
             height={60}
@@ -31,13 +33,13 @@ export function DistributionChart({ distribution }: DistributionChartProps) {
             tickLine={false}
           />
           <YAxis
-            stroke="rgba(255,255,255,0.3)"
-            tick={{ fill: 'rgba(255,255,255,0.5)', fontSize: 12 }}
+            stroke="var(--color-text-muted)"
+            tick={{ fill: 'var(--color-text-muted)', fontSize: 12 }}
             axisLine={false}
             tickLine={false}
           />
           <Tooltip
-            cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+            cursor={{ fill: 'var(--color-white-5)' }}
             content={({ active, payload }) => {
               if (active && payload && payload.length) {
                 const data = payload[0].payload;
@@ -61,11 +63,11 @@ export function DistributionChart({ distribution }: DistributionChartProps) {
           <Bar
             dataKey="count"
             fill="var(--color-primary)"
-            radius={[4, 4, 4, 4]}
+            radius={[4, 4, 0, 0]}
             animationDuration={800}
           />
         </BarChart>
       </ResponsiveContainer>
     </div>
   );
-}
+};

@@ -16,7 +16,9 @@ interface HistoryChartsProps {
   solves: Solve[];
 }
 
-export function HistoryCharts({ solves }: HistoryChartsProps) {
+export const HistoryCharts: React.FC<HistoryChartsProps> = ({
+  solves,
+}: HistoryChartsProps): React.ReactElement => {
   const { t } = useI18nStore();
 
   if (solves.length === 0) {
@@ -107,4 +109,4 @@ export function HistoryCharts({ solves }: HistoryChartsProps) {
       </ResponsiveContainer>
     </div>
   );
-}
+};

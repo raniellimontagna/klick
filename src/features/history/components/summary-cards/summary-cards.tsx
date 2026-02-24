@@ -7,7 +7,9 @@ interface SummaryCardsProps {
   solves: Solve[];
 }
 
-export function SummaryCards({ solves }: SummaryCardsProps) {
+export const SummaryCards: React.FC<SummaryCardsProps> = ({
+  solves,
+}: SummaryCardsProps): React.ReactElement | null => {
   const { t } = useI18nStore();
 
   if (solves.length === 0) return null;
@@ -56,23 +58,26 @@ export function SummaryCards({ solves }: SummaryCardsProps) {
   ];
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+    <section className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6" aria-label="Resumo estatístico">
       {cards.map((card) => (
-        <div
+        <article
           key={card.label}
           className="glass p-4 rounded-xl border border-white/5 flex flex-col items-center justify-center text-center"
         >
-          <div className={`p-2 rounded-full bg-surface mb-2 ${card.color} bg-opacity-10`}>
+          <div
+            className={`p-2 rounded-full bg-surface mb-2 ${card.color} bg-opacity-10`}
+            aria-hidden="true"
+          >
             <card.icon size={18} className={card.color} />
           </div>
-          <span className="text-xs text-text-muted uppercase tracking-wider font-semibold mb-1">
+          <h3 className="text-xs text-text-muted uppercase tracking-wider font-semibold mb-1">
             {card.label}
-          </span>
-          <span className="text-lg sm:text-2xl font-mono font-bold text-text-primary tracking-tight">
+          </h3>
+          <p className="text-lg sm:text-2xl font-mono font-bold text-text-primary tracking-tight">
             {validSolves.length > 0 ? formatTime(card.value) : '-'}
-          </span>
-        </div>
+          </p>
+        </article>
       ))}
-    </div>
+    </section>
   );
-}
+};

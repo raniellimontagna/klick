@@ -14,7 +14,9 @@ interface SolveTableProps {
   onViewDetails?: (solve: Solve) => void;
 }
 
-export function SolveTable({ onViewDetails }: SolveTableProps) {
+export const SolveTable: React.FC<SolveTableProps> = ({
+  onViewDetails,
+}: SolveTableProps): React.ReactElement => {
   const { t } = useI18nStore();
   const { getActiveSession, deleteSolve } = useSessionsStore();
   const [filter, setFilter] = useState<FilterOption>('all');
@@ -23,7 +25,7 @@ export function SolveTable({ onViewDetails }: SolveTableProps) {
   const session = getActiveSession();
   const allSolves = session?.solves || [];
 
-  const getFilteredSolves = () => {
+  const getFilteredSolves = (): Solve[] => {
     const reversed = [...allSolves].reverse();
     switch (filter) {
       case 'last5':
@@ -41,20 +43,20 @@ export function SolveTable({ onViewDetails }: SolveTableProps) {
 
   const filteredSolves = getFilteredSolves();
 
-  const handleDelete = (e: React.MouseEvent, solve: Solve) => {
+  const handleDelete = (e: React.MouseEvent, solve: Solve): void => {
     e.stopPropagation();
     setDeleteConfirmSolve(solve);
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = (): void => {
     if (deleteConfirmSolve) {
       deleteSolve(deleteConfirmSolve.id);
       setDeleteConfirmSolve(null);
     }
   };
 
-  const formatDate = (isoString: string) => {
-    const date = new Date(isoString);
+  const formatDate = (dateInput: Date | string): string => {
+    const date = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
     return new Intl.DateTimeFormat('pt-BR', {
       day: '2-digit',
       month: '2-digit',
@@ -78,15 +80,21 @@ export function SolveTable({ onViewDetails }: SolveTableProps) {
 
   return (
     <>
-      <div className="space-y-4">
+      <section className="space-y-4" aria-labelledby="solve-table-title">
         {/* Header & Filter */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <h2 className="text-xl font-bold text-text-primary px-2">{t.solveTable.title}</h2>
+          <h2 id="solve-table-title" className="text-xl font-bold text-text-primary px-2">
+            {t.solveTable.title}
+          </h2>
           <div className="flex items-center gap-3 bg-surface p-1 rounded-lg border border-white/5 w-full sm:w-auto">
-            <span className="text-sm text-text-muted pl-2 whitespace-nowrap">
+            <label
+              htmlFor="solve-filter"
+              className="text-sm text-text-muted pl-2 whitespace-nowrap"
+            >
               {t.solveTable.filter.label}:
-            </span>
+            </label>
             <select
+              id="solve-filter"
               value={filter}
               onChange={(e) => setFilter(e.target.value as FilterOption)}
               className="bg-transparent text-text-primary py-1 px-2 rounded focus:outline-none focus:bg-white/5 text-sm w-full sm:w-auto"
@@ -113,21 +121,37 @@ export function SolveTable({ onViewDetails }: SolveTableProps) {
         {/* Desktop Table View */}
         <div className="hidden md:block glass rounded-xl overflow-hidden border border-white/5">
           <table className="w-full">
+            <caption className="sr-only">{t.solveTable.title}</caption>
             <thead className="bg-surface/50 border-b border-white/5">
               <tr>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-text-muted uppercase tracking-wider">
+                <th
+                  scope="col"
+                  className="px-6 py-4 text-left text-xs font-semibold text-text-muted uppercase tracking-wider"
+                >
                   {t.solveTable.columns.number}
                 </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-text-muted uppercase tracking-wider">
+                <th
+                  scope="col"
+                  className="px-6 py-4 text-left text-xs font-semibold text-text-muted uppercase tracking-wider"
+                >
                   {t.solveTable.columns.time}
                 </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-text-muted uppercase tracking-wider">
+                <th
+                  scope="col"
+                  className="px-6 py-4 text-left text-xs font-semibold text-text-muted uppercase tracking-wider"
+                >
                   {t.solveTable.columns.scramble}
                 </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-text-muted uppercase tracking-wider">
+                <th
+                  scope="col"
+                  className="px-6 py-4 text-left text-xs font-semibold text-text-muted uppercase tracking-wider"
+                >
                   {t.solveTable.columns.date}
                 </th>
-                <th className="px-6 py-4 text-right text-xs font-semibold text-text-muted uppercase tracking-wider">
+                <th
+                  scope="col"
+                  className="px-6 py-4 text-right text-xs font-semibold text-text-muted uppercase tracking-wider"
+                >
                   {t.solveTable.columns.actions}
                 </th>
               </tr>
@@ -140,6 +164,13 @@ export function SolveTable({ onViewDetails }: SolveTableProps) {
                     key={solve.id}
                     onClick={() => onViewDetails?.(solve)}
                     className="hover:bg-white/5 transition-colors cursor-pointer group"
+                    tabIndex={0}
+                    aria-label={`Ver detalhes da resolução #${solveNumber}`}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        onViewDetails?.(solve);
+                      }
+                    }}
                   >
                     <td className="px-6 py-4 text-sm text-text-secondary">#{solveNumber}</td>
                     <td className="px-6 py-4">
@@ -171,6 +202,7 @@ export function SolveTable({ onViewDetails }: SolveTableProps) {
                         size="icon"
                         className="text-text-muted hover:text-danger hover:bg-danger/10 opacity-0 group-hover:opacity-100 transition-all focus:opacity-100"
                         title={t.actions.delete}
+                        aria-label={t.actions.delete}
                       >
                         <TrashBin2 size={18} />
                       </Button>
@@ -183,12 +215,12 @@ export function SolveTable({ onViewDetails }: SolveTableProps) {
         </div>
 
         {/* Mobile Card List View */}
-        <div className="md:hidden space-y-3">
+        <ul className="md:hidden space-y-3" aria-label="Lista de resoluções">
           <AnimatePresence>
             {filteredSolves.map((solve) => {
               const solveNumber = allSolves.length - allSolves.indexOf(solve);
               return (
-                <motion.div
+                <motion.li
                   key={solve.id}
                   layout
                   initial={{ opacity: 0, y: 10 }}
@@ -222,6 +254,7 @@ export function SolveTable({ onViewDetails }: SolveTableProps) {
                       variant="ghost"
                       size="icon"
                       className="text-text-muted -mr-2 -mt-2 h-8 w-8"
+                      aria-label={t.actions.delete}
                     >
                       <TrashBin2 size={16} />
                     </Button>
@@ -229,12 +262,12 @@ export function SolveTable({ onViewDetails }: SolveTableProps) {
                   <div className="text-xs text-text-tertiary font-mono truncate bg-background/50 p-2 rounded border border-white/5">
                     {solve.scramble}
                   </div>
-                </motion.div>
+                </motion.li>
               );
             })}
           </AnimatePresence>
-        </div>
-      </div>
+        </ul>
+      </section>
 
       <ConfirmDialog
         isOpen={deleteConfirmSolve !== null}
@@ -248,4 +281,4 @@ export function SolveTable({ onViewDetails }: SolveTableProps) {
       />
     </>
   );
-}
+};

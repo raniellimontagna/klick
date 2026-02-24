@@ -204,6 +204,7 @@ export const esES = {
     cannotDeleteLast: 'No se puede eliminar la última sesión',
     solveCount: 'solves',
     solveCountSingular: 'solve',
+    active: 'Activa',
   },
   solveTable: {
     title: 'Historial de Solves',

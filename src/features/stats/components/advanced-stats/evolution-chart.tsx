@@ -9,15 +9,17 @@ import {
   YAxis,
 } from 'recharts';
 import type { ChartDataPoint } from '@/features/stats/advanced';
-import { useTranslation } from '@/shared/hooks/use-translation';
 import { formatTime } from '@/shared/lib';
+import { useI18nStore } from '@/shared/store/i18n-store';
 
 type EvolutionChartProps = {
   data: ChartDataPoint[];
 };
 
-export function EvolutionChart({ data }: EvolutionChartProps) {
-  const { t } = useTranslation();
+export const EvolutionChart: React.FC<EvolutionChartProps> = ({
+  data,
+}: EvolutionChartProps): React.ReactElement => {
+  const { t } = useI18nStore();
 
   const chartData = data.map((point) => ({
     solve: point.index,
@@ -30,29 +32,29 @@ export function EvolutionChart({ data }: EvolutionChartProps) {
   }));
 
   return (
-    <div className="w-full h-80">
+    <div className="w-full h-80" role="img" aria-label="Gráfico de evolução de tempos">
       <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={100}>
         <LineChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--color-white-5)" vertical={false} />
           <XAxis
             dataKey="solve"
-            stroke="rgba(255,255,255,0.3)"
+            stroke="var(--color-text-muted)"
             fontSize={12}
             tickLine={false}
             axisLine={false}
-            tick={{ fill: 'rgba(255,255,255,0.5)' }}
+            tick={{ fill: 'var(--color-text-muted)' }}
           />
           <YAxis
-            stroke="rgba(255,255,255,0.3)"
+            stroke="var(--color-text-muted)"
             fontSize={12}
             tickFormatter={(val) => val.toFixed(1)}
             tickLine={false}
             axisLine={false}
-            tick={{ fill: 'rgba(255,255,255,0.5)' }}
+            tick={{ fill: 'var(--color-text-muted)' }}
             domain={['auto', 'auto']}
           />
           <Tooltip
-            cursor={{ stroke: 'rgba(255,255,255,0.1)', strokeWidth: 2 }}
+            cursor={{ stroke: 'var(--color-white-10)', strokeWidth: 2 }}
             content={({ active, payload, label }) => {
               if (active && payload && payload.length) {
                 return (
@@ -64,7 +66,6 @@ export function EvolutionChart({ data }: EvolutionChartProps) {
                       {payload.map((item) => {
                         const dataKey = String(item.dataKey);
                         const rawKey = `raw${dataKey.charAt(0).toUpperCase() + dataKey.slice(1)}`;
-                        // Safe access since we know the shape of the data
                         const value = (item.payload as Record<string, number | null | undefined>)[
                           rawKey
                         ];
@@ -75,7 +76,6 @@ export function EvolutionChart({ data }: EvolutionChartProps) {
                               {item.name}
                             </span>
                             <span className="text-sm font-mono font-bold text-text-primary">
-                              {/* Ensure value is a number before formatting, though it should be based on data prep */}
                               {typeof value === 'number' ? formatTime(value) : '-'}
                             </span>
                           </div>
@@ -96,7 +96,7 @@ export function EvolutionChart({ data }: EvolutionChartProps) {
           <Line
             type="monotone"
             dataKey="single"
-            stroke="var(--color-primary)" // Primary color for single
+            stroke="var(--color-primary)"
             name={t.advancedStats.evolution.single}
             strokeWidth={2}
             dot={{ r: 3, fill: 'var(--color-surface)', strokeWidth: 2 }}
@@ -107,24 +107,24 @@ export function EvolutionChart({ data }: EvolutionChartProps) {
           <Line
             type="monotone"
             dataKey="ao5"
-            stroke="#39FF88" // Keep green for ao5 contrast
+            stroke="var(--color-success)"
             name={t.advancedStats.evolution.ao5}
             strokeWidth={2}
             dot={false}
             strokeDasharray="5 5"
-            activeDot={{ r: 5, fill: '#39FF88' }}
+            activeDot={{ r: 5, fill: 'var(--color-success)' }}
             connectNulls={false}
             animationDuration={500}
           />
           <Line
             type="monotone"
             dataKey="ao12"
-            stroke="#00D9FF" // Cyan for ao12 contrast
+            stroke="var(--color-info)"
             name={t.advancedStats.evolution.ao12}
             strokeWidth={2}
             dot={false}
             strokeOpacity={0.7}
-            activeDot={{ r: 5, fill: '#00D9FF' }}
+            activeDot={{ r: 5, fill: 'var(--color-info)' }}
             connectNulls={false}
             animationDuration={500}
           />
@@ -132,4 +132,4 @@ export function EvolutionChart({ data }: EvolutionChartProps) {
       </ResponsiveContainer>
     </div>
   );
-}
+};

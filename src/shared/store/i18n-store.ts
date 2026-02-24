@@ -14,11 +14,12 @@ export const useI18nStore = create<I18nStore>()(
     (set) => ({
       language: 'pt-BR',
       t: translations['pt-BR'],
-      setLanguage: (lang) =>
+      setLanguage: (lang): void => {
         set({
           language: lang,
           t: translations[lang],
-        }),
+        });
+      },
     }),
     {
       name: 'klick-i18n',

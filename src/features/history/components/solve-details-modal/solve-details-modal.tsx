@@ -21,12 +21,12 @@ interface SolveDetailsModalProps {
   solveNumber: number;
 }
 
-export function SolveDetailsModal({
+export const SolveDetailsModal: React.FC<SolveDetailsModalProps> = ({
   isOpen,
   onClose,
   solveId,
   solveNumber,
-}: SolveDetailsModalProps) {
+}: SolveDetailsModalProps): React.ReactElement | null => {
   const { t } = useI18nStore();
   const { getActiveSession } = useSessionsStore();
 
@@ -60,13 +60,13 @@ export function SolveDetailsModal({
       className="flex flex-col h-[90vh] sm:h-auto sm:max-h-[85vh]"
     >
       {/* Header */}
-      <div className="flex items-center justify-between p-6 border-b border-white/5 bg-surface/50 backdrop-blur-md sticky top-0 z-10">
+      <header className="flex items-center justify-between p-6 border-b border-white/5 bg-surface/50 backdrop-blur-md sticky top-0 z-10">
         <div className="flex flex-col">
           <h2 className="text-xl sm:text-2xl font-bold text-text-primary">
             {t.solveTable.details.title} #{solveNumber}
           </h2>
           <span className="text-sm text-text-muted flex items-center gap-2 mt-1">
-            <CalendarMinimalistic size={14} />
+            <CalendarMinimalistic size={14} aria-hidden="true" />
             {formatFullDate(solve.createdAt)}
           </span>
         </div>
@@ -74,16 +74,17 @@ export function SolveDetailsModal({
           type="button"
           onClick={onClose}
           className="p-2 rounded-xl glass-button border border-white/10 hover:border-white/20 hover:bg-white/10 text-text-secondary hover:text-text-primary transition-all"
+          aria-label={t.actions.close || 'Fechar'}
         >
           <CloseCircle size={20} />
         </button>
-      </div>
+      </header>
 
       <div className="flex-1 overflow-y-auto p-4 sm:p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Left Column: Visualizer & Scramble */}
-        <div className="space-y-6">
+        <section className="space-y-6" aria-label="Visualização e Scramble">
           {/* Visualizer */}
-          <div className="glass p-6 rounded-2xl border border-white/5 flex flex-col items-center justify-center min-h-[200px] bg-gradient-to-b from-white/5 to-transparent">
+          <div className="glass p-6 rounded-2xl border border-white/5 flex flex-col items-center justify-center min-h-[200px] bg-linear-to-b from-white/5 to-transparent">
             {cubeState ? (
               <CubeVisualizer
                 config={{
@@ -111,11 +112,10 @@ export function SolveDetailsModal({
               <span className="text-xs font-bold text-text-muted uppercase tracking-wider">
                 {t.solveTable.details.scramble}
               </span>
-              <Button
+              <button
+                type="button"
                 onClick={copyScramble}
-                variant="ghost"
-                size="sm"
-                className="h-6 text-xs text-primary hover:text-primary-hover hover:bg-primary/10"
+                className="h-6 text-xs text-primary hover:text-primary-hover hover:bg-primary/10 px-2 rounded-md transition-colors"
               >
                 {copied ? (
                   <span className="flex items-center gap-1">{t.scramble.copySuccess}</span>
@@ -124,29 +124,29 @@ export function SolveDetailsModal({
                     <Copy size={12} /> {t.scramble.copy}
                   </span>
                 )}
-              </Button>
+              </button>
             </div>
             <p className="font-mono text-lg text-text-primary leading-relaxed text-center">
               {solve.scramble}
             </p>
           </div>
-        </div>
+        </section>
 
         {/* Right Column: Stats & Actions */}
-        <div className="space-y-6">
+        <section className="space-y-6" aria-label="Estatísticas e Ações">
           {/* Main Time Card */}
           <div className="glass p-8 rounded-2xl border border-white/5 text-center flex flex-col items-center justify-center relative overflow-hidden group">
-            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary/0 via-primary/50 to-primary/0 opacity-50"></div>
+            <div className="absolute top-0 left-0 w-full h-1 bg-linear-to-r from-primary/0 via-primary/50 to-primary/0 opacity-50" />
 
-            <span className="text-sm text-text-muted mb-2 font-medium uppercase tracking-widest">
+            <h3 className="text-sm text-text-muted mb-2 font-medium uppercase tracking-widest">
               {t.solveTable.details.finalTime}
-            </span>
+            </h3>
             <div className="relative">
-              <span
+              <p
                 className={`text-6xl sm:text-7xl font-mono font-bold tracking-tighter ${solve.penalty === 'DNF' ? 'text-danger' : 'text-text-primary'}`}
               >
                 {solve.penalty === 'DNF' ? 'DNF' : formatTime(solve.effectiveMs)}
-              </span>
+              </p>
               {solve.penalty === '+2' && (
                 <span className="absolute -top-4 -right-8 text-lg font-bold text-warning bg-warning/10 px-2 py-0.5 rounded-full border border-warning/20 transform rotate-12">
                   +2
@@ -177,25 +177,25 @@ export function SolveDetailsModal({
           <div className="grid grid-cols-2 gap-4">
             <div className="glass p-4 rounded-xl border border-white/5">
               <div className="flex items-center gap-2 mb-1 text-text-muted">
-                <ClockCircle size={16} />
+                <ClockCircle size={16} aria-hidden="true" />
                 <span className="text-xs font-bold uppercase">{t.solveTable.details.baseTime}</span>
               </div>
-              <span className="text-xl font-mono font-semibold text-text-secondary">
+              <p className="text-xl font-mono font-semibold text-text-secondary">
                 {formatTime(solve.timeMs)}
-              </span>
+              </p>
             </div>
-            <div className="glass p-4 rounded-xl border border-white/5">
+            <output className="glass p-4 rounded-xl border border-white/5 block">
               <div className="flex items-center gap-2 mb-1 text-text-muted">
-                <DangerTriangle size={16} />
+                <DangerTriangle size={16} aria-hidden="true" />
                 <span className="text-xs font-bold uppercase">{t.solveTable.details.penalty}</span>
               </div>
-              <span className={`text-xl font-bold ${penaltyInfo.color}`}>
+              <p className={`text-xl font-bold ${penaltyInfo.color}`}>
                 {solve.penalty ? solve.penalty : t.penalties.none}
-              </span>
-            </div>
+              </p>
+            </output>
           </div>
-        </div>
+        </section>
       </div>
     </Modal>
   );
-}
+};

@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import { useRef } from 'react';
 import type { Group } from 'three';
 import type { MoveDefinition } from '../lib/moves';
-import type { CubieFace, CubieData, Vec3 } from '../lib/types';
+import type { CubieData, CubieFace, Vec3 } from '../lib/types';
 import { Cubie } from './cubie';
 
 interface RubiksCubeProps {
@@ -21,7 +21,7 @@ interface QueuedMove extends MoveDefinition {
   uid?: string;
 }
 
-export function RubiksCube({
+export const RubiksCube: React.FC<RubiksCubeProps> = ({
   cubies,
   moveQueue,
   completeMove,
@@ -29,7 +29,7 @@ export function RubiksCube({
   onPointerDown,
   onPointerUp,
   cubeGeneration = 0,
-}: RubiksCubeProps) {
+}: RubiksCubeProps): React.ReactElement => {
   const groupRef = useRef<Group>(null);
   const pivotRef = useRef<Group>(null);
 
@@ -162,4 +162,4 @@ export function RubiksCube({
       ))}
     </group>
   );
-}
+};
