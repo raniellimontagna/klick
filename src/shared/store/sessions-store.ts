@@ -141,7 +141,7 @@ export const useSessionsStore = create<SessionsStore>()(
           const newSolve: Solve = {
             ...solveData,
             id: crypto.randomUUID(),
-            createdAt: new Date().toISOString(),
+            createdAt: new Date(),
             effectiveMs,
           };
 

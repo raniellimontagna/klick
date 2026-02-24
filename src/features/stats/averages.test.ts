@@ -23,7 +23,7 @@ function createSolve(timeMs: number, penalty: 'NONE' | '+2' | 'DNF'): Solve {
     penalty,
     effectiveMs,
     scramble: "R U R' U'",
-    createdAt: new Date().toISOString(),
+    createdAt: new Date(),
   };
 }
 
