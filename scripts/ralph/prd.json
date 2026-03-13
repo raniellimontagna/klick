@@ -1,0 +1,371 @@
+{
+  "project": "Klick",
+  "branchName": "ralph/klick-core",
+  "description": "Klick é um timer web para cubo mágico com foco em clareza visual, aprendizado para iniciantes e feedback instantâneo. A aplicação possui timer com inspeção, histórico de solves, estatísticas (single/ao5/ao12), treinos, tutorial e internacionalização.",
+  "productContext": {
+    "type": "Aplicação web front-end (PWA) para speedcubing",
+    "primaryUsers": [
+      "Cubistas iniciantes que precisam de UX simples",
+      "Cubistas intermediários que acompanham consistência e evolução"
+    ],
+    "coreFlows": [
+      "Gerar scramble e iniciar/parar solve com teclado",
+      "Aplicar penalidades (+2/DNF) e registrar solve",
+      "Consultar histórico e métricas (single, ao5, ao12)",
+      "Treinar casos (PLL/OLL/F2L) e usar tutorial",
+      "Gerenciar configurações, sessão e idioma",
+      "Sincronizar progresso e sessões entre dispositivos",
+      "Completar desafios diários e acompanhar progressão",
+      "Compartilhar resultados e evolução com outras pessoas"
+    ]
+  },
+  "technologyContext": {
+    "frontend": [
+      "React 19",
+      "TypeScript 5.9 (strict)",
+      "Vite 7 (rolldown-vite)",
+      "React Router 7",
+      "Tailwind CSS v4",
+      "Framer Motion"
+    ],
+    "state": [
+      "Zustand v5 com persistência local"
+    ],
+    "backend": [
+      "Supabase Auth",
+      "Supabase PostgreSQL",
+      "Supabase Realtime (quando aplicável)"
+    ],
+    "data": [
+      "localStorage (offline-first)",
+      "Supabase PostgreSQL (sincronização multi-dispositivo)"
+    ],
+    "quality": [
+      "Biome",
+      "Vitest",
+      "Testing Library",
+      "Knip"
+    ]
+  },
+  "supabaseContext": {
+    "auth": [
+      "Google OAuth (prioritário para onboarding simplificado)",
+      "Email + magic link (fallback opcional)",
+      "Sessão persistida no cliente com supabase-js"
+    ],
+    "coreTables": [
+      "profiles",
+      "sessions",
+      "solves",
+      "user_settings",
+      "daily_challenges",
+      "challenge_completions",
+      "share_links",
+      "friends",
+      "friend_invites",
+      "leaderboards",
+      "leaderboard_entries"
+    ],
+    "migrationPath": "supabase/migrations",
+    "migrationRules": [
+      "Toda mudança de schema deve ser feita por migration SQL versionada em `supabase/migrations`.",
+      "É proibido alterar estrutura de banco apenas via dashboard sem registrar migration no repositório.",
+      "Cada migration precisa ser reproduzível localmente e no ambiente remoto.",
+      "Comandos operacionais devem seguir o guia em `docs/supabase-migrations.md`."
+    ]
+  },
+  "securityAndDataRules": [
+    "RLS obrigatório em todas as tabelas com dados de usuário.",
+    "Políticas devem restringir SELECT/INSERT/UPDATE/DELETE a `auth.uid()` do dono do registro.",
+    "Nunca usar `service_role` no frontend.",
+    "Fluxo de autenticação OAuth deve validar callbacks e redirecionamentos permitidos por ambiente.",
+    "Dados compartilháveis publicamente devem usar tabelas/visões dedicadas com escopo mínimo.",
+    "Sincronização deve manter modo offline-first e estratégia de conflito explícita (ex.: last-write-wins com `updated_at`).",
+    "Migrations de banco são obrigatórias para qualquer alteração estrutural no Supabase."
+  ],
+  "deliveryPrinciples": [
+    "Cada story deve deixar o projeto mais simples, sem camadas temporárias sem plano de remoção.",
+    "Refatorações greenfield devem remover legado no mesmo PR, evitando código morto acumulado.",
+    "Cada módulo novo precisa ter responsabilidade clara e ponto de uso explícito no app.",
+    "Evitar utilitários genéricos sem consumidor real; criar abstrações apenas quando houver necessidade concreta.",
+    "Toda decisão estrutural relevante deve ser registrada no progress log para manter consistência entre iterações."
+  ],
+  "architecture": {
+    "pattern": "Feature-based com módulos em src/features e compartilhados em src/shared",
+    "appEntry": [
+      "src/app/main.tsx",
+      "src/app/app.tsx",
+      "src/app/app-router.tsx"
+    ],
+    "mainFeatureAreas": [
+      "home",
+      "history",
+      "stats",
+      "training",
+      "tutorial",
+      "settings",
+      "cube-3d"
+    ]
+  },
+  "routeMap": {
+    "public": [
+      "/",
+      "/history",
+      "/stats",
+      "/training",
+      "/tutorial",
+      "/settings"
+    ],
+    "socialPlanned": [
+      "/friends",
+      "/leaderboard"
+    ]
+  },
+  "codingRules": {
+    "sourceOfTruth": "PROJECT.md na raiz, com complemento em docs/technical.md",
+    "highlights": [
+      "Separar renderização (componentes), lógica (hooks) e estado (stores).",
+      "Feature-based organization: manter código da feature coeso em src/features/[feature].",
+      "TypeScript strict: evitar tipos implícitos frágeis.",
+      "Comentários mínimos e em inglês apenas quando necessário.",
+      "Manter acessibilidade e responsividade em mudanças de UI.",
+      "Mudanças de banco Supabase devem sempre ser entregues com migrations versionadas.",
+      "Sem código sem uso: remover arquivos, exports e helpers órfãos durante refatorações.",
+      "Não manter duas implementações concorrentes da mesma feature além do período estritamente necessário."
+    ]
+  },
+  "qualityGates": {
+    "required": [
+      "pnpm lint",
+      "pnpm test",
+      "pnpm knip"
+    ],
+    "recommended": [
+      "pnpm build"
+    ]
+  },
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Baseline do Ralph no Klick",
+      "description": "Como time de produto, queremos a estrutura base do Ralph no repositório Klick para iterações contínuas com Codex/Claude usando PRD e log de progresso.",
+      "acceptanceCriteria": [
+        "Pasta scripts/ralph criada no repositório klick",
+        "Arquivo scripts/ralph/ralph.sh disponível e executável com suporte a --tool codex|claude|amp",
+        "Arquivo scripts/ralph/CODEX.md disponível com instruções do agente",
+        "Arquivo scripts/ralph/CLAUDE.md disponível com instruções do agente",
+        "Arquivo scripts/ralph/prd.json descreve o contexto do projeto Klick",
+        "Arquivo scripts/ralph/progress.txt inicializado com seção Codebase Patterns",
+        "Leitura de regras configurada com fallback para PROJECT.md e docs/technical.md"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "Story inicial concluída manualmente no bootstrap da estrutura."
+    },
+    {
+      "id": "US-004",
+      "title": "Plataforma de cubo 3D reutilizável para qualquer tela",
+      "description": "Como time de produto, queremos separar o cubo mágico 3D em uma plataforma reutilizável com integração simples para qualquer tela, evitando acoplamento com features específicas.",
+      "acceptanceCriteria": [
+        "Criar arquitetura compartilhada do cubo 3D independente de telas específicas (home/training/tutorial), sem import reverso para features.",
+        "Separar claramente camadas de renderização 3D, estado do cubo e controle de movimentos em módulos reutilizáveis.",
+        "Expor API de integração simples para telas consumidoras (ex.: tipo de cubo, algoritmo, modo interativo, tema e callbacks).",
+        "Permitir uso do cubo 3D em qualquer rota sem duplicação de lógica ou dependência de implementação local de tela.",
+        "Documentar no progress log como integrar o cubo 3D em novas telas com baixo acoplamento.",
+        "Validar qualidade com `pnpm lint` e `pnpm test` sem regressões."
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": "Story prioritária. Deve ser concluída antes das reescritas de tutorial, treino e home."
+    },
+    {
+      "id": "US-002",
+      "title": "Recriar tutorial do zero com cubo 3D e método CFOP",
+      "description": "Como cubista iniciante, quero um tutorial totalmente novo baseado em exemplos visuais com cubo 3D para aprender o método CFOP de forma clara, com estrutura preparada para incluir outros métodos no futuro.",
+      "acceptanceCriteria": [
+        "Greenfield obrigatório: não reaproveitar código, componentes, hooks, stores, fluxo visual ou conteúdo textual do tutorial legado.",
+        "Remover completamente a implementação atual da página `/tutorial` (componentes, fluxo e conteúdo legado), mantendo somente infraestrutura compartilhada já existente fora da feature.",
+        "Eliminar do repositório os arquivos legados de tutorial antes da nova implementação e substituir por nova estrutura de arquivos criada do zero em `src/features/tutorial`.",
+        "Recriar a experiência da página de tutorial do zero com nova arquitetura modular em `src/features/tutorial`.",
+        "Usar o cubo 3D como base dos exemplos didáticos (movimentos e casos demonstrados visualmente), evitando explicações apenas textuais.",
+        "Implementar o conteúdo inicial do tutorial com o método CFOP (Cross, F2L, OLL, PLL), com sequência de aprendizado coerente para iniciantes.",
+        "Estruturar o domínio de conteúdo para suportar múltiplos métodos no futuro (ex.: chave de método, organização por etapas e componentes reutilizáveis), sem acoplamento exclusivo ao CFOP.",
+        "Criar novo namespace/chaves de i18n para o tutorial refeito, sem reutilizar o conjunto de mensagens legado da feature antiga.",
+        "Garantir responsividade (mobile/desktop), acessibilidade básica e integração visual com o design system existente.",
+        "Documentar no progress log a lista de arquivos removidos (legado) e arquivos novos criados (greenfield), como evidência da reescrita total.",
+        "Validar qualidade com `pnpm lint` e `pnpm test` sem regressões."
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": "Requisito inegociável: reescrita total (greenfield), sem reaproveitar implementação antiga da feature tutorial. Depende da base reutilizável do cubo 3D (US-004)."
+    },
+    {
+      "id": "US-003",
+      "title": "Recriar aba de treino do zero com arquitetura expansível e cubo 3D",
+      "description": "Como cubista em evolução, quero uma nova aba de treino totalmente refeita, começando com um conjunto inicial de casos e preparada para expansão futura, com suporte visual em cubo 3D para facilitar o aprendizado.",
+      "acceptanceCriteria": [
+        "Greenfield obrigatório: não reaproveitar código, componentes, hooks, stores, fluxo visual ou conteúdo textual da feature de treino legada.",
+        "Remover completamente a implementação atual da aba `/training` (componentes e fluxo legado), mantendo somente infraestrutura compartilhada fora da feature.",
+        "Eliminar do repositório os arquivos legados de treino antes da nova implementação e substituir por nova estrutura modular em `src/features/training`.",
+        "Implementar um conjunto inicial de conteúdos/casos de treino (escopo inicial enxuto), com navegação clara e UX simples.",
+        "Estruturar os dados de treino para expansão futura sem refatoração estrutural (ex.: catálogo por categoria, metadados de caso, identificadores estáveis e organização por módulos).",
+        "Usar o cubo 3D para demonstração visual de casos/movimentos de treino, evitando depender apenas de texto estático.",
+        "Permitir adicionar novos casos/categorias no futuro por configuração/dados, sem reescrever o core da feature.",
+        "Criar novo namespace/chaves de i18n para a aba de treino refeita, sem reutilizar o conjunto de mensagens legado da feature antiga.",
+        "Garantir responsividade (mobile/desktop), acessibilidade básica e integração visual com o design system existente.",
+        "Documentar no progress log a lista de arquivos removidos (legado) e arquivos novos criados (greenfield), como evidência da reescrita total.",
+        "Validar qualidade com `pnpm lint` e `pnpm test` sem regressões."
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": "Requisito inegociável: reescrita total (greenfield) da aba de treino, com base extensível e suporte ao cubo 3D. Depende da base reutilizável do cubo 3D (US-004)."
+    },
+    {
+      "id": "US-005",
+      "title": "Refatorar home do zero com novo design e visualização de scramble em 3D",
+      "description": "Como usuário, quero uma tela inicial totalmente refeita, com design melhor e experiência moderna, incluindo visualização de embaralhamento em 3D (com opção de alternar entre 3D e 2D).",
+      "acceptanceCriteria": [
+        "Greenfield obrigatório: não reaproveitar layout/fluxo visual legado da home; recriar a experiência principal com novo design.",
+        "Manter os fluxos essenciais do timer e estatísticas funcionando sem regressão funcional.",
+        "Exibir o scramble em formato 3D usando a plataforma reutilizável do cubo (US-004).",
+        "Oferecer duas opções de visualização de scramble: 3D e 2D, com alternância clara para o usuário.",
+        "Garantir integração de performance adequada na home (evitar travamentos e degradação perceptível do timer).",
+        "Garantir responsividade (mobile/desktop), acessibilidade básica e consistência visual com o design system.",
+        "Criar novo namespace/chaves de i18n para os novos textos da home refeita quando necessário.",
+        "Documentar no progress log os arquivos da home removidos/substituídos e os novos componentes criados.",
+        "Validar qualidade com `pnpm lint` e `pnpm test` sem regressões."
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": "Refatoração estrutural completa da home. Depende da plataforma de cubo 3D reutilizável (US-004)."
+    },
+    {
+      "id": "US-006",
+      "title": "Adicionar cubos 2x2 e 4x4 em 3D com lógica isolada e reaproveitável",
+      "description": "Como usuário avançado, quero suporte a cubos 2x2 e 4x4 em 3D com lógica separada e reutilizável para permitir expansão de recursos e uso em diferentes telas.",
+      "acceptanceCriteria": [
+        "Implementar suporte a puzzle 2x2 e 4x4 em 3D sobre a plataforma reutilizável do cubo (US-004).",
+        "Isolar lógica de cada puzzle (2x2, 3x3, 4x4) em módulos próprios, sem acoplamento indevido entre regras e movimentos.",
+        "Garantir que componentes consumidores consigam instanciar cada tipo de cubo por configuração simples.",
+        "Preparar estrutura para expansão futura de puzzles/casos sem refatoração do núcleo da plataforma.",
+        "Adicionar validações/testes mínimos para regras de movimentos e integração de render por tipo de puzzle.",
+        "Documentar no progress log os pontos de extensão para novos tipos de cubo no futuro.",
+        "Validar qualidade com `pnpm lint` e `pnpm test` sem regressões."
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": "Objetivo é tornar 2x2/3x3/4x4 totalmente reutilizáveis em qualquer tela, com core extensível."
+    },
+    {
+      "id": "US-008",
+      "title": "Conta e sincronização multi-dispositivo com Supabase + RLS",
+      "description": "Como usuário, quero criar conta e manter minhas sessões/solves sincronizadas entre dispositivos para continuar meu progresso sem perder histórico.",
+      "acceptanceCriteria": [
+        "Integrar Supabase ao app com configuração de ambiente para desenvolvimento e produção.",
+        "Implementar autenticação inicial com Google OAuth (prioritário) com fluxo de login/logout, callback seguro e sessão persistida.",
+        "Manter opção de fallback com email + magic link para contingência operacional.",
+        "Modelar e migrar dados centrais (profiles, sessions, solves, user_settings) para Supabase PostgreSQL.",
+        "Criar migrations versionadas para schema inicial em `supabase/migrations` e registrar comandos operacionais no projeto.",
+        "Manter modo offline-first com localStorage e sincronização bidirecional quando autenticado.",
+        "Definir e implementar estratégia de resolução de conflito em sync (ex.: last-write-wins por `updated_at`).",
+        "Criar fluxo de migração dos dados locais para nuvem no primeiro login, com merge seguro.",
+        "Aplicar RLS em todas as tabelas de usuário com isolamento por `auth.uid()`.",
+        "Validar que um usuário não consegue ler/alterar dados de outro usuário via client SDK.",
+        "Documentar no progress log as políticas RLS criadas e o fluxo de sincronização.",
+        "Validar qualidade com `pnpm lint`, `pnpm test` e `pnpm knip` sem regressões."
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": "Base para features sociais e de progressão. Segurança via RLS é mandatória."
+    },
+    {
+      "id": "US-012",
+      "title": "Governança de consistência e higiene contínua de código",
+      "description": "Como time de engenharia, queremos garantir consistência arquitetural e zero acúmulo de código sem uso para manter velocidade de evolução com qualidade.",
+      "acceptanceCriteria": [
+        "Definir Definition of Done padrão no projeto com checklist de arquitetura, limpeza de legado e validação de qualidade.",
+        "Rodar `pnpm knip` em toda story relevante e resolver itens de código/exports/dependências sem uso.",
+        "Garantir que refatorações removam arquivos legados no mesmo ciclo de entrega.",
+        "Padronizar convenções para organização de pastas e contratos entre módulos compartilhados e features.",
+        "Registrar no progress log os padrões adotados e antipadrões proibidos.",
+        "Validar qualidade com `pnpm lint`, `pnpm test` e `pnpm knip`."
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": "Story transversal de engenharia para prevenir entropia do projeto durante as próximas grandes mudanças."
+    },
+    {
+      "id": "US-009",
+      "title": "Motor de progressão e desafios diários",
+      "description": "Como usuário, quero metas e desafios diários para manter consistência nos treinos e visualizar minha evolução ao longo do tempo.",
+      "acceptanceCriteria": [
+        "Implementar motor de progressão com métricas base (streak, nível/XP, metas semanais).",
+        "Implementar desafios diários com catálogo inicial (ex.: quantidade de solves, meta de consistência, meta de tempo).",
+        "Persistir desafios e conclusão no backend (Supabase) para continuidade multi-dispositivo.",
+        "Permitir geração/rotação diária de desafios por usuário com controle de fuso horário.",
+        "Exibir progresso e status de desafios em UI clara na home e/ou área dedicada.",
+        "Garantir fallback local quando offline e reconciliar ao voltar conexão.",
+        "Criar estrutura extensível para novos tipos de desafio sem reescrever o motor.",
+        "Documentar no progress log as regras de progressão e pontos de extensão.",
+        "Validar qualidade com `pnpm lint` e `pnpm test` sem regressões."
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": "Depende da US-008 (conta + sync) para valor completo em múltiplos dispositivos."
+    },
+    {
+      "id": "US-010",
+      "title": "Sharing/social básico com privacidade e segurança",
+      "description": "Como usuário, quero compartilhar minha evolução e resultados de forma simples, com controle de privacidade e base para recursos sociais futuros.",
+      "acceptanceCriteria": [
+        "Implementar compartilhamento de resultados (ex.: PB, média da sessão, progresso) por link público opt-in.",
+        "Criar camada social básica inicial (ex.: perfil público opcional e/ou ranking simples entre contatos).",
+        "Adicionar controles de privacidade para o usuário escolher o que pode ser compartilhado.",
+        "Armazenar artefatos de compartilhamento em estrutura dedicada no Supabase (ex.: `share_links`) com escopo mínimo.",
+        "Aplicar políticas RLS e regras de acesso público apenas ao conteúdo explicitamente compartilhado.",
+        "Garantir que desativar compartilhamento revogue ou invalide acesso público anterior.",
+        "Documentar no progress log a modelagem de dados social e regras de privacidade.",
+        "Validar qualidade com `pnpm lint` e `pnpm test` sem regressões."
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": "Depende da US-008. Deve nascer simples e seguro, com arquitetura pronta para expansão social."
+    },
+    {
+      "id": "US-011",
+      "title": "Redesign global da experiência visual do Klick",
+      "description": "Como usuário, quero uma experiência visual excepcional e consistente em todo o app, com identidade forte, melhor usabilidade e sensação premium em desktop e mobile.",
+      "acceptanceCriteria": [
+        "Executar redesign completo de todas as telas principais (`/`, `/history`, `/stats`, `/training`, `/tutorial`, `/settings`) com direção visual única e coerente.",
+        "Atualizar design tokens globais (cores, tipografia, espaçamento, superfícies, elevação e motion) para elevar qualidade percebida.",
+        "Manter consistência entre componentes compartilhados e features, evitando estilos desconectados entre páginas.",
+        "Garantir acessibilidade mínima (contraste, foco visível, legibilidade e navegação por teclado).",
+        "Garantir responsividade real para mobile e desktop com layouts adaptados por contexto.",
+        "Executar revisão final de design em todo o app (pass de polimento) antes de concluir a story.",
+        "Documentar no progress log os principais trade-offs visuais e padrões definidos para evoluções futuras.",
+        "Validar qualidade com `pnpm lint` e `pnpm test` sem regressões."
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": "Story transversal. Pode ser executada em ondas por rota, mas só conclui com revisão visual completa do produto."
+    },
+    {
+      "id": "US-014",
+      "title": "Ranking e friends (social real) com convites e privacidade",
+      "description": "Como usuário, quero adicionar amigos por convite e disputar leaderboard semanal/mensal com controles de privacidade para compartilhar evolução com segurança.",
+      "acceptanceCriteria": [
+        "Implementar sistema de amizade por convite (enviar, aceitar, recusar e remover amizade).",
+        "Implementar leaderboard semanal e mensal com métricas claras (ex.: melhor single, melhor ao5/ao12, consistência).",
+        "Permitir que o usuário escolha visibilidade do perfil/ranking por flags de privacidade (privado, amigos, público).",
+        "Persistir dados sociais em tabelas dedicadas no Supabase (`friends`, `friend_invites`, `leaderboards`, `leaderboard_entries`).",
+        "Aplicar RLS e políticas de acesso para garantir que apenas dados permitidos sejam visíveis conforme as flags públicas.",
+        "Garantir que alterações de privacidade reflitam imediatamente no acesso aos dados sociais.",
+        "Documentar no progress log a modelagem social, regras de ranking e políticas RLS aplicadas.",
+        "Validar qualidade com `pnpm lint` e `pnpm test` sem regressões."
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": "Depende de US-008 (conta + sync). Expande a camada social além do compartilhamento básico da US-010."
+    }
+  ]
+}

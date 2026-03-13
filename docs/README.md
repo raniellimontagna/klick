@@ -15,6 +15,7 @@ Cronômetro de cubo mágico com UI limpa, métricas visuais e feedback instantâ
 | [i18n.md](./i18n.md) | Sistema de internacionalização |
 | [stores.md](./stores.md) | Gerenciamento de estado com Zustand |
 | [pwa.md](./pwa.md) | Progressive Web App e offline support |
+| [supabase-migrations.md](./supabase-migrations.md) | Regras e comandos para migrations do Supabase |
 
 ## 🎯 Quick Start
 

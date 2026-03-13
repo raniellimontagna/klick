@@ -26,3 +26,11 @@ dev-dist
 
 # Coverage
 coverage
+
+# Ai
+.agent
+
+# Ralph runtime artifacts
+scripts/ralph/.last-branch
+scripts/ralph/logs/
+scripts/ralph/archive/

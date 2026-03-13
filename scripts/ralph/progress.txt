@@ -1,0 +1,29 @@
+# Ralph Progress Log
+Started: 2026-03-13
+
+## Codebase Patterns
+- Projeto single-app com estrutura feature-based em `src/features`.
+- Código compartilhado e design primitives vivem em `src/shared`.
+- Estado global centralizado em stores Zustand com persistência local.
+- Rotas principais são lazy-loaded via `src/app/app-router.tsx`.
+- Regras e contexto de produto ficam em `PROJECT.md` e `docs/technical.md`.
+- Quality gate mínimo antes de commit: `pnpm lint` e `pnpm test`.
+
+---
+## [2026-03-13 00:00:00 -0300] - US-001
+- What was implemented
+  - Estrutura inicial do Ralph criada em `scripts/ralph`.
+  - Script de loop `ralph.sh` adicionado com suporte para `codex`, `claude` e `amp`.
+  - Instruções específicas para agentes adicionadas em `CODEX.md` e `CLAUDE.md`.
+  - PRD inicial do Klick criado com contexto técnico, regras e story baseline.
+  - Fallback de regras no loop configurado para `PROJECT.md` e documentação técnica.
+- Files changed
+  - scripts/ralph/ralph.sh
+  - scripts/ralph/CODEX.md
+  - scripts/ralph/CLAUDE.md
+  - scripts/ralph/prd.json
+  - scripts/ralph/progress.txt
+- Learnings for future iterations:
+  - O Klick não possui `CLAUDE.md`/`.clinerules` na raiz, então o Ralph deve consumir regras diretamente do `PROJECT.md`.
+  - `docs/technical.md` complementa arquitetura e padrões de implementação que impactam decisões de código.
+---
