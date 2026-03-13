@@ -16,6 +16,7 @@ import {
   SessionSchema,
   type Solve,
 } from '@/shared/types';
+import { createUuid } from '@/shared/lib';
 
 interface SessionsStore {
   sessions: Session[];
@@ -50,7 +51,7 @@ interface SessionsStore {
 }
 
 const initialSession: Session = {
-  id: crypto.randomUUID(),
+  id: createUuid(),
   name: 'Sessão 1',
   puzzleType: '3x3',
   solves: [],
@@ -71,7 +72,7 @@ export const useSessionsStore = create<SessionsStore>()(
       createSession: (name: string, puzzleType?: PuzzleType): void => {
         set((state) => {
           const newSession: Session = {
-            id: crypto.randomUUID(),
+            id: createUuid(),
             name,
             puzzleType: puzzleType || '3x3',
             solves: [],
@@ -116,7 +117,7 @@ export const useSessionsStore = create<SessionsStore>()(
           }
 
           const newSession: Session = {
-            id: crypto.randomUUID(),
+            id: createUuid(),
             name: 'Sessão 1',
             puzzleType: type,
             solves: [],
@@ -140,7 +141,7 @@ export const useSessionsStore = create<SessionsStore>()(
 
           const newSolve: Solve = {
             ...solveData,
-            id: crypto.randomUUID(),
+            id: createUuid(),
             createdAt: new Date(),
             effectiveMs,
           };
