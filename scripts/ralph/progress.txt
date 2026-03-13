@@ -9,6 +9,7 @@ Started: 2026-03-13
 - Regras e contexto de produto ficam em `PROJECT.md` e `docs/technical.md`.
 - Quality gate mínimo antes de commit: `pnpm lint` e `pnpm test`.
 - Plataforma de cubo 3D reutilizável foi centralizada em `src/shared` com camadas separadas: `lib/cube-platform` (motor), `hooks/use-cube-platform-*` (controle/estado) e `components/cube-platform` (render/integração).
+- Para fluxos didáticos, modelar conteúdo em `lib` (método/etapa/lição) e manter textos em namespace i18n próprio evita acoplamento entre UI e conteúdo.
 
 ---
 ## [2026-03-13 00:00:00 -0300] - US-001
@@ -52,4 +53,33 @@ Started: 2026-03-13
     - Para tela com controles próprios: usar `useCubePlatformController(...)` + `CubePlatformScene` e conectar botões/atalhos às actions do controller.
     - Para tema: usar `themeId` no `CubePlatform` ou acessar `useCubePlatformThemeStore` em componentes de customização.
   - O split em camadas facilita evolução para múltiplos puzzles (2x2/4x4) sem alterar consumidores de rota.
+---
+## [2026-03-13 16:44:10 -0300] - US-002
+- What was implemented
+  - Reescrita greenfield completa da feature `/tutorial` com nova arquitetura modular em `src/features/tutorial` (hook de fluxo + catálogo de lições + página de apresentação).
+  - Implementado fluxo CFOP em 4 etapas (Cross, F2L, OLL, PLL) com lições guiadas, checklist, reconhecimento de casos e progressão etapa/lição.
+  - Integração didática com cubo 3D reutilizável via `CubePlatform`, incluindo replay de caso por lição.
+  - Novo namespace i18n `tutorialGuide` adicionado em `pt-BR`, `en-US` e `es-ES`, sem reutilizar o conjunto de chaves legado de tutorial.
+  - Implementação legada removida antes da nova (store e componentes antigos de tutorial).
+- Files changed
+  - Removed (legacy):
+    - src/features/tutorial/tutorial-store.ts
+    - src/features/tutorial/components/tutorial-content/tutorial-content.tsx
+    - src/features/tutorial/components/tutorial-content/tutorial-visualizations.tsx
+    - src/features/tutorial/components/tutorial-content/use-tutorial-content.ts
+  - Added (greenfield):
+    - src/features/tutorial/hooks/use-tutorial-guide.ts
+    - src/features/tutorial/lib/tutorial-guide-model.ts
+  - Recreated/updated:
+    - src/features/tutorial/tutorial.tsx
+    - src/features/tutorial/index.ts
+    - src/shared/config/i18n/locales/pt-BR.ts
+    - src/shared/config/i18n/locales/en-US.ts
+    - src/shared/config/i18n/locales/es-ES.ts
+    - scripts/ralph/prd.json
+    - scripts/ralph/progress.txt
+- Learnings for future iterations:
+  - Estruturar lições por dados (`setupAlgorithm` + `solveAlgorithm`) facilita troca de conteúdo e expansão para novos métodos sem mexer na UI.
+  - A combinação `useTutorialGuide` + `tutorialGuide` (i18n) mantém separação clara entre estado de navegação e texto/copy da feature.
+  - `pnpm knip` permanece com falhas pré-existentes fora do escopo da US-002; `pnpm lint`, `pnpm test` e `pnpm build` passaram após a reescrita.
 ---

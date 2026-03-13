@@ -666,6 +666,171 @@ export const enUS = {
       number2: '2 = 180° (e.g., R2, U2)',
     },
   },
+  tutorialGuide: {
+    title: 'CFOP Tutorial with 3D Cube',
+    subtitle: 'Learn Cross, F2L, OLL, and PLL through visual cases focused on consistency.',
+    progress: {
+      stage: 'Stage {current} of {total}',
+      lesson: 'Lesson {current} of {total}',
+    },
+    method: {
+      title: 'Training method',
+      focus: 'Method focus',
+      estimatedTime: 'Suggested time',
+      ariaLabel: 'Select training method',
+    },
+    stage: {
+      title: 'Method stages',
+      objective: 'Stage objective',
+      ariaLabel: 'Select method stage',
+    },
+    lesson: {
+      title: 'Practice lessons',
+      recognition: 'How to recognize the case',
+      algorithm: 'Recommended algorithm',
+      checklist: 'Practice checklist',
+      tip: 'Quick tip',
+      cubeHint:
+        'The 3D cube plays the case automatically. Use "Replay case" whenever you need another pass.',
+      replay: 'Replay case',
+      next: 'Next lesson',
+      finished: 'CFOP currently completed',
+    },
+    methods: {
+      cfop: {
+        label: 'CFOP',
+        description:
+          'Classic four-block flow to move beyond beginner solving with stronger consistency and faster decisions.',
+        focus: 'Reduce pauses between stages while keeping recognition active.',
+        estimatedTime: '12 to 20 minutes per guided session',
+        stages: {
+          cross: {
+            label: 'Cross',
+            description: 'Build the white cross and align side edges with their centers.',
+            objective: 'Finish cross in few moves while spotting your first F2L pair early.',
+            lessons: [
+              {
+                title: 'Daisy into Cross',
+                summary: 'Convert daisy to a full cross without losing top-layer orientation.',
+                recognition:
+                  'Four white stickers are on U around the yellow center, forming a daisy pattern.',
+                checklist: [
+                  'Pick one white edge at a time.',
+                  'Match the edge side color with its center.',
+                  'Turn 180° to place the edge on the white face.',
+                ],
+                tip: 'Try to locate your first F2L pair while finishing the final cross edge.',
+              },
+              {
+                title: 'Cross final alignment',
+                summary:
+                  'Fix cross alignment so every side color is correct before entering F2L.',
+                recognition:
+                  'The white cross is done, but one or two side colors do not match their centers.',
+                checklist: [
+                  'Identify which edge needs to swap.',
+                  'Use U plus a short trigger without breaking the cross.',
+                  'Confirm all side colors are aligned.',
+                ],
+                tip: 'Avoid full cube rotations; use U turns to reorganize quickly.',
+              },
+            ],
+          },
+          f2l: {
+            label: 'F2L',
+            description: 'Solve corner+edge pairs from first and second layers together.',
+            objective: 'Recognize pair patterns faster and insert with fewer pauses.',
+            lessons: [
+              {
+                title: 'Basic front slot pair',
+                summary: 'Build a simple pair and insert it in the front-right slot cleanly.',
+                recognition:
+                  'Corner and edge with matching colors are separated in the top layer, ready to pair.',
+                checklist: [
+                  'Use a U setup to bring corner and edge together.',
+                  'Apply the trigger to form the pair.',
+                  'Insert while preserving the solved cross.',
+                ],
+                tip: 'Tilt the cube slightly to keep the target slot visible during insertion.',
+              },
+              {
+                title: 'Back slot insertion',
+                summary: 'Practice inserting pairs into the back slot without rotating the cube.',
+                recognition:
+                  'The pair is formed, but the target slot is on the opposite side of your main view.',
+                checklist: [
+                  'Place the pair above the correct back slot.',
+                  'Use the mirrored insertion algorithm with no global rotation.',
+                  'Check both layers remain solved.',
+                ],
+                tip: 'Back-slot confidence removes many unnecessary rotations from solves.',
+              },
+            ],
+          },
+          oll: {
+            label: 'OLL',
+            description: 'Orient the last layer until the top face turns fully yellow.',
+            objective: 'Read fast patterns and execute the right algorithm without hesitation.',
+            lessons: [
+              {
+                title: 'Sune',
+                summary: 'Classic orientation case when only one corner is already oriented.',
+                recognition:
+                  'You can see a headlight and only one corner appears correctly oriented.',
+                checklist: [
+                  'Place the headlight on the left/front side.',
+                  "Execute R U R' U R U2 R'.",
+                  'Confirm yellow top completion.',
+                ],
+                tip: 'Count rhythm in short chunks: trigger, adjust, double trigger.',
+              },
+              {
+                title: 'Anti-Sune',
+                summary: 'Mirrored Sune used when the orientation pattern is reversed.',
+                recognition: 'Looks like Sune, but the headlight appears on the opposite side.',
+                checklist: [
+                  'Hold the mirrored case facing you.',
+                  "Execute R' U' R U' R' U2 R.",
+                  'Re-check top-layer orientation before PLL.',
+                ],
+                tip: 'Drill Sune and Anti-Sune back to back to speed up recognition.',
+              },
+            ],
+          },
+          pll: {
+            label: 'PLL',
+            description: 'Permute last-layer pieces while keeping orientation already solved.',
+            objective: 'Finish solves using side-block recognition and uninterrupted perms.',
+            lessons: [
+              {
+                title: 'T-Perm',
+                summary: 'Swaps two adjacent corners and two adjacent edges, a common finisher.',
+                recognition: 'One 2x1 side block is solved and remaining pieces form a T-style swap.',
+                checklist: [
+                  'Keep the solved block on the left side.',
+                  "Execute R U R' U' R' F R2 U' R' U' R U R' F'.",
+                  'Apply final AUF if needed.',
+                ],
+                tip: 'Stay smooth through the F/F’ section to avoid right-hand locks.',
+              },
+              {
+                title: 'Y-Perm',
+                summary: 'Diagonal corner swap plus edge cycle, useful for awkward endings.',
+                recognition:
+                  'No side block is solved and corners look like they swap diagonally.',
+                checklist: [
+                  'Confirm diagonal corner swap pattern.',
+                  "Execute F R U' R' U' R U R' F' R U R' U' R' F R F'.",
+                  'Finish with AUF to close the solve.',
+                ],
+                tip: 'Track edges while executing so the final AUF is immediate.',
+              },
+            ],
+          },
+        },
+      },
+    },
+  },
   pwa: {
     update: {
       title: 'New update available!',

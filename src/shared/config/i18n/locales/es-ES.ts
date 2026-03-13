@@ -668,6 +668,176 @@ export const esES = {
       number2: '2 = 180° (ej: R2, U2)',
     },
   },
+  tutorialGuide: {
+    title: 'Tutorial CFOP con cubo 3D',
+    subtitle: 'Aprende Cross, F2L, OLL y PLL con casos visuales y enfoque en consistencia.',
+    progress: {
+      stage: 'Etapa {current} de {total}',
+      lesson: 'Lección {current} de {total}',
+    },
+    method: {
+      title: 'Método de entrenamiento',
+      focus: 'Enfoque del método',
+      estimatedTime: 'Tiempo sugerido',
+      ariaLabel: 'Seleccionar método de entrenamiento',
+    },
+    stage: {
+      title: 'Etapas del método',
+      objective: 'Objetivo de la etapa',
+      ariaLabel: 'Seleccionar etapa del método',
+    },
+    lesson: {
+      title: 'Lecciones prácticas',
+      recognition: 'Cómo reconocer el caso',
+      algorithm: 'Algoritmo recomendado',
+      checklist: 'Checklist de práctica',
+      tip: 'Consejo rápido',
+      cubeHint:
+        'El cubo 3D reproduce el caso automáticamente. Usa "Repetir caso" cuando necesites otra vuelta.',
+      replay: 'Repetir caso',
+      next: 'Siguiente lección',
+      finished: 'CFOP completado por ahora',
+    },
+    methods: {
+      cfop: {
+        label: 'CFOP',
+        description:
+          'Flujo clásico de cuatro bloques para pasar del nivel inicial con mayor consistencia y decisiones más rápidas.',
+        focus: 'Reducir pausas entre etapas manteniendo reconocimiento activo.',
+        estimatedTime: '12 a 20 minutos por sesión guiada',
+        stages: {
+          cross: {
+            label: 'Cross',
+            description: 'Construye la cruz blanca y alinea aristas laterales con sus centros.',
+            objective: 'Cerrar la cross en pocos movimientos y detectar pronto tu primer par F2L.',
+            lessons: [
+              {
+                title: 'De Daisy a Cross',
+                summary:
+                  'Convierte la daisy en una cross completa sin perder orientación de la capa superior.',
+                recognition:
+                  'Cuatro stickers blancos están en U alrededor del centro amarillo, formando una margarita.',
+                checklist: [
+                  'Elige una arista blanca por vez.',
+                  'Alinea el color lateral de la arista con su centro.',
+                  'Gira 180° para bajar la arista a la cara blanca.',
+                ],
+                tip: 'Intenta ubicar tu primer par F2L mientras cierras la última arista de la cross.',
+              },
+              {
+                title: 'Alineación final de Cross',
+                summary:
+                  'Corrige la alineación para que todos los colores laterales estén listos antes de F2L.',
+                recognition:
+                  'La cross blanca está hecha, pero una o dos aristas no coinciden con sus centros.',
+                checklist: [
+                  'Identifica qué arista debe intercambiarse.',
+                  'Usa U con un gatillo corto sin romper la cross.',
+                  'Confirma que todos los laterales quedaron alineados.',
+                ],
+                tip: 'Evita rotaciones completas del cubo; usa solo giros U para reorganizar.',
+              },
+            ],
+          },
+          f2l: {
+            label: 'F2L',
+            description: 'Resuelve pares esquina+arista de primera y segunda capa en conjunto.',
+            objective: 'Reconocer patrones de pares más rápido e insertar con menos pausas.',
+            lessons: [
+              {
+                title: 'Par básico frontal',
+                summary: 'Forma un par simple e insértalo en el slot frontal derecho con control.',
+                recognition:
+                  'Esquina y arista de los mismos colores están separadas en la capa superior.',
+                checklist: [
+                  'Haz setup con U para acercar esquina y arista.',
+                  'Aplica el gatillo para formar el par.',
+                  'Inserta sin romper la cross resuelta.',
+                ],
+                tip: 'Inclina un poco el cubo para mantener visible el slot objetivo.',
+              },
+              {
+                title: 'Inserción en slot trasero',
+                summary: 'Practica inserciones en el slot trasero sin rotar todo el cubo.',
+                recognition:
+                  'El par está armado, pero el slot objetivo queda al lado opuesto de tu vista principal.',
+                checklist: [
+                  'Coloca el par sobre el slot trasero correcto.',
+                  'Usa el algoritmo espejado sin rotación global.',
+                  'Verifica que las dos primeras capas sigan intactas.',
+                ],
+                tip: 'Dominar slots traseros elimina muchas rotaciones innecesarias.',
+              },
+            ],
+          },
+          oll: {
+            label: 'OLL',
+            description: 'Orienta la última capa hasta dejar toda la cara superior amarilla.',
+            objective: 'Leer patrones rápido y ejecutar el algoritmo correcto sin dudar.',
+            lessons: [
+              {
+                title: 'Sune',
+                summary: 'Caso clásico de orientación cuando solo una esquina ya está orientada.',
+                recognition:
+                  'Se observa un faro y solo una esquina parece correctamente orientada.',
+                checklist: [
+                  'Coloca el faro en el lado izquierdo/frontal.',
+                  "Ejecuta R U R' U R U2 R'.",
+                  'Confirma la cara amarilla completa.',
+                ],
+                tip: 'Cuenta el ritmo en bloques cortos: gatillo, ajuste, gatillo doble.',
+              },
+              {
+                title: 'Anti-Sune',
+                summary: 'Versión espejada del Sune para patrones invertidos de orientación.',
+                recognition:
+                  'Se parece al Sune, pero el faro aparece en el lado contrario.',
+                checklist: [
+                  'Mantén el caso espejado al frente.',
+                  "Ejecuta R' U' R U' R' U2 R.",
+                  'Revisa la orientación antes de pasar a PLL.',
+                ],
+                tip: 'Entrena Sune y Anti-Sune seguidos para acelerar reconocimiento.',
+              },
+            ],
+          },
+          pll: {
+            label: 'PLL',
+            description: 'Permuta piezas de la última capa manteniendo la orientación resuelta.',
+            objective: 'Cerrar solves con lectura de bloques laterales y perms continuas.',
+            lessons: [
+              {
+                title: 'T-Perm',
+                summary:
+                  'Intercambia dos esquinas y dos aristas adyacentes, muy común en finales.',
+                recognition:
+                  'Un bloque lateral 2x1 ya está resuelto y el resto forma un intercambio tipo T.',
+                checklist: [
+                  'Coloca el bloque resuelto en la izquierda.',
+                  "Ejecuta R U R' U' R' F R2 U' R' U' R U R' F'.",
+                  'Haz AUF final si hace falta.',
+                ],
+                tip: 'Mantén fluidez en el tramo con F/F’ para evitar bloqueos de mano.',
+              },
+              {
+                title: 'Y-Perm',
+                summary:
+                  'Intercambio diagonal de esquinas con ciclo de aristas para cierres complejos.',
+                recognition:
+                  'No hay bloques laterales completos y las esquinas parecen cruzarse en diagonal.',
+                checklist: [
+                  'Confirma patrón de esquinas en diagonal.',
+                  "Ejecuta F R U' R' U' R U R' F' R U R' U' R' F R F'.",
+                  'Finaliza con AUF para cerrar el solve.',
+                ],
+                tip: 'Sigue las aristas durante la ejecución para anticipar el AUF final.',
+              },
+            ],
+          },
+        },
+      },
+    },
+  },
   pwa: {
     update: {
       title: '¡Nueva actualización disponible!',
