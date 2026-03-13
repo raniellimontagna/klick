@@ -217,7 +217,7 @@
         "Validar qualidade com `pnpm lint` e `pnpm test` sem regressões."
       ],
       "priority": 4,
-      "passes": false,
+      "passes": true,
       "notes": "Requisito inegociável: reescrita total (greenfield) da aba de treino, com base extensível e suporte ao cubo 3D. Depende da base reutilizável do cubo 3D (US-004)."
     },
     {

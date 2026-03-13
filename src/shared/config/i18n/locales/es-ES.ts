@@ -408,99 +408,112 @@ export const esES = {
         '¡Ahora conoces Klick! Comienza a resolver y sigue tu progreso. Puedes revisar este tour en cualquier momento haciendo clic en el botón "?" en el encabezado.',
     },
   },
-  training: {
-    title: 'Modo de Entrenamiento',
-    description: 'Enfócate en casos puntuales y registra tus repeticiones con metas y checkpoints.',
-    categories: {
-      pll: {
-        label: 'PLL',
-        description: 'Permutar esquinas y aristas de la última capa.',
+  trainingLab: {
+    title: 'Laboratorio de Entrenamiento',
+    subtitle: 'Practica bloques cortos de CFOP con soporte visual 3D y progreso por caso.',
+    method: {
+      label: 'Método activo',
+      value: 'CFOP - Base progresiva',
+      description: 'Empieza con un paquete compacto de casos y sube dificultad por etapa.',
+    },
+    labels: {
+      trackTabs: 'Seleccionar pista de entrenamiento',
+      trackFocus: 'Foco de la pista',
+      trackProgress: 'Volumen de la pista',
+      catalogTitle: 'Catálogo de drills',
+      drill: 'Drill',
+      attempts: 'Intentos',
+      target: 'Meta',
+      focus: 'Foco técnico',
+      difficulty: 'Dificultad',
+      setup: 'Setup visual',
+      algorithm: 'Algoritmo de ejecución',
+      recognition: 'Reconocimiento',
+      coaching: 'Coaching rápido',
+      confidence: 'Confianza actual',
+      cubeHint: 'El cubo aplica setup + algoritmo para mostrar el ciclo completo del caso.',
+    },
+    actions: {
+      replay: 'Repetir animación',
+      add1: '+1 intento',
+      add5: '+5 intentos',
+      add10: '+10 intentos',
+      reset: 'Reiniciar drill',
+    },
+    progress: {
+      trackSummary: '{attempts} de {target} intentos completados en esta pista.',
+    },
+    confidence: {
+      starting: 'Calentando',
+      building: 'Ganando ritmo',
+      ready: 'Listo para velocidad',
+    },
+    focusTags: {
+      recognition: 'Reconocimiento',
+      lookahead: 'Lookahead',
+      execution: 'Ejecución',
+    },
+    difficulty: {
+      starter: 'Inicial',
+      core: 'Base CFOP',
+      stretch: 'Reto controlado',
+    },
+    tracks: {
+      f2l: {
+        label: 'F2L',
+        description: 'Construye fluidez de pares antes de acelerar.',
+        focus: 'Par + slot con pausas mínimas.',
+        drills: {
+          f2lPairInsertRight: {
+            title: 'Inserción frontal derecha',
+            summary: 'Inserción base para consolidar el lookahead.',
+            recognition: 'Busca par esquina-arista conectable sobre un slot frontal libre.',
+            coaching: "Mantén la cámara mental en el slot mientras haces U R U' R'.",
+          },
+          f2lPairInsertLeft: {
+            title: 'Inserción frontal izquierda',
+            summary: 'Versión espejo para equilibrar ambas manos.',
+            recognition: 'Alinea el par sobre el slot frontal izquierdo antes de entrar.',
+            coaching: "Ejecuta U' L' U L con tempo uniforme y sin bloquear el giro U.",
+          },
+        },
       },
       oll: {
         label: 'OLL',
-        description: 'Orientar todas las piezas de la última capa.',
+        description: 'Orienta la última capa con lectura limpia de patrones.',
+        focus: 'Primero leer, luego ejecutar.',
+        drills: {
+          ollSuneFlow: {
+            title: 'Flujo Sune',
+            summary: 'Caso de entrada para ritmo continuo en OLL.',
+            recognition: 'Una esquina orientada y bloque amarillo diagonal en la cara U.',
+            coaching: "Encadena dos gatillos R U R' sin acelerar el U2.",
+          },
+          ollHeadlights: {
+            title: 'Headlights',
+            summary: 'Patrón para estabilizar transiciones de OLL.',
+            recognition: 'Dos esquinas adyacentes mirando al frente como faros.',
+            coaching: 'Confirma los faros antes del algoritmo para reducir regrips.',
+          },
+        },
       },
-      f2l: {
-        label: 'F2L',
-        description: 'Formar e insertar pares para las dos primeras capas.',
-      },
-    },
-    statuses: {
-      learning: 'Aprendiendo',
-      refining: 'Puliendo',
-      mastered: 'Automático',
-    },
-    actions: {
-      repetitionLabel: 'Repeticiones',
-      add1: '+1',
-      add5: '+5',
-      add10: '+10',
-      reset: 'Reiniciar',
-      goalLabel: 'Meta',
-      goalPlaceholder: 'ej: 50',
-      statusLabel: 'Checkpoint',
-      algorithmLabel: 'Algoritmo',
-      noteLabel: 'Notas rápidas',
-      notePlaceholder: 'Anota gatillos, finger tricks o recordatorios personales.',
-      copyAlgorithm: 'Copiar algoritmo',
-      copiedAlgorithm: '¡Algoritmo copiado!',
-    },
-    progress: {
-      target: '{current} de {goal} repeticiones',
-      noGoal: '{current} repeticiones registradas',
-      goalReached: '¡Meta alcanzada! Sigue reforzando.',
-    },
-    cases: {
       pll: {
-        tPerm: {
-          title: 'T-Perm',
-          description: 'Intercambia dos aristas adyacentes manteniendo el resto resuelto.',
-          tip: 'Usa movimientos R amplios y mantén el agarre relajado para evitar pausas.',
-        },
-        jPerm: {
-          title: 'J-Perm (derecha)',
-          description: 'Intercambia dos esquinas adyacentes y dos aristas opuestas.',
-          tip: "El inicio con F' prepara el bloque; planifica el último U con anticipación.",
-        },
-        zPerm: {
-          title: 'Z-Perm',
-          description: 'Intercambia dos pares de aristas opuestas sin mover las esquinas.',
-          tip: 'Prioriza cortes M suaves y un ritmo constante.',
-        },
-      },
-      oll: {
-        sune: {
-          title: 'Sune',
-          description:
-            'Caso clásico con una esquina orientada; orienta las piezas amarillas restantes.',
-          tip: "Practica el gatillo R U R' y mantén el codo fijo para ganar velocidad.",
-        },
-        antisune: {
-          title: 'Anti-Sune',
-          description: 'Versión espejada del Sune iniciando con movimientos antihorarios.',
-          tip: 'Estabiliza con el pulgar izquierdo y visualiza el patrón antes de ejecutar.',
-        },
-        hPattern: {
-          title: 'Patrón H',
-          description: 'Todas las esquinas orientadas con aristas invertidas en pares opuestos.',
-          tip: "Ejecuta el bloque F...f' como dos mitades fluidas sin detenerte.",
-        },
-      },
-      f2l: {
-        basicPair: {
-          title: 'Par Frontal Básico',
-          description: 'Esquina y arista forman par e ingresan en el hueco frontal derecho.',
-          tip: 'Usa un movimiento U antes de insertar para alinear el par y evitar giros extra.',
-        },
-        backSlot: {
-          title: 'Inserción Hueco Trasero',
-          description: 'Esquina y arista listas para el hueco trasero derecho.',
-          tip: "Observa el hueco mientras ejecutas R U' R'; mantén la muñeca relajada.",
-        },
-        edgeOver: {
-          title: 'Arista sobre el Hueco',
-          description: 'Arista colocada encima del hueco formando par con un giro frontal.',
-          tip: "Usa U' F' para formar el par y devuelve la cara frontal con control.",
+        label: 'PLL',
+        description: 'Cierra la última capa con permutaciones confiables.',
+        focus: 'Ejecución limpia con lectura de ciclo.',
+        drills: {
+          pllTPermFlow: {
+            title: 'T-Perm en flujo',
+            summary: 'Permutación clásica para cerrar solves con confianza.',
+            recognition: 'Dos esquinas traseras resueltas y patrón de intercambio frontal.',
+            coaching: "Ancla el bloque con F y conserva el ritmo hasta el F' final.",
+          },
+          pllUaPermFlow: {
+            title: 'Ua-Perm controlado',
+            summary: 'Ciclo de tres aristas con ritmo continuo.',
+            recognition: 'Una barra resuelta y ciclo horario de tres aristas en U.',
+            coaching: 'Haz U compactos y anticipa el R2 de cierre.',
+          },
         },
       },
     },

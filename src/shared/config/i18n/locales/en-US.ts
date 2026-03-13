@@ -407,98 +407,112 @@ export const enUS = {
         'Now you know Klick! Start solving and track your progress. You can revisit this tour anytime by clicking the "?" button in the header.',
     },
   },
-  training: {
-    title: 'Training Mode',
-    description: 'Focus on specific cases and track your reps with goals and checkpoints.',
-    categories: {
-      pll: {
-        label: 'PLL',
-        description: 'Permute last-layer corners and edges.',
+  trainingLab: {
+    title: 'Training Lab',
+    subtitle: 'Drill compact CFOP blocks with 3D guidance and per-case progress tracking.',
+    method: {
+      label: 'Active method',
+      value: 'CFOP - Progressive base',
+      description: 'Start with a lean case pack and scale difficulty by track.',
+    },
+    labels: {
+      trackTabs: 'Select training track',
+      trackFocus: 'Track focus',
+      trackProgress: 'Track volume',
+      catalogTitle: 'Drill catalog',
+      drill: 'Drill',
+      attempts: 'Attempts',
+      target: 'Target',
+      focus: 'Technical focus',
+      difficulty: 'Difficulty',
+      setup: 'Visual setup',
+      algorithm: 'Execution algorithm',
+      recognition: 'Recognition',
+      coaching: 'Quick coaching',
+      confidence: 'Current confidence',
+      cubeHint: 'The cube applies setup + algorithm so you can see the full case cycle.',
+    },
+    actions: {
+      replay: 'Replay animation',
+      add1: '+1 attempt',
+      add5: '+5 attempts',
+      add10: '+10 attempts',
+      reset: 'Reset drill',
+    },
+    progress: {
+      trackSummary: '{attempts} of {target} attempts completed in this track.',
+    },
+    confidence: {
+      starting: 'Warming up',
+      building: 'Building rhythm',
+      ready: 'Speed-ready',
+    },
+    focusTags: {
+      recognition: 'Recognition',
+      lookahead: 'Lookahead',
+      execution: 'Execution',
+    },
+    difficulty: {
+      starter: 'Starter',
+      core: 'CFOP core',
+      stretch: 'Controlled stretch',
+    },
+    tracks: {
+      f2l: {
+        label: 'F2L',
+        description: 'Build pair flow before pushing speed.',
+        focus: 'Pair + slot with minimal pauses.',
+        drills: {
+          f2lPairInsertRight: {
+            title: 'Front-right pair insert',
+            summary: 'Base insert to lock lookahead timing.',
+            recognition: 'Spot a connectable corner-edge pair above a free front-right slot.',
+            coaching: "Keep your mental camera on the slot while executing U R U' R'.",
+          },
+          f2lPairInsertLeft: {
+            title: 'Front-left pair insert',
+            summary: 'Mirror insert to balance both hands.',
+            recognition: 'Align the pair above the front-left slot before committing.',
+            coaching: "Run U' L' U L with even tempo and avoid sticky U turns.",
+          },
+        },
       },
       oll: {
         label: 'OLL',
-        description: 'Orient every piece on the last layer.',
+        description: 'Orient the last layer with clean pattern reads.',
+        focus: 'Read first, execute second.',
+        drills: {
+          ollSuneFlow: {
+            title: 'Sune flow',
+            summary: 'Entry OLL drill for smooth trigger rhythm.',
+            recognition: 'One oriented corner with a diagonal yellow block on top.',
+            coaching: "Chain two R U R' triggers and keep U2 controlled.",
+          },
+          ollHeadlights: {
+            title: 'Headlights',
+            summary: 'Pattern drill to stabilise OLL transitions.',
+            recognition: 'Two adjacent corners facing you like headlights.',
+            coaching: 'Confirm headlights before execution to reduce regrips.',
+          },
+        },
       },
-      f2l: {
-        label: 'F2L',
-        description: 'Pair up and insert pieces for the first two layers.',
-      },
-    },
-    statuses: {
-      learning: 'Learning',
-      refining: 'Polishing',
-      mastered: 'Automatic',
-    },
-    actions: {
-      repetitionLabel: 'Repetitions',
-      add1: '+1',
-      add5: '+5',
-      add10: '+10',
-      reset: 'Reset',
-      goalLabel: 'Goal',
-      goalPlaceholder: 'e.g. 50',
-      statusLabel: 'Checkpoint',
-      algorithmLabel: 'Algorithm',
-      noteLabel: 'Quick notes',
-      notePlaceholder: 'Capture triggers, finger tricks, or reminders.',
-      copyAlgorithm: 'Copy algorithm',
-      copiedAlgorithm: 'Algorithm copied!',
-    },
-    progress: {
-      target: '{current} of {goal} reps',
-      noGoal: '{current} reps logged',
-      goalReached: 'Goal reached! Keep reinforcing.',
-    },
-    cases: {
       pll: {
-        tPerm: {
-          title: 'T-Perm',
-          description: 'Swaps two adjacent edges while keeping everything else solved.',
-          tip: 'Use wide R moves and keep your grip relaxed to avoid pauses.',
-        },
-        jPerm: {
-          title: 'J-Perm (right)',
-          description: 'Swaps two adjacent corners and two opposite edges.',
-          tip: "The opening F' sets the block; plan the final U move ahead of time.",
-        },
-        zPerm: {
-          title: 'Z-Perm',
-          description: 'Swaps two pairs of opposite edges without moving the corners.',
-          tip: 'Prioritise smooth M slices and maintain a steady rhythm.',
-        },
-      },
-      oll: {
-        sune: {
-          title: 'Sune',
-          description: 'Classic case with one oriented corner; orients the remaining yellows.',
-          tip: "Drill the R U R' trigger and keep the elbow anchored for speed.",
-        },
-        antisune: {
-          title: 'Anti-Sune',
-          description: 'Mirror version of Sune starting with anti-clockwise moves.',
-          tip: 'Stabilise with the left thumb and visualise the pattern before executing.',
-        },
-        hPattern: {
-          title: 'H-Pattern',
-          description: 'All corners oriented with edges flipped in opposite pairs.',
-          tip: "Run the F...f' block as two smooth halves without stopping.",
-        },
-      },
-      f2l: {
-        basicPair: {
-          title: 'Basic Front Pair',
-          description: 'Corner and edge form a pair inserted in the front-right slot.',
-          tip: 'Use a setup U to align the pair before insertion to avoid extra rotations.',
-        },
-        backSlot: {
-          title: 'Back Slot Insertion',
-          description: 'Corner and edge ready for the back-right slot.',
-          tip: "Watch the slot while performing R U' R'; keep the wrist relaxed.",
-        },
-        edgeOver: {
-          title: 'Edge Over Slot',
-          description: 'Edge hovering above the slot forming a pair with a frontal turn.',
-          tip: "Use U' F' to pair and restore the front face with control.",
+        label: 'PLL',
+        description: 'Close last-layer solves with reliable permutations.',
+        focus: 'Clean execution plus cycle reading.',
+        drills: {
+          pllTPermFlow: {
+            title: 'T-perm flow',
+            summary: 'Classic finishing permutation for confidence under pace.',
+            recognition: 'Two solved back corners and front-edge swap pattern.',
+            coaching: "Anchor the F block and keep tempo until the final F'.",
+          },
+          pllUaPermFlow: {
+            title: 'Ua-perm control',
+            summary: 'Three-edge cycle drill with continuous rhythm.',
+            recognition: 'One solved bar and a clockwise three-edge cycle on U.',
+            coaching: 'Keep U turns compact and pre-load the closing R2.',
+          },
         },
       },
     },

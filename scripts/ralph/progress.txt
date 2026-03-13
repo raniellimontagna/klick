@@ -10,6 +10,7 @@ Started: 2026-03-13
 - Quality gate mínimo antes de commit: `pnpm lint` e `pnpm test`.
 - Plataforma de cubo 3D reutilizável foi centralizada em `src/shared` com camadas separadas: `lib/cube-platform` (motor), `hooks/use-cube-platform-*` (controle/estado) e `components/cube-platform` (render/integração).
 - Para fluxos didáticos, modelar conteúdo em `lib` (método/etapa/lição) e manter textos em namespace i18n próprio evita acoplamento entre UI e conteúdo.
+- Para reescrita greenfield de feature, remover o legado da pasta da feature e reconstruir com núcleo orientado a dados (`lib`), orquestração em hook e renderização desacoplada em componentes.
 
 ---
 ## [2026-03-13 00:00:00 -0300] - US-001
@@ -82,4 +83,41 @@ Started: 2026-03-13
   - Estruturar lições por dados (`setupAlgorithm` + `solveAlgorithm`) facilita troca de conteúdo e expansão para novos métodos sem mexer na UI.
   - A combinação `useTutorialGuide` + `tutorialGuide` (i18n) mantém separação clara entre estado de navegação e texto/copy da feature.
   - `pnpm knip` permanece com falhas pré-existentes fora do escopo da US-002; `pnpm lint`, `pnpm test` e `pnpm build` passaram após a reescrita.
+---
+## [2026-03-13 16:57:41 -0300] - US-003
+- What was implemented
+  - Reescrita greenfield completa da aba `/training` com nova arquitetura modular (`lib` catálogo de drills, `store` de progresso, `hooks` de orquestração e `components` de apresentação).
+  - Nova experiência de treino criada do zero com navegação por trilhas (F2L/OLL/PLL), seleção de drills e painel de detalhes com progresso por caso.
+  - Integração visual com cubo 3D reutilizável via `CubePlatform`, reproduzindo setup + algoritmo para cada drill com replay dedicado.
+  - Novo namespace i18n `trainingLab` adicionado em `pt-BR`, `en-US` e `es-ES`, substituindo o conjunto legado `training`.
+  - Persistência do progresso refeita com Zustand (`klick-training-lab-v2`) e merge resiliente para suportar expansão futura de categorias/casos por dados.
+- Files changed
+  - Removed (legacy):
+    - src/features/training/cases.ts
+    - src/features/training/components/training-case-card.tsx
+    - src/features/training/lib/training-data/cases.ts
+    - src/features/training/lib/training-data/types.ts
+    - src/features/training/training-store.ts
+    - src/features/training/types.ts
+    - src/features/training/visualizations.tsx
+  - Added (greenfield):
+    - src/features/training/lib/training-lab-types.ts
+    - src/features/training/lib/training-lab-catalog.ts
+    - src/features/training/store/training-lab-store.ts
+    - src/features/training/hooks/use-training-lab.ts
+    - src/features/training/components/training-drill-list.tsx
+    - src/features/training/components/training-drill-panel.tsx
+    - src/features/training/components/index.ts
+  - Recreated/updated:
+    - src/features/training/training.tsx
+    - src/features/training/index.ts
+    - src/shared/config/i18n/locales/pt-BR.ts
+    - src/shared/config/i18n/locales/en-US.ts
+    - src/shared/config/i18n/locales/es-ES.ts
+    - scripts/ralph/prd.json
+    - scripts/ralph/progress.txt
+- Learnings for future iterations:
+  - Um catálogo com `trackDefinitions + drills` e IDs estáveis permite adicionar novos casos sem alterar a UI core.
+  - Calcular `setupAlgorithm` como inverso do `solveAlgorithm` reduz manutenção manual e gera demonstração 3D reproduzível.
+  - `pnpm lint`, `pnpm test` e `pnpm build` passaram; `pnpm knip` continua com itens pré-existentes fora do escopo da US-003.
 ---
