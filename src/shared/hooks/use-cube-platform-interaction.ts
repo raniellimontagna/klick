@@ -1,17 +1,16 @@
 import type { ThreeEvent } from '@react-three/fiber';
 import { useCallback, useRef } from 'react';
 import { Vector2 } from 'three';
-import type { CubieFace, Vec3 } from '../lib/types';
+import type { CubieFace, Vec3 } from '@/shared/lib/cube-platform/types';
 
 interface DragState {
   isDragging: boolean;
   startPos: Vector2;
   cubiePos: Vec3;
   faceNormal: Vec3;
-  faceId: string;
 }
 
-interface UseCubeInteractionProps {
+interface UseCubePlatformInteractionProps {
   enabled: boolean;
   applyMove: (move: string) => void;
   setOrbitEnabled: (enabled: boolean) => void;
@@ -20,16 +19,16 @@ interface UseCubeInteractionProps {
 // Threshold to consider a drag as a swipe (in pixels)
 const SWIPE_THRESHOLD = 20;
 
-export interface UseCubeInteractionReturn {
+export interface UseCubePlatformInteractionReturn {
   handlePointerDown: (e: ThreeEvent<PointerEvent>, cubiePos: Vec3, face: CubieFace) => void;
   handlePointerUp: (e: ThreeEvent<PointerEvent>) => void;
 }
 
-export const useCubeInteraction = ({
+export const useCubePlatformInteraction = ({
   enabled,
   applyMove,
   setOrbitEnabled,
-}: UseCubeInteractionProps): UseCubeInteractionReturn => {
+}: UseCubePlatformInteractionProps): UseCubePlatformInteractionReturn => {
   const dragState = useRef<DragState | null>(null);
 
   const handlePointerDown = useCallback(
@@ -45,7 +44,6 @@ export const useCubeInteraction = ({
         startPos: new Vector2(e.clientX, e.clientY),
         cubiePos,
         faceNormal: face.normal,
-        faceId: face.id,
       };
 
       if (e.nativeEvent.target instanceof Element) {
@@ -98,7 +96,7 @@ export const useCubeInteraction = ({
             else if (cx === -1) move = directionSign > 0 ? 'L' : "L'";
           }
           if (!isUp && move) {
-            move = move.includes("'") ? move.replace("'", '') : move + "'";
+            move = move.includes("'") ? move.replace("'", '') : `${move}'`;
           }
         }
         // RIGHT/LEFT face (X axis)

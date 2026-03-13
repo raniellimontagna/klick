@@ -1,12 +1,13 @@
 import { ContactShadows, OrbitControls } from '@react-three/drei';
 import { Canvas } from '@react-three/fiber';
 import { useEffect, useRef, useState } from 'react';
-import { useCubeInteraction } from '../hooks/use-cube-interaction';
-import type { MoveDefinition } from '../lib/moves';
-import type { CubieData } from '../lib/types';
+import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
+import { useCubePlatformInteraction } from '@/shared/hooks/use-cube-platform-interaction';
+import type { MoveDefinition } from '@/shared/lib/cube-platform/moves';
+import type { CubieData } from '@/shared/lib/cube-platform/types';
 import { RubiksCube } from './rubiks-cube';
 
-interface CubeSceneProps {
+interface CubePlatformSceneProps {
   cubies?: CubieData[];
   moveQueue?: MoveDefinition[];
   completeMove?: () => void;
@@ -14,11 +15,9 @@ interface CubeSceneProps {
   applyMove?: (move: string) => void;
   cubeGeneration?: number;
   realignCounter?: number;
+  interactive?: boolean;
 }
-
-import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
-
-export const CubeScene: React.FC<CubeSceneProps> = ({
+export const CubePlatformScene: React.FC<CubePlatformSceneProps> = ({
   cubies = [],
   moveQueue = [],
   completeMove = (): void => {},
@@ -26,7 +25,8 @@ export const CubeScene: React.FC<CubeSceneProps> = ({
   applyMove = (): void => {},
   cubeGeneration = 0,
   realignCounter = 0,
-}: CubeSceneProps): React.ReactElement => {
+  interactive = true,
+}: CubePlatformSceneProps): React.ReactElement => {
   const [orbitEnabled, setOrbitEnabled] = useState(true);
 
   // Correctly type the OrbitControls ref to avoid 'any'
@@ -39,8 +39,8 @@ export const CubeScene: React.FC<CubeSceneProps> = ({
     }
   }, [realignCounter]);
 
-  const { handlePointerDown, handlePointerUp } = useCubeInteraction({
-    enabled: true,
+  const { handlePointerDown, handlePointerUp } = useCubePlatformInteraction({
+    enabled: interactive,
     applyMove,
     setOrbitEnabled,
   });
@@ -92,7 +92,7 @@ export const CubeScene: React.FC<CubeSceneProps> = ({
         autoRotate={false}
         autoRotateSpeed={0.8}
         makeDefault
-        enabled={orbitEnabled}
+        enabled={orbitEnabled || !interactive}
       />
     </Canvas>
   );

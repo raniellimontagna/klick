@@ -1,33 +1,35 @@
 import { DoubleAltArrowRight } from '@solar-icons/react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
+import { CubePlatformScene } from '@/shared/components/cube-platform';
+import { useCubePlatformController } from '@/shared/hooks/use-cube-platform-controller';
+import { useCubePlatformKeyboard } from '@/shared/hooks/use-cube-platform-keyboard';
+import { MOVES } from '@/shared/lib/cube-platform/moves';
 import { useScrambleStore } from '@/shared/store/scramble-store';
 import { CubeActionBar } from './components/cube-action-bar';
-import { CubeScene } from './components/cube-scene';
 import { MoveHistory } from './components/move-history';
 import { MoveIndicator } from './components/move-indicator';
 import { useCubeSound } from './hooks/use-cube-sound';
-import { MOVES } from './lib/moves';
-import { useCubeKeyboard } from './use-cube-keyboard';
-import { useCubeState } from './use-cube-state';
 
 export function Cube3D() {
+  const { scramble } = useScrambleStore();
   const {
     cubies,
     reset,
-    applyScramble,
     applyMove,
     moveQueue,
     completeMove,
     history,
     undo,
-    isScrambling,
-    skipScramble,
+    isApplyingAlgorithm,
+    skipAlgorithm,
     startMove,
     cubeGeneration,
-  } = useCubeState();
+  } = useCubePlatformController({
+    algorithm: scramble,
+    autoApplyAlgorithm: true,
+  });
   const [realignCounter, setRealignCounter] = useState(0);
-  const { scramble } = useScrambleStore();
   const { playClick } = useCubeSound();
   const [lastMove, setLastMove] = useState<string | null>(null);
 
@@ -38,19 +40,7 @@ export function Cube3D() {
   const isAnimating = moveQueue.length > 0;
 
   // Enable keyboard controls
-  useCubeKeyboard({ applyMove });
-
-  // Sync cube state with global scramble
-  useEffect(() => {
-    if (scramble) {
-      // Reset logic state first
-      reset();
-      // Enqueue moves (animation will play automatically)
-      applyScramble(scramble);
-    } else {
-      reset();
-    }
-  }, [scramble, reset, applyScramble]);
+  useCubePlatformKeyboard({ applyMove });
 
   // Track last move from queue
   useEffect(() => {
@@ -84,7 +74,7 @@ export function Cube3D() {
       />
 
       <div className="absolute inset-0 z-0">
-        <CubeScene
+        <CubePlatformScene
           cubies={cubies}
           moveQueue={moveQueue}
           completeMove={() => {
@@ -120,7 +110,7 @@ export function Cube3D() {
       {/* Scramble Overlay */}
       {/* Scramble Status UI - Non-intrusive */}
       <AnimatePresence>
-        {isScrambling && (
+        {isApplyingAlgorithm && (
           <motion.div
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}
@@ -137,7 +127,7 @@ export function Cube3D() {
               <div className="w-px h-4 bg-white/10 mx-1" />
               <button
                 type="button"
-                onClick={skipScramble}
+                onClick={skipAlgorithm}
                 className="group flex items-center gap-1.5 text-xs font-bold text-primary hover:text-primary-hover transition-colors uppercase tracking-wider cursor-pointer"
               >
                 SKIP

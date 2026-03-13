@@ -1,5 +1,7 @@
 export type FaceColorKey = 'UP' | 'DOWN' | 'LEFT' | 'RIGHT' | 'FRONT' | 'BACK' | 'BLACK';
 
+export type CubePuzzleType = '2x2' | '3x3' | '4x4';
+
 export const CUBE_3D_COLORS = {
   WHITE: '#FFFFFF', // Pure White
   YELLOW: '#FFD500', // Vibrant Yellow

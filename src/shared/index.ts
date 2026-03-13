@@ -1,6 +1,7 @@
 // Shared - Componentes e utilitários compartilhados
 
 export { ConfirmDialog } from './components/confirm-dialog/confirm-dialog';
+export * from './components/cube-platform';
 export { CubeVisualizer } from './components/cube-visualizer/cube-visualizer';
 export { HeaderDropdownButton } from './components/header-dropdown-button/header-dropdown-button';
 export { HeaderDropdownMenu } from './components/header-dropdown-menu/header-dropdown-menu';

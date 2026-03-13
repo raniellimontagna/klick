@@ -1,7 +1,9 @@
 import { useEffect } from 'react';
+import { FACE_MOVE_KEYS } from '@/shared/lib/cube-platform/moves';
 
-interface UseCubeKeyboardProps {
+interface UseCubePlatformKeyboardProps {
   applyMove: (move: string) => void;
+  enabled?: boolean;
 }
 
 /**
@@ -10,16 +12,29 @@ interface UseCubeKeyboardProps {
  * - F, L, R, U, D, B → Clockwise rotation
  * - Shift + key → Counter-clockwise rotation (F', L', R', U', D', B')
  */
-export function useCubeKeyboard({ applyMove }: UseCubeKeyboardProps) {
+export function useCubePlatformKeyboard({
+  applyMove,
+  enabled = true,
+}: UseCubePlatformKeyboardProps) {
   useEffect(() => {
+    if (!enabled) return;
+
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ignore if user is typing in an input field
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        (e.target instanceof HTMLElement && e.target.isContentEditable)
+      ) {
         return;
       }
 
       const key = e.key.toLowerCase();
-      const validKeys = ['f', 'l', 'r', 'u', 'd', 'b'];
+      if (e.repeat) {
+        return;
+      }
+
+      const validKeys = FACE_MOVE_KEYS.map((faceKey) => faceKey.toLowerCase());
 
       if (validKeys.includes(key)) {
         e.preventDefault();
@@ -36,5 +51,5 @@ export function useCubeKeyboard({ applyMove }: UseCubeKeyboardProps) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [applyMove]);
+  }, [applyMove, enabled]);
 }

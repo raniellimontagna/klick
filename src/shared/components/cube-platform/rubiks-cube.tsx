@@ -2,8 +2,8 @@ import type { ThreeEvent } from '@react-three/fiber';
 import { useFrame } from '@react-three/fiber';
 import { useRef } from 'react';
 import type { Group } from 'three';
-import type { MoveDefinition } from '../lib/moves';
-import type { CubieData, CubieFace, Vec3 } from '../lib/types';
+import type { MoveDefinition } from '@/shared/lib/cube-platform/moves';
+import type { CubieData, CubieFace, Vec3 } from '@/shared/lib/cube-platform/types';
 import { Cubie } from './cubie';
 
 interface RubiksCubeProps {

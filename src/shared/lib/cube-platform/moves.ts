@@ -7,6 +7,9 @@ export interface MoveDefinition {
   direction: Direction;
 }
 
+export const FACE_MOVE_KEYS = ['F', 'L', 'R', 'U', 'D', 'B'] as const;
+export type FaceMoveKey = (typeof FACE_MOVE_KEYS)[number];
+
 // Map WCA notation to geometric rotations
 // Note: Direction 1 is rotation around positive axis using right-hand rule
 export const MOVES: Record<string, MoveDefinition> = {

@@ -1,0 +1,55 @@
+# Ralph Progress Log
+Started: 2026-03-13
+
+## Codebase Patterns
+- Projeto single-app com estrutura feature-based em `src/features`.
+- Código compartilhado e design primitives vivem em `src/shared`.
+- Estado global centralizado em stores Zustand com persistência local.
+- Rotas principais são lazy-loaded via `src/app/app-router.tsx`.
+- Regras e contexto de produto ficam em `PROJECT.md` e `docs/technical.md`.
+- Quality gate mínimo antes de commit: `pnpm lint` e `pnpm test`.
+- Plataforma de cubo 3D reutilizável foi centralizada em `src/shared` com camadas separadas: `lib/cube-platform` (motor), `hooks/use-cube-platform-*` (controle/estado) e `components/cube-platform` (render/integração).
+
+---
+## [2026-03-13 00:00:00 -0300] - US-001
+- What was implemented
+  - Estrutura inicial do Ralph criada em `scripts/ralph`.
+  - Script de loop `ralph.sh` adicionado com suporte para `codex`, `claude` e `amp`.
+  - Instruções específicas para agentes adicionadas em `CODEX.md` e `CLAUDE.md`.
+  - PRD inicial do Klick criado com contexto técnico, regras e story baseline.
+  - Fallback de regras no loop configurado para `PROJECT.md` e documentação técnica.
+- Files changed
+  - scripts/ralph/ralph.sh
+  - scripts/ralph/CODEX.md
+  - scripts/ralph/CLAUDE.md
+  - scripts/ralph/prd.json
+  - scripts/ralph/progress.txt
+- Learnings for future iterations:
+  - O Klick não possui `CLAUDE.md`/`.clinerules` na raiz, então o Ralph deve consumir regras diretamente do `PROJECT.md`.
+  - `docs/technical.md` complementa arquitetura e padrões de implementação que impactam decisões de código.
+---
+## [2026-03-13 16:29:54 -0300] - US-004
+- What was implemented
+  - Núcleo do cubo 3D extraído de `src/features/cube-3d` para módulos compartilhados em `src/shared` (estado, engine de movimentos, renderização e tema).
+  - API de integração reutilizável criada com `CubePlatform` (props de `cubeType`, `algorithm`, `interactive`, `keyboardEnabled`, `themeId` e callbacks) e hook `useCubePlatformController`.
+  - Página `/cube-3d` migrada para consumir apenas a plataforma compartilhada (`CubePlatformScene`, controller e keyboard hook), eliminando acoplamento da lógica 3D ao módulo de rota.
+- Files changed
+  - src/shared/lib/cube-platform/*
+  - src/shared/hooks/use-cube-platform-controller.ts
+  - src/shared/hooks/use-cube-platform-interaction.ts
+  - src/shared/hooks/use-cube-platform-keyboard.ts
+  - src/shared/components/cube-platform/*
+  - src/shared/store/cube-platform-theme-store.ts
+  - src/features/cube-3d/cube-3d.tsx
+  - src/features/cube-3d/components/theme-selector.tsx
+  - src/shared/index.ts
+  - src/shared/hooks/index.ts
+  - src/shared/lib/index.ts
+  - src/shared/store/index.ts
+- Learnings for future iterations:
+  - Como integrar cubo 3D em uma nova tela com baixo acoplamento:
+    - Para uso rápido: renderizar `<CubePlatform algorithm=\"...\" interactive keyboardEnabled />`.
+    - Para tela com controles próprios: usar `useCubePlatformController(...)` + `CubePlatformScene` e conectar botões/atalhos às actions do controller.
+    - Para tema: usar `themeId` no `CubePlatform` ou acessar `useCubePlatformThemeStore` em componentes de customização.
+  - O split em camadas facilita evolução para múltiplos puzzles (2x2/4x4) sem alterar consumidores de rota.
+---

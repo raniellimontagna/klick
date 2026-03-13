@@ -1,8 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { type ColorTheme, THEME_PRESETS } from '../lib/cube-themes';
+import { type ColorTheme, THEME_PRESETS } from '@/shared/lib/cube-platform/themes';
 
-interface CubeThemeState {
+interface CubePlatformThemeState {
   currentThemeId: string;
   customColors: Record<string, string> | null;
 
@@ -15,7 +15,7 @@ interface CubeThemeState {
   getCurrentPalette: () => ColorTheme['colors'];
 }
 
-export const useCubeTheme = create<CubeThemeState>()(
+export const useCubePlatformThemeStore = create<CubePlatformThemeState>()(
   persist(
     (set, get) => ({
       currentThemeId: 'standard',

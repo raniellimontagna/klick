@@ -2,8 +2,8 @@ import { RoundedBox } from '@react-three/drei';
 import type { ThreeEvent } from '@react-three/fiber';
 import { forwardRef } from 'react';
 import type { Group } from 'three';
-import { useCubeTheme } from '../hooks/use-cube-theme';
-import type { CubieFace, CubieFaces, Vec3 } from '../lib/types';
+import type { CubieFace, CubieFaces, Vec3 } from '@/shared/lib/cube-platform/types';
+import { useCubePlatformThemeStore } from '@/shared/store/cube-platform-theme-store';
 
 interface CubieProps {
   position: [number, number, number];
@@ -53,7 +53,7 @@ export const Cubie = forwardRef<Group, CubieProps>(function Cubie(
   { position, faces, rotation, ...props },
   ref,
 ) {
-  const { getCurrentPalette } = useCubeTheme();
+  const { getCurrentPalette } = useCubePlatformThemeStore();
   const palette = getCurrentPalette();
 
   return (

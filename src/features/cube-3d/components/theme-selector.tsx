@@ -7,8 +7,8 @@ import {
   DropdownMenuTrigger,
 } from '@/shared/components/ui';
 import { Button } from '@/shared/components/ui/button';
-import { useCubeTheme } from '../hooks/use-cube-theme';
-import { THEME_PRESETS } from '../lib/cube-themes';
+import { THEME_PRESETS } from '@/shared/lib/cube-platform/themes';
+import { useCubePlatformThemeStore } from '@/shared/store/cube-platform-theme-store';
 
 export function ThemeSelector() {
   const {
@@ -18,7 +18,7 @@ export function ThemeSelector() {
     customColors,
     updateFaceColor,
     getCurrentPalette,
-  } = useCubeTheme();
+  } = useCubePlatformThemeStore();
   const palette = getCurrentPalette();
 
   const faceNames = {
