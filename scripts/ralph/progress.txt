@@ -511,6 +511,7 @@ Started: 2026-03-13
   - `RouteLoader` passou a diferenciar fallback interno e fullscreen para evitar `min-h-screen` indevido dentro do `main` durante lazy loading.
   - Páginas principais padronizadas no contrato `app-shell-page`; home perdeu o overlay extra de página inteira e as rotas públicas `share`/`auth-callback` passaram a usar o mesmo shell visual com scroll interno.
   - Topbar e navegação foram estabilizadas para o shell: `MobileNav` volta a aparecer corretamente até `md`, `Sidebar` passou a respeitar `min-h-0/overflow-hidden` e o header permanece fora do fluxo de scroll.
+  - Onboarding ajustado para escutar scroll em captura (`window.addEventListener('scroll', ..., true)`), mantendo spotlight/tooltips alinhados quando o `main` interno rola.
 - Files changed
   - docs/technical.md
   - scripts/ralph/prd.json
@@ -536,6 +537,7 @@ Started: 2026-03-13
 - Learnings for future iterations:
   - Shell responsivo fica mais previsível quando as rotas só definem conteúdo/largura (`app-shell-page`) e deixam altura/overflow exclusivamente no layout global.
   - Separar fallback lazy interno de fullscreen evita scroll falso e layout shift em páginas que já vivem dentro de um container com altura controlada.
-  - Checklist de QA por breakpoint desta story ficou registrado por contrato responsivo: `320/360/375/390/412` usam `MobileNav` (`md:hidden`) sem sidebar; `768/1024/1280+` usam `Sidebar` (`md:flex`) com header persistente e `main` scrollável.
-  - `pnpm lint`, `pnpm test`, `pnpm knip` e `pnpm build` passaram; a validação visual automatizada via browser ficou limitada pelo ambiente (`vite preview` bloqueado por `EPERM` e instalação do Chromium do Playwright sem retorno útil).
+  - Ao migrar o scroll do viewport para o `main` interno, overlays que medem posição por `window.scroll` precisam observar eventos em captura para acompanhar containers scrolláveis.
+  - Checklist de QA por breakpoint desta story ficou registrado em screenshots Playwright no diretório temporário `/tmp/klick-shell-qa`: todas as rotas principais foram validadas em `390/768/1280`, e a home também foi validada em `320/360/375/412`.
+  - `pnpm lint`, `pnpm test`, `pnpm knip` e `pnpm build` passaram após a consolidação do shell.
 ---
