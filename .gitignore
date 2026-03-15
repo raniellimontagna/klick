@@ -27,3 +27,6 @@ dev-dist
 
 # Coverage
 coverage
+
+# AI
+.agent
