@@ -14,6 +14,7 @@ import { useCubeSound } from './hooks/use-cube-sound';
 export function Cube3D() {
   const { scramble } = useScrambleStore();
   const {
+    cubeType,
     cubies,
     reset,
     applyMove,
@@ -83,6 +84,7 @@ export function Cube3D() {
           }}
           startMove={startMove}
           applyMove={applyMove}
+          cubeType={cubeType}
           cubeGeneration={cubeGeneration}
           realignCounter={realignCounter}
         />

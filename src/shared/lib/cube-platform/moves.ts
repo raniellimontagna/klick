@@ -3,57 +3,71 @@ export type Direction = 1 | -1; // 1 = Clockwise (looking at axis), -1 = Counter
 
 export interface MoveDefinition {
   axis: Axis;
-  layers: number[]; // Layers involved (1, 0, -1)
+  layers: number[];
   direction: Direction;
+}
+
+export type MoveMap = Record<string, MoveDefinition>;
+
+export interface CreateMoveMapOptions {
+  outerPositiveLayer: number;
+  outerNegativeLayer: number;
+  middleLayer?: number;
 }
 
 export const FACE_MOVE_KEYS = ['F', 'L', 'R', 'U', 'D', 'B'] as const;
 export type FaceMoveKey = (typeof FACE_MOVE_KEYS)[number];
 
-// Map WCA notation to geometric rotations
-// Note: Direction 1 is rotation around positive axis using right-hand rule
-export const MOVES: Record<string, MoveDefinition> = {
-  // Right Face (x = 1)
-  R: { axis: 'x', layers: [1], direction: -1 }, // R is clockwise looking at Right face (which is looking against X axis direction if camera is front? No. R is clockwise relative to the face itself)
-  // Let's verify directions:
-  // X axis points Right. Rotation around +X (thumb right) -> fingers curl Back->Up->Front->Down.
-  // Move R: Right face turns Up->Back->Down->Front. This is -X rotation?
-  // Actually, standard math rotation around +X: Y -> Z -> -Y -> -Z (Right hand rule)
-  // R move: Front(Z) -> Up(Y) -> Back(-Z) -> Down(-Y). This matches -X rotation direction.
-  "R'": { axis: 'x', layers: [1], direction: 1 },
-  R2: { axis: 'x', layers: [1], direction: -1 }, // Applied twice
+function withTurns(moveMap: MoveMap, notation: string, move: MoveDefinition) {
+  moveMap[notation] = move;
+  moveMap[`${notation}'`] = {
+    axis: move.axis,
+    layers: move.layers,
+    direction: move.direction === 1 ? -1 : 1,
+  };
+  moveMap[`${notation}2`] = move;
+}
 
-  // Left Face (x = -1)
-  L: { axis: 'x', layers: [-1], direction: 1 }, // L follows Left face clock, which is opposite to R
-  "L'": { axis: 'x', layers: [-1], direction: -1 },
-  L2: { axis: 'x', layers: [-1], direction: 1 },
+export function createMoveMap({
+  outerPositiveLayer,
+  outerNegativeLayer,
+  middleLayer,
+}: CreateMoveMapOptions): MoveMap {
+  const moveMap: MoveMap = {};
 
-  // Up Face (y = 1)
-  U: { axis: 'y', layers: [1], direction: -1 }, // U: Front -> Left -> Back -> Right. +Y rot: Z -> X -> -Z -> -X.
-  "U'": { axis: 'y', layers: [1], direction: 1 },
-  U2: { axis: 'y', layers: [1], direction: -1 },
+  withTurns(moveMap, 'R', { axis: 'x', layers: [outerPositiveLayer], direction: -1 });
+  withTurns(moveMap, 'L', { axis: 'x', layers: [outerNegativeLayer], direction: 1 });
+  withTurns(moveMap, 'U', { axis: 'y', layers: [outerPositiveLayer], direction: -1 });
+  withTurns(moveMap, 'D', { axis: 'y', layers: [outerNegativeLayer], direction: 1 });
+  withTurns(moveMap, 'F', { axis: 'z', layers: [outerPositiveLayer], direction: -1 });
+  withTurns(moveMap, 'B', { axis: 'z', layers: [outerNegativeLayer], direction: 1 });
 
-  // Down Face (y = -1)
-  D: { axis: 'y', layers: [-1], direction: 1 },
-  "D'": { axis: 'y', layers: [-1], direction: -1 },
-  D2: { axis: 'y', layers: [-1], direction: 1 },
+  if (middleLayer !== undefined) {
+    withTurns(moveMap, 'M', { axis: 'x', layers: [middleLayer], direction: 1 });
+    withTurns(moveMap, 'E', { axis: 'y', layers: [middleLayer], direction: 1 });
+    withTurns(moveMap, 'S', { axis: 'z', layers: [middleLayer], direction: -1 });
+  }
 
-  // Front Face (z = 1)
-  F: { axis: 'z', layers: [1], direction: -1 },
-  "F'": { axis: 'z', layers: [1], direction: 1 },
-  F2: { axis: 'z', layers: [1], direction: -1 },
+  return moveMap;
+}
 
-  // Back Face (z = -1)
-  B: { axis: 'z', layers: [-1], direction: 1 },
-  "B'": { axis: 'z', layers: [-1], direction: -1 },
-  B2: { axis: 'z', layers: [-1], direction: 1 },
-};
+// Backwards-compatible 3x3 default map used by existing consumers.
+export const MOVES = createMoveMap({
+  outerPositiveLayer: 1,
+  outerNegativeLayer: -1,
+  middleLayer: 0,
+});
 
-export function parseScramble(scramble: string): MoveDefinition[] {
+export function parseScramble(scramble: string, moveMap: MoveMap = MOVES): MoveDefinition[] {
   if (!scramble) return [];
+
   return scramble
     .trim()
     .split(/\s+/)
-    .map((m) => MOVES[m])
-    .filter((m): m is MoveDefinition => !!m);
+    .map((moveNotation) => moveMap[moveNotation])
+    .filter((move): move is MoveDefinition => !!move);
+}
+
+export function resolveMove(moveNotation: string, moveMap: MoveMap = MOVES): MoveDefinition | undefined {
+  return moveMap[moveNotation];
 }

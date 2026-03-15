@@ -1,7 +1,8 @@
 import type { ThreeEvent } from '@react-three/fiber';
-import { useCallback, useRef } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import { Vector2 } from 'three';
-import type { CubieFace, Vec3 } from '@/shared/lib/cube-platform/types';
+import { getCubePuzzleDefinition } from '../lib/cube-platform/puzzles';
+import type { CubePuzzleType, CubieFace, Vec3 } from '../lib/cube-platform/types';
 
 interface DragState {
   isDragging: boolean;
@@ -10,14 +11,47 @@ interface DragState {
   faceNormal: Vec3;
 }
 
+type LayerRole = 'positive' | 'middle' | 'negative';
+
 interface UseCubePlatformInteractionProps {
   enabled: boolean;
+  cubeType: CubePuzzleType;
   applyMove: (move: string) => void;
   setOrbitEnabled: (enabled: boolean) => void;
 }
 
-// Threshold to consider a drag as a swipe (in pixels)
 const SWIPE_THRESHOLD = 20;
+const LAYER_EPSILON = 0.000001;
+
+function invertMove(move: string): string {
+  return move.includes("'") ? move.replace("'", '') : `${move}'`;
+}
+
+function byLayerRole(
+  role: LayerRole,
+  moves: { positive: string; middle?: string; negative: string },
+): string | null {
+  if (role === 'positive') {
+    return moves.positive;
+  }
+
+  if (role === 'middle') {
+    return moves.middle ?? null;
+  }
+
+  return moves.negative;
+}
+
+function resolveLayerRole(
+  coordinate: number,
+  layers: { outerPositive: number; outerNegative: number; middle?: number },
+): LayerRole {
+  if (layers.middle !== undefined && Math.abs(coordinate - layers.middle) < LAYER_EPSILON) {
+    return 'middle';
+  }
+
+  return coordinate > 0 ? 'positive' : 'negative';
+}
 
 export interface UseCubePlatformInteractionReturn {
   handlePointerDown: (e: ThreeEvent<PointerEvent>, cubiePos: Vec3, face: CubieFace) => void;
@@ -26,10 +60,12 @@ export interface UseCubePlatformInteractionReturn {
 
 export const useCubePlatformInteraction = ({
   enabled,
+  cubeType,
   applyMove,
   setOrbitEnabled,
 }: UseCubePlatformInteractionProps): UseCubePlatformInteractionReturn => {
   const dragState = useRef<DragState | null>(null);
+  const puzzleDefinition = useMemo(() => getCubePuzzleDefinition(cubeType), [cubeType]);
 
   const handlePointerDown = useCallback(
     (e: ThreeEvent<PointerEvent>, cubiePos: Vec3, face: CubieFace) => {
@@ -81,59 +117,63 @@ export const useCubePlatformInteraction = ({
         const isHorizontal = Math.abs(delta.x) > Math.abs(delta.y);
         const directionSign = isHorizontal ? Math.sign(delta.x) : Math.sign(delta.y);
 
+        const xRole = resolveLayerRole(cx, puzzleDefinition.layers);
+        const yRole = resolveLayerRole(cy, puzzleDefinition.layers);
+        const zRole = resolveLayerRole(cz, puzzleDefinition.layers);
+
         let move: string | null = null;
 
-        // UP/DOWN face (Y axis)
         if (Math.abs(ny) === 1) {
           const isUp = ny === 1;
           if (isHorizontal) {
-            if (cz === 1) move = directionSign > 0 ? "F'" : 'F';
-            else if (cz === 0) move = directionSign > 0 ? "S'" : 'S';
-            else if (cz === -1) move = directionSign > 0 ? 'B' : "B'";
+            move = directionSign > 0
+              ? byLayerRole(zRole, { positive: "F'", middle: "S'", negative: 'B' })
+              : byLayerRole(zRole, { positive: 'F', middle: 'S', negative: "B'" });
           } else {
-            if (cx === 1) move = directionSign > 0 ? "R'" : 'R';
-            else if (cx === 0) move = directionSign > 0 ? "M'" : 'M';
-            else if (cx === -1) move = directionSign > 0 ? 'L' : "L'";
+            move = directionSign > 0
+              ? byLayerRole(xRole, { positive: "R'", middle: "M'", negative: 'L' })
+              : byLayerRole(xRole, { positive: 'R', middle: 'M', negative: "L'" });
           }
+
           if (!isUp && move) {
-            move = move.includes("'") ? move.replace("'", '') : `${move}'`;
+            move = invertMove(move);
           }
-        }
-        // RIGHT/LEFT face (X axis)
-        else if (Math.abs(nx) === 1) {
+        } else if (Math.abs(nx) === 1) {
           const isRight = nx === 1;
           const dir = isRight ? directionSign : -directionSign;
+
           if (isHorizontal) {
-            if (cy === 1) move = dir > 0 ? "U'" : 'U';
-            else if (cy === 0) move = dir > 0 ? "E'" : 'E';
-            else if (cy === -1) move = dir > 0 ? 'D' : "D'";
+            move = dir > 0
+              ? byLayerRole(yRole, { positive: "U'", middle: "E'", negative: 'D' })
+              : byLayerRole(yRole, { positive: 'U', middle: 'E', negative: "D'" });
           } else {
-            if (cz === 1) move = dir > 0 ? "F'" : 'F';
-            else if (cz === 0) move = dir > 0 ? "S'" : 'S';
-            else if (cz === -1) move = dir > 0 ? 'B' : "B'";
+            move = dir > 0
+              ? byLayerRole(zRole, { positive: "F'", middle: "S'", negative: 'B' })
+              : byLayerRole(zRole, { positive: 'F', middle: 'S', negative: "B'" });
           }
-        }
-        // FRONT/BACK face (Z axis)
-        else if (Math.abs(nz) === 1) {
+        } else if (Math.abs(nz) === 1) {
           const isFront = nz === 1;
           const dir = isFront ? directionSign : -directionSign;
+
           if (isHorizontal) {
-            if (cy === 1) move = dir > 0 ? "U'" : 'U';
-            else if (cy === 0) move = dir > 0 ? "E'" : 'E';
-            else if (cy === -1) move = dir > 0 ? 'D' : "D'";
+            move = dir > 0
+              ? byLayerRole(yRole, { positive: "U'", middle: "E'", negative: 'D' })
+              : byLayerRole(yRole, { positive: 'U', middle: 'E', negative: "D'" });
           } else {
-            if (cx === 1) move = dir > 0 ? "R'" : 'R';
-            else if (cx === 0) move = dir > 0 ? "M'" : 'M';
-            else if (cx === -1) move = dir > 0 ? 'L' : "L'";
+            move = dir > 0
+              ? byLayerRole(xRole, { positive: "R'", middle: "M'", negative: 'L' })
+              : byLayerRole(xRole, { positive: 'R', middle: 'M', negative: "L'" });
           }
         }
 
-        if (move) applyMove(move);
+        if (move) {
+          applyMove(move);
+        }
       }
 
       dragState.current = null;
     },
-    [setOrbitEnabled, applyMove],
+    [setOrbitEnabled, applyMove, puzzleDefinition],
   );
 
   return { handlePointerDown, handlePointerUp };

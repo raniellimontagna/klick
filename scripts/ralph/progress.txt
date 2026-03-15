@@ -9,6 +9,7 @@ Started: 2026-03-13
 - Regras e contexto de produto ficam em `PROJECT.md` e `docs/technical.md`.
 - Quality gate mínimo antes de commit: `pnpm lint` e `pnpm test`.
 - Plataforma de cubo 3D reutilizável foi centralizada em `src/shared` com camadas separadas: `lib/cube-platform` (motor), `hooks/use-cube-platform-*` (controle/estado) e `components/cube-platform` (render/integração).
+- Para escalar puzzles 3D (2x2/3x3/4x4), manter `puzzles/*` como source of truth para dimensão, camadas e move map evita regras hardcoded no controller/render.
 - Para fluxos didáticos, modelar conteúdo em `lib` (método/etapa/lição) e manter textos em namespace i18n próprio evita acoplamento entre UI e conteúdo.
 - Para reescrita greenfield de feature, remover o legado da pasta da feature e reconstruir com núcleo orientado a dados (`lib`), orquestração em hook e renderização desacoplada em componentes.
 - Em telas com timer crítico, desacoplar estado/atalhos em hook único e pausar visualizações pesadas durante execução melhora fluidez sem perder recursos visuais.
@@ -160,4 +161,38 @@ Started: 2026-03-13
   - Para home com timer em tempo real, pausar renderização pesada durante `running/inspection` reduz risco de jitter perceptível.
   - Centralizar atalhos em um guard utilitário (`shouldIgnoreGlobalShortcut`) evita conflito com modais e campos editáveis sem duplicar regra em cada hook.
   - `pnpm lint` e `pnpm test` passaram; `pnpm knip` falhou por ausência do comando no projeto (`Command "knip" not found`).
+---
+## [2026-03-15 11:10:11 -0300] - US-006
+- What was implemented
+  - Suporte real a `cubeType` (`2x2`, `3x3`, `4x4`) implementado no core da plataforma 3D com módulos isolados por puzzle em `src/shared/lib/cube-platform/puzzles`.
+  - Motor de estado atualizado para usar definição de puzzle (dimensão, camadas e move map) em `createSolvedCube`/`applyMove`/`applyAlgorithm`, removendo fallback fixo para 3x3 no controller.
+  - Interação por drag adaptada para grades pares e ímpares via resolução por camada (`positive/middle/negative`), mantendo middle-slices apenas quando o puzzle suporta.
+  - Renderização normalizada por tipo de puzzle com `renderScale` para manter legibilidade visual consistente no `CubePlatformScene`.
+  - Testes adicionados para regras de movimentos por puzzle e integração do controller por tipo (`2x2/3x3/4x4`).
+- Files changed
+  - Added:
+    - src/shared/lib/cube-platform/puzzles/create-puzzle-definition.ts
+    - src/shared/lib/cube-platform/puzzles/puzzle-definition.ts
+    - src/shared/lib/cube-platform/puzzles/puzzle-2x2.ts
+    - src/shared/lib/cube-platform/puzzles/puzzle-3x3.ts
+    - src/shared/lib/cube-platform/puzzles/puzzle-4x4.ts
+    - src/shared/lib/cube-platform/puzzles/index.ts
+    - src/shared/lib/cube-platform/puzzles.test.ts
+    - src/shared/hooks/use-cube-platform-controller.test.ts
+  - Updated:
+    - src/shared/lib/cube-platform/moves.ts
+    - src/shared/lib/cube-platform/cube-utils.ts
+    - src/shared/lib/cube-platform/index.ts
+    - src/shared/lib/cube-platform/types.ts
+    - src/shared/hooks/use-cube-platform-controller.ts
+    - src/shared/hooks/use-cube-platform-interaction.ts
+    - src/shared/components/cube-platform/cube-scene.tsx
+    - src/shared/components/cube-platform/cube-platform.tsx
+    - src/features/cube-3d/cube-3d.tsx
+    - scripts/ralph/prd.json
+    - scripts/ralph/progress.txt
+- Learnings for future iterations:
+  - Manter `moveMap` específico por puzzle simplifica suporte incremental a novos tipos (ex.: 5x5) sem refatorar controller/hook.
+  - `renderScale` no nível da definição de puzzle reduz ajustes manuais de câmera quando o tamanho da grade muda.
+  - `pnpm lint` e `pnpm test` passaram; `pnpm knip` falhou por ausência de comando (`Command "knip" not found`).
 ---

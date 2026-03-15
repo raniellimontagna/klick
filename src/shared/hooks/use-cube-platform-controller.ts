@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { applyMoveToState, createSolvedCube } from '@/shared/lib/cube-platform/cube-utils';
-import { MOVES, type MoveDefinition, parseScramble } from '@/shared/lib/cube-platform/moves';
-import type { CubePuzzleType, CubeState } from '@/shared/lib/cube-platform/types';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { applyMoveToState, createSolvedCubeFromDefinition } from '../lib/cube-platform/cube-utils';
+import { type MoveDefinition, parseScramble, resolveMove } from '../lib/cube-platform/moves';
+import { getCubePuzzleDefinition } from '../lib/cube-platform/puzzles';
+import type { CubePuzzleType, CubeState } from '../lib/cube-platform/types';
 
 export interface CubePlatformHistoryItem {
   id: string;
@@ -28,15 +29,6 @@ function createQueuedMove(move: MoveDefinition, isAlgorithm = false): CubePlatfo
   return { ...move, uid: `move-${++moveCounter}`, isAlgorithm };
 }
 
-function resolveCubeType(cubeType: CubePuzzleType): CubePuzzleType {
-  if (cubeType === '3x3') {
-    return cubeType;
-  }
-
-  console.warn(`[CubePlatform] cubeType "${cubeType}" is not implemented yet. Using "3x3".`);
-  return '3x3';
-}
-
 export function useCubePlatformController({
   cubeType = '3x3',
   algorithm,
@@ -44,7 +36,9 @@ export function useCubePlatformController({
   onMoveQueued,
   onAlgorithmComplete,
 }: UseCubePlatformControllerOptions = {}) {
-  const [state, setState] = useState<CubeState>(createSolvedCube());
+  const puzzleDefinition = useMemo(() => getCubePuzzleDefinition(cubeType), [cubeType]);
+
+  const [state, setState] = useState<CubeState>(() => createSolvedCubeFromDefinition(puzzleDefinition));
   const [moveQueue, setMoveQueue] = useState<CubePlatformQueuedMove[]>([]);
   const [history, setHistory] = useState<CubePlatformHistoryItem[]>([]);
   const [isApplyingAlgorithm, setIsApplyingAlgorithm] = useState(false);
@@ -53,19 +47,18 @@ export function useCubePlatformController({
 
   const processedMoves = useRef<Set<string>>(new Set());
   const lastAutoAlgorithm = useRef<string | null>(null);
-  const normalizedCubeType = resolveCubeType(cubeType);
 
   const reset = useCallback(() => {
-    setState(createSolvedCube());
+    setState(createSolvedCubeFromDefinition(puzzleDefinition));
     setMoveQueue([]);
     setHistory([]);
     setIsApplyingAlgorithm(false);
     processedMoves.current.clear();
-  }, []);
+  }, [puzzleDefinition]);
 
   const applyMove = useCallback(
     (moveStr: string) => {
-      const moveDef = MOVES[moveStr];
+      const moveDef = resolveMove(moveStr, puzzleDefinition.moveMap);
       if (!moveDef) {
         return;
       }
@@ -75,30 +68,33 @@ export function useCubePlatformController({
       setMoveQueue((prev) => [...prev, queuedMove]);
       onMoveQueued?.(moveStr);
     },
-    [onMoveQueued],
+    [onMoveQueued, puzzleDefinition],
   );
 
-  const applyAlgorithm = useCallback((inputAlgorithm: string, instant = false) => {
-    const moves = parseScramble(inputAlgorithm);
+  const applyAlgorithm = useCallback(
+    (inputAlgorithm: string, instant = false) => {
+      const moves = parseScramble(inputAlgorithm, puzzleDefinition.moveMap);
 
-    if (instant) {
-      setState((prev) => {
-        let currentState = prev;
-        for (const move of moves) {
-          currentState = applyMoveToState(currentState, move);
-        }
-        return currentState;
-      });
-      setMoveQueue([]);
-      setIsApplyingAlgorithm(false);
-      onAlgorithmComplete?.();
-      return;
-    }
+      if (instant) {
+        setState((prev) => {
+          let currentState = prev;
+          for (const move of moves) {
+            currentState = applyMoveToState(currentState, move);
+          }
+          return currentState;
+        });
+        setMoveQueue([]);
+        setIsApplyingAlgorithm(false);
+        onAlgorithmComplete?.();
+        return;
+      }
 
-    setIsApplyingAlgorithm(moves.length > 0);
-    const algorithmMoves = moves.map((move) => createQueuedMove(move, true));
-    setMoveQueue((prev) => [...prev, ...algorithmMoves]);
-  }, [onAlgorithmComplete]);
+      setIsApplyingAlgorithm(moves.length > 0);
+      const algorithmMoves = moves.map((move) => createQueuedMove(move, true));
+      setMoveQueue((prev) => [...prev, ...algorithmMoves]);
+    },
+    [onAlgorithmComplete, puzzleDefinition],
+  );
 
   const skipAlgorithm = useCallback(() => {
     const currentQueue = moveQueue;
@@ -181,14 +177,21 @@ export function useCubePlatformController({
           ? lastMove
           : `${lastMove}'`;
 
-      const reverseDef = MOVES[reverseMove];
+      const reverseDef = resolveMove(reverseMove, puzzleDefinition.moveMap);
       if (reverseDef) {
         setMoveQueue((queue) => [...queue, createQueuedMove(reverseDef)]);
       }
 
       return prev.slice(0, -1);
     });
-  }, []);
+  }, [puzzleDefinition]);
+
+  useEffect(() => {
+    if (!autoApplyAlgorithm) {
+      lastAutoAlgorithm.current = null;
+      reset();
+    }
+  }, [autoApplyAlgorithm, reset]);
 
   useEffect(() => {
     if (!autoApplyAlgorithm) {
@@ -196,7 +199,7 @@ export function useCubePlatformController({
     }
 
     const normalizedAlgorithm = algorithm?.trim() ?? '';
-    const signature = `${normalizedCubeType}:${normalizedAlgorithm}`;
+    const signature = `${puzzleDefinition.type}:${normalizedAlgorithm}`;
     if (lastAutoAlgorithm.current === signature) {
       return;
     }
@@ -206,10 +209,10 @@ export function useCubePlatformController({
     if (normalizedAlgorithm) {
       applyAlgorithm(normalizedAlgorithm);
     }
-  }, [algorithm, autoApplyAlgorithm, applyAlgorithm, normalizedCubeType, reset]);
+  }, [algorithm, autoApplyAlgorithm, applyAlgorithm, puzzleDefinition.type, reset]);
 
   return {
-    cubeType: normalizedCubeType,
+    cubeType: puzzleDefinition.type,
     cubies: state.cubies,
     moveQueue,
     history,

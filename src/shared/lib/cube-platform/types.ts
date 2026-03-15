@@ -15,7 +15,7 @@ export const CUBE_3D_COLORS = {
 // 3D vector type for positions and normals
 export type Vec3 = [number, number, number];
 
-// Position of a cubie (x, y, z in -1, 0, 1)
+// Position of a cubie in the puzzle coordinate grid (depends on puzzle dimension).
 export type CubiePosition = Vec3;
 
 // A face with a normal vector and its color

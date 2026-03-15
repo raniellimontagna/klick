@@ -1,6 +1,8 @@
 import type { MoveDefinition } from './moves';
+import { getCubePuzzleDefinition, type CubePuzzleDefinition } from './puzzles';
 import {
   CUBE_3D_COLORS,
+  type CubePuzzleType,
   type CubeState,
   type CubieData,
   type CubieFace,
@@ -8,6 +10,12 @@ import {
   FACE_NORMALS,
   type Vec3,
 } from './types';
+
+const LAYER_EPSILON = 0.000001;
+
+function isSameLayer(a: number, b: number): boolean {
+  return Math.abs(a - b) < LAYER_EPSILON;
+}
 
 /**
  * Rotates a 3D vector 90° around the specified axis.
@@ -17,82 +25,85 @@ export function rotateVector(vec: Vec3, axis: 'x' | 'y' | 'z', dir: 1 | -1): Vec
   const [x, y, z] = vec;
 
   if (axis === 'x') {
-    // dir=1: (y,z) → (-z, y)
-    // dir=-1: (y,z) → (z, -y)
     return dir === 1 ? [x, -z, y] : [x, z, -y];
   }
 
   if (axis === 'y') {
-    // dir=1: (x,z) → (z, -x)
-    // dir=-1: (x,z) → (-z, x)
     return dir === 1 ? [z, y, -x] : [-z, y, x];
   }
 
   if (axis === 'z') {
-    // dir=1: (x,y) → (-y, x)
-    // dir=-1: (x,y) → (y, -x)
     return dir === 1 ? [-y, x, z] : [y, -x, z];
   }
 
   return vec;
 }
 
-/**
- * Creates the initial face colors for a cubie based on its position.
- */
-function createCubieFaces(x: number, y: number, z: number): CubieFace[] {
+function createCubieFaces(
+  x: number,
+  y: number,
+  z: number,
+  puzzleDefinition: CubePuzzleDefinition,
+): CubieFace[] {
   const { BLACK, RED, ORANGE, YELLOW, WHITE, GREEN, BLUE } = CUBE_3D_COLORS;
+
+  const isRight = isSameLayer(x, puzzleDefinition.layers.outerPositive);
+  const isLeft = isSameLayer(x, puzzleDefinition.layers.outerNegative);
+  const isUp = isSameLayer(y, puzzleDefinition.layers.outerPositive);
+  const isDown = isSameLayer(y, puzzleDefinition.layers.outerNegative);
+  const isFront = isSameLayer(z, puzzleDefinition.layers.outerPositive);
+  const isBack = isSameLayer(z, puzzleDefinition.layers.outerNegative);
 
   return [
     {
       id: 'RIGHT',
       normal: FACE_NORMALS.RIGHT,
-      colorKey: x === 1 ? 'RIGHT' : 'BLACK',
-      color: x === 1 ? RED : BLACK,
+      colorKey: isRight ? 'RIGHT' : 'BLACK',
+      color: isRight ? RED : BLACK,
     },
     {
       id: 'LEFT',
       normal: FACE_NORMALS.LEFT,
-      colorKey: x === -1 ? 'LEFT' : 'BLACK',
-      color: x === -1 ? ORANGE : BLACK,
+      colorKey: isLeft ? 'LEFT' : 'BLACK',
+      color: isLeft ? ORANGE : BLACK,
     },
     {
       id: 'UP',
       normal: FACE_NORMALS.UP,
-      colorKey: y === 1 ? 'UP' : 'BLACK',
-      color: y === 1 ? WHITE : BLACK,
+      colorKey: isUp ? 'UP' : 'BLACK',
+      color: isUp ? WHITE : BLACK,
     },
     {
       id: 'DOWN',
       normal: FACE_NORMALS.DOWN,
-      colorKey: y === -1 ? 'DOWN' : 'BLACK',
-      color: y === -1 ? YELLOW : BLACK,
+      colorKey: isDown ? 'DOWN' : 'BLACK',
+      color: isDown ? YELLOW : BLACK,
     },
     {
       id: 'FRONT',
       normal: FACE_NORMALS.FRONT,
-      colorKey: z === 1 ? 'FRONT' : 'BLACK',
-      color: z === 1 ? GREEN : BLACK,
+      colorKey: isFront ? 'FRONT' : 'BLACK',
+      color: isFront ? GREEN : BLACK,
     },
     {
       id: 'BACK',
       normal: FACE_NORMALS.BACK,
-      colorKey: z === -1 ? 'BACK' : 'BLACK',
-      color: z === -1 ? BLUE : BLACK,
+      colorKey: isBack ? 'BACK' : 'BLACK',
+      color: isBack ? BLUE : BLACK,
     },
   ];
 }
 
-export function createSolvedCube(): CubeState {
+export function createSolvedCubeFromDefinition(puzzleDefinition: CubePuzzleDefinition): CubeState {
   const cubies: CubieData[] = [];
   let index = 0;
 
-  for (let x = -1; x <= 1; x++) {
-    for (let y = -1; y <= 1; y++) {
-      for (let z = -1; z <= 1; z++) {
+  for (const x of puzzleDefinition.coordinates) {
+    for (const y of puzzleDefinition.coordinates) {
+      for (const z of puzzleDefinition.coordinates) {
         const position: CubiePosition = [x, y, z];
-        const faces = createCubieFaces(x, y, z);
-        const uid = `cubie-${index}`;
+        const faces = createCubieFaces(x, y, z, puzzleDefinition);
+        const uid = `${puzzleDefinition.type}-cubie-${index}`;
 
         cubies.push({ uid, position, faces });
         index++;
@@ -103,6 +114,11 @@ export function createSolvedCube(): CubeState {
   return { cubies };
 }
 
+export function createSolvedCube(cubeType: CubePuzzleType = '3x3'): CubeState {
+  const puzzleDefinition = getCubePuzzleDefinition(cubeType);
+  return createSolvedCubeFromDefinition(puzzleDefinition);
+}
+
 /**
  * Applies a move to the cube state.
  */
@@ -110,15 +126,12 @@ export function applyMoveToState(state: CubeState, move: MoveDefinition): CubeSt
   const axisIndex = move.axis === 'x' ? 0 : move.axis === 'y' ? 1 : 2;
 
   const newCubies = state.cubies.map((cubie) => {
-    // Check if this cubie is in the rotating layer
-    if (!move.layers.includes(cubie.position[axisIndex])) {
+    if (!move.layers.some((layer) => isSameLayer(layer, cubie.position[axisIndex]))) {
       return cubie;
     }
 
-    // Rotate position
     const newPosition = rotateVector(cubie.position, move.axis, move.direction);
 
-    // Rotate ALL face normals
     const newFaces = cubie.faces.map((face) => ({
       id: face.id,
       color: face.color,

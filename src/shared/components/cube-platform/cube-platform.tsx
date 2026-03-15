@@ -68,6 +68,7 @@ export function CubePlatform({
         completeMove={controller.completeMove}
         startMove={controller.startMove}
         applyMove={controller.applyMove}
+        cubeType={controller.cubeType}
         cubeGeneration={controller.cubeGeneration}
         realignCounter={realignCounter}
         interactive={interactive}

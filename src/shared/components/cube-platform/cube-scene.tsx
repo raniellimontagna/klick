@@ -1,10 +1,14 @@
 import { ContactShadows, OrbitControls } from '@react-three/drei';
 import { Canvas } from '@react-three/fiber';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import { useCubePlatformInteraction } from '@/shared/hooks/use-cube-platform-interaction';
-import type { MoveDefinition } from '@/shared/lib/cube-platform/moves';
-import type { CubieData } from '@/shared/lib/cube-platform/types';
+import {
+  getCubePuzzleDefinition,
+  type MoveDefinition,
+  type CubePuzzleType,
+  type CubieData,
+} from '@/shared/lib/cube-platform';
 import { RubiksCube } from './rubiks-cube';
 
 interface CubePlatformSceneProps {
@@ -13,26 +17,27 @@ interface CubePlatformSceneProps {
   completeMove?: () => void;
   startMove?: () => void;
   applyMove?: (move: string) => void;
+  cubeType?: CubePuzzleType;
   cubeGeneration?: number;
   realignCounter?: number;
   interactive?: boolean;
 }
+
 export const CubePlatformScene: React.FC<CubePlatformSceneProps> = ({
   cubies = [],
   moveQueue = [],
   completeMove = (): void => {},
   startMove = (): void => {},
   applyMove = (): void => {},
+  cubeType = '3x3',
   cubeGeneration = 0,
   realignCounter = 0,
   interactive = true,
 }: CubePlatformSceneProps): React.ReactElement => {
   const [orbitEnabled, setOrbitEnabled] = useState(true);
-
-  // Correctly type the OrbitControls ref to avoid 'any'
   const controlsRef = useRef<OrbitControlsImpl>(null);
+  const renderScale = useMemo(() => getCubePuzzleDefinition(cubeType).renderScale, [cubeType]);
 
-  // Realign camera when counter changes
   useEffect(() => {
     if (controlsRef.current && realignCounter > 0) {
       controlsRef.current.reset();
@@ -41,6 +46,7 @@ export const CubePlatformScene: React.FC<CubePlatformSceneProps> = ({
 
   const { handlePointerDown, handlePointerUp } = useCubePlatformInteraction({
     enabled: interactive,
+    cubeType,
     applyMove,
     setOrbitEnabled,
   });
@@ -53,14 +59,13 @@ export const CubePlatformScene: React.FC<CubePlatformSceneProps> = ({
       gl={{ alpha: true }}
       shadows
     >
-      {/* Lighting setup - Premium balance (No HDRI to prevent crash) */}
       <ambientLight intensity={0.7} />
       <hemisphereLight intensity={0.5} color="#ffffff" groundColor="#000000" />
       <directionalLight position={[10, 10, 5]} intensity={1.8} castShadow />
       <directionalLight position={[-10, -5, -5]} intensity={0.8} />
       <spotLight position={[0, 10, 0]} intensity={1} angle={0.5} penumbra={1} />
 
-      <group position={[0, 0.5, 0]}>
+      <group position={[0, 0.5, 0]} scale={[renderScale, renderScale, renderScale]}>
         {cubies.length > 0 && (
           <RubiksCube
             cubies={cubies}

@@ -253,7 +253,7 @@
         "Validar qualidade com `pnpm lint` e `pnpm test` sem regressões."
       ],
       "priority": 6,
-      "passes": false,
+      "passes": true,
       "notes": "Objetivo é tornar 2x2/3x3/4x4 totalmente reutilizáveis em qualquer tela, com core extensível."
     },
     {
