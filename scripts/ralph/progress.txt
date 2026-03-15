@@ -12,6 +12,7 @@ Started: dom 15 mar 2026 17:02:50 -03
 - Implemented the mobile-first redesign foundations by refreshing global tokens for color, type, spacing, radius, elevation and motion in `src/app/styles/index.css`.
 - Standardized shared surfaces and refreshed the most-used shared primitives: `Button`, `Card`, `Modal`, `DropdownMenu`, `PageHeader`, `Topbar`, `Sidebar`, `MobileNav`, `Toast` and `ConfirmDialog`.
 - Updated `docs/technical.md` to document the new surface contract, theme direction and redesign anti-patterns.
+- Validated the story with `pnpm lint`, `pnpm test`, `pnpm knip` and `pnpm build`.
 - Files changed:
   - `src/app/styles/index.css`
   - `src/shared/components/ui/button/button.tsx`
