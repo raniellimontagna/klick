@@ -41,7 +41,7 @@ export function MobileNav() {
       <button
         type="button"
         onClick={() => setIsOpen(true)}
-        className="glass-button flex h-10 w-10 items-center justify-center rounded-xl border border-border/70 text-text-primary transition-all hover:border-border-strong/80 hover:bg-surface-hover/70"
+        className="glass-button flex h-11 w-11 items-center justify-center rounded-2xl border border-border/75 text-text-primary shadow-[var(--klick-shadow-soft)] transition-all hover:border-border-strong/80 hover:bg-surface-hover/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
         aria-label="Menu"
       >
         <HamburgerMenu size={20} />

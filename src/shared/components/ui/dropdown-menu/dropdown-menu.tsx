@@ -114,34 +114,59 @@ interface DropdownMenuTriggerButtonProps {
   label: ReactNode;
   isOpen?: boolean;
   className?: string;
+  contentClassName?: string;
+  labelClassName?: string;
+  chevronClassName?: string;
+  hideChevron?: boolean;
 }
 
 const DropdownMenuTriggerButton = forwardRef<
   HTMLButtonElement,
   DropdownMenuTriggerButtonProps & ComponentPropsWithoutRef<'button'>
->(({ icon, label, isOpen, className, ...props }, ref) => (
-  <button
-    ref={ref}
-    type="button"
-    className={cn(
-      'glass-button h-10 rounded-xl border border-border/75 px-3 text-sm font-semibold text-text-primary transition-all sm:px-4',
-      'hover:border-border-strong/75 hover:bg-surface-hover/70',
-      'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
+>(
+  (
+    {
+      icon,
+      label,
+      isOpen,
       className,
-    )}
-    {...props}
-  >
-    {icon && <span className="shrink-0 text-primary">{icon}</span>}
-    <span className="truncate">{label}</span>
-    <AltArrowDown
-      size={16}
+      contentClassName,
+      labelClassName,
+      chevronClassName,
+      hideChevron = false,
+      ...props
+    },
+    ref,
+  ) => (
+    <button
+      ref={ref}
+      type="button"
       className={cn(
-        'text-text-muted transition-transform duration-200 shrink-0',
-        isOpen && 'rotate-180',
+        'glass-button inline-flex h-11 min-w-0 max-w-full items-center gap-2.5 rounded-2xl border border-border/75 px-3 text-sm font-semibold text-text-primary transition-all sm:px-4',
+        'whitespace-nowrap shadow-[var(--klick-shadow-soft)]',
+        'hover:border-border-strong/75 hover:bg-surface-hover/70',
+        'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
+        className,
       )}
-    />
-  </button>
-));
+      {...props}
+    >
+      <span className={cn('flex min-w-0 flex-1 items-center gap-2.5', contentClassName)}>
+        {icon && <span className="shrink-0 text-primary">{icon}</span>}
+        <span className={cn('min-w-0 truncate whitespace-nowrap', labelClassName)}>{label}</span>
+      </span>
+      {!hideChevron && (
+        <AltArrowDown
+          size={16}
+          className={cn(
+            'shrink-0 text-text-muted transition-transform duration-200',
+            isOpen && 'rotate-180',
+            chevronClassName,
+          )}
+        />
+      )}
+    </button>
+  ),
+);
 DropdownMenuTriggerButton.displayName = 'DropdownMenuTriggerButton';
 
 export {

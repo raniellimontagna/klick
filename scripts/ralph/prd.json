@@ -404,7 +404,7 @@
         "Validar qualidade com `pnpm lint`, `pnpm test` e `pnpm build` sem regressões."
       ],
       "priority": 14,
-      "passes": false,
+      "passes": true,
       "notes": "Depende do shell estável da US-015. Foco exclusivo em profissionalização visual e responsividade do topo."
     },
     {

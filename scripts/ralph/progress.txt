@@ -27,6 +27,7 @@ Started: 2026-03-13
 - Barrels (`index.ts`) devem ter superfície mínima: exportar só símbolos com consumidor real evita APIs fantasmas e ruído no `knip`.
 - Em refatoração greenfield, remover módulos duplicados/legados no mesmo ciclo evita drift entre fontes de verdade de negócio.
 - Para shell com header persistente, aplicar lock de viewport apenas enquanto o layout principal está montado (`klick-shell-locked`) e concentrar o scroll em `main.app-shell-main` evita conflito com rotas públicas e fallbacks lazy.
+- Para controles do topo com labels variáveis, manter o trigger shared em `inline-flex` com `min-w-0`, `truncate`, `title/aria-label` e fallback `icon-only` em `max-[360px]` elimina wrap sem sacrificar acessibilidade.
 
 ---
 ## [2026-03-13 00:00:00 -0300] - US-001
@@ -540,4 +541,25 @@ Started: 2026-03-13
   - Ao migrar o scroll do viewport para o `main` interno, overlays que medem posição por `window.scroll` precisam observar eventos em captura para acompanhar containers scrolláveis.
   - Checklist de QA por breakpoint desta story ficou registrado em screenshots Playwright no diretório temporário `/tmp/klick-shell-qa`: todas as rotas principais foram validadas em `390/768/1280`, e a home também foi validada em `320/360/375/412`.
   - `pnpm lint`, `pnpm test`, `pnpm knip` e `pnpm build` passaram após a consolidação do shell.
+---
+## [2026-03-15 14:37:41 -0300] - US-016
+- What was implemented
+  - Contrato visual do topo consolidado no `DropdownMenuTriggerButton`, agora com `inline-flex`, altura/raio padronizados, `min-w-0`, `truncate` e foco visível consistente para todos os gatilhos de dropdown.
+  - `PuzzleSelector` e `SessionSwitcher` refatorados para usar larguras com `clamp(...)`, tooltip via `title`, `aria-label` explícito e fallback responsivo `icon-only` em larguras muito estreitas, sem quebra em duas linhas.
+  - `Topbar` reorganizada em duas áreas flexíveis para distribuir melhor puzzle e sessão, enquanto `LanguageSelector` e `MobileNav` passaram a compartilhar a mesma linguagem visual e altura do app bar.
+  - Menus de puzzle/sessão receberam proteção extra contra clipping com larguras responsivas e labels truncados com tooltip no conteúdo longo.
+  - QA visual executado com screenshots Playwright nos breakpoints `320`, `360`, `375`, `390`, `412`, `768`, `1024` e `1280`, além de validação adicional em tema claro (`390`), confirmando linha única, truncamento estável e modo compacto acessível.
+- Files changed
+  - src/shared/components/ui/dropdown-menu/dropdown-menu.tsx
+  - src/shared/components/session-switcher/session-switcher.tsx
+  - src/features/puzzle-selector/puzzle-selector.tsx
+  - src/shared/components/language-selector/language-selector.tsx
+  - src/shared/components/navigation/mobile-nav.tsx
+  - src/shared/components/navigation/topbar.tsx
+  - scripts/ralph/prd.json
+  - scripts/ralph/progress.txt
+- Learnings for future iterations:
+  - O trigger compartilhado do topo deve continuar sendo a única source of truth para altura, raio, foco e truncamento; evitar variantes locais para cada seletor previne drift visual.
+  - Em larguras críticas, esconder label e chevron abaixo de `360px` preserva estabilidade do topo melhor do que reduzir fonte ou permitir wrap.
+  - `pnpm lint`, `pnpm test`, `pnpm knip` e `pnpm build` passaram nesta entrega.
 ---

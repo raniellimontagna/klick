@@ -30,7 +30,7 @@ export function LanguageSelector() {
     if (!currentLanguage) {
       return language.split('-')[0]?.toUpperCase() ?? language;
     }
-    return <span className="hidden lg:inline whitespace-nowrap">{currentLanguage.label}</span>;
+    return currentLanguage.label;
   };
 
   return (
@@ -48,7 +48,11 @@ export function LanguageSelector() {
           }
           label={getButtonLabel()}
           isOpen={isOpen}
-          className="min-w-[44px] lg:min-w-0"
+          aria-label={`${t.language.title}: ${currentLanguage?.label ?? language}`}
+          title={currentLanguage?.label ?? language}
+          className="w-12 justify-center px-2 lg:w-auto lg:px-4"
+          contentClassName="justify-center lg:justify-start"
+          labelClassName="hidden xl:inline"
         />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
@@ -68,7 +72,9 @@ export function LanguageSelector() {
                 />
               </span>
               <div className="flex flex-col min-w-0">
-                <span className="font-medium text-text-primary">{lang.label}</span>
+                <span className="font-medium text-text-primary truncate" title={lang.label}>
+                  {lang.label}
+                </span>
                 <span className="text-xs uppercase tracking-wide text-text-muted">{lang.code}</span>
               </div>
             </DropdownMenuRadioItem>
