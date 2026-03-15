@@ -7,7 +7,9 @@ export const ptBR = {
     home: 'Início',
     history: 'Histórico',
     stats: 'Estatísticas',
+    leaderboard: 'Ranking',
     training: 'Treino',
+    friends: 'Amigos',
     tutorial: 'Tutorial',
     settings: 'Configurações',
     cube3d: 'Cubo 3D',
@@ -22,8 +24,14 @@ export const ptBR = {
     stats: {
       description: 'Análise detalhada de performance e evolução.',
     },
+    leaderboard: {
+      description: 'Compare seu desempenho semanal e mensal com amigos e público.',
+    },
     training: {
       description: 'Pratique algoritmos por caso com metas e notas rápidas.',
+    },
+    friends: {
+      description: 'Envie convites, aceite amigos e controle sua rede social de treino.',
     },
     tutorial: {
       description: 'Aprenda o método CFOP passo a passo.',
@@ -432,7 +440,12 @@ export const ptBR = {
           'Quando desligado, todos os links existentes são revogados imediatamente.',
         profileVisibility: 'Visibilidade do perfil',
         profilePublic: 'Seu perfil aparece como público no snapshot compartilhado.',
+        profileFriends: 'Seu perfil fica visível apenas para amizades aceitas.',
         profilePrivate: 'Seu perfil fica privado e só o snapshot é exibido.',
+        rankingVisibility: 'Visibilidade do ranking',
+        rankingPublic: 'Seu ranking fica visível para qualquer usuário autenticado.',
+        rankingFriends: 'Seu ranking fica visível apenas para amizades aceitas.',
+        rankingPrivate: 'Seu ranking fica privado (apenas você visualiza).',
         shareSingle: 'Compartilhar single',
         shareSingleHint: 'Inclui seu melhor tempo atual no link público.',
         shareAverages: 'Compartilhar médias (ao5/ao12)',
@@ -442,6 +455,7 @@ export const ptBR = {
       },
       visibility: {
         public: 'Público',
+        friends: 'Amigos',
         private: 'Privado',
       },
       privacyTitle: 'Privacidade e revogação imediata',
@@ -509,6 +523,98 @@ export const ptBR = {
       currentStreak: 'Streak atual',
       bestStreak: 'Melhor streak',
       weeklyGoal: 'Meta semanal',
+    },
+  },
+  socialHub: {
+    friends: {
+      notConfiguredTitle: 'Supabase não configurado',
+      notConfiguredDescription:
+        'Ative o Supabase para liberar convites de amizade e sincronização social.',
+      loginRequiredTitle: 'Faça login para gerenciar amigos',
+      loginRequiredDescription: 'Conecte sua conta nas configurações para enviar e receber convites.',
+      labels: {
+        loading: 'Carregando amizades...',
+        invitedAt: 'Convite em',
+        friendsSince: 'Amigos desde',
+      },
+      invite: {
+        title: 'Enviar convite',
+        description: 'Informe o ID do usuário para enviar o convite de amizade.',
+        inputLabel: 'ID do usuário',
+        placeholder: 'UUID do usuário',
+      },
+      incoming: {
+        title: 'Convites recebidos',
+        empty: 'Nenhum convite pendente recebido.',
+      },
+      outgoing: {
+        title: 'Convites enviados',
+        empty: 'Nenhum convite pendente enviado.',
+      },
+      list: {
+        title: 'Lista de amigos',
+        empty: 'Você ainda não tem amizades ativas.',
+      },
+      actions: {
+        sendInvite: 'Enviar convite',
+        accept: 'Aceitar',
+        reject: 'Recusar',
+        cancel: 'Cancelar',
+        removeFriend: 'Remover amizade',
+      },
+      messages: {
+        targetRequired: 'Informe um ID de usuário para enviar o convite.',
+        invalidTarget: 'Não é possível enviar convite para esse usuário.',
+        alreadyFriends: 'Esta amizade já existe.',
+        pendingInvite: 'Já existe um convite pendente para este par de usuários.',
+        inviteSent: 'Convite enviado com sucesso.',
+        inviteAccepted: 'Convite aceito e amizade criada.',
+        inviteRejected: 'Convite recusado.',
+        inviteCancelled: 'Convite cancelado.',
+        friendRemoved: 'Amizade removida.',
+        errorGeneric: 'Não foi possível concluir a ação social agora.',
+      },
+    },
+    leaderboard: {
+      notConfiguredTitle: 'Supabase não configurado',
+      notConfiguredDescription:
+        'Configure o Supabase para ativar ranking semanal/mensal e comparação social.',
+      loginRequiredTitle: 'Faça login para ver o ranking',
+      loginRequiredDescription: 'Conecte sua conta nas configurações para acessar o leaderboard.',
+      period: {
+        title: 'Período do ranking',
+        weekly: 'Semanal',
+        monthly: 'Mensal',
+      },
+      actions: {
+        refresh: 'Atualizar ranking',
+        syncing: 'Sincronizando...',
+      },
+      labels: {
+        loading: 'Carregando ranking...',
+        periodKey: 'Período',
+        visibilityNote:
+          'A visibilidade segue suas flags de privacidade: privado, amigos ou público.',
+        yourSnapshot: 'Seu snapshot no período',
+        solveCount: 'Quantidade de solves',
+        you: 'Você',
+      },
+      table: {
+        title: 'Classificação',
+        empty: 'Ainda não há entradas visíveis para este período.',
+        columns: {
+          rank: 'Pos.',
+          user: 'Usuário',
+          single: 'Single',
+          ao5: 'ao5',
+          ao12: 'ao12',
+          consistency: 'Consistência',
+          solves: 'Solves',
+        },
+      },
+      messages: {
+        errorGeneric: 'Não foi possível carregar o ranking agora.',
+      },
     },
   },
   advancedStats: {

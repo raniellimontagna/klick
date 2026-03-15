@@ -49,3 +49,4 @@ export type TimerState = 'idle' | 'inspection' | 'running' | 'stopped';
 
 export * from './progress';
 export * from './share';
+export * from './social';

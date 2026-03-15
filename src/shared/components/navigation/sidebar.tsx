@@ -6,6 +6,7 @@ import {
   History,
   Settings,
   Stopwatch,
+  User,
 } from '@solar-icons/react';
 import { Link, useLocation } from 'react-router-dom';
 import { Logo } from '@/shared';
@@ -20,7 +21,9 @@ export function Sidebar({ className }: { className?: string }) {
     { href: '/', label: t.navigation.home, icon: Stopwatch },
     { href: '/history', label: t.navigation.history, icon: History },
     { href: '/stats', label: t.navigation.stats, icon: ChartSquare },
+    { href: '/leaderboard', label: t.navigation.leaderboard, icon: ChartSquare },
     { href: '/training', label: t.navigation.training, icon: Dumbbell },
+    { href: '/friends', label: t.navigation.friends, icon: User },
     { href: '/tutorial', label: t.navigation.tutorial, icon: BookMinimalistic },
     { href: '/cube-3d', label: t.navigation.cube3d, icon: Box },
     { href: '/settings', label: t.navigation.settings, icon: Settings },

@@ -10,6 +10,10 @@ const Stats = lazy(() => import('@/features/stats').then((m) => ({ default: m.St
 const Training = lazy(() => import('@/features/training').then((m) => ({ default: m.Training })));
 const Tutorial = lazy(() => import('@/features/tutorial').then((m) => ({ default: m.Tutorial })));
 const Settings = lazy(() => import('@/features/settings').then((m) => ({ default: m.Settings })));
+const Friends = lazy(() => import('@/features/friends').then((m) => ({ default: m.Friends })));
+const Leaderboard = lazy(() =>
+  import('@/features/leaderboard').then((m) => ({ default: m.Leaderboard })),
+);
 const Cube3D = lazy(() => import('@/features/cube-3d').then((m) => ({ default: m.Cube3D })));
 const AuthCallback = lazy(() =>
   import('@/features/auth-callback').then((m) => ({ default: m.AuthCallback })),
@@ -82,6 +86,22 @@ export default function AppRouter() {
             element={
               <Suspense fallback={<RouteLoader />}>
                 <Settings />
+              </Suspense>
+            }
+          />
+          <Route
+            path="friends"
+            element={
+              <Suspense fallback={<RouteLoader />}>
+                <Friends />
+              </Suspense>
+            }
+          />
+          <Route
+            path="leaderboard"
+            element={
+              <Suspense fallback={<RouteLoader />}>
+                <Leaderboard />
               </Suspense>
             }
           />

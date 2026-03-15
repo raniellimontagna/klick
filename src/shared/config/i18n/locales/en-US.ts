@@ -7,7 +7,9 @@ export const enUS = {
     home: 'Home',
     history: 'History',
     stats: 'Statistics',
+    leaderboard: 'Leaderboard',
     training: 'Training',
+    friends: 'Friends',
     tutorial: 'Tutorial',
     settings: 'Settings',
     cube3d: '3D Cube',
@@ -22,8 +24,14 @@ export const enUS = {
     stats: {
       description: 'Dive into detailed performance analytics and trends.',
     },
+    leaderboard: {
+      description: 'Compare weekly and monthly results with friends and public players.',
+    },
     training: {
       description: 'Drill specific cases with goals, checkpoints, and quick notes.',
+    },
+    friends: {
+      description: 'Send invites, accept friends, and manage your practice social network.',
     },
     tutorial: {
       description: 'Learn the CFOP method step by step.',
@@ -428,7 +436,12 @@ export const enUS = {
         enableSharingHint: 'When disabled, all existing links are revoked immediately.',
         profileVisibility: 'Profile visibility',
         profilePublic: 'Your profile appears as public in shared snapshots.',
+        profileFriends: 'Your profile is visible only to accepted friends.',
         profilePrivate: 'Your profile stays private and only the snapshot is shown.',
+        rankingVisibility: 'Ranking visibility',
+        rankingPublic: 'Your leaderboard entry is visible to any authenticated user.',
+        rankingFriends: 'Your leaderboard entry is visible only to accepted friends.',
+        rankingPrivate: 'Your leaderboard entry is private (only you can see it).',
         shareSingle: 'Share single',
         shareSingleHint: 'Includes your best current single on the public link.',
         shareAverages: 'Share averages (ao5/ao12)',
@@ -438,6 +451,7 @@ export const enUS = {
       },
       visibility: {
         public: 'Public',
+        friends: 'Friends',
         private: 'Private',
       },
       privacyTitle: 'Privacy and instant revocation',
@@ -505,6 +519,97 @@ export const enUS = {
       currentStreak: 'Current streak',
       bestStreak: 'Best streak',
       weeklyGoal: 'Weekly goal',
+    },
+  },
+  socialHub: {
+    friends: {
+      notConfiguredTitle: 'Supabase not configured',
+      notConfiguredDescription:
+        'Enable Supabase to unlock friend invites and social synchronization.',
+      loginRequiredTitle: 'Sign in to manage friends',
+      loginRequiredDescription: 'Connect your account in settings to send and receive invites.',
+      labels: {
+        loading: 'Loading friendships...',
+        invitedAt: 'Invited at',
+        friendsSince: 'Friends since',
+      },
+      invite: {
+        title: 'Send invite',
+        description: 'Enter a user ID to send a friendship invite.',
+        inputLabel: 'User ID',
+        placeholder: 'User UUID',
+      },
+      incoming: {
+        title: 'Incoming invites',
+        empty: 'No pending incoming invites.',
+      },
+      outgoing: {
+        title: 'Outgoing invites',
+        empty: 'No pending outgoing invites.',
+      },
+      list: {
+        title: 'Friends list',
+        empty: 'You do not have active friendships yet.',
+      },
+      actions: {
+        sendInvite: 'Send invite',
+        accept: 'Accept',
+        reject: 'Reject',
+        cancel: 'Cancel',
+        removeFriend: 'Remove friend',
+      },
+      messages: {
+        targetRequired: 'Enter a user ID before sending an invite.',
+        invalidTarget: 'Unable to send an invite to this user.',
+        alreadyFriends: 'This friendship already exists.',
+        pendingInvite: 'There is already a pending invite for this user pair.',
+        inviteSent: 'Invite sent successfully.',
+        inviteAccepted: 'Invite accepted and friendship created.',
+        inviteRejected: 'Invite rejected.',
+        inviteCancelled: 'Invite cancelled.',
+        friendRemoved: 'Friendship removed.',
+        errorGeneric: 'Unable to complete this social action right now.',
+      },
+    },
+    leaderboard: {
+      notConfiguredTitle: 'Supabase not configured',
+      notConfiguredDescription:
+        'Configure Supabase to enable weekly/monthly rankings and social comparison.',
+      loginRequiredTitle: 'Sign in to view leaderboard',
+      loginRequiredDescription: 'Connect your account in settings to access leaderboard data.',
+      period: {
+        title: 'Leaderboard period',
+        weekly: 'Weekly',
+        monthly: 'Monthly',
+      },
+      actions: {
+        refresh: 'Refresh leaderboard',
+        syncing: 'Syncing...',
+      },
+      labels: {
+        loading: 'Loading leaderboard...',
+        periodKey: 'Period',
+        visibilityNote: 'Visibility follows your privacy flags: private, friends, or public.',
+        yourSnapshot: 'Your snapshot for this period',
+        solveCount: 'Solve count',
+        you: 'You',
+      },
+      table: {
+        title: 'Ranking',
+        empty: 'There are no visible entries for this period yet.',
+        columns: {
+          rank: 'Rank',
+          user: 'User',
+          single: 'Single',
+          ao5: 'ao5',
+          ao12: 'ao12',
+          consistency: 'Consistency',
+          solves: 'Solves',
+        },
+      },
+      messages: {
+        errorGeneric: 'Unable to load leaderboard right now.',
+      },
     },
   },
   advancedStats: {

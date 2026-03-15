@@ -364,7 +364,7 @@
         "Validar qualidade com `pnpm lint` e `pnpm test` sem regressões."
       ],
       "priority": 11,
-      "passes": false,
+      "passes": true,
       "notes": "Depende de US-008 (conta + sync). Expande a camada social além do compartilhamento básico da US-010."
     }
   ]

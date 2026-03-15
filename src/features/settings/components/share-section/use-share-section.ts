@@ -13,7 +13,21 @@ import { useAuthStore } from '@/shared/store/auth-store';
 import { useI18nStore } from '@/shared/store/i18n-store';
 import { useProgressStore } from '@/shared/store/progress-store';
 import { useSessionsStore } from '@/shared/store/sessions-store';
-import type { ShareLink, SharePayload, SharePreferences, ShareProfileVisibility } from '@/shared/types';
+import type {
+  ShareLink,
+  SharePayload,
+  SharePreferences,
+  ShareProfileVisibility,
+  ShareRankingVisibility,
+} from '@/shared/types';
+
+const visibilityOrder: ShareProfileVisibility[] = ['private', 'friends', 'public'];
+
+function getNextVisibility(currentVisibility: ShareProfileVisibility): ShareProfileVisibility {
+  const currentIndex = visibilityOrder.indexOf(currentVisibility);
+  const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % visibilityOrder.length;
+  return visibilityOrder[nextIndex];
+}
 
 type Feedback = {
   type: 'success' | 'error';
@@ -169,6 +183,7 @@ export function useShareSection() {
         {
           sharingEnabled: enabled,
           profileVisibility: preferences.profileVisibility,
+          rankingVisibility: preferences.rankingVisibility,
           shareSingle: preferences.shareSingle,
           shareAverages: preferences.shareAverages,
           shareProgress: preferences.shareProgress,
@@ -185,6 +200,7 @@ export function useShareSection() {
         {
           sharingEnabled: preferences.sharingEnabled,
           profileVisibility: visibility,
+          rankingVisibility: preferences.rankingVisibility,
           shareSingle: preferences.shareSingle,
           shareAverages: preferences.shareAverages,
           shareProgress: preferences.shareProgress,
@@ -195,12 +211,38 @@ export function useShareSection() {
     [preferences, savePreferences, t.settings.sharing.messages.updated],
   );
 
+  const cycleProfileVisibility = useCallback(async () => {
+    await updateProfileVisibility(getNextVisibility(preferences.profileVisibility));
+  }, [preferences.profileVisibility, updateProfileVisibility]);
+
+  const updateRankingVisibility = useCallback(
+    async (visibility: ShareRankingVisibility) => {
+      await savePreferences(
+        {
+          sharingEnabled: preferences.sharingEnabled,
+          profileVisibility: preferences.profileVisibility,
+          rankingVisibility: visibility,
+          shareSingle: preferences.shareSingle,
+          shareAverages: preferences.shareAverages,
+          shareProgress: preferences.shareProgress,
+        },
+        t.settings.sharing.messages.updated,
+      );
+    },
+    [preferences, savePreferences, t.settings.sharing.messages.updated],
+  );
+
+  const cycleRankingVisibility = useCallback(async () => {
+    await updateRankingVisibility(getNextVisibility(preferences.rankingVisibility));
+  }, [preferences.rankingVisibility, updateRankingVisibility]);
+
   const updateMetricFlag = useCallback(
     async (field: 'shareSingle' | 'shareAverages' | 'shareProgress', value: boolean) => {
       await savePreferences(
         {
           sharingEnabled: preferences.sharingEnabled,
           profileVisibility: preferences.profileVisibility,
+          rankingVisibility: preferences.rankingVisibility,
           shareSingle: field === 'shareSingle' ? value : preferences.shareSingle,
           shareAverages: field === 'shareAverages' ? value : preferences.shareAverages,
           shareProgress: field === 'shareProgress' ? value : preferences.shareProgress,
@@ -400,6 +442,9 @@ export function useShareSection() {
     formatDateTime,
     updateSharingEnabled,
     updateProfileVisibility,
+    cycleProfileVisibility,
+    updateRankingVisibility,
+    cycleRankingVisibility,
     updateMetricFlag,
     handleCreateShareLink,
     handleCopyShareLink,

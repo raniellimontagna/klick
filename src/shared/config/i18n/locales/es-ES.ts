@@ -7,7 +7,9 @@ export const esES = {
     home: 'Inicio',
     history: 'Historial',
     stats: 'Estadísticas',
+    leaderboard: 'Ranking',
     training: 'Entrenamiento',
+    friends: 'Amigos',
     tutorial: 'Tutorial',
     settings: 'Configuración',
     cube3d: 'Cubo 3D',
@@ -22,8 +24,14 @@ export const esES = {
     stats: {
       description: 'Análisis detallado de rendimiento y evolución.',
     },
+    leaderboard: {
+      description: 'Compara resultados semanales y mensuales con amigos y jugadores públicos.',
+    },
     training: {
       description: 'Practica casos específicos con metas, checkpoints y notas rápidas.',
+    },
+    friends: {
+      description: 'Envía invitaciones, acepta amistades y gestiona tu red social de práctica.',
     },
     tutorial: {
       description: 'Aprende el método CFOP paso a paso.',
@@ -431,7 +439,12 @@ export const esES = {
         enableSharingHint: 'Al desactivar esta opción, todos los enlaces activos se revocan al instante.',
         profileVisibility: 'Visibilidad del perfil',
         profilePublic: 'Tu perfil aparece como público en los snapshots compartidos.',
+        profileFriends: 'Tu perfil solo es visible para amistades aceptadas.',
         profilePrivate: 'Tu perfil permanece privado y solo se muestra el snapshot.',
+        rankingVisibility: 'Visibilidad del ranking',
+        rankingPublic: 'Tu entrada de ranking es visible para cualquier usuario autenticado.',
+        rankingFriends: 'Tu entrada de ranking solo es visible para amistades aceptadas.',
+        rankingPrivate: 'Tu entrada de ranking es privada (solo tú puedes verla).',
         shareSingle: 'Compartir single',
         shareSingleHint: 'Incluye tu mejor single actual en el enlace público.',
         shareAverages: 'Compartir promedios (ao5/ao12)',
@@ -442,6 +455,7 @@ export const esES = {
       },
       visibility: {
         public: 'Público',
+        friends: 'Amigos',
         private: 'Privado',
       },
       privacyTitle: 'Privacidad y revocación inmediata',
@@ -509,6 +523,98 @@ export const esES = {
       currentStreak: 'Racha actual',
       bestStreak: 'Mejor racha',
       weeklyGoal: 'Meta semanal',
+    },
+  },
+  socialHub: {
+    friends: {
+      notConfiguredTitle: 'Supabase no configurado',
+      notConfiguredDescription:
+        'Activa Supabase para habilitar invitaciones de amistad y sincronización social.',
+      loginRequiredTitle: 'Inicia sesión para gestionar amigos',
+      loginRequiredDescription:
+        'Conecta tu cuenta en configuración para enviar y recibir invitaciones.',
+      labels: {
+        loading: 'Cargando amistades...',
+        invitedAt: 'Invitado el',
+        friendsSince: 'Amigos desde',
+      },
+      invite: {
+        title: 'Enviar invitación',
+        description: 'Ingresa un ID de usuario para enviar una invitación de amistad.',
+        inputLabel: 'ID de usuario',
+        placeholder: 'UUID del usuario',
+      },
+      incoming: {
+        title: 'Invitaciones recibidas',
+        empty: 'No tienes invitaciones recibidas pendientes.',
+      },
+      outgoing: {
+        title: 'Invitaciones enviadas',
+        empty: 'No tienes invitaciones enviadas pendientes.',
+      },
+      list: {
+        title: 'Lista de amigos',
+        empty: 'Aún no tienes amistades activas.',
+      },
+      actions: {
+        sendInvite: 'Enviar invitación',
+        accept: 'Aceptar',
+        reject: 'Rechazar',
+        cancel: 'Cancelar',
+        removeFriend: 'Eliminar amistad',
+      },
+      messages: {
+        targetRequired: 'Ingresa un ID de usuario antes de enviar la invitación.',
+        invalidTarget: 'No se puede enviar invitación a ese usuario.',
+        alreadyFriends: 'Esta amistad ya existe.',
+        pendingInvite: 'Ya existe una invitación pendiente para este par de usuarios.',
+        inviteSent: 'Invitación enviada correctamente.',
+        inviteAccepted: 'Invitación aceptada y amistad creada.',
+        inviteRejected: 'Invitación rechazada.',
+        inviteCancelled: 'Invitación cancelada.',
+        friendRemoved: 'Amistad eliminada.',
+        errorGeneric: 'No se pudo completar esta acción social ahora.',
+      },
+    },
+    leaderboard: {
+      notConfiguredTitle: 'Supabase no configurado',
+      notConfiguredDescription:
+        'Configura Supabase para habilitar ranking semanal/mensual y comparación social.',
+      loginRequiredTitle: 'Inicia sesión para ver el ranking',
+      loginRequiredDescription: 'Conecta tu cuenta en configuración para acceder al leaderboard.',
+      period: {
+        title: 'Período del ranking',
+        weekly: 'Semanal',
+        monthly: 'Mensual',
+      },
+      actions: {
+        refresh: 'Actualizar ranking',
+        syncing: 'Sincronizando...',
+      },
+      labels: {
+        loading: 'Cargando ranking...',
+        periodKey: 'Período',
+        visibilityNote: 'La visibilidad respeta tus flags: privado, amigos o público.',
+        yourSnapshot: 'Tu snapshot del período',
+        solveCount: 'Cantidad de solves',
+        you: 'Tú',
+      },
+      table: {
+        title: 'Clasificación',
+        empty: 'Todavía no hay entradas visibles para este período.',
+        columns: {
+          rank: 'Pos.',
+          user: 'Usuario',
+          single: 'Single',
+          ao5: 'ao5',
+          ao12: 'ao12',
+          consistency: 'Consistencia',
+          solves: 'Solves',
+        },
+      },
+      messages: {
+        errorGeneric: 'No se pudo cargar el ranking ahora.',
+      },
     },
   },
   advancedStats: {

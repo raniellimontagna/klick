@@ -19,6 +19,8 @@ Started: 2026-03-13
 - Em stores com recomputação periódica, comparar snapshots ignorando `updatedAt` evita loops de sync sem perder consistência funcional.
 - Para sharing social seguro, separar `share_preferences` (política do usuário) de `share_links` (snapshot compartilhável) reduz acoplamento entre UX de privacidade e payload público.
 - Em conteúdo compartilhável público, usar snapshot JSON versionado por link (em vez de consulta em tempo real ao estado interno) facilita revogação imediata e limita superfície de exposição.
+- Para social com amizade + ranking, manter regras de acesso no RLS usando flags de `share_preferences` (`private/friends/public`) garante efeito imediato de privacidade sem lógica duplicada no frontend.
+- Para leaderboard de solves, calcular métricas (single, best ao5/ao12, consistência) em helper puro compartilhado e sincronizar a entrada do usuário antes da consulta evita drift entre cliente e ranking global.
 - Para redesign transversal sem regressão funcional, centralizar tokens/superfícies em `src/app/styles/index.css` e propagar via primitives (`Button`, `Card`, `PageHeader`, navigation shell) reduz retrabalho por feature.
 - Em pass visual global, atualizar primeiro layout+navegação e depois páginas críticas (`history`, `stats`, `settings`) entrega consistência perceptível sem alterar lógica de domínio.
 
@@ -387,4 +389,50 @@ Started: 2026-03-13
   - Consolidar contraste e profundidade por tokens semânticos (em vez de cores diretas por componente) simplifica manutenção de consistência em páginas novas e legadas.
   - Revisar primeiro primitives compartilhados e depois features reduz volume de override local e evita drift visual entre rotas.
   - `pnpm lint`, `pnpm test`, `pnpm knip` e `pnpm build` passaram nesta entrega.
+---
+## [2026-03-15 12:45:52 -0300] - US-014
+- What was implemented
+  - Camada social completa adicionada com convites de amizade (enviar, aceitar, recusar, cancelar) e remoção de amizade.
+  - Leaderboard semanal e mensal implementado com métricas `best single`, `best ao5`, `best ao12` e `consistency` (coeficiente de variação), incluindo sincronização da entrada do usuário autenticado antes da leitura do ranking.
+  - Novas páginas `/friends` e `/leaderboard` criadas com arquitetura feature-based (hooks para lógica + componentes de apresentação), integradas ao router e à navegação desktop/mobile.
+  - Flags de privacidade expandidas para `private/friends/public` em perfil e ranking, com controle no bloco de compartilhamento das configurações.
+  - Modelo Supabase social persistido com tabelas dedicadas `friend_invites`, `friends`, `leaderboards`, `leaderboard_entries` e RLS/policies conectadas às flags de privacidade para refletir acesso imediatamente.
+- Files changed
+  - Added:
+    - supabase/migrations/20260315170500_us014_friends_leaderboards.sql
+    - src/shared/lib/supabase/social.ts
+    - src/shared/lib/supabase/social.test.ts
+    - src/shared/types/social.ts
+    - src/features/friends/friends.tsx
+    - src/features/friends/index.ts
+    - src/features/friends/hooks/use-friends.ts
+    - src/features/friends/components/friend-invite-form.tsx
+    - src/features/friends/components/friend-invites-list.tsx
+    - src/features/friends/components/friends-list.tsx
+    - src/features/friends/components/index.ts
+    - src/features/leaderboard/leaderboard.tsx
+    - src/features/leaderboard/index.ts
+    - src/features/leaderboard/hooks/use-leaderboard.ts
+    - src/features/leaderboard/components/leaderboard-period-switch.tsx
+    - src/features/leaderboard/components/leaderboard-table.tsx
+    - src/features/leaderboard/components/index.ts
+  - Updated:
+    - src/app/app-router.tsx
+    - src/shared/components/navigation/sidebar.tsx
+    - src/shared/components/navigation/mobile-nav.tsx
+    - src/features/settings/components/share-section/use-share-section.ts
+    - src/features/settings/components/share-section/share-section.tsx
+    - src/shared/lib/supabase/database.ts
+    - src/shared/lib/supabase/share.ts
+    - src/shared/types/share.ts
+    - src/shared/types/index.ts
+    - src/shared/config/i18n/locales/pt-BR.ts
+    - src/shared/config/i18n/locales/en-US.ts
+    - src/shared/config/i18n/locales/es-ES.ts
+    - scripts/ralph/prd.json
+    - scripts/ralph/progress.txt
+- Learnings for future iterations:
+  - Modelagem de amizade em par canônico (`user_id < friend_id`) simplifica deduplicação, políticas RLS e operações de remoção.
+  - Para leaderboard com privacidade dinâmica, usar policy de leitura de `leaderboard_entries` baseada em `share_preferences.ranking_visibility` + relação em `friends` evita cache de visibilidade no payload e aplica mudança em tempo real.
+  - `pnpm lint`, `pnpm test`, `pnpm knip` e `pnpm build` passaram; `knip` segue reportando itens históricos de limpeza fora do escopo da US-014.
 ---

@@ -4,6 +4,7 @@ import type {
   SharePayload,
   SharePreferences,
   ShareProfileVisibility,
+  ShareRankingVisibility,
   ShareProgressSnapshot,
   ShareStatsSnapshot,
   ShareVisibility,
@@ -17,6 +18,7 @@ type ShareLinksRow = Database['public']['Tables']['share_links']['Row'];
 type ShareLinksInsert = Database['public']['Tables']['share_links']['Insert'];
 
 const DEFAULT_PROFILE_VISIBILITY: ShareProfileVisibility = 'private';
+const DEFAULT_RANKING_VISIBILITY: ShareRankingVisibility = 'friends';
 const DEFAULT_SHARE_VISIBILITY: ShareVisibility = 'public';
 
 function getNowIso(): string {
@@ -132,7 +134,9 @@ function parseSharePayload(payload: Json): SharePayload {
       : '3x3';
 
   const profileVisibility: ShareProfileVisibility =
-    record.profileVisibility === 'public' ? 'public' : DEFAULT_PROFILE_VISIBILITY;
+    record.profileVisibility === 'public' || record.profileVisibility === 'friends'
+      ? (record.profileVisibility as ShareProfileVisibility)
+      : DEFAULT_PROFILE_VISIBILITY;
 
   const stats = parseStats(record.stats);
   const progress = parseProgress(record.progress);
@@ -152,6 +156,7 @@ function mapSharePreferences(row: SharePreferencesRow): SharePreferences {
   return {
     sharingEnabled: row.sharing_enabled,
     profileVisibility: row.profile_visibility,
+    rankingVisibility: row.ranking_visibility,
     shareSingle: row.share_single,
     shareAverages: row.share_averages,
     shareProgress: row.share_progress,
@@ -178,6 +183,7 @@ function createDefaultPreferences(nowIso = getNowIso()): SharePreferences {
   return {
     sharingEnabled: false,
     profileVisibility: DEFAULT_PROFILE_VISIBILITY,
+    rankingVisibility: DEFAULT_RANKING_VISIBILITY,
     shareSingle: true,
     shareAverages: true,
     shareProgress: true,
@@ -214,6 +220,7 @@ export async function getSharePreferences(
     user_id: userId,
     sharing_enabled: false,
     profile_visibility: DEFAULT_PROFILE_VISIBILITY,
+    ranking_visibility: DEFAULT_RANKING_VISIBILITY,
     share_single: true,
     share_averages: true,
     share_progress: true,
@@ -245,6 +252,7 @@ export async function upsertSharePreferences(
     user_id: userId,
     sharing_enabled: nextPreferences.sharingEnabled,
     profile_visibility: nextPreferences.profileVisibility,
+    ranking_visibility: nextPreferences.rankingVisibility,
     share_single: nextPreferences.shareSingle,
     share_averages: nextPreferences.shareAverages,
     share_progress: nextPreferences.shareProgress,

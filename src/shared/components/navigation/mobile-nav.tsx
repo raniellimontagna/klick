@@ -8,6 +8,7 @@ import {
   History,
   Home,
   Settings,
+  User,
 } from '@solar-icons/react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useState } from 'react';
@@ -24,7 +25,9 @@ export function MobileNav() {
     { to: '/', icon: Home, label: t.navigation.home },
     { to: '/history', icon: History, label: t.navigation.history },
     { to: '/stats', icon: GraphUp, label: t.navigation.stats },
+    { to: '/leaderboard', icon: GraphUp, label: t.navigation.leaderboard },
     { to: '/training', icon: Dumbbell, label: t.navigation.training },
+    { to: '/friends', icon: User, label: t.navigation.friends },
     { to: '/tutorial', icon: BookMinimalistic, label: t.navigation.tutorial },
     { to: '/cube-3d', icon: Box, label: t.navigation.cube3d },
     { to: '/settings', icon: Settings, label: t.navigation.settings },

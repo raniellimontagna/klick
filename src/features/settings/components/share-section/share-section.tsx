@@ -16,7 +16,8 @@ export function ShareSection() {
     resolveShareUrl,
     formatDateTime,
     updateSharingEnabled,
-    updateProfileVisibility,
+    cycleProfileVisibility,
+    cycleRankingVisibility,
     updateMetricFlag,
     handleCreateShareLink,
     handleCopyShareLink,
@@ -87,23 +88,51 @@ export function ShareSection() {
                 <p className="mt-1 text-sm text-text-secondary">
                   {preferences.profileVisibility === 'public'
                     ? t.settings.sharing.controls.profilePublic
+                    : preferences.profileVisibility === 'friends'
+                      ? t.settings.sharing.controls.profileFriends
                     : t.settings.sharing.controls.profilePrivate}
                 </p>
               </div>
               <Button
                 variant="secondary"
                 className="h-10 px-4"
-                onClick={() =>
-                  updateProfileVisibility(
-                    preferences.profileVisibility === 'public' ? 'private' : 'public',
-                  )
-                }
+                onClick={() => void cycleProfileVisibility()}
                 disabled={!preferences.sharingEnabled || isSaving}
               >
                 <User size={16} />
                 {preferences.profileVisibility === 'public'
                   ? t.settings.sharing.visibility.public
+                  : preferences.profileVisibility === 'friends'
+                    ? t.settings.sharing.visibility.friends
                   : t.settings.sharing.visibility.private}
+              </Button>
+            </li>
+
+            <li className="flex items-center justify-between gap-4 p-4">
+              <div className="pr-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">
+                  {t.settings.sharing.controls.rankingVisibility}
+                </p>
+                <p className="mt-1 text-sm text-text-secondary">
+                  {preferences.rankingVisibility === 'public'
+                    ? t.settings.sharing.controls.rankingPublic
+                    : preferences.rankingVisibility === 'friends'
+                      ? t.settings.sharing.controls.rankingFriends
+                      : t.settings.sharing.controls.rankingPrivate}
+                </p>
+              </div>
+              <Button
+                variant="secondary"
+                className="h-10 px-4"
+                onClick={() => void cycleRankingVisibility()}
+                disabled={!preferences.sharingEnabled || isSaving}
+              >
+                <ShieldCheck size={16} />
+                {preferences.rankingVisibility === 'public'
+                  ? t.settings.sharing.visibility.public
+                  : preferences.rankingVisibility === 'friends'
+                    ? t.settings.sharing.visibility.friends
+                    : t.settings.sharing.visibility.private}
               </Button>
             </li>
 
