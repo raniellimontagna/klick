@@ -13,6 +13,8 @@ Started: 2026-03-13
 - Para fluxos didáticos, modelar conteúdo em `lib` (método/etapa/lição) e manter textos em namespace i18n próprio evita acoplamento entre UI e conteúdo.
 - Para reescrita greenfield de feature, remover o legado da pasta da feature e reconstruir com núcleo orientado a dados (`lib`), orquestração em hook e renderização desacoplada em componentes.
 - Em telas com timer crítico, desacoplar estado/atalhos em hook único e pausar visualizações pesadas durante execução melhora fluidez sem perder recursos visuais.
+- Para sync offline-first com Supabase, manter stores locais como source of truth de runtime e sincronizar por merge `last-write-wins` usando `updated_at` reduz acoplamento entre UI e backend.
+- Para RLS consistente, espelhar a regra `auth.uid() = user_id` em `SELECT/INSERT/UPDATE/DELETE` em todas as tabelas de usuário evita vazamento cross-account no client SDK.
 
 ---
 ## [2026-03-13 00:00:00 -0300] - US-001
@@ -195,4 +197,55 @@ Started: 2026-03-13
   - Manter `moveMap` específico por puzzle simplifica suporte incremental a novos tipos (ex.: 5x5) sem refatorar controller/hook.
   - `renderScale` no nível da definição de puzzle reduz ajustes manuais de câmera quando o tamanho da grade muda.
   - `pnpm lint` e `pnpm test` passaram; `pnpm knip` falhou por ausência de comando (`Command "knip" not found`).
+---
+## [2026-03-15 11:33:48 -0300] - US-008
+- What was implemented
+  - Integração Supabase adicionada com configuração por ambiente (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`), client browser e fallback automático para modo local quando não configurado.
+  - Fluxo de autenticação implementado com Google OAuth (prioritário), fallback por email magic link, logout, sessão persistida e callback seguro em `/auth/callback` com sanitização de redirecionamento.
+  - Motor de sincronização bidirecional implementado em `src/shared/lib/supabase/sync.ts` com estratégia `last-write-wins` por `updated_at`, incluindo merge local+nuvem no primeiro login.
+  - Stores locais evoluídas para suportar sincronização: `sessions-store` com metadados (`createdAt`/`updatedAt`) e hidratação remota; `settings-store` com `updatedAt` e `hydrateSettings`.
+  - Bootstrap global de auth/sync adicionado via `useAuthBootstrap` no `App`, incluindo re-sync automático quando online e em mudanças de dados locais.
+  - Nova seção de Conta e Sync em Configurações com status de nuvem, login Google, magic link, sincronização manual, logout e feedback de erro/sucesso.
+  - Novas migrations Supabase criadas para `profiles`, `sessions`, `solves`, `user_settings` com índices, triggers de `updated_at` e políticas RLS de isolamento por usuário.
+  - Documentação operacional adicionada em `docs/supabase-migrations.md` e `.env.example` para setup local.
+- Files changed
+  - Added:
+    - src/shared/lib/supabase/client.ts
+    - src/shared/lib/supabase/env.ts
+    - src/shared/lib/supabase/database.ts
+    - src/shared/lib/supabase/sync.ts
+    - src/shared/lib/supabase/sync.test.ts
+    - src/shared/store/auth-store.ts
+    - src/shared/hooks/use-auth-bootstrap.ts
+    - src/features/auth-callback/auth-callback.tsx
+    - src/features/auth-callback/use-auth-callback.ts
+    - src/features/auth-callback/index.ts
+    - src/features/settings/components/cloud-sync-section/cloud-sync-section.tsx
+    - src/features/settings/components/cloud-sync-section/use-cloud-sync-section.ts
+    - src/features/settings/components/cloud-sync-section/index.ts
+    - supabase/migrations/20260315123000_us008_auth_sync.sql
+    - docs/supabase-migrations.md
+    - .env.example
+  - Updated:
+    - src/app/app.tsx
+    - src/app/app-router.tsx
+    - src/features/settings/components/settings-content.tsx
+    - src/shared/store/sessions-store.ts
+    - src/shared/store/settings-store.ts
+    - src/shared/store/index.ts
+    - src/shared/hooks/index.ts
+    - src/shared/types/index.ts
+    - src/shared/config/i18n/locales/pt-BR.ts
+    - src/shared/config/i18n/locales/en-US.ts
+    - src/shared/config/i18n/locales/es-ES.ts
+    - docs/README.md
+    - README.md
+    - package.json
+    - pnpm-lock.yaml
+    - scripts/ralph/prd.json
+    - scripts/ralph/progress.txt
+- Learnings for future iterations:
+  - O callback dedicado de OAuth simplifica segurança de redirecionamento e evita dependência de parsing manual em múltiplas rotas.
+  - Serializar `Infinity` de DNF como `null` na nuvem e reidratar para `Infinity` no cliente mantém compatibilidade com JSON/Supabase sem quebrar regras de média.
+  - O comando `pnpm knip` foi habilitado com `--no-exit-code`; o output atual aponta itens de limpeza técnica que podem ser atacados na US-012.
 ---

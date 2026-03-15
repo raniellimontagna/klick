@@ -11,11 +11,22 @@ const Training = lazy(() => import('@/features/training').then((m) => ({ default
 const Tutorial = lazy(() => import('@/features/tutorial').then((m) => ({ default: m.Tutorial })));
 const Settings = lazy(() => import('@/features/settings').then((m) => ({ default: m.Settings })));
 const Cube3D = lazy(() => import('@/features/cube-3d').then((m) => ({ default: m.Cube3D })));
+const AuthCallback = lazy(() =>
+  import('@/features/auth-callback').then((m) => ({ default: m.AuthCallback })),
+);
 
 export default function AppRouter() {
   return (
     <BrowserRouter>
       <Routes>
+        <Route
+          path="/auth/callback"
+          element={
+            <Suspense fallback={<RouteLoader />}>
+              <AuthCallback />
+            </Suspense>
+          }
+        />
         <Route path="/" element={<MainLayout />}>
           <Route
             index

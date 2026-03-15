@@ -32,6 +32,19 @@ pnpm build       # Build de produção
 pnpm test        # Executar testes
 ```
 
+### Variáveis de Ambiente (Sync em nuvem)
+
+Para ativar login e sincronização multi-dispositivo via Supabase, copie `.env.example`:
+
+```bash
+cp .env.example .env
+```
+
+Preencha:
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
+
 ## 🎮 Como Usar
 
 ### Controles Básicos

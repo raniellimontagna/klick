@@ -275,7 +275,7 @@
         "Validar qualidade com `pnpm lint`, `pnpm test` e `pnpm knip` sem regressões."
       ],
       "priority": 7,
-      "passes": false,
+      "passes": true,
       "notes": "Base para features sociais e de progressão. Segurança via RLS é mandatória."
     },
     {

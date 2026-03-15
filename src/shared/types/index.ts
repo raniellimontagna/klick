@@ -8,7 +8,8 @@ export const SolveSchema = z.object({
   penalty: PenaltySchema,
   effectiveMs: z.number(),
   scramble: z.string(),
-  createdAt: z.date(),
+  createdAt: z.coerce.date(),
+  updatedAt: z.coerce.date().optional(),
 });
 
 export const PuzzleTypeSchema = z.enum([
@@ -27,6 +28,8 @@ export const SessionSchema = z.object({
   name: z.string().min(1),
   puzzleType: PuzzleTypeSchema,
   solves: z.array(SolveSchema),
+  createdAt: z.coerce.date().optional(),
+  updatedAt: z.coerce.date().optional(),
 });
 
 export const SettingsSchema = z.object({
