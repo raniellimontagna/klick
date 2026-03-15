@@ -31,12 +31,64 @@ export function useTutorialGuide() {
 
   const totalStages = stages.length;
   const totalLessons = lessons.length;
+  const totalMethodLessons = useMemo(
+    () => stages.reduce((sum, stage) => sum + stage.lessons.length, 0),
+    [stages],
+  );
+  const completedMethodLessons = useMemo(
+    () =>
+      stages.slice(0, stageIndex).reduce((sum, stage) => sum + stage.lessons.length, 0) + lessonIndex + 1,
+    [lessonIndex, stageIndex, stages],
+  );
+  const overallProgressPercent = useMemo(() => {
+    if (totalMethodLessons <= 0) {
+      return 0;
+    }
+
+    return Math.min(100, Math.round((completedMethodLessons / totalMethodLessons) * 100));
+  }, [completedMethodLessons, totalMethodLessons]);
+  const stageCompletionPercent = useMemo(() => {
+    if (totalLessons <= 0) {
+      return 0;
+    }
+
+    return Math.min(100, Math.round(((lessonIndex + 1) / totalLessons) * 100));
+  }, [lessonIndex, totalLessons]);
 
   const hasNextLesson = useMemo(() => {
     const hasLessonInStage = lessonIndex < totalLessons - 1;
     const hasNextStage = stageIndex < totalStages - 1;
     return hasLessonInStage || hasNextStage;
   }, [lessonIndex, stageIndex, totalLessons, totalStages]);
+
+  const nextLesson = useMemo(() => {
+    if (lessonIndex < totalLessons - 1) {
+      return {
+        stageIndex,
+        lessonIndex: lessonIndex + 1,
+        stage: activeStage,
+        lesson: lessons[lessonIndex + 1],
+      };
+    }
+
+    if (stageIndex < totalStages - 1) {
+      const nextStage = stages[stageIndex + 1];
+      const firstLesson = nextStage?.lessons[0];
+
+      if (!nextStage || !firstLesson) {
+        return null;
+      }
+
+      return {
+        stageIndex: stageIndex + 1,
+        lessonIndex: 0,
+        stage: nextStage,
+        lesson: firstLesson,
+      };
+    }
+
+    return null;
+  }, [activeStage, lessonIndex, lessons, stageIndex, stages, totalLessons, totalStages]);
 
   const selectMethod = useCallback((nextMethodId: TutorialMethodId) => {
     setMethodId(nextMethodId);
@@ -93,7 +145,12 @@ export function useTutorialGuide() {
     lessonIndex,
     totalStages,
     totalLessons,
+    totalMethodLessons,
+    completedMethodLessons,
+    overallProgressPercent,
+    stageCompletionPercent,
     hasNextLesson,
+    nextLesson,
     replaySeed,
     selectMethod,
     selectStage,

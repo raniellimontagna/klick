@@ -12,7 +12,7 @@ export function Topbar({ onManageClick }: TopbarProps) {
 
   return (
     <header className="app-shell-topbar surface-shell sticky top-0 z-30 shrink-0 border-x-0 border-b border-t-0 border-border/70">
-      <div className="flex min-h-16 items-center gap-3 px-4 sm:px-6">
+      <div className="flex min-h-16 items-center gap-2 px-3 sm:gap-3 sm:px-6">
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <Link to="/" className="md:hidden">
             <Logo size="sm" />

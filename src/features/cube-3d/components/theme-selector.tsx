@@ -7,6 +7,8 @@ import {
   DropdownMenuTrigger,
 } from '@/shared/components/ui';
 import { Button } from '@/shared/components/ui/button';
+import { useTranslation } from '@/shared/hooks/use-translation';
+import { cn } from '@/shared/lib';
 import { THEME_PRESETS } from '@/shared/lib/cube-platform/themes';
 import { useCubePlatformThemeStore } from '@/shared/store/cube-platform-theme-store';
 
@@ -19,85 +21,87 @@ export function ThemeSelector() {
     updateFaceColor,
     getCurrentPalette,
   } = useCubePlatformThemeStore();
+  const { t } = useTranslation();
+  const copy = t.cubeViewer.theme;
   const palette = getCurrentPalette();
 
   const faceNames = {
-    UP: 'Top (White)',
-    DOWN: 'Bottom (Yellow)',
-    FRONT: 'Front (Green)',
-    BACK: 'Back (Blue)',
-    LEFT: 'Left (Orange)',
-    RIGHT: 'Right (Red)',
+    UP: copy.faces.UP,
+    DOWN: copy.faces.DOWN,
+    FRONT: copy.faces.FRONT,
+    BACK: copy.faces.BACK,
+    LEFT: copy.faces.LEFT,
+    RIGHT: copy.faces.RIGHT,
   };
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-9 px-3 gap-2 hover:bg-white/5 text-white/70 border-none shadow-none"
-        >
+        <Button variant="secondary" size="sm" className="rounded-xl">
           <Palette size={18} />
-          <span className="hidden md:inline">Themes</span>
+          {copy.trigger}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="end"
-        className="w-56 bg-surface/90 backdrop-blur-xl border-white/10"
-      >
-        <div className="p-2 text-xs font-bold text-white/40 uppercase tracking-widest">Presets</div>
-        {THEME_PRESETS.map((theme) => (
+
+      <DropdownMenuContent align="end" className="w-64">
+        <div className="px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-text-muted">
+          {copy.presets}
+        </div>
+
+        {THEME_PRESETS.map((themePreset) => (
           <DropdownMenuItem
-            key={theme.id}
-            onClick={() => setTheme(theme.id)}
-            className={`flex items-center justify-between gap-2 cursor-pointer ${
-              currentThemeId === theme.id ? 'bg-primary/20 text-primary' : ''
-            }`}
+            key={themePreset.id}
+            onClick={() => setTheme(themePreset.id)}
+            className={cn(
+              'flex cursor-pointer items-center justify-between gap-2',
+              currentThemeId === themePreset.id && 'bg-primary/12 text-primary',
+            )}
           >
-            <span>{theme.name}</span>
-            <div className="flex gap-0.5">
-              {Object.entries(theme.colors)
+            <span>{themePreset.name}</span>
+            <div className="flex gap-1">
+              {Object.entries(themePreset.colors)
                 .slice(0, 4)
-                .map(([key, c]) => (
-                  <div key={key} className="w-2 h-2 rounded-full" style={{ backgroundColor: c }} />
+                .map(([key, color]) => (
+                  <span
+                    key={key}
+                    className="h-2.5 w-2.5 rounded-full border border-black/10"
+                    style={{ backgroundColor: color }}
+                  />
                 ))}
             </div>
           </DropdownMenuItem>
         ))}
 
-        <DropdownMenuSeparator className="bg-white/5" />
+        <DropdownMenuSeparator />
 
-        <div className="p-2 text-xs font-bold text-white/40 uppercase tracking-widest flex justify-between items-center">
-          Custom Colors
-          {customColors && (
+        <div className="flex items-center justify-between px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-text-muted">
+          <span>{copy.custom}</span>
+          {customColors ? (
             <button
               type="button"
-              onClick={(e) => {
-                e.stopPropagation();
+              onClick={(event) => {
+                event.stopPropagation();
                 resetToPreset();
               }}
-              className="hover:text-primary transition-colors text-white/40"
-              title="Reset to preset"
+              className="rounded-full p-1 text-text-secondary transition-colors hover:text-primary"
+              title={copy.reset}
             >
               <Restart size={12} />
             </button>
-          )}
+          ) : null}
         </div>
 
-        <div className="p-2 grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 gap-2 px-3 pb-3">
           {Object.entries(faceNames).map(([key, name]) => (
-            <div key={key} className="flex flex-col gap-1">
-              <span className="text-[10px] text-white/60 truncate" title={name}>
-                {name.split(' ')[0]}
-              </span>
+            <label key={key} className="space-y-1">
+              <span className="text-[11px] text-text-secondary">{name}</span>
               <input
                 type="color"
                 value={palette[key as keyof typeof palette]}
-                onChange={(e) => updateFaceColor(key, e.target.value)}
-                className="w-full h-6 rounded bg-black/20 border-none cursor-pointer p-0 overflow-hidden"
+                onChange={(event) => updateFaceColor(key, event.target.value)}
+                className="h-8 w-full cursor-pointer overflow-hidden rounded-xl border border-border/70 bg-background/80 p-0"
               />
-            </div>
+            </label>
           ))}
         </div>
       </DropdownMenuContent>

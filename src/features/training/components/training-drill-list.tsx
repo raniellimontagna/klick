@@ -60,15 +60,25 @@ export function TrainingDrillList({
             aria-selected={index === activeDrillIndex}
             onClick={() => onSelectDrill(index)}
             className={cn(
-              'w-full rounded-2xl border px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
+              'w-full rounded-[1.5rem] border px-4 py-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
               index === activeDrillIndex
                 ? 'border-primary/60 bg-primary/15'
-                : 'border-border bg-black/20 hover:border-primary/40',
+                : 'surface-interactive hover:border-primary/40',
             )}
           >
-            <p className="text-sm font-semibold text-text-primary">{drillCopy.title}</p>
-            <p className="mt-1 text-xs text-text-secondary">{drillCopy.summary}</p>
-            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-black/30">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.16em] text-text-muted">
+                  {copy.labels.drill} {index + 1}
+                </p>
+                <p className="mt-1 text-sm font-semibold text-text-primary">{drillCopy.title}</p>
+              </div>
+              <span className="rounded-full border border-border/70 px-2.5 py-1 text-[11px] uppercase tracking-[0.14em] text-text-secondary">
+                {completionPercent}%
+              </span>
+            </div>
+            <p className="mt-2 text-xs leading-relaxed text-text-secondary">{drillCopy.summary}</p>
+            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-background/80">
               <div
                 className="h-full bg-primary transition-all duration-300"
                 style={{ width: `${completionPercent}%` }}

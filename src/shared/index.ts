@@ -4,6 +4,7 @@ export { ConfirmDialog } from './components/confirm-dialog/confirm-dialog';
 export * from './components/cube-platform';
 export { CubeVisualizer } from './components/cube-visualizer';
 export { LanguageSelector } from './components/language-selector/language-selector';
+export { LearningSurfaceActions } from './components/learning-surface-actions';
 export { Logo } from './components/logo/logo';
 export * from './components/navigation';
 export { Onboarding } from './components/onboarding';

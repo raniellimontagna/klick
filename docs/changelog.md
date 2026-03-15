@@ -4,6 +4,13 @@ All notable changes and implementation milestones for the Klick project.
 
 ## 2026-03-15
 
+### Learning Surfaces Redesign (US-022)
+- Unified `/training`, `/tutorial` and `/cube-3d` under the redesign system with shared page headers, cross-navigation actions and calmer overview surfaces.
+- Rebuilt training around the active drill, overall progress and next-step guidance while keeping the 3D viewer and quick progress actions in the primary panel.
+- Refined tutorial into a guided CFOP journey with stage roadmap, lesson list and a clearer lesson workspace around recognition, checklist and next lesson progression.
+- Integrated `/cube-3d` back into the main product shell with workspace status, playback readout, quick actions and collapsible move history instead of the previous demo-like overlay treatment.
+- Updated `docs/implementation.md` and `docs/technical.md` to document the shared learning-surface contract introduced by the redesign.
+
 ### History And Stats Mobile Readability (US-021)
 - Redesigned `/history` with objective summary cards, a quieter session chart container and a sticky segmented filter bar for responsive solve browsing.
 - Converted solve review into a clearer responsive pattern: card stack on small screens, denser table on desktop and solve details that open as a bottom sheet on mobile and a modal on desktop.

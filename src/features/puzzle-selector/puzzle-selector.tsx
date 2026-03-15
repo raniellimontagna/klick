@@ -53,12 +53,12 @@ export function PuzzleSelector({ className }: PuzzleSelectorProps) {
           aria-label={`${t.sharePage.puzzleType}: ${activePuzzleData.label}`}
           title={`${t.sharePage.puzzleType}: ${activePuzzleData.label}`}
           className={cn(
-            'w-full max-w-full max-[360px]:w-11 max-[360px]:justify-center max-[360px]:px-0',
+            'w-full max-w-full max-[430px]:w-11 max-[430px]:justify-center max-[430px]:px-0',
             className,
           )}
-          contentClassName="min-w-0 flex-1 max-[360px]:justify-center"
-          labelClassName="max-[360px]:hidden"
-          chevronClassName="max-[360px]:hidden"
+          contentClassName="min-w-0 flex-1 max-[430px]:justify-center"
+          labelClassName="max-[430px]:hidden"
+          chevronClassName="max-[430px]:hidden"
         />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-[min(14rem,calc(100vw-1rem))]">

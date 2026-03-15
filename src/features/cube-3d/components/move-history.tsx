@@ -1,6 +1,7 @@
 import { UndoLeft } from '@solar-icons/react';
 import { useEffect, useRef } from 'react';
 import { Button } from '@/shared/components/ui/button';
+import { useTranslation } from '@/shared/hooks/use-translation';
 
 interface MoveHistoryProps {
   history: { id: string; notation: string }[];
@@ -10,47 +11,59 @@ interface MoveHistoryProps {
 
 export function MoveHistory({ history, onUndo, disabled }: MoveHistoryProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const { t } = useTranslation();
+  const copy = t.cubeViewer.history;
+  const actionCopy = t.cubeViewer.actions;
 
-  // Auto-scroll to end when history changes
   useEffect(() => {
-    // Only scroll if history length has changed
-    const _len = history.length;
-    if (scrollRef.current && _len > 0) {
-      scrollRef.current.scrollLeft = scrollRef.current.scrollWidth;
+    if (!scrollRef.current || history.length <= 0) {
+      return;
     }
+
+    scrollRef.current.scrollLeft = scrollRef.current.scrollWidth;
   }, [history.length]);
 
-  if (history.length === 0) return null;
-
   return (
-    <div className="flex items-center gap-2 bg-surface/80 backdrop-blur-md p-2 rounded-xl border border-white/5 shadow-lg max-w-[90vw] md:max-w-md">
-      <Button
-        variant="ghost"
-        size="icon"
-        className="shrink-0 h-8 w-8 hover:bg-white/10"
-        onClick={onUndo}
-        disabled={disabled || history.length === 0}
-        title="Undo (Ctrl+Z)"
-      >
-        <UndoLeft size={16} />
-      </Button>
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.18em] text-text-muted">{copy.title}</p>
+          <p className="mt-1 text-sm text-text-secondary">{copy.description}</p>
+        </div>
 
-      <div
-        ref={scrollRef}
-        className="flex gap-2 overflow-x-auto no-scrollbar mask-gradient-x p-1"
-        style={{ scrollBehavior: 'smooth' }}
-      >
-        {history.map((item) => (
-          <span
-            key={item.id}
-            className="font-mono text-sm font-bold text-white/80 bg-white/5 px-2 py-0.5 rounded border border-white/5 whitespace-nowrap"
-          >
-            {item.notation}
-          </span>
-        ))}
-        {/* Spacer for better scrolling */}
-        <div className="w-1 shrink-0" />
+        <Button
+          variant="ghost"
+          size="sm"
+          className="rounded-2xl"
+          onClick={onUndo}
+          disabled={disabled || history.length === 0}
+          title={actionCopy.undo}
+        >
+          <UndoLeft size={16} />
+          {actionCopy.undo}
+        </Button>
       </div>
+
+      {history.length > 0 ? (
+        <div
+          ref={scrollRef}
+          className="surface-base flex gap-2 overflow-x-auto no-scrollbar rounded-[1.5rem] p-4"
+          style={{ scrollBehavior: 'smooth' }}
+        >
+          {history.map((item) => (
+            <span
+              key={item.id}
+              className="rounded-full border border-border/70 bg-surface-hover/40 px-3 py-1.5 font-mono text-sm font-semibold whitespace-nowrap text-text-primary"
+            >
+              {item.notation}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <div className="surface-base rounded-[1.5rem] px-4 py-5 text-sm text-text-secondary">
+          {copy.empty}
+        </div>
+      )}
     </div>
   );
 }

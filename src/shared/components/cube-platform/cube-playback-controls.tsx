@@ -61,7 +61,7 @@ export function CubePlaybackControls({
   }
 
   return (
-    <div className={cn('border-t border-border/65 bg-background/70 px-3 py-3 backdrop-blur-xl', className)}>
+    <div className={cn('border-t border-border/65 bg-background/60 px-3 py-3', className)}>
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>

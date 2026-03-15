@@ -195,6 +195,85 @@ export const esES = {
     },
   },
   cubeViewer: {
+    badge: 'Workspace 3D',
+    overview: {
+      title: 'Workspace del cubo',
+      scramble: 'Scramble activo',
+      emptyScramble: 'Genera un scramble para empezar.',
+      status: 'Estado de la escena',
+      progress: 'Progreso del playback',
+      progressValue: 'Paso {current} de {total}',
+      progressEmpty: 'Aún no hay pasos cargados.',
+      nextAction: 'Siguiente paso',
+      nextActionStates: {
+        scrambling: 'Espera a que termine la mezcla o salta la animación para tomar el control.',
+        playing: 'Usa los controles para pausar, avanzar o revisar el algoritmo a tu ritmo.',
+        animating: 'Deja que termine el giro actual antes de deshacer, reiniciar o generar otro scramble.',
+        complete: 'La secuencia terminó. Reinicia el playback o prueba otro scramble.',
+        ready: 'Genera un scramble o haz giros manuales para empezar a explorar.',
+      },
+      reducedMotion:
+        'El movimiento reducido está activo, así que el autoplay espera tu acción manual.',
+      sound: 'Feedback de audio',
+      soundOn: 'Sonido activo',
+      soundOff: 'Sonido apagado',
+      motion: 'Motion',
+      controlTitle: 'Lectura de la sesión',
+      controlDescription:
+        'Playback, historial y ajustes rápidos quedan agrupados para revisar el cubo con claridad.',
+    },
+    workspace: {
+      title: 'Mesa del cubo',
+      description:
+        'La escena principal reúne scramble, playback y correcciones sin parecer una demo aislada.',
+      scrambling: 'Aplicando scramble',
+      skip: 'Saltar animación',
+      historyToggleShow: 'Mostrar historial',
+      historyToggleHide: 'Ocultar historial',
+      historyToggleHint:
+        'En mobile, abre el historial solo cuando necesites revisar giros o deshacer pasos.',
+    },
+    actions: {
+      title: 'Acciones rápidas',
+      description: 'Vuelve a mezclar, realinea la cámara o ajusta el audio sin salir del contexto del viewer.',
+      scramble: 'Nuevo scramble',
+      undo: 'Deshacer',
+      realign: 'Realinear cámara',
+      reset: 'Reiniciar cubo',
+      soundOn: 'Sonido activo',
+      soundOff: 'Sonido apagado',
+    },
+    history: {
+      title: 'Historial',
+      description: 'Tus movimientos manuales aparecen aquí en orden cronológico.',
+      empty: 'Todavía no hay movimientos manuales registrados.',
+      count: '{count} movimientos registrados',
+    },
+    status: {
+      scrambling: 'Aplicando scramble',
+      playing: 'Playback en curso',
+      animating: 'Ejecutando movimiento manual',
+      complete: 'Secuencia completada',
+      ready: 'Listo para explorar',
+    },
+    indicator: {
+      title: 'Último movimiento',
+      empty: 'Sin movimiento',
+    },
+    theme: {
+      trigger: 'Temas',
+      presets: 'Presets',
+      custom: 'Colores personalizados',
+      reset: 'Volver al preset',
+      faces: {
+        UP: 'Arriba',
+        DOWN: 'Abajo',
+        FRONT: 'Frente',
+        BACK: 'Atrás',
+        LEFT: 'Izquierda',
+        RIGHT: 'Derecha',
+      },
+    },
     controls: {
       title: 'Controles del cubo',
       progress: 'Paso {current} de {total}',
@@ -818,6 +897,7 @@ export const esES = {
     },
   },
   trainingLab: {
+    badge: 'Entrenamiento guiado',
     title: 'Laboratorio de Entrenamiento',
     subtitle: 'Practica bloques cortos de CFOP con soporte visual 3D y progreso por caso.',
     method: {
@@ -829,6 +909,8 @@ export const esES = {
       trackTabs: 'Seleccionar pista de entrenamiento',
       trackFocus: 'Foco de la pista',
       trackProgress: 'Volumen de la pista',
+      trackCompletion: 'Progreso de drills',
+      nextStep: 'Próximo paso',
       catalogTitle: 'Catálogo de drills',
       drill: 'Drill',
       attempts: 'Intentos',
@@ -851,6 +933,24 @@ export const esES = {
     },
     progress: {
       trackSummary: '{attempts} de {target} intentos completados en esta pista.',
+      overallSummary: '{attempts} de {target} intentos completados en todo el laboratorio.',
+      drillsCompleted: '{completed} de {total} drills completos.',
+      completion: '{percent}% de la pista completada.',
+    },
+    overview: {
+      trackPosition: 'Pista {current} de {total}',
+      overallProgress: 'Progreso general',
+      currentDrill: 'Drill en foco',
+      nextStep: 'Próximo paso',
+      finishCurrent: 'Completa {count} intentos más de este drill antes de avanzar.',
+      goToDrill: 'Después sigue con {drill} en la pista {track}.',
+      allComplete: 'Las metas actuales del laboratorio ya están completas.',
+    },
+    nextStep: {
+      activeDrill: 'Sigue con el drill actual',
+      keepGoing: 'Faltan {remaining} intentos para alcanzar la meta de este drill.',
+      trackCompleteTitle: 'Pista completada por ahora',
+      trackComplete: 'Todos los drills activos de esta pista alcanzaron su meta actual.',
     },
     confidence: {
       starting: 'Calentando',
@@ -1091,11 +1191,34 @@ export const esES = {
     },
   },
   tutorialGuide: {
+    badge: 'Jornada guiada',
     title: 'Tutorial CFOP con cubo 3D',
     subtitle: 'Aprende Cross, F2L, OLL y PLL con casos visuales y enfoque en consistencia.',
     progress: {
+      journey: 'Jornada actual',
       stage: 'Etapa {current} de {total}',
       lesson: 'Lección {current} de {total}',
+      overall: '{current} de {total} lecciones recorridas',
+      completion: '{percent}% de la jornada completada.',
+    },
+    overview: {
+      methodProgress: 'Progreso del método',
+      methodProgressValue: '{completed} de {total} lecciones recorridas',
+      currentStage: 'Etapa activa',
+      nextLesson: 'Próxima lección',
+      nextLessonValue: '{stage}: {lesson}',
+      stageProgress: 'Progreso de la etapa',
+      allComplete: 'Jornada completada por ahora.',
+    },
+    journey: {
+      title: 'Jornada guiada',
+      nextStep: 'Próximo paso',
+      finished: 'Jornada completada por ahora',
+    },
+    layout: {
+      roadmapTitle: 'Ruta del método',
+      roadmapDescription: 'Elige una etapa para revisar o continúa desde la lección actual.',
+      lessonListTitle: 'Lecciones de la etapa',
     },
     method: {
       title: 'Método de entrenamiento',

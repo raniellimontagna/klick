@@ -48,10 +48,10 @@ export function SessionSwitcher({
             isOpen={isOpen}
             aria-label={`${t.sessions.current}: ${activeSession?.name || t.sessions.current}`}
             title={activeSession?.name || t.sessions.current}
-            className="w-full max-w-full max-[360px]:w-11 max-[360px]:justify-center max-[360px]:px-0"
-            contentClassName="min-w-0 flex-1 max-[360px]:justify-center"
-            labelClassName="max-[360px]:hidden"
-            chevronClassName="max-[360px]:hidden"
+            className="w-full max-w-full max-[430px]:w-11 max-[430px]:justify-center max-[430px]:px-0"
+            contentClassName="min-w-0 flex-1 max-[430px]:justify-center"
+            labelClassName="max-[430px]:hidden"
+            chevronClassName="max-[430px]:hidden"
           />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-[min(16rem,calc(100vw-1rem))]">

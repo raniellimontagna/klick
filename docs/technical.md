@@ -252,6 +252,7 @@ Veja [performance.md](./performance.md) para detalhes completos.
 - **Motion:** `motion-fast/base/slow` e `ease-standard` padronizam transições curtas e discretas.
 - **Surface contract:** `surface-base`, `surface-panel`, `surface-overlay` e `surface-shell` são as superfícies canônicas; `surface-interactive` e `feedback-*` cobrem estados compartilhados.
 - **Visual anti-patterns:** glow forte, blur pesado e gradientes amplos deixaram de ser o padrão; agora ficam restritos a destaque intencional, nunca como tratamento default de containers.
+- **Learning surfaces:** `/training`, `/tutorial` e `/cube-3d` compartilham o contrato `PageHeader` + `LearningSurfaceActions` + overview card + painel principal de viewer para manter linguagem didática e navegação coerentes.
 
 ### Componentes UI Base
 

@@ -50,6 +50,7 @@ Container reutilizável.
 | `Toast` | `/toast/` | Notificações temporárias |
 | `CubePlatform` | `/cube-platform/` | Plataforma compartilhada do cubo 3D com modos static/autoplay/step-by-step |
 | `CubePlaybackControls` | `/cube-platform/` | Controles reutilizáveis de play/pause/step/speed para experiências guiadas |
+| `LearningSurfaceActions` | `/learning-surface-actions/` | Atalhos cruzados entre treino, tutorial e workspace 3D no header das superfícies de aprendizado |
 
 ---
 
@@ -68,7 +69,10 @@ Componentes específicos de features ficam em `/src/features/[feature]/component
 | `SolveTable` | history | Lista/tabela responsiva de solves com filtros segmentados e detalhes acionáveis |
 | `SolveDetailsModal` | history | Detalhe do solve que vira bottom sheet no mobile e modal no desktop |
 | `AdvancedStatsContent` | stats | Módulos analíticos com filtros por período/métrica e gráficos mobile-first |
-| `TutorialModal` | tutorial | Tutorial layer-by-layer |
+| `TrainingDrillPanel` | training | Drill ativo com visualização 3D passo-a-passo, coaching e ações rápidas de progresso |
+| `TrainingDrillList` | training | Catálogo da trilha com progresso por drill e seleção mobile-first |
+| `CubeActionBar` | cube-3d | Ações rápidas do workspace 3D para scramble, reset, áudio e alinhamento |
+| `MoveHistory` | cube-3d | Histórico de movimentos sob demanda para revisão e undo no mobile |
 
 ---
 
@@ -236,7 +240,9 @@ Tour interativo em 7 passos:
 
 ## Training
 
-### Categorias
+Laboratório reorganizado em torno do drill ativo, progresso da trilha e próximo passo recomendado.
+
+### Trilhas
 
 | Categoria | Casos |
 |-----------|-------|
@@ -246,24 +252,30 @@ Tour interativo em 7 passos:
 
 ### Progresso
 
-- Repetições contadas
-- Meta numérica
-- Status: Aprendendo → Ajustando → Automático
-- Notas rápidas por caso
+- Card hero com foco da trilha, progresso geral e próxima recomendação
+- Drill ativo com `CubePlatform` em `step-by-step`
+- Meta por drill, confiança (`starting` → `building` → `ready`) e ações rápidas `+1`, `+5`, `+10`
+- Catálogo lateral/mobile-first com progresso por drill e seleção direta
 
 ---
 
 ## Tutorial
 
-Tutorial layer-by-layer com 7 etapas:
+Jornada guiada em CFOP com roadmap de estágios, lista de lições e viewer 3D integrado.
 
-1. **Cruz Branca:** 4 aristas brancas
-2. **Esquinas Brancas:** R U R'
-3. **Segunda Camada:** Algoritmos esq/dir
-4. **Cruz Amarela:** F R U R' U' F'
-5. **Alinhar Aresta:** R U R' U R U2 R'
-6. **Posicionar Esquinas:** U R U' L' U R' U' L
-7. **Resolver Cubo:** R' D' R D
+### Estágios
+
+1. **Cross**
+2. **F2L**
+3. **OLL**
+4. **PLL**
+
+### Jornada
+
+- Header com progresso do método, próxima lição e tempo estimado
+- Viewer `CubePlatform` em `step-by-step` com algoritmo, reconhecimento e checklist
+- Roadmap lateral com seleção de estágio e lista de lições por etapa
+- Navegação direta para replay da lição ou avanço para a próxima
 
 ---
 
@@ -285,7 +297,7 @@ Eventos sonoros via Web Audio API:
 
 ## Cube 3D
 
-Visualizador 3D interativo do cubo de Rubik usando Three.js.
+Workspace 3D integrado ao shell principal, com HUD de status, leitura de progresso e ações rápidas consistentes com treino/tutorial.
 
 ### Controles
 
@@ -298,7 +310,7 @@ Visualizador 3D interativo do cubo de Rubik usando Three.js.
 
 ### Arquitetura
 
-- **Estado:** `use-cube-state.ts` - Fila de movimentos e estado lógico
+- **Orquestração:** `use-cube-workspace.ts` - Consolida scramble, playback, status, som e histórico para a página
 - **Animação:** `rubiks-cube.tsx` - Rotações via pivot groups + easing
 - **Renderização:** `cubie.tsx` - Peças individuais com clearcoat material
 - **Áudio:** `use-cube-sound.ts` - Sintetizador procedural via Web Audio API
@@ -306,16 +318,15 @@ Visualizador 3D interativo do cubo de Rubik usando Three.js.
 
 ### Melhorias Implementadas
 
-#### Visual & Interação
-- ✅ Easing cubic ease-out (0.25s)
-- ✅ Cursores interativos (grab)
-- ✅ Sombras de contato realistas
-- ✅ Layout imersivo "Overlay"
+#### Workspace
+- ✅ Overview card com scramble ativo, status da cena, progresso do playback e próximo passo
+- ✅ Cena principal com HUD de embaralhamento e controles compartilhados de playback
+- ✅ Histórico de movimentos recolhível para preservar a primeira dobra no mobile
 
 #### Funcionalidades
-- ✅ **Histórico de Movimentos:** Lista completa com scroll automático + Undo ilimitado
-- ✅ **Sons Procedurais:** Cliques percussivos sintetizados em tempo real (sem assets)
-- ✅ **Temas de Cores:** Presets (Standard, Pastel, Ocean, Neon...) + Customização por face
+- ✅ **Ações rápidas:** Novo scramble, undo, reset, realinhamento da câmera e toggle de áudio
+- ✅ **Sons procedurais:** Cliques percussivos sintetizados em tempo real (sem assets)
+- ✅ **Temas de cores:** Presets (Standard, Pastel, Ocean, Neon...) + customização por face
 
 ---
 

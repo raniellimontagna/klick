@@ -1,69 +1,72 @@
-import { Maximize, Restart, UndoLeft, UndoLeftRound } from '@solar-icons/react';
-import { motion } from 'framer-motion';
+import { Maximize, Restart, Soundwave, SoundwaveSquare, UndoLeft, UndoLeftRound } from '@solar-icons/react';
 import { Button } from '@/shared/components/ui/button';
-import { useScrambleStore } from '@/shared/store/scramble-store';
+import { useTranslation } from '@/shared/hooks/use-translation';
 import { ThemeSelector } from './theme-selector';
 
 interface CubeActionBarProps {
+  onGenerateScramble: () => void;
   onUndo: () => void;
   onReset: () => void;
   onRealign: () => void;
+  onToggleSound: () => void;
+  soundEnabled: boolean;
   isAnimating: boolean;
   historyLength: number;
 }
 
 export function CubeActionBar({
+  onGenerateScramble,
   onUndo,
   onReset,
   onRealign,
+  onToggleSound,
+  soundEnabled,
   isAnimating,
   historyLength,
 }: CubeActionBarProps) {
-  const { generateNewScramble } = useScrambleStore();
+  const { t } = useTranslation();
+  const copy = t.cubeViewer.actions;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="flex flex-wrap items-center justify-center gap-2 px-4 py-3 bg-[#161B22]/80 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl"
-    >
-      {/* Action Group 1: Navigation/Correction */}
-      <div className="flex items-center gap-1.5 pr-2 border-r border-white/5">
+    <div className="space-y-4">
+      <div>
+        <p className="text-[11px] uppercase tracking-[0.18em] text-text-muted">{copy.title}</p>
+        <p className="mt-1 text-sm text-text-secondary">{copy.description}</p>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-2">
         <Button
-          variant="ghost"
+          variant="secondary"
+          size="sm"
+          onClick={onGenerateScramble}
+          disabled={isAnimating}
+          className="justify-center rounded-2xl"
+        >
+          <Restart size={18} />
+          {copy.scramble}
+        </Button>
+
+        <Button
+          variant="secondary"
           size="sm"
           onClick={onUndo}
           disabled={isAnimating || historyLength === 0}
-          className="h-9 px-3 gap-2 hover:bg-white/5 text-white/70"
-          title="Undo (Ctrl+Z)"
+          className="justify-center rounded-2xl"
+          title={copy.undo}
         >
           <UndoLeft size={18} />
-          <span className="hidden md:inline">Undo</span>
+          {copy.undo}
         </Button>
 
         <Button
           variant="ghost"
           size="sm"
           onClick={onRealign}
-          className="h-9 px-3 gap-2 hover:bg-white/5 text-white/70"
-          title="Realign Camera"
+          className="justify-center rounded-2xl"
+          title={copy.realign}
         >
           <Maximize size={18} />
-          <span className="hidden md:inline">Realign</span>
-        </Button>
-      </div>
-
-      {/* Action Group 2: Reset/Scramble */}
-      <div className="flex items-center gap-1.5 px-2 border-r border-white/5">
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => generateNewScramble()}
-          disabled={isAnimating}
-          className="h-9 px-4 gap-2 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20"
-        >
-          <Restart size={18} />
-          <span>Scramble</span>
+          {copy.realign}
         </Button>
 
         <Button
@@ -71,17 +74,26 @@ export function CubeActionBar({
           size="sm"
           onClick={onReset}
           disabled={isAnimating}
-          className="h-9 px-3 gap-2 hover:bg-white/5 text-white/60"
+          className="justify-center rounded-2xl"
+          title={copy.reset}
         >
           <UndoLeftRound size={18} />
-          <span className="hidden md:inline">Reset</span>
+          {copy.reset}
         </Button>
-      </div>
 
-      {/* Action Group 3: Customization */}
-      <div className="pl-2">
+        <Button
+          variant={soundEnabled ? 'secondary' : 'ghost'}
+          size="sm"
+          onClick={onToggleSound}
+          className="justify-center rounded-2xl"
+          title={soundEnabled ? copy.soundOn : copy.soundOff}
+        >
+          {soundEnabled ? <Soundwave size={18} /> : <SoundwaveSquare size={18} />}
+          {soundEnabled ? copy.soundOn : copy.soundOff}
+        </Button>
+
         <ThemeSelector />
       </div>
-    </motion.div>
+    </div>
   );
 }

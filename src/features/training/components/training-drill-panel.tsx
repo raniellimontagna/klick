@@ -75,9 +75,9 @@ export function TrainingDrillPanel({
   const drillCopy = resolveDrillCopy(copy, trackId, drill.id, drill.id);
 
   return (
-    <Card variant="overlay" className="rounded-2xl border-white/10 space-y-5">
-      <div className="flex items-start justify-between gap-3">
-        <div>
+    <Card variant="overlay" className="space-y-5 rounded-[1.75rem]">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
           <p className="text-[11px] uppercase tracking-[0.18em] text-text-muted">{copy.labels.focus}</p>
           <h3 className="mt-1 text-2xl font-bold text-text-primary">{drillCopy.title}</h3>
           <div className="mt-2 flex flex-wrap gap-2 text-xs">
@@ -89,13 +89,17 @@ export function TrainingDrillPanel({
             </span>
           </div>
         </div>
-        <div className="text-right">
+
+        <div className="surface-base min-w-[11rem] rounded-[1.5rem] px-4 py-3 sm:text-right">
           <p className="text-[11px] uppercase tracking-[0.18em] text-text-muted">{copy.labels.attempts}</p>
-          <p className="text-2xl font-semibold text-text-primary">{progress.attempts}</p>
+          <p className="mt-1 text-2xl font-semibold text-text-primary">{progress.attempts}</p>
+          <p className="mt-1 text-xs text-text-secondary">
+            {copy.labels.target}: {progress.targetAttempts}
+          </p>
         </div>
       </div>
 
-      <div className="w-full overflow-hidden rounded-2xl border border-white/10 bg-black/20">
+      <div className="surface-base w-full overflow-hidden rounded-[1.5rem] border border-border/70">
         <CubePlatform
           key={`${drill.id}-${replaySeed}`}
           initialAlgorithm={drill.setupAlgorithm}
@@ -110,35 +114,35 @@ export function TrainingDrillPanel({
       <p className="text-xs text-text-secondary">{copy.labels.cubeHint}</p>
 
       <div className="grid gap-3 md:grid-cols-2">
-        <div className="space-y-1 rounded-xl border border-white/10 bg-black/20 p-3">
+        <div className="surface-base space-y-1 rounded-[1.25rem] px-4 py-3">
           <p className="text-[11px] uppercase tracking-[0.14em] text-text-muted">{copy.labels.recognition}</p>
           <p className="text-sm text-text-primary">{drillCopy.recognition}</p>
         </div>
-        <div className="space-y-1 rounded-xl border border-white/10 bg-black/20 p-3">
+        <div className="surface-base space-y-1 rounded-[1.25rem] px-4 py-3">
           <p className="text-[11px] uppercase tracking-[0.14em] text-text-muted">{copy.labels.coaching}</p>
           <p className="text-sm text-text-primary">{drillCopy.coaching}</p>
         </div>
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">
-        <div className="space-y-1 rounded-xl border border-white/10 bg-black/20 p-3">
+        <div className="surface-base space-y-1 rounded-[1.25rem] px-4 py-3">
           <p className="text-[11px] uppercase tracking-[0.14em] text-text-muted">{copy.labels.setup}</p>
           <code className="block text-sm text-text-primary">{drill.setupAlgorithm}</code>
         </div>
-        <div className="space-y-1 rounded-xl border border-white/10 bg-black/20 p-3">
+        <div className="surface-base space-y-1 rounded-[1.25rem] px-4 py-3">
           <p className="text-[11px] uppercase tracking-[0.14em] text-text-muted">{copy.labels.algorithm}</p>
           <code className="block text-sm font-semibold text-primary">{drill.solveAlgorithm}</code>
         </div>
       </div>
 
-      <div className="space-y-3">
+      <div className="surface-base space-y-3 rounded-[1.5rem] px-4 py-4">
         <div className="flex items-center justify-between gap-3">
           <p className="text-sm font-medium text-text-primary">
             {copy.labels.target}: {progress.targetAttempts}
           </p>
           <p className="text-xs uppercase tracking-[0.14em] text-text-muted">{completionPercent}%</p>
         </div>
-        <div className="h-2 overflow-hidden rounded-full bg-black/30">
+        <div className="h-2 overflow-hidden rounded-full bg-background/80">
           <div
             className="h-full bg-primary transition-all duration-300"
             style={{ width: `${completionPercent}%` }}
@@ -146,7 +150,7 @@ export function TrainingDrillPanel({
         </div>
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-2 rounded-[1.5rem] border border-border/70 bg-background/40 px-4 py-4">
         <p className="text-[11px] uppercase tracking-[0.14em] text-text-muted">{copy.labels.confidence}</p>
         <div className="flex flex-wrap gap-2">
           {confidenceOrder.map((confidence) => (
@@ -157,8 +161,8 @@ export function TrainingDrillPanel({
               className={cn(
                 'rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
                 progress.confidence === confidence
-                  ? 'border-primary bg-primary/20 text-primary'
-                  : 'border-border text-text-secondary hover:border-primary/40 hover:text-text-primary',
+                  ? 'border-primary/70 bg-primary/15 text-primary'
+                  : 'surface-base border-border/70 text-text-secondary hover:border-primary/40 hover:text-text-primary',
               )}
             >
               {copy.confidence[confidence]}
@@ -168,11 +172,7 @@ export function TrainingDrillPanel({
       </div>
 
       <div className="flex flex-wrap gap-2 pt-1">
-        <Button
-          variant="secondary"
-          className="rounded-xl border border-white/10 bg-black/20 text-text-primary hover:bg-white/5"
-          onClick={onReplay}
-        >
+        <Button variant="secondary" className="rounded-xl" onClick={onReplay}>
           {copy.actions.replay}
         </Button>
         <Button variant="secondary" className="rounded-xl" onClick={() => onAddAttempts(1)}>

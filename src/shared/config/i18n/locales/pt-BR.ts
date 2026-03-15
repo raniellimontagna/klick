@@ -195,6 +195,85 @@ export const ptBR = {
     },
   },
   cubeViewer: {
+    badge: 'Workspace 3D',
+    overview: {
+      title: 'Workspace do cubo',
+      scramble: 'Scramble ativo',
+      emptyScramble: 'Gere um scramble para começar.',
+      status: 'Status da cena',
+      progress: 'Progresso do playback',
+      progressValue: 'Passo {current} de {total}',
+      progressEmpty: 'Nenhum passo carregado ainda.',
+      nextAction: 'Próximo passo',
+      nextActionStates: {
+        scrambling: 'Aguarde o embaralhamento terminar ou pule a animação para assumir o controle.',
+        playing: 'Use os controles para pausar, avançar ou revisar o algoritmo no seu ritmo.',
+        animating: 'Espere o giro atual concluir antes de desfazer, resetar ou gerar outro scramble.',
+        complete: 'A sequência terminou. Reinicie o playback ou experimente um novo scramble.',
+        ready: 'Gere um scramble ou faça movimentos manuais para começar a explorar.',
+      },
+      reducedMotion:
+        'Movimento reduzido ativo: o autoplay espera você iniciar a reprodução manualmente.',
+      sound: 'Feedback de áudio',
+      soundOn: 'Som ligado',
+      soundOff: 'Som desligado',
+      motion: 'Motion',
+      controlTitle: 'Leitura da sessão',
+      controlDescription:
+        'Playback, histórico e ajustes rápidos ficam agrupados para revisão objetiva do cubo.',
+    },
+    workspace: {
+      title: 'Mesa do cubo',
+      description:
+        'A cena principal reúne scramble, playback e correções sem parecer uma demo isolada.',
+      scrambling: 'Embaralhando algoritmo',
+      skip: 'Pular animação',
+      historyToggleShow: 'Mostrar histórico',
+      historyToggleHide: 'Ocultar histórico',
+      historyToggleHint:
+        'No mobile, abra o histórico só quando quiser revisar jogadas ou desfazer passos.',
+    },
+    actions: {
+      title: 'Ações rápidas',
+      description: 'Reembaralhe, realinhe a câmera ou ajuste o áudio sem sair do contexto do viewer.',
+      scramble: 'Novo scramble',
+      undo: 'Desfazer',
+      realign: 'Realinhar câmera',
+      reset: 'Resetar cubo',
+      soundOn: 'Som ligado',
+      soundOff: 'Som desligado',
+    },
+    history: {
+      title: 'Histórico',
+      description: 'Seus movimentos manuais aparecem aqui em ordem cronológica.',
+      empty: 'Nenhum movimento manual registrado ainda.',
+      count: '{count} movimentos registrados',
+    },
+    status: {
+      scrambling: 'Embaralhando algoritmo',
+      playing: 'Playback em andamento',
+      animating: 'Executando movimento manual',
+      complete: 'Sequência concluída',
+      ready: 'Pronto para explorar',
+    },
+    indicator: {
+      title: 'Último movimento',
+      empty: 'Sem movimento',
+    },
+    theme: {
+      trigger: 'Temas',
+      presets: 'Presets',
+      custom: 'Cores personalizadas',
+      reset: 'Voltar ao preset',
+      faces: {
+        UP: 'Topo',
+        DOWN: 'Base',
+        FRONT: 'Frente',
+        BACK: 'Trás',
+        LEFT: 'Esquerda',
+        RIGHT: 'Direita',
+      },
+    },
     controls: {
       title: 'Controles do cubo',
       progress: 'Passo {current} de {total}',
@@ -817,6 +896,7 @@ export const ptBR = {
     },
   },
   trainingLab: {
+    badge: 'Treino guiado',
     title: 'Laboratório de Treino',
     subtitle: 'Treine blocos curtos do CFOP com apoio visual em 3D e progresso por caso.',
     method: {
@@ -828,6 +908,8 @@ export const ptBR = {
       trackTabs: 'Selecionar trilha de treino',
       trackFocus: 'Foco da trilha',
       trackProgress: 'Volume da trilha',
+      trackCompletion: 'Progresso dos drills',
+      nextStep: 'Próximo passo',
       catalogTitle: 'Catálogo de drills',
       drill: 'Drill',
       attempts: 'Tentativas',
@@ -850,6 +932,24 @@ export const ptBR = {
     },
     progress: {
       trackSummary: '{attempts} de {target} tentativas concluídas nesta trilha.',
+      overallSummary: '{attempts} de {target} tentativas concluídas no laboratório.',
+      drillsCompleted: '{completed} de {total} drills completos.',
+      completion: '{percent}% da trilha concluída.',
+    },
+    overview: {
+      trackPosition: 'Trilha {current} de {total}',
+      overallProgress: 'Progresso geral',
+      currentDrill: 'Drill em foco',
+      nextStep: 'Próximo passo',
+      finishCurrent: 'Feche mais {count} tentativas deste drill antes de avançar.',
+      goToDrill: 'Depois disso, siga para {drill} na trilha {track}.',
+      allComplete: 'As metas atuais do laboratório já foram concluídas.',
+    },
+    nextStep: {
+      activeDrill: 'Continue o drill atual',
+      keepGoing: 'Faltam {remaining} tentativas para bater a meta deste drill.',
+      trackCompleteTitle: 'Trilha concluída por enquanto',
+      trackComplete: 'Todos os drills ativos desta trilha chegaram na meta atual.',
     },
     confidence: {
       starting: 'Aquecendo',
@@ -1090,11 +1190,34 @@ export const ptBR = {
     },
   },
   tutorialGuide: {
+    badge: 'Jornada guiada',
     title: 'Tutorial CFOP com cubo 3D',
     subtitle: 'Aprenda Cross, F2L, OLL e PLL com casos visuais e foco em consistência.',
     progress: {
+      journey: 'Jornada atual',
       stage: 'Etapa {current} de {total}',
       lesson: 'Lição {current} de {total}',
+      overall: '{current} de {total} lições percorridas',
+      completion: '{percent}% da jornada concluída.',
+    },
+    overview: {
+      methodProgress: 'Progresso do método',
+      methodProgressValue: '{completed} de {total} lições percorridas',
+      currentStage: 'Etapa ativa',
+      nextLesson: 'Próxima lição',
+      nextLessonValue: '{stage}: {lesson}',
+      stageProgress: 'Progresso da etapa',
+      allComplete: 'Jornada concluída por enquanto.',
+    },
+    journey: {
+      title: 'Jornada guiada',
+      nextStep: 'Próximo passo',
+      finished: 'Jornada concluída por enquanto',
+    },
+    layout: {
+      roadmapTitle: 'Roteiro do método',
+      roadmapDescription: 'Escolha a etapa que quer revisar ou continue a partir da lição atual.',
+      lessonListTitle: 'Lições da etapa',
     },
     method: {
       title: 'Método de estudo',

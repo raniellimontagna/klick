@@ -10,6 +10,7 @@ Started: dom 15 mar 2026 17:02:50 -03
 - In the mobile shell, recurring flows stay on the fixed bottom bar while secondary/admin routes move to labeled sheets; safe-area padding belongs to the shell contract, not to individual pages.
 - On timer-driven screens, memoize non-live panels and invalidate expensive derived stats with a solve/session signature instead of recomputing them on every animation frame.
 - Analytics screens should expose period/metric controls as segmented buttons near the section header and degrade dense tables into card rows before the `lg` breakpoint.
+- Learning-oriented routes stay aligned longer when their cross-navigation lives in one shared header action cluster instead of duplicating route links inside each page.
 
 ---
 ## 2026-03-15 17:33:34 -0300 - US-018
@@ -121,4 +122,40 @@ Started: dom 15 mar 2026 17:02:50 -03
   - History/details flows are easier to keep coherent when the responsive switch lives in the feature hook and the content body stays shared between modal and sheet renderers.
   - Analytics charts need explicit series/period controls in the page chrome; relying only on chart legends is not enough for one-hand mobile exploration.
   - Vertical histograms are a better default than rotated x-axis labels for mobile data distribution views in this codebase.
+---
+## 2026-03-15 19:45:17 -0300 - US-022
+- Unified `training`, `tutorial` and `cube-3d` around one learning-surface contract with shared header actions, calmer overview cards and viewer-first mobile layouts.
+- Rebuilt `/training` around the active drill, overall progress and next-step guidance, while preserving quick attempt/confidence actions and the shared `CubePlatform` step-by-step experience.
+- Refined `/tutorial` into a guided CFOP journey with stage roadmap, lesson list, clearer recognition/checklist blocks and explicit replay/next progression.
+- Integrated `/cube-3d` back into the app shell via `use-cube-workspace`, workspace status cards, grouped quick actions and collapsible move history instead of the legacy demo-style overlay.
+- Updated `docs/implementation.md`, `docs/technical.md`, `docs/changelog.md` and `scripts/ralph/prd.json` to document and mark the story complete.
+- Validated the story with `pnpm lint`, `pnpm test`, `pnpm knip` and `pnpm build`.
+- Files changed:
+  - `src/features/training/training.tsx`
+  - `src/features/training/hooks/use-training-lab.ts`
+  - `src/features/training/components/training-drill-panel.tsx`
+  - `src/features/training/components/training-drill-list.tsx`
+  - `src/features/tutorial/tutorial.tsx`
+  - `src/features/tutorial/hooks/use-tutorial-guide.ts`
+  - `src/features/cube-3d/cube-3d.tsx`
+  - `src/features/cube-3d/hooks/use-cube-workspace.ts`
+  - `src/features/cube-3d/components/cube-action-bar.tsx`
+  - `src/features/cube-3d/components/move-history.tsx`
+  - `src/features/cube-3d/components/move-indicator.tsx`
+  - `src/features/cube-3d/components/theme-selector.tsx`
+  - `src/shared/components/learning-surface-actions/learning-surface-actions.tsx`
+  - `src/shared/components/learning-surface-actions/index.ts`
+  - `src/shared/components/cube-platform/cube-playback-controls.tsx`
+  - `src/shared/config/i18n/locales/pt-BR.ts`
+  - `src/shared/config/i18n/locales/en-US.ts`
+  - `src/shared/config/i18n/locales/es-ES.ts`
+  - `src/shared/index.ts`
+  - `docs/implementation.md`
+  - `docs/technical.md`
+  - `docs/changelog.md`
+  - `scripts/ralph/prd.json`
+- Learnings for future iterations:
+  - A single shared action cluster for related routes is cheaper to maintain than mirroring route links in each learning page.
+  - Viewer-heavy educational flows read better on mobile when overview and navigation live in secondary cards, leaving the 3D surface dominant in the primary column.
+  - Wrapping page-specific cube orchestration in a dedicated hook (`use-cube-workspace`) keeps scene state, status copy and audio/history behavior out of the render layer.
 ---
