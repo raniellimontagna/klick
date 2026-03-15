@@ -1,5 +1,3 @@
-export type SocialVisibility = 'private' | 'friends' | 'public';
-
 export type FriendInviteStatus = 'pending' | 'accepted' | 'rejected' | 'cancelled';
 
 export interface FriendInvite {

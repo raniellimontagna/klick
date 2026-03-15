@@ -9,14 +9,13 @@ export interface MoveDefinition {
 
 export type MoveMap = Record<string, MoveDefinition>;
 
-export interface CreateMoveMapOptions {
+interface CreateMoveMapOptions {
   outerPositiveLayer: number;
   outerNegativeLayer: number;
   middleLayer?: number;
 }
 
 export const FACE_MOVE_KEYS = ['F', 'L', 'R', 'U', 'D', 'B'] as const;
-export type FaceMoveKey = (typeof FACE_MOVE_KEYS)[number];
 
 function withTurns(moveMap: MoveMap, notation: string, move: MoveDefinition) {
   moveMap[notation] = move;

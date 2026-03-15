@@ -5,7 +5,7 @@ interface WindowWithWebkit extends Window {
   webkitAudioContext?: typeof AudioContext;
 }
 
-export interface UseCubeSoundReturn {
+interface UseCubeSoundReturn {
   playClick: () => void;
   toggleSound: () => void;
   enabled: boolean;

@@ -299,3 +299,27 @@ Veja [stores.md](./stores.md) para detalhes completos.
 3. **Code Splitting:** Manual chunks para vendors
 4. **PWA:** Service worker gerado automaticamente
 5. **Assets:** Otimização de imagens e fonts
+
+## Definition of Done (Engineering)
+
+### Mandatory Checklist
+
+- **Architecture:** separação clara entre apresentação (components), lógica (hooks/lib) e estado (stores).
+- **Module contracts:** evitar acoplamento direto entre features; reutilização passa por `src/shared`.
+- **Code hygiene:** remover arquivos/exports/dependências sem uso na mesma entrega.
+- **Quality gates:** `pnpm lint`, `pnpm test`, `pnpm knip` devem passar antes de merge.
+- **Traceability:** decisões estruturais relevantes devem ser registradas no progresso técnico (`scripts/ralph/progress.txt`).
+
+### Folder and Contract Conventions
+
+- `src/features/[feature]` é dono do fluxo da feature e não deve importar outra feature diretamente.
+- `src/shared` contém apenas contratos/utilitários/componentes com uso comprovado em mais de uma área.
+- `index.ts` deve ter superfície mínima: exportar somente símbolos usados por consumidores reais.
+- Quando houver refatoração estrutural, remover código legado no mesmo ciclo para evitar drift arquitetural.
+
+### Forbidden Anti-patterns
+
+- Duplicar regra de negócio em módulos paralelos (`feature` e `shared`) sem fonte única.
+- Manter implementações legadas em paralelo após migração concluída.
+- Exportar APIs “para uso futuro” sem consumidor.
+- Manter dependências no `package.json` sem uso real.

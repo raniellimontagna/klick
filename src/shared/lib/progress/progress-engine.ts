@@ -19,14 +19,14 @@ interface ChallengeBlueprint {
   targetMs: number | null;
 }
 
-export interface EvaluateProgressInput {
+interface EvaluateProgressInput {
   sessions: Session[];
   existingChallenges: ProgressChallenge[];
   now?: Date;
   timezone?: string;
 }
 
-export interface ProgressEvaluationResult {
+interface ProgressEvaluationResult {
   timezone: string;
   challenges: ProgressChallenge[];
   summary: ProgressSummary;

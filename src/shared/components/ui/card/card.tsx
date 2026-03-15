@@ -18,7 +18,7 @@ const paddingClasses = {
 type CardVariant = keyof typeof variantClasses;
 type CardPadding = keyof typeof paddingClasses;
 
-export interface CardProps extends HTMLAttributes<HTMLDivElement> {
+interface CardProps extends HTMLAttributes<HTMLDivElement> {
   variant?: CardVariant;
   padding?: CardPadding;
 }

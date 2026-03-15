@@ -21,7 +21,7 @@ interface HomeShortcutActions {
   undoLastSolve: () => void;
 }
 
-export interface UseHomeTimerDashboardReturn {
+interface UseHomeTimerDashboardReturn {
   scramble: string;
   state: TimerState;
   timeMs: number;

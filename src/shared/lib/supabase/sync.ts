@@ -58,7 +58,7 @@ const PUZZLE_TYPES: PuzzleType[] = [
 ];
 const LANGUAGES: Language[] = ['pt-BR', 'en-US', 'es-ES'];
 
-export interface LocalSyncSnapshot {
+interface LocalSyncSnapshot {
   sessions: Session[];
   activeSessionId: string;
   settings: Settings;
@@ -67,7 +67,7 @@ export interface LocalSyncSnapshot {
   progress: ProgressSnapshot;
 }
 
-export interface CloudSyncResult {
+interface CloudSyncResult {
   sessions: Session[];
   activeSessionId: string;
   settings: Settings;

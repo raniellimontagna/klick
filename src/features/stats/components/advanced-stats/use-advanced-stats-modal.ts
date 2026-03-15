@@ -9,7 +9,7 @@ import { useSessionsStore } from '@/shared/store/sessions-store';
 
 export type Tab = 'evolution' | 'consistency' | 'performance';
 
-export interface UseAdvancedStatsContentReturn {
+interface UseAdvancedStatsContentReturn {
   isOpen: boolean;
   setIsOpen: (isOpen: boolean) => void;
   activeTab: Tab;

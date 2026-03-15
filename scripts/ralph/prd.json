@@ -291,7 +291,7 @@
         "Validar qualidade com `pnpm lint`, `pnpm test` e `pnpm knip`."
       ],
       "priority": 12,
-      "passes": false,
+      "passes": true,
       "notes": "Story transversal de engenharia para prevenir entropia do projeto durante as próximas grandes mudanças."
     },
     {

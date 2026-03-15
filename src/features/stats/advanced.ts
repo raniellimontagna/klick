@@ -31,7 +31,7 @@ export type ChartDataPoint = {
  * Calculate rolling averages for all solves
  * Returns array of ao5 and ao12 values for each solve
  */
-export function calculateRollingAverages(solves: Solve[]): {
+function calculateRollingAverages(solves: Solve[]): {
   ao5: number[];
   ao12: number[];
 } {
@@ -82,7 +82,7 @@ function calculateWindowAverage(window: Solve[]): number {
 /**
  * Calculate standard deviation of solve times
  */
-export function calculateStandardDeviation(solves: Solve[]): number {
+function calculateStandardDeviation(solves: Solve[]): number {
   const validTimes = solves.map((s) => s.effectiveMs).filter((t) => t !== Number.POSITIVE_INFINITY);
 
   if (validTimes.length === 0) {
@@ -100,7 +100,7 @@ export function calculateStandardDeviation(solves: Solve[]): number {
  * Calculate coefficient of variation (CV = std / mean * 100)
  * Lower CV = more consistent
  */
-export function calculateCoefficientOfVariation(solves: Solve[]): number {
+function calculateCoefficientOfVariation(solves: Solve[]): number {
   const validTimes = solves.map((s) => s.effectiveMs).filter((t) => t !== Number.POSITIVE_INFINITY);
 
   if (validTimes.length === 0) {
@@ -121,7 +121,7 @@ export function calculateCoefficientOfVariation(solves: Solve[]): number {
  * Calculate average Turns Per Second (TPS)
  * Assumes 25 turns per scramble (standard 3x3)
  */
-export function calculateAverageTPS(solves: Solve[]): number {
+function calculateAverageTPS(solves: Solve[]): number {
   const validTimes = solves
     .map((s) => s.effectiveMs)
     .filter((t) => t !== Number.POSITIVE_INFINITY && Number.isFinite(t) && t > 0);
@@ -143,7 +143,7 @@ export function calculateAverageTPS(solves: Solve[]): number {
 /**
  * Calculate time distribution by ranges
  */
-export function calculateTimeDistribution(solves: Solve[]): TimeDistribution {
+function calculateTimeDistribution(solves: Solve[]): TimeDistribution {
   const validTimes = solves.map((s) => s.effectiveMs).filter((t) => t !== Number.POSITIVE_INFINITY);
 
   if (validTimes.length === 0) {

@@ -4,12 +4,12 @@ import { type MoveDefinition, parseScramble, resolveMove } from '../lib/cube-pla
 import { getCubePuzzleDefinition } from '../lib/cube-platform/puzzles';
 import type { CubePuzzleType, CubeState } from '../lib/cube-platform/types';
 
-export interface CubePlatformHistoryItem {
+interface CubePlatformHistoryItem {
   id: string;
   notation: string;
 }
 
-export interface CubePlatformQueuedMove extends MoveDefinition {
+interface CubePlatformQueuedMove extends MoveDefinition {
   uid: string;
   notation?: string;
   isAlgorithm?: boolean;

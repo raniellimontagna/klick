@@ -1,8 +1,8 @@
 import type { OnboardingStep } from '@/features/home/lib/onboarding/onboarding-store';
 
-export type TooltipPosition = 'top' | 'bottom' | 'left' | 'right';
+type TooltipPosition = 'top' | 'bottom' | 'left' | 'right';
 
-export interface OnboardingStepConfig {
+interface OnboardingStepConfig {
   id: OnboardingStep;
   targetSelector?: string; // CSS selector for element to highlight
   position: TooltipPosition;

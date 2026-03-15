@@ -53,7 +53,7 @@ function resolveLayerRole(
   return coordinate > 0 ? 'positive' : 'negative';
 }
 
-export interface UseCubePlatformInteractionReturn {
+interface UseCubePlatformInteractionReturn {
   handlePointerDown: (e: ThreeEvent<PointerEvent>, cubiePos: Vec3, face: CubieFace) => void;
   handlePointerUp: (e: ThreeEvent<PointerEvent>) => void;
 }

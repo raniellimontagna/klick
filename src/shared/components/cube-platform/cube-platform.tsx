@@ -1,15 +1,11 @@
 import { useEffect } from 'react';
-import {
-  useCubePlatformController,
-  type CubePlatformHistoryItem,
-  type CubePlatformQueuedMove,
-} from '@/shared/hooks/use-cube-platform-controller';
+import { useCubePlatformController } from '@/shared/hooks/use-cube-platform-controller';
 import { useCubePlatformKeyboard } from '@/shared/hooks/use-cube-platform-keyboard';
 import type { CubePuzzleType } from '@/shared/lib/cube-platform/types';
 import { useCubePlatformThemeStore } from '@/shared/store/cube-platform-theme-store';
 import { CubePlatformScene } from './cube-scene';
 
-export interface CubePlatformProps {
+interface CubePlatformProps {
   cubeType?: CubePuzzleType;
   algorithm?: string;
   interactive?: boolean;
@@ -19,13 +15,6 @@ export interface CubePlatformProps {
   realignCounter?: number;
   onMoveQueued?: (move: string) => void;
   onAlgorithmComplete?: () => void;
-}
-
-export interface CubePlatformStateSnapshot {
-  history: CubePlatformHistoryItem[];
-  moveQueue: CubePlatformQueuedMove[];
-  isApplyingAlgorithm: boolean;
-  isAnimating: boolean;
 }
 
 export function CubePlatform({

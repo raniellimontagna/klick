@@ -494,7 +494,7 @@ export async function removeFriend(
   }
 }
 
-export async function ensureLeaderboard(
+async function ensureLeaderboard(
   client: SupabaseClient<Database>,
   period: LeaderboardPeriod,
   periodKey: string,
@@ -539,7 +539,7 @@ async function listUserSolvesForRange(
   return data ?? [];
 }
 
-export async function upsertOwnLeaderboardEntry(
+async function upsertOwnLeaderboardEntry(
   client: SupabaseClient<Database>,
   userId: string,
   period: LeaderboardPeriod,

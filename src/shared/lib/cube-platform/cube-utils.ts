@@ -21,7 +21,7 @@ function isSameLayer(a: number, b: number): boolean {
  * Rotates a 3D vector 90° around the specified axis.
  * Uses right-hand rule: dir=1 is CCW when looking from +axis toward origin.
  */
-export function rotateVector(vec: Vec3, axis: 'x' | 'y' | 'z', dir: 1 | -1): Vec3 {
+function rotateVector(vec: Vec3, axis: 'x' | 'y' | 'z', dir: 1 | -1): Vec3 {
   const [x, y, z] = vec;
 
   if (axis === 'x') {

@@ -8,8 +8,7 @@ import {
 } from '@solar-icons/react';
 import type { CubeState } from '@/features/home/lib/scramble/cube-solver';
 import { CubePlatform, CubeVisualizer } from '@/shared';
-import { ScrambleGuideModal } from '@/shared/components/scramble-guide-modal/scramble-guide-modal';
-import { useScrambleGuideModal } from '@/shared/components/scramble-guide-modal/use-scramble-guide-modal';
+import { ScrambleGuideModal, useScrambleGuideModal } from '@/shared/components/scramble-guide-modal';
 import { Button } from '@/shared/components/ui';
 import { useI18nStore } from '@/shared/store/i18n-store';
 import type { HomeVisualizationMode } from '../hooks/use-home-timer-dashboard';

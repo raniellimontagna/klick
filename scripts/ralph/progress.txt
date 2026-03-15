@@ -23,6 +23,9 @@ Started: 2026-03-13
 - Para leaderboard de solves, calcular métricas (single, best ao5/ao12, consistência) em helper puro compartilhado e sincronizar a entrada do usuário antes da consulta evita drift entre cliente e ranking global.
 - Para redesign transversal sem regressão funcional, centralizar tokens/superfícies em `src/app/styles/index.css` e propagar via primitives (`Button`, `Card`, `PageHeader`, navigation shell) reduz retrabalho por feature.
 - Em pass visual global, atualizar primeiro layout+navegação e depois páginas críticas (`history`, `stats`, `settings`) entrega consistência perceptível sem alterar lógica de domínio.
+- Para governança contínua, tratar `pnpm lint`, `pnpm test` e `pnpm knip` como gate obrigatório de merge reduz entropia incremental.
+- Barrels (`index.ts`) devem ter superfície mínima: exportar só símbolos com consumidor real evita APIs fantasmas e ruído no `knip`.
+- Em refatoração greenfield, remover módulos duplicados/legados no mesmo ciclo evita drift entre fontes de verdade de negócio.
 
 ---
 ## [2026-03-13 00:00:00 -0300] - US-001
@@ -435,4 +438,68 @@ Started: 2026-03-13
   - Modelagem de amizade em par canônico (`user_id < friend_id`) simplifica deduplicação, políticas RLS e operações de remoção.
   - Para leaderboard com privacidade dinâmica, usar policy de leitura de `leaderboard_entries` baseada em `share_preferences.ranking_visibility` + relação em `friends` evita cache de visibilidade no payload e aplica mudança em tempo real.
   - `pnpm lint`, `pnpm test`, `pnpm knip` e `pnpm build` passaram; `knip` segue reportando itens históricos de limpeza fora do escopo da US-014.
+---
+## [2026-03-15 13:00:24 -0300] - US-012
+- What was implemented
+  - Definição formal de Definition of Done adicionada em `PROJECT.md` com checklist obrigatório (arquitetura, contratos, higiene, qualidade e documentação).
+  - `docs/technical.md` expandido com seção de governança de engenharia, convenções de contratos entre módulos e antipadrões proibidos.
+  - Pass completo de higiene executado para resolver o relatório do `knip`: remoção de arquivos órfãos/legados, limpeza de barrels e redução de exports sem consumidor.
+  - Duplicação de lógica em stats consolidada removendo `src/features/stats/lib/*` legado e mantendo source of truth em `src/features/stats/advanced.ts` e `src/features/stats/averages.ts`.
+  - Dependências sem uso removidas do `package.json`: `@tanstack/react-query`, `uuid`, `@tailwindcss/postcss`, `@vitest/coverage-v8`.
+  - Tipagem do Vite/PWA padronizada em `src/vite-env.d.ts`.
+- Files changed
+  - PROJECT.md
+  - docs/technical.md
+  - docs/changelog.md
+  - package.json
+  - pnpm-lock.yaml
+  - scripts/ralph/prd.json
+  - scripts/ralph/progress.txt
+  - src/vite-env.d.ts
+  - src/features/stats/index.ts
+  - src/features/stats/advanced.ts
+  - src/features/stats/averages.ts
+  - src/features/stats/components/advanced-stats/use-advanced-stats-modal.ts
+  - src/features/history/components/solve-details-modal/solve-details-modal.tsx
+  - src/features/home/components/home-scramble-panel.tsx
+  - src/features/home/hooks/use-home-timer-dashboard.ts
+  - src/features/home/lib/onboarding/config.ts
+  - src/features/cube-3d/hooks/use-cube-sound.ts
+  - src/features/settings/components/cloud-sync-section/index.ts
+  - src/features/settings/components/share-section/index.ts
+  - src/shared/index.ts
+  - src/shared/components/cube-platform/*
+  - src/shared/components/cube-visualizer/index.ts
+  - src/shared/components/navigation/index.ts
+  - src/shared/components/onboarding/index.ts
+  - src/shared/components/scramble-guide-modal/index.ts
+  - src/shared/components/ui/button/button.tsx
+  - src/shared/components/ui/card/card.tsx
+  - src/shared/components/ui/dropdown-menu/dropdown-menu.tsx
+  - src/shared/components/ui/range-slider/range-slider.tsx
+  - src/shared/config/i18n/translations.ts
+  - src/shared/hooks/use-cube-platform-controller.ts
+  - src/shared/hooks/use-cube-platform-interaction.ts
+  - src/shared/lib/cube-platform/cube-utils.ts
+  - src/shared/lib/cube-platform/moves.ts
+  - src/shared/lib/cube-platform/puzzles/index.ts
+  - src/shared/lib/progress/progress-engine.ts
+  - src/shared/lib/supabase/social.ts
+  - src/shared/lib/supabase/sync.ts
+  - src/shared/lib/utils/animations/animations.ts
+  - src/shared/lib/utils/format-time/format-time.ts
+  - src/shared/types/social.ts
+  - Removed legacy/orphan files:
+    - src/features/cube-3d/components/cube-controls.tsx
+    - src/features/stats/lib/advanced.ts
+    - src/features/stats/lib/averages.ts
+    - src/shared/components/navigation/navbar.tsx
+    - src/shared/components/header-dropdown-button/*
+    - src/shared/components/header-dropdown-menu/*
+    - src/@types/vite-env.d.ts
+- Learnings for future iterations:
+  - Definir DoD explícito dentro do repositório reduz divergência entre agentes e facilita validação objetiva por checklist.
+  - Resolver ruído de `knip` exige limitar superfície pública dos barrels, não apenas apagar arquivos.
+  - Consolidar duplicações de regra de negócio cedo (stats/shared) evita manutenção paralela e regressão silenciosa.
+  - `pnpm lint`, `pnpm test`, `pnpm knip` e `pnpm build` passaram nesta entrega.
 ---

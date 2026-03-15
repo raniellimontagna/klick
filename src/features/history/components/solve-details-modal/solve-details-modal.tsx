@@ -7,7 +7,7 @@ import {
 } from '@solar-icons/react';
 import { useMemo } from 'react';
 import { solveCubeState } from '@/features/home/lib/scramble/cube-solver';
-import { CubeVisualizer } from '@/shared/components/cube-visualizer/cube-visualizer';
+import { CubeVisualizer } from '@/shared/components/cube-visualizer';
 import { Button, Modal } from '@/shared/components/ui';
 import { formatTime } from '@/shared/lib';
 import { useI18nStore } from '@/shared/store/i18n-store';
