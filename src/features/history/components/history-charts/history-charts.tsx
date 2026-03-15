@@ -23,7 +23,7 @@ export const HistoryCharts: React.FC<HistoryChartsProps> = ({
 
   if (solves.length === 0) {
     return (
-      <div className="h-64 w-full flex flex-col items-center justify-center text-text-muted/50 border-2 border-dashed border-white/5 rounded-xl">
+      <div className="flex h-64 w-full flex-col items-center justify-center rounded-2xl border-2 border-dashed border-border/70 text-text-muted/70">
         <GraphUp size={48} className="mb-4 opacity-50" />
         <p className="text-sm font-medium">{t.history.charts.noData.title}</p>
         <p className="text-xs mt-1">{t.history.charts.noData.description}</p>
@@ -34,7 +34,7 @@ export const HistoryCharts: React.FC<HistoryChartsProps> = ({
   // Also handle single solve case better
   if (solves.length < 2) {
     return (
-      <div className="h-64 w-full flex flex-col items-center justify-center text-text-muted/50 border-2 border-dashed border-white/5 rounded-xl">
+      <div className="flex h-64 w-full flex-col items-center justify-center rounded-2xl border-2 border-dashed border-border/70 text-text-muted/70">
         <GraphUp size={48} className="mb-4 opacity-50" />
         <p className="text-sm font-medium">{t.history.charts.insufficientData.title}</p>
         <p className="text-xs mt-1">{t.history.charts.insufficientData.description}</p>
@@ -54,16 +54,16 @@ export const HistoryCharts: React.FC<HistoryChartsProps> = ({
     <div className="h-64 w-full">
       <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={100}>
         <LineChart data={data} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(138, 150, 173, 0.28)" vertical={false} />
           <XAxis
             dataKey="i"
-            stroke="rgba(255,255,255,0.3)"
+            stroke="rgba(138, 150, 173, 0.72)"
             fontSize={12}
             tickLine={false}
             axisLine={false}
           />
           <YAxis
-            stroke="rgba(255,255,255,0.3)"
+            stroke="rgba(138, 150, 173, 0.72)"
             fontSize={12}
             tickFormatter={(val) => val.toFixed(1)}
             tickLine={false}
@@ -75,7 +75,7 @@ export const HistoryCharts: React.FC<HistoryChartsProps> = ({
               if (active && payload && payload.length) {
                 const dataPoint = payload[0].payload;
                 return (
-                  <div className="glass p-3 rounded-lg border border-white/10 shadow-xl">
+                  <div className="surface-panel rounded-xl p-3 shadow-xl">
                     <p className="text-text-muted text-xs mb-1">
                       {t.history.charts.tooltip.solve} #{label}
                     </p>

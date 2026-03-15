@@ -8,6 +8,7 @@ import {
   History,
   Home,
   Settings,
+  User,
 } from '@solar-icons/react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useState } from 'react';
@@ -24,7 +25,9 @@ export function MobileNav() {
     { to: '/', icon: Home, label: t.navigation.home },
     { to: '/history', icon: History, label: t.navigation.history },
     { to: '/stats', icon: GraphUp, label: t.navigation.stats },
+    { to: '/leaderboard', icon: GraphUp, label: t.navigation.leaderboard },
     { to: '/training', icon: Dumbbell, label: t.navigation.training },
+    { to: '/friends', icon: User, label: t.navigation.friends },
     { to: '/tutorial', icon: BookMinimalistic, label: t.navigation.tutorial },
     { to: '/cube-3d', icon: Box, label: t.navigation.cube3d },
     { to: '/settings', icon: Settings, label: t.navigation.settings },
@@ -38,7 +41,7 @@ export function MobileNav() {
       <button
         type="button"
         onClick={() => setIsOpen(true)}
-        className="h-10 w-10 flex items-center justify-center rounded-xl glass-button border border-white/10 hover:border-white/20 hover:bg-white/10 text-text-primary transition-all"
+        className="glass-button flex h-11 w-11 items-center justify-center rounded-2xl border border-border/75 text-text-primary shadow-[var(--klick-shadow-soft)] transition-all hover:border-border-strong/80 hover:bg-surface-hover/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
         aria-label="Menu"
       >
         <HamburgerMenu size={20} />
@@ -63,10 +66,10 @@ export function MobileNav() {
                   animate={{ x: 0 }}
                   exit={{ x: '100%' }}
                   transition={{ type: 'tween', duration: 0.3 }}
-                  className="absolute inset-y-0 right-0 w-80 max-w-[85vw] bg-background border-l border-border shadow-2xl"
+                  className="surface-panel absolute inset-y-0 right-0 w-80 max-w-[85vw] border-l border-border/70 bg-background-elevated shadow-2xl"
                 >
                   <div className="flex flex-col h-full">
-                    <div className="flex items-center justify-between p-4 border-b border-border bg-surface/30">
+                    <div className="flex items-center justify-between border-b border-border/70 bg-surface/50 p-4">
                       <h2 className="text-lg font-bold text-text-primary">{t.app.title}</h2>
                       <Button
                         onClick={closeMenu}
@@ -87,10 +90,10 @@ export function MobileNav() {
                             to={to}
                             onClick={closeMenu}
                             className={({ isActive }) =>
-                              `flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-all ${
+                              `flex items-center gap-3 rounded-xl px-3 py-2.5 font-semibold transition-all ${
                                 isActive
-                                  ? 'bg-primary text-white shadow-md'
-                                  : 'text-text-secondary hover:text-text-primary hover:bg-surface'
+                                  ? 'glow-border bg-primary/18 text-primary'
+                                  : 'text-text-secondary hover:bg-surface-hover/80 hover:text-text-primary'
                               }`
                             }
                           >
@@ -101,8 +104,8 @@ export function MobileNav() {
                       </div>
                     </nav>
 
-                    <div className="p-4 border-t border-border bg-surface/30">
-                      <p className="text-xs text-text-secondary text-center">{t.app.tagline}</p>
+                    <div className="border-t border-border/70 bg-surface/50 p-4">
+                      <p className="text-center text-xs text-text-secondary">{t.app.tagline}</p>
                     </div>
                   </div>
                 </motion.div>

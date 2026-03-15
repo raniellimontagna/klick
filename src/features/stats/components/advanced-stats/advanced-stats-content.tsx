@@ -51,9 +51,8 @@ export const AdvancedStatsContent: React.FC = (): React.ReactElement => {
 
   return (
     <div className="flex flex-col h-full space-y-6">
-      {/* Tabs - Pill Design */}
       <nav
-        className="flex p-1 bg-black/20 backdrop-blur-md rounded-xl border border-white/5 overflow-x-auto print:hidden"
+        className="flex overflow-x-auto rounded-2xl border border-border/70 bg-surface/70 p-1.5 print:hidden"
         aria-label="Abas de estatísticas"
       >
         {tabs.map((tab) => {
@@ -65,10 +64,10 @@ export const AdvancedStatsContent: React.FC = (): React.ReactElement => {
               onClick={() => setActiveTab(tab.id)}
               variant="ghost"
               aria-current={isActive ? 'page' : undefined}
-              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg transition-all duration-300 ${
+              className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2 transition-all duration-300 ${
                 isActive
-                  ? 'bg-primary/20 text-primary shadow-sm border border-primary/20'
-                  : 'text-text-muted hover:text-text-primary hover:bg-white/5'
+                  ? 'glow-border border border-primary/35 bg-primary/20 text-primary'
+                  : 'text-text-muted hover:bg-surface-hover/65 hover:text-text-primary'
               }`}
             >
               <Icon size={18} />
@@ -81,8 +80,8 @@ export const AdvancedStatsContent: React.FC = (): React.ReactElement => {
       {/* Content */}
       <div className="min-h-[400px]">
         {!hasEnoughData ? (
-          <section className="flex flex-col items-center justify-center h-full py-16 text-center border-2 border-dashed border-white/5 rounded-2xl bg-white/5">
-            <div className="bg-white/5 p-4 rounded-full mb-4">
+          <section className="surface-panel flex h-full flex-col items-center justify-center rounded-2xl border-2 border-dashed border-border/70 py-16 text-center">
+            <div className="mb-4 rounded-full border border-border/70 bg-surface/65 p-4">
               <GraphUp size={48} className="text-text-muted opacity-50" />
             </div>
             <h3 className="text-xl font-bold text-text-primary mb-2">
@@ -101,7 +100,7 @@ export const AdvancedStatsContent: React.FC = (): React.ReactElement => {
                 className="space-y-6"
                 aria-label={t.advancedStats.evolution.title}
               >
-                <div className="glass p-6 rounded-2xl border border-white/5">
+                <div className="surface-panel rounded-2xl p-6">
                   <header className="mb-6">
                     <h3 className="text-lg font-bold text-text-primary flex items-center gap-2">
                       <GraphUp size={20} className="text-primary" />
@@ -126,8 +125,7 @@ export const AdvancedStatsContent: React.FC = (): React.ReactElement => {
                 aria-label={t.advancedStats.tabs.consistency}
               >
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Standard Deviation */}
-                  <div className="glass p-6 rounded-2xl border border-white/5 relative overflow-hidden group">
+                  <div className="surface-panel group relative overflow-hidden rounded-2xl p-6">
                     <div
                       className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"
                       aria-hidden="true"
@@ -152,7 +150,7 @@ export const AdvancedStatsContent: React.FC = (): React.ReactElement => {
 
                   {/* Coefficient of Variation */}
                   <div
-                    className={`glass p-6 rounded-2xl border relative overflow-hidden transition-colors ${consistencyLevel.border} ${consistencyLevel.bg}`}
+                    className={`surface-panel relative overflow-hidden rounded-2xl border p-6 transition-colors ${consistencyLevel.border} ${consistencyLevel.bg}`}
                   >
                     <h4 className="text-lg font-bold text-text-primary mb-2">
                       {t.advancedStats.consistency.coefficientOfVariation.title}
@@ -202,8 +200,8 @@ export const AdvancedStatsContent: React.FC = (): React.ReactElement => {
                 className="space-y-6"
                 aria-label={t.advancedStats.tabs.performance}
               >
-                {/* Average TPS */}
-                <div className="glass p-6 rounded-2xl border border-white/5 flex flex-col md:flex-row items-center justify-between gap-6">
+              {/* Average TPS */}
+                <div className="surface-panel flex flex-col items-center justify-between gap-6 rounded-2xl p-6 md:flex-row">
                   <div className="flex-1">
                     <h4 className="text-lg font-bold text-text-primary mb-2 flex items-center gap-2">
                       <Bolt size={20} className="text-warning" />
@@ -229,7 +227,7 @@ export const AdvancedStatsContent: React.FC = (): React.ReactElement => {
                 </div>
 
                 {/* Distribution */}
-                <div className="glass p-6 rounded-2xl border border-white/5">
+                <div className="surface-panel rounded-2xl p-6">
                   <header className="mb-6">
                     <h4 className="text-lg font-bold text-text-primary mb-2">
                       {t.advancedStats.performance.distribution.title}

@@ -35,12 +35,12 @@ export function Spotlight({ targetSelector, isActive }: SpotlightProps) {
     const timeoutId = setTimeout(updateTargetRect, 50);
 
     window.addEventListener('resize', updateTargetRect);
-    window.addEventListener('scroll', updateTargetRect);
+    window.addEventListener('scroll', updateTargetRect, true);
 
     return () => {
       clearTimeout(timeoutId);
       window.removeEventListener('resize', updateTargetRect);
-      window.removeEventListener('scroll', updateTargetRect);
+      window.removeEventListener('scroll', updateTargetRect, true);
     };
   }, [targetSelector, isActive]);
 

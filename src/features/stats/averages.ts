@@ -60,7 +60,7 @@ export function calculateSingle(solves: Solve[]): Average {
  * - Otherwise: discard 1 best and 1 worst, average the rest
  * - +2 is already included in effectiveMs
  */
-export function calculateAverageOfN(solves: Solve[], n: number): Average | null {
+function calculateAverageOfN(solves: Solve[], n: number): Average | null {
   if (solves.length < n) {
     return null;
   }

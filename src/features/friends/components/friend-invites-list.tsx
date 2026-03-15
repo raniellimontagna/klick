@@ -1,0 +1,64 @@
+import { Card, Button } from '@/shared/components/ui';
+
+interface InviteItem {
+  id: string;
+  userLabel: string;
+  createdAt: string;
+}
+
+interface InviteAction {
+  label: string;
+  onClick: (inviteId: string) => void;
+  variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'success' | 'warning';
+}
+
+interface FriendInvitesListProps {
+  title: string;
+  emptyLabel: string;
+  invites: InviteItem[];
+  actions: InviteAction[];
+  isSubmitting: boolean;
+}
+
+export function FriendInvitesList({
+  title,
+  emptyLabel,
+  invites,
+  actions,
+  isSubmitting,
+}: FriendInvitesListProps) {
+  return (
+    <Card className="space-y-3">
+      <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-text-muted">{title}</h2>
+
+      {invites.length === 0 ? (
+        <p className="rounded-xl border border-border/70 bg-surface/65 p-4 text-sm text-text-secondary">
+          {emptyLabel}
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {invites.map((invite) => (
+            <li key={invite.id} className="rounded-xl border border-border/70 bg-surface/65 p-4">
+              <p className="text-sm font-semibold text-text-primary">{invite.userLabel}</p>
+              <p className="mt-1 text-xs text-text-muted">{invite.createdAt}</p>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                {actions.map((action) => (
+                  <Button
+                    key={`${invite.id}-${action.label}`}
+                    size="sm"
+                    variant={action.variant ?? 'secondary'}
+                    onClick={() => action.onClick(invite.id)}
+                    disabled={isSubmitting}
+                  >
+                    {action.label}
+                  </Button>
+                ))}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}

@@ -1,166 +1,145 @@
-import { QuestionCircle, Stopwatch } from '@solar-icons/react';
-import { AnimatePresence, motion } from 'framer-motion';
-import { useEffect, useState } from 'react';
-import { Button } from '@/shared';
+import { GraphUp, Stopwatch, Widget } from '@solar-icons/react';
+import { motion } from 'framer-motion';
 import { formatAverage } from '@/shared/lib';
 import { useI18nStore } from '@/shared/store/i18n-store';
-import { useSessionsStore } from '@/shared/store/sessions-store';
-import { StatCard } from './components/home-page-components/stat-card';
-import { StatsInfoModal } from './components/home-page-components/stats-info-modal';
-import { InspectionDisplay } from './components/inspection-display/inspection-display';
-import { ScrambleBox } from './components/scramble-box/scramble-box';
-import { TimerDisplay } from './components/timer-display/timer-display';
-import { useHome } from './use-home';
+import {
+  HomeControls,
+  HomeProgressPanel,
+  HomeScramblePanel,
+  HomeSolveFeed,
+  HomeStatsGrid,
+  HomeTimerPanel,
+} from './components';
+import { useHomeTimerDashboard } from './hooks/use-home-timer-dashboard';
 
-export const Home: React.FC = (): React.ReactElement => {
+export function Home() {
   const { t } = useI18nStore();
-  const { getSingle, getAo5, getAo12, getBestAo5, getBestAo12 } = useSessionsStore(); // Stats retrieval remains in component or could be moved to hook if strictly following pattern, but easy enough here.
 
   const {
     scramble,
     state,
     timeMs,
     inspectionTimeLeft,
+    inspectionDuration,
     isFocusMode,
-    showStatsInfo,
-    setShowStatsInfo,
-    generateNewScramble,
     cubeState,
-    isNewBest,
+    copied,
+    copyScramble,
+    visualizationMode,
+    setVisualizationMode,
+    solveFilter,
+    setSolveFilter,
+    filteredSolves,
     lastPenalty,
-  } = useHome();
+    isNewBest,
+    generateNewScramble,
+    toggleLastPlus2,
+    toggleLastDNF,
+    undoLastSolve,
+    single,
+    ao5,
+    ao12,
+    bestAo5,
+    bestAo12,
+    progressSummary,
+    dailyChallenges,
+  } = useHomeTimerDashboard();
 
-  // Stats
   const stats = [
-    { label: t.stats.single, value: getSingle() },
-    { label: t.stats.ao5, value: getAo5() },
-    { label: t.stats.ao12, value: getAo12() },
-    { label: t.stats.bestAo5, value: getBestAo5() },
-    { label: t.stats.bestAo12, value: getBestAo12() },
+    { id: 'single', label: t.stats.single, value: formatAverage(single) },
+    { id: 'ao5', label: t.stats.ao5, value: formatAverage(ao5) },
+    { id: 'ao12', label: t.stats.ao12, value: formatAverage(ao12) },
+    { id: 'bestAo5', label: t.stats.bestAo5, value: formatAverage(bestAo5) },
+    { id: 'bestAo12', label: t.stats.bestAo12, value: formatAverage(bestAo12) },
   ];
 
-  // Visualizer State (Persistent across scrambles)
-  const [showVisualizer, setShowVisualizer] = useState(false);
-
-  // Open by default on desktop
-  useEffect(() => {
-    if (window.matchMedia('(min-width: 640px)').matches) {
-      setShowVisualizer(true);
-    }
-  }, []);
-
   return (
-    <main className="flex flex-col h-full items-center justify-center min-h-[80vh] relative">
-      {/* Timer & Scramble Area - Always Centered */}
-      <section
-        className="flex flex-col items-center w-full max-w-4xl z-10 space-y-6 md:space-y-12"
-        aria-label="Área de Treino"
-      >
-        {/* Scramble - Fades out during solve */}
-        <div className="w-full relative">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={scramble}
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: isFocusMode ? 0 : 1, y: isFocusMode ? -20 : 0 }}
-              exit={{ opacity: 0, y: 10 }}
-              transition={{ duration: 0.3 }}
-              className="w-full"
-            >
-              <ScrambleBox
-                scramble={scramble}
-                onNewScramble={generateNewScramble}
-                cubeState={cubeState}
-                showVisualizer={showVisualizer}
-                onToggleVisualizer={() => setShowVisualizer(!showVisualizer)}
-                data-onboarding="scramble"
-              />
-            </motion.div>
-          </AnimatePresence>
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25 }}
+      className="app-shell-page app-shell-page-wide flex min-h-0 flex-col gap-6 pb-4"
+    >
+      <section className="surface-panel relative rounded-3xl p-5 sm:p-6">
+        <div className="inline-flex items-center gap-2 rounded-full border border-border/80 bg-surface/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-text-secondary">
+          <Stopwatch size={16} />
+          {t.homeRevamp.badge}
         </div>
 
-        {/* Timer Display - Scales up during solve */}
-        <div className="flex flex-col items-center justify-center">
-          {state === 'inspection' && (
-            <InspectionDisplay timeLeft={inspectionTimeLeft} state={state} />
-          )}
-          <TimerDisplay
-            state={state}
-            timeMs={timeMs}
-            isNewBest={isNewBest}
-            penalty={lastPenalty}
-            isFocusMode={isFocusMode}
-            data-onboarding="timer"
-          />
+        <h1 className="mt-3 text-2xl font-black tracking-tight text-text-primary sm:text-3xl">
+          {t.homeRevamp.title}
+        </h1>
+        <p className="mt-2 max-w-3xl text-sm leading-relaxed text-text-secondary sm:text-base">
+          {t.homeRevamp.subtitle}
+        </p>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          <article className="rounded-2xl border border-border/80 bg-surface/55 p-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-text-muted">
+              {t.homeRevamp.highlights.inspectionTitle}
+            </p>
+            <p className="mt-2 inline-flex items-center gap-2 text-sm font-semibold text-text-primary">
+              <Stopwatch size={16} />
+              {t.homeRevamp.highlights.inspectionDescription}
+            </p>
+          </article>
+
+          <article className="rounded-2xl border border-border/80 bg-surface/55 p-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-text-muted">
+              {t.homeRevamp.highlights.visualTitle}
+            </p>
+            <p className="mt-2 inline-flex items-center gap-2 text-sm font-semibold text-text-primary">
+              <Widget size={16} />
+              {t.homeRevamp.highlights.visualDescription}
+            </p>
+          </article>
+
+          <article className="rounded-2xl border border-border/80 bg-surface/55 p-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-text-muted">
+              {t.homeRevamp.highlights.statsTitle}
+            </p>
+            <p className="mt-2 inline-flex items-center gap-2 text-sm font-semibold text-text-primary">
+              <GraphUp size={16} />
+              {t.homeRevamp.highlights.statsDescription}
+            </p>
+          </article>
         </div>
       </section>
 
-      {/* Stats & Footer - Fades out during solve */}
-      <motion.div
-        className="w-full max-w-6xl mt-auto space-y-6 sm:space-y-8 pt-6 sm:pt-12"
-        animate={{ opacity: isFocusMode ? 0 : 1 }}
-        transition={{ duration: 0.3 }}
-      >
-        {/* Stats Grid */}
-        <section className="space-y-4" aria-labelledby="stats-heading">
-          <header className="flex items-center justify-between px-2">
-            <h2
-              id="stats-heading"
-              className="text-[10px] font-black uppercase tracking-[0.2em] text-text-muted flex items-center gap-2"
-              data-onboarding="stats-header"
-            >
-              <Stopwatch size={14} />
-              {t.navigation.stats}
-            </h2>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setShowStatsInfo(true)}
-              aria-label={t.stats.help}
-              className="text-text-muted hover:text-text-primary transition-colors h-8 w-8"
-              data-onboarding="stats-info-button"
-            >
-              <QuestionCircle size={16} />
-            </Button>
-          </header>
+      <section className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
+        <HomeTimerPanel
+          state={state}
+          timeMs={timeMs}
+          inspectionTimeLeft={inspectionTimeLeft}
+          inspectionDuration={inspectionDuration}
+          isNewBest={isNewBest}
+          lastPenalty={lastPenalty}
+        />
 
-          <ul
-            className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4"
-            data-onboarding="stats"
-          >
-            {stats.map((stat) => (
-              <StatCard key={stat.label} label={stat.label} value={formatAverage(stat.value)} />
-            ))}
-          </ul>
-        </section>
+        <HomeScramblePanel
+          scramble={scramble}
+          cubeState={cubeState}
+          copied={copied}
+          isFocusMode={isFocusMode}
+          visualizationMode={visualizationMode}
+          onCopy={copyScramble}
+          onNewScramble={generateNewScramble}
+          onChangeVisualizationMode={setVisualizationMode}
+        />
+      </section>
 
-        {/* Shortcuts Hint - Hidden on mobile/touch devices */}
-        <footer
-          data-onboarding="shortcuts"
-          className="hidden sm:flex flex-wrap justify-center gap-6 py-6 border-t border-white/5 opacity-40 hover:opacity-100 transition-opacity"
-        >
-          <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-text-muted">
-            <kbd className="px-1.5 py-0.5 bg-white/5 border border-white/10 rounded font-mono text-text-primary">
-              space
-            </kbd>
-            <span>{t.shortcuts.space}</span>
-          </div>
-          <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-text-muted">
-            <kbd className="px-1.5 py-0.5 bg-white/5 border border-white/10 rounded font-mono text-text-primary">
-              N
-            </kbd>
-            <span>{t.shortcuts.newScramble}</span>
-          </div>
-          <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-text-muted">
-            <kbd className="px-1.5 py-0.5 bg-white/5 border border-white/10 rounded font-mono text-text-primary">
-              P
-            </kbd>
-            <span>{t.shortcuts.togglePlus2}</span>
-          </div>
-        </footer>
-      </motion.div>
+      <HomeControls
+        onNewScramble={generateNewScramble}
+        onTogglePlus2={toggleLastPlus2}
+        onToggleDNF={toggleLastDNF}
+        onUndoLast={undoLastSolve}
+      />
 
-      <StatsInfoModal isOpen={showStatsInfo} onClose={() => setShowStatsInfo(false)} />
-    </main>
+      <HomeStatsGrid title={t.homeRevamp.statsTitle} stats={stats} />
+
+      <HomeProgressPanel summary={progressSummary} challenges={dailyChallenges} />
+
+      <HomeSolveFeed solves={filteredSolves} filter={solveFilter} onFilterChange={setSolveFilter} />
+    </motion.div>
   );
-};
+}

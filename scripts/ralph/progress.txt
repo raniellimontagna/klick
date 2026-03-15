@@ -1,0 +1,7 @@
+# Ralph Progress Log
+Started: dom 15 mar 2026 17:02:50 -03
+
+## Codebase Patterns
+- Document reusable codebase patterns found during iterations.
+
+---

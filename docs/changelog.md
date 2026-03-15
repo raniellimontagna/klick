@@ -2,6 +2,16 @@
 
 All notable changes and implementation milestones for the Klick project.
 
+## 2026-03-15
+
+### Engineering Governance (US-012)
+- Added a formal **Definition of Done** to `PROJECT.md` with mandatory architecture, hygiene, quality and documentation gates.
+- Expanded `docs/technical.md` with engineering governance, module-contract conventions and forbidden anti-patterns.
+- Ran hygiene pass and removed dead code paths (unused legacy components, duplicated stats modules and stale exports).
+- Reduced public API surface of barrels/components to only symbols with real consumers.
+- Removed unused dependencies from `package.json` (`@tanstack/react-query`, `uuid`, `@tailwindcss/postcss`, `@vitest/coverage-v8`).
+- Confirmed quality gates green: `pnpm lint`, `pnpm test`, `pnpm knip`, plus successful production build.
+
 ## 2026-01-09
 
 ### Performance Optimization

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { shouldPlaySound, sounds } from '@/shared/lib';
 import type { TimerState } from '@/shared/types';
+import { shouldIgnoreGlobalShortcut } from './keyboard-shortcuts';
 
 interface UseTimerReturn {
   state: TimerState;
@@ -57,9 +58,7 @@ export const useTimer = ({
     if (state === 'inspection') {
       const inspectionElapsed = (Date.now() - inspectionStartRef.current) / 1000;
       const timeOver = Math.max(0, inspectionElapsed - inspectionDuration);
-      if (onInspectionEnd) {
-        onInspectionEnd(timeOver * 1000);
-      }
+      onInspectionEnd?.(timeOver * 1000);
 
       if (inspectionIntervalRef.current) {
         clearInterval(inspectionIntervalRef.current);
@@ -71,7 +70,6 @@ export const useTimer = ({
     startTimeRef.current = performance.now();
     setTimeMs(0);
 
-    // Play start sound
     if (shouldPlaySound(soundsEnabled)) {
       sounds.timerStart();
     }
@@ -85,7 +83,6 @@ export const useTimer = ({
       }
       ignoreNextKeyUpRef.current = true;
 
-      // Play stop sound
       if (shouldPlaySound(soundsEnabled)) {
         sounds.timerStop();
       }
@@ -96,12 +93,15 @@ export const useTimer = ({
     setState('idle');
     setTimeMs(0);
     setInspectionTimeLeft(inspectionDuration);
+
     if (!spaceKeyDownRef.current) {
       ignoreNextKeyUpRef.current = false;
     }
+
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
     }
+
     if (inspectionIntervalRef.current) {
       clearInterval(inspectionIntervalRef.current);
       inspectionIntervalRef.current = null;
@@ -109,41 +109,42 @@ export const useTimer = ({
   }, [inspectionDuration]);
 
   useEffect(() => {
-    if (state === 'inspection') {
-      inspectionIntervalRef.current = setInterval(() => {
-        const elapsed = (Date.now() - inspectionStartRef.current) / 1000;
-        const timeLeft = Math.max(0, inspectionDuration - elapsed);
-        setInspectionTimeLeft(timeLeft);
-
-        // Play warning sound at 15s mark (when timeLeft is between 0 and 0.1)
-        if (timeLeft <= 0.1 && timeLeft > 0 && !warningPlayedRef.current) {
-          if (shouldPlaySound(soundsEnabled)) {
-            sounds.inspectionWarning();
-          }
-          warningPlayedRef.current = true;
-        }
-
-        // Play critical sound at 17s mark (2s overtime)
-        if (elapsed >= inspectionDuration + 2 && !criticalPlayedRef.current) {
-          if (shouldPlaySound(soundsEnabled)) {
-            sounds.inspectionCritical();
-          }
-          criticalPlayedRef.current = true;
-        }
-      }, 100);
-
-      return () => {
-        if (inspectionIntervalRef.current) {
-          clearInterval(inspectionIntervalRef.current);
-        }
-      };
+    if (state !== 'inspection') {
+      return;
     }
+
+    inspectionIntervalRef.current = setInterval(() => {
+      const elapsed = (Date.now() - inspectionStartRef.current) / 1000;
+      const timeLeft = Math.max(0, inspectionDuration - elapsed);
+      setInspectionTimeLeft(timeLeft);
+
+      if (timeLeft <= 0.1 && timeLeft > 0 && !warningPlayedRef.current) {
+        if (shouldPlaySound(soundsEnabled)) {
+          sounds.inspectionWarning();
+        }
+        warningPlayedRef.current = true;
+      }
+
+      if (elapsed >= inspectionDuration + 2 && !criticalPlayedRef.current) {
+        if (shouldPlaySound(soundsEnabled)) {
+          sounds.inspectionCritical();
+        }
+        criticalPlayedRef.current = true;
+      }
+    }, 100);
+
+    return () => {
+      if (inspectionIntervalRef.current) {
+        clearInterval(inspectionIntervalRef.current);
+      }
+    };
   }, [state, inspectionDuration, soundsEnabled]);
 
   useEffect(() => {
     if (state === 'running') {
       updateTimer();
     }
+
     return () => {
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
@@ -152,36 +153,32 @@ export const useTimer = ({
   }, [state, updateTimer]);
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (shouldIgnoreGlobalShortcut(event.target)) {
         return;
       }
 
-      if (e.code === 'Space' && !e.repeat && !spaceKeyDownRef.current) {
-        e.preventDefault();
+      if (event.code === 'Space' && !event.repeat && !spaceKeyDownRef.current) {
+        event.preventDefault();
         spaceKeyDownRef.current = true;
 
         if (state === 'running') {
           stopTimer();
         } else if (state === 'stopped') {
           reset();
-          // Optional: sound for reset?
-        } else if (state === 'idle') {
-          // Play ready sound when holding space
-          if (shouldPlaySound(soundsEnabled)) {
-            sounds.timerReady();
-          }
+        } else if (state === 'idle' && shouldPlaySound(soundsEnabled)) {
+          sounds.timerReady();
         }
       }
     };
 
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (shouldIgnoreGlobalShortcut(event.target)) {
         return;
       }
 
-      if (e.code === 'Space' && spaceKeyDownRef.current) {
-        e.preventDefault();
+      if (event.code === 'Space' && spaceKeyDownRef.current) {
+        event.preventDefault();
         spaceKeyDownRef.current = false;
 
         if (ignoreNextKeyUpRef.current) {

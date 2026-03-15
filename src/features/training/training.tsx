@@ -1,77 +1,146 @@
 import { Dumbbell } from '@solar-icons/react';
 import { motion } from 'framer-motion';
-import { useMemo, useState } from 'react';
-import { Button, Card, PageHeader } from '@/shared';
+import { Card, PageHeader, cn, fadeIn, slideUp } from '@/shared';
 import { useTranslation } from '@/shared/hooks/use-translation';
-import { cn, slideUp, staggerContainer } from '@/shared/lib';
-import { TrainingCaseCard } from './components/training-case-card';
-import { trainingCases, trainingCategories } from './lib/training-data/cases';
-import type { TrainingCategory } from './lib/training-data/types';
+import { TrainingDrillList, TrainingDrillPanel } from './components';
+import { useTrainingLab } from './hooks/use-training-lab';
+
+function formatTemplate(template: string, values: Record<string, number>) {
+  return Object.entries(values).reduce((current, [key, value]) => {
+    return current.replaceAll(`{${key}}`, String(value));
+  }, template);
+}
 
 export function Training() {
   const { t } = useTranslation();
-  const [activeCategory, setActiveCategory] = useState<TrainingCategory>('pll');
+  const copy = t.trainingLab;
 
-  const categoryCases = useMemo(
-    () => trainingCases.filter((trainingCase) => trainingCase.category === activeCategory),
-    [activeCategory],
-  );
+  const {
+    tracks,
+    progress,
+    activeTrack,
+    activeTrackId,
+    activeTrackAttempts,
+    activeTrackTarget,
+    activeDrill,
+    activeDrillIndex,
+    activeProgress,
+    activeCompletionPercent,
+    replaySeed,
+    selectTrack,
+    selectDrill,
+    replayDemo,
+    addAttemptBatch,
+    setActiveConfidence,
+    resetActiveDrill,
+  } = useTrainingLab();
 
-  const categoryContent = t.training.categories[activeCategory];
+  if (!activeTrack || !activeDrill || !activeProgress) {
+    return null;
+  }
+
+  const activeTrackCopy = copy.tracks[activeTrack.id];
+  const summary = formatTemplate(copy.progress.trackSummary, {
+    attempts: activeTrackAttempts,
+    target: activeTrackTarget,
+  });
 
   return (
-    <div className="space-y-6 sm:space-y-8">
+    <motion.div
+      variants={fadeIn}
+      initial="initial"
+      animate="animate"
+      className="app-shell-page space-y-6 sm:space-y-8"
+    >
       <PageHeader
-        title={t.training.title}
-        description={t.pages.training.description}
+        title={copy.title}
+        description={copy.subtitle}
         icon={<Dumbbell size={32} />}
       />
 
-      <motion.div variants={slideUp} initial="initial" animate="animate">
-        <div className="flex flex-wrap gap-2">
-          {trainingCategories.map((category) => (
-            <Button
-              key={category}
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => setActiveCategory(category)}
-              className={cn(
-                'rounded-full border transition-all',
-                activeCategory === category
-                  ? 'border-primary bg-primary/15 text-primary shadow-sm'
-                  : 'border-border text-text-secondary hover:text-text-primary hover:border-primary/40',
-              )}
-            >
-              <span className="font-medium tracking-wide uppercase text-xs">
-                {t.training.categories[category].label}
-              </span>
-            </Button>
-          ))}
-        </div>
-      </motion.div>
+      <motion.section variants={slideUp} initial="initial" animate="animate">
+        <Card
+          variant="overlay"
+          className="rounded-2xl border-white/10 bg-gradient-to-br from-primary/8 via-white/[0.03] to-accent/8 space-y-5"
+        >
+          <div className="space-y-1">
+            <p className="text-[11px] uppercase tracking-[0.2em] text-text-muted">{copy.method.label}</p>
+            <h2 className="text-2xl font-bold text-text-primary">{copy.method.value}</h2>
+            <p className="text-sm text-text-secondary">{copy.method.description}</p>
+          </div>
 
-      <motion.div variants={slideUp} initial="initial" animate="animate">
-        <Card variant="surface" className="space-y-2">
-          <h2 className="text-lg font-semibold text-text-primary">{categoryContent.label}</h2>
-          <p className="text-sm text-text-secondary">{categoryContent.description}</p>
-          <p className="text-xs text-text-tertiary">{t.training.description}</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-text-muted">{copy.labels.trackFocus}</p>
+              <p className="mt-1 text-sm text-text-primary">{activeTrackCopy.focus}</p>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-text-muted">{copy.labels.trackProgress}</p>
+              <p className="mt-1 text-sm text-text-primary">{summary}</p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2" role="tablist" aria-label={copy.labels.trackTabs}>
+            {tracks.map((track) => {
+              const trackCopy = copy.tracks[track.id];
+
+              return (
+                <button
+                  key={track.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={track.id === activeTrackId}
+                  onClick={() => selectTrack(track.id)}
+                  className={cn(
+                    'rounded-full border px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
+                    track.id === activeTrackId
+                      ? 'border-primary bg-primary/20 text-primary'
+                      : 'border-border text-text-secondary hover:border-primary/40 hover:text-text-primary',
+                  )}
+                >
+                  {trackCopy.label}
+                </button>
+              );
+            })}
+          </div>
         </Card>
-      </motion.div>
+      </motion.section>
 
-      <motion.div
-        key={activeCategory}
-        variants={staggerContainer}
+      <motion.section
+        variants={slideUp}
         initial="initial"
         animate="animate"
-        className="grid gap-4 lg:grid-cols-2"
+        className="grid gap-4 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]"
       >
-        {categoryCases.map((trainingCase) => (
-          <motion.div key={trainingCase.id} variants={slideUp}>
-            <TrainingCaseCard trainingCase={trainingCase} />
-          </motion.div>
-        ))}
-      </motion.div>
-    </div>
+        <Card variant="overlay" className="rounded-2xl border-white/10 space-y-4">
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.18em] text-text-muted">{copy.labels.catalogTitle}</p>
+            <h3 className="mt-1 text-lg font-semibold text-text-primary">{activeTrackCopy.label}</h3>
+            <p className="mt-1 text-sm text-text-secondary">{activeTrackCopy.description}</p>
+          </div>
+
+          <TrainingDrillList
+            track={activeTrack}
+            activeDrillIndex={activeDrillIndex}
+            progress={progress}
+            copy={copy}
+            onSelectDrill={selectDrill}
+          />
+        </Card>
+
+        <TrainingDrillPanel
+          trackId={activeTrack.id}
+          drill={activeDrill}
+          progress={activeProgress}
+          completionPercent={activeCompletionPercent}
+          replaySeed={replaySeed}
+          copy={copy}
+          onReplay={replayDemo}
+          onAddAttempts={addAttemptBatch}
+          onSetConfidence={setActiveConfidence}
+          onReset={resetActiveDrill}
+        />
+      </motion.section>
+    </motion.div>
   );
 }

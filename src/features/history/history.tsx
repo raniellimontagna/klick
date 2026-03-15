@@ -36,7 +36,7 @@ export function History() {
       variants={fadeIn}
       initial="hidden"
       animate="visible"
-      className="mx-auto w-full max-w-6xl space-y-8"
+      className="app-shell-page space-y-6"
     >
       <PageHeader
         title={t.navigation.history}
@@ -44,13 +44,15 @@ export function History() {
         icon={<HistoryIcon size={32} />}
       />
 
-      <div className="space-y-8">
+      <div className="space-y-6">
         <section>
           <SummaryCards solves={solves} />
         </section>
 
-        <section className="glass p-6 rounded-xl border border-white/5">
-          <h3 className="text-lg font-bold text-text-primary mb-4">{t.history.sessionProgress}</h3>
+        <section className="surface-panel rounded-2xl p-6">
+          <h3 className="mb-4 text-lg font-black tracking-tight text-text-primary">
+            {t.history.sessionProgress}
+          </h3>
           <HistoryCharts solves={solves} />
         </section>
 

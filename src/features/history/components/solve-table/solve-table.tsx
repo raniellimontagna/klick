@@ -71,7 +71,7 @@ export const SolveTable: React.FC<SolveTableProps> = ({
         variants={fadeIn}
         initial="hidden"
         animate="visible"
-        className="glass rounded-xl p-12 text-center"
+        className="surface-panel rounded-2xl p-12 text-center"
       >
         <p className="text-text-muted text-lg">{t.solveTable.empty}</p>
       </motion.div>
@@ -86,7 +86,7 @@ export const SolveTable: React.FC<SolveTableProps> = ({
           <h2 id="solve-table-title" className="text-xl font-bold text-text-primary px-2">
             {t.solveTable.title}
           </h2>
-          <div className="flex items-center gap-3 bg-surface p-1 rounded-lg border border-white/5 w-full sm:w-auto">
+          <div className="flex w-full items-center gap-3 rounded-xl border border-border/70 bg-surface/70 p-1 sm:w-auto">
             <label
               htmlFor="solve-filter"
               className="text-sm text-text-muted pl-2 whitespace-nowrap"
@@ -119,10 +119,10 @@ export const SolveTable: React.FC<SolveTableProps> = ({
         </div>
 
         {/* Desktop Table View */}
-        <div className="hidden md:block glass rounded-xl overflow-hidden border border-white/5">
+        <div className="surface-panel hidden overflow-hidden rounded-2xl md:block">
           <table className="w-full">
             <caption className="sr-only">{t.solveTable.title}</caption>
-            <thead className="bg-surface/50 border-b border-white/5">
+            <thead className="border-b border-border/70 bg-surface/65">
               <tr>
                 <th
                   scope="col"
@@ -156,14 +156,14 @@ export const SolveTable: React.FC<SolveTableProps> = ({
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody className="divide-y divide-border/70">
               {filteredSolves.map((solve) => {
                 const solveNumber = allSolves.length - allSolves.indexOf(solve);
                 return (
                   <tr
                     key={solve.id}
                     onClick={() => onViewDetails?.(solve)}
-                    className="hover:bg-white/5 transition-colors cursor-pointer group"
+                    className="group cursor-pointer transition-colors hover:bg-surface-hover/60"
                     tabIndex={0}
                     aria-label={`Ver detalhes da resolução #${solveNumber}`}
                     onKeyDown={(e) => {
@@ -183,7 +183,7 @@ export const SolveTable: React.FC<SolveTableProps> = ({
                           {solve.penalty === 'DNF' ? 'DNF' : formatTime(solve.effectiveMs)}
                         </span>
                         {solve.penalty === '+2' && (
-                          <span className="text-xs font-bold text-warning bg-warning/10 px-1.5 py-0.5 rounded border border-warning/20">
+                          <span className="rounded border border-warning/35 bg-warning/15 px-1.5 py-0.5 text-xs font-bold text-warning">
                             +2
                           </span>
                         )}
@@ -200,7 +200,7 @@ export const SolveTable: React.FC<SolveTableProps> = ({
                         onClick={(e) => handleDelete(e, solve)}
                         variant="ghost"
                         size="icon"
-                        className="text-text-muted hover:text-danger hover:bg-danger/10 opacity-0 group-hover:opacity-100 transition-all focus:opacity-100"
+                        className="text-text-muted opacity-0 transition-all hover:bg-danger/12 hover:text-danger focus:opacity-100 group-hover:opacity-100"
                         title={t.actions.delete}
                         aria-label={t.actions.delete}
                       >
@@ -227,7 +227,7 @@ export const SolveTable: React.FC<SolveTableProps> = ({
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95 }}
                   onClick={() => onViewDetails?.(solve)}
-                  className="bg-surface/50 border border-white/5 rounded-xl p-4 active:scale-[0.98] transition-all cursor-pointer"
+                  className="surface-panel cursor-pointer rounded-2xl p-4 transition-all active:scale-[0.98]"
                 >
                   <div className="flex justify-between items-start mb-2">
                     <div className="flex flex-col">
@@ -243,7 +243,7 @@ export const SolveTable: React.FC<SolveTableProps> = ({
                           {solve.penalty === 'DNF' ? 'DNF' : formatTime(solve.effectiveMs)}
                         </span>
                         {solve.penalty === '+2' && (
-                          <span className="text-xs font-bold text-warning bg-warning/10 px-1.5 py-0.5 rounded border border-warning/20">
+                          <span className="rounded border border-warning/35 bg-warning/15 px-1.5 py-0.5 text-xs font-bold text-warning">
                             +2
                           </span>
                         )}
@@ -259,7 +259,7 @@ export const SolveTable: React.FC<SolveTableProps> = ({
                       <TrashBin2 size={16} />
                     </Button>
                   </div>
-                  <div className="text-xs text-text-tertiary font-mono truncate bg-background/50 p-2 rounded border border-white/5">
+                  <div className="truncate rounded border border-border/70 bg-background/50 p-2 font-mono text-xs text-text-muted">
                     {solve.scramble}
                   </div>
                 </motion.li>

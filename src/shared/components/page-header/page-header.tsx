@@ -8,12 +8,19 @@ interface PageHeaderProps {
 
 export function PageHeader({ title, description, icon }: PageHeaderProps) {
   return (
-    <div className="flex flex-col gap-2 sm:gap-3 mb-6 sm:mb-8">
-      <div className="flex items-center gap-3">
-        <span className="text-primary">{icon}</span>
-        <h1 className="text-2xl sm:text-3xl font-bold text-text-primary">{title}</h1>
+    <header className="surface-panel relative overflow-hidden rounded-3xl p-5 sm:p-7">
+      <div className="pointer-events-none absolute right-0 top-0 h-24 w-24 bg-[radial-gradient(circle,rgba(124,77,255,0.22),transparent_70%)]" />
+      <div className="flex items-start gap-4">
+        <span className="glow-border inline-flex rounded-2xl border border-primary/35 bg-primary/15 p-3 text-primary">
+          {icon}
+        </span>
+        <div className="min-w-0">
+          <h1 className="text-2xl font-black tracking-tight text-text-primary sm:text-3xl">{title}</h1>
+          <p className="mt-2 max-w-3xl text-sm leading-relaxed text-text-secondary sm:text-base">
+            {description}
+          </p>
+        </div>
       </div>
-      <p className="text-sm sm:text-base text-text-secondary max-w-3xl">{description}</p>
-    </div>
+    </header>
   );
 }

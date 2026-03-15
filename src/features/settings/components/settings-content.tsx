@@ -13,6 +13,8 @@ import { useTheme } from '@/shared/hooks/use-theme';
 import { useI18nStore } from '@/shared/store/i18n-store';
 import { useSessionsStore } from '@/shared/store/sessions-store';
 import { useSettingsStore } from '@/shared/store/settings-store';
+import { CloudSyncSection } from './cloud-sync-section';
+import { ShareSection } from './share-section';
 
 type ExportImportMessage = {
   type: 'success' | 'error';
@@ -146,9 +148,9 @@ export const SettingsContent: React.FC = (): React.ReactElement => {
           </Card>
 
           {/* Configuration Toggles */}
-          <Card className="space-y-0 p-0 overflow-hidden">
-            <ul className="divide-y divide-white/5">
-              <li className="p-6 flex items-center justify-between hover:bg-white/2 transition-colors">
+          <Card className="space-y-0 overflow-hidden p-0">
+            <ul className="divide-y divide-border/70">
+              <li className="flex items-center justify-between p-6 transition-colors hover:bg-surface-hover/55">
                 <div className="pr-4">
                   <h3 className="text-sm font-bold uppercase tracking-widest text-text-primary mb-1">
                     {t.settings.soundsEnabled.label}
@@ -163,7 +165,7 @@ export const SettingsContent: React.FC = (): React.ReactElement => {
                   aria-label={t.settings.soundsEnabled.label}
                 />
               </li>
-              <li className="p-6 flex items-center justify-between hover:bg-white/2 transition-colors">
+              <li className="flex items-center justify-between p-6 transition-colors hover:bg-surface-hover/55">
                 <div className="pr-4">
                   <h3 className="text-sm font-bold uppercase tracking-widest text-text-primary mb-1">
                     {t.settings.autoInspectionPenalty.label}
@@ -178,7 +180,7 @@ export const SettingsContent: React.FC = (): React.ReactElement => {
                   aria-label={t.settings.autoInspectionPenalty.label}
                 />
               </li>
-              <li className="p-6 flex items-center justify-between hover:bg-white/2 transition-colors">
+              <li className="flex items-center justify-between p-6 transition-colors hover:bg-surface-hover/55">
                 <div className="pr-4">
                   <h3 className="text-sm font-bold uppercase tracking-widest text-text-primary mb-1">
                     {t.settings.theme.label}
@@ -190,10 +192,10 @@ export const SettingsContent: React.FC = (): React.ReactElement => {
                 <Button
                   onClick={toggleTheme}
                   variant="secondary"
-                  className={`flex items-center gap-2 px-6 py-2.5 font-bold uppercase tracking-wider text-xs border transition-all ${
+                  className={`flex items-center gap-2 px-6 py-2.5 text-xs font-bold uppercase tracking-wider transition-all ${
                     theme !== 'light'
-                      ? 'bg-primary/20 text-primary border-primary/30'
-                      : 'bg-white/5 text-text-primary border-white/10'
+                      ? 'glow-border border-primary/35 bg-primary/20 text-primary'
+                      : 'border-border/80 bg-surface/75 text-text-primary'
                   }`}
                 >
                   {theme === 'light' ? (
@@ -213,94 +215,98 @@ export const SettingsContent: React.FC = (): React.ReactElement => {
           </Card>
         </div>
 
-        {/* Data Persistence Section */}
-        <section aria-labelledby="data-mgmt-heading">
-          <Card className="h-full space-y-8 flex flex-col">
-            <header>
-              <h3
-                id="data-mgmt-heading"
-                className="text-sm font-bold uppercase tracking-widest text-text-primary mb-1"
-              >
-                {t.settings.exportImport.title}
-              </h3>
-              <p className="text-xs text-text-secondary">
-                Gerencie a persistência dos seus dados e backup.
-              </p>
-            </header>
+        <section className="space-y-6">
+          <CloudSyncSection />
+          <ShareSection />
 
-            <div className="flex-1 space-y-8">
-              {/* Export area */}
-              <div className="space-y-3">
-                <header className="text-[10px] font-black uppercase tracking-[0.2em] text-text-muted mb-2">
-                  Exportar
-                </header>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <Button
-                    onClick={handleExportCurrent}
-                    variant="secondary"
-                    className="flex flex-col items-center justify-center gap-2 p-6 bg-white/5 hover:bg-white/10 text-text-primary border border-white/10 group transition-all"
+          {/* Data Persistence Section */}
+          <section aria-labelledby="data-mgmt-heading">
+            <Card className="h-full space-y-8 flex flex-col">
+              <header>
+                <h3
+                  id="data-mgmt-heading"
+                  className="text-sm font-bold uppercase tracking-widest text-text-primary mb-1"
+                >
+                  {t.settings.exportImport.title}
+                </h3>
+                <p className="text-xs text-text-secondary">
+                  Gerencie a persistência dos seus dados e backup.
+                </p>
+              </header>
+
+              <div className="flex-1 space-y-8">
+                {/* Export area */}
+                <div className="space-y-3">
+                  <header className="text-[10px] font-black uppercase tracking-[0.2em] text-text-muted mb-2">
+                    Exportar
+                  </header>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <Button
+                      onClick={handleExportCurrent}
+                      variant="secondary"
+                      className="flex flex-col items-center justify-center gap-2 p-6 bg-white/5 hover:bg-white/10 text-text-primary border border-white/10 group transition-all"
+                    >
+                      <CloudDownload
+                        size={24}
+                        className="text-text-muted group-hover:text-primary transition-colors"
+                      />
+                      <span className="text-[10px] font-bold uppercase tracking-widest">
+                        {t.settings.exportImport.exportCurrent}
+                      </span>
+                    </Button>
+                    <Button
+                      onClick={handleExportAll}
+                      variant="secondary"
+                      className="flex flex-col items-center justify-center gap-2 p-6 bg-white/5 hover:bg-white/10 text-text-primary border border-white/10 group transition-all"
+                    >
+                      <CloudDownload
+                        size={24}
+                        className="text-text-muted group-hover:text-primary transition-colors"
+                      />
+                      <span className="text-[10px] font-bold uppercase tracking-widest">
+                        {t.settings.exportImport.exportAll}
+                      </span>
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Import area */}
+                <div className="space-y-4 border-t border-border/70 pt-10">
+                  <header className="text-[10px] font-black uppercase tracking-[0.2em] text-text-muted mb-4">
+                    Importar
+                  </header>
+
+                  <RadioGroup
+                    name="importMode"
+                    value={importMode}
+                    onValueChange={(v) => setImportMode(v as 'merge' | 'replace')}
+                    className="flex gap-6 mb-4"
                   >
-                    <CloudDownload
-                      size={24}
-                      className="text-text-muted group-hover:text-primary transition-colors"
-                    />
-                    <span className="text-[10px] font-bold uppercase tracking-widest">
-                      {t.settings.exportImport.exportCurrent}
+                    <RadioButton value="merge">{t.settings.exportImport.merge}</RadioButton>
+                    <RadioButton value="replace">{t.settings.exportImport.replace}</RadioButton>
+                  </RadioGroup>
+
+                  <Button
+                    onClick={handleImportClick}
+                    className="h-14 w-full justify-center gap-3 rounded-xl"
+                  >
+                    <CloudUpload size={20} />
+                    <span className="font-bold uppercase tracking-wider text-sm">
+                      {t.settings.exportImport.import}
                     </span>
                   </Button>
-                  <Button
-                    onClick={handleExportAll}
-                    variant="secondary"
-                    className="flex flex-col items-center justify-center gap-2 p-6 bg-white/5 hover:bg-white/10 text-text-primary border border-white/10 group transition-all"
-                  >
-                    <CloudDownload
-                      size={24}
-                      className="text-text-muted group-hover:text-primary transition-colors"
-                    />
-                    <span className="text-[10px] font-bold uppercase tracking-widest">
-                      {t.settings.exportImport.exportAll}
-                    </span>
-                  </Button>
+
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".json"
+                    onChange={handleFileChange}
+                    className="hidden"
+                  />
                 </div>
               </div>
-
-              {/* Import area */}
-              <div className="space-y-4 pt-10 border-t border-white/5">
-                <header className="text-[10px] font-black uppercase tracking-[0.2em] text-text-muted mb-4">
-                  Importar
-                </header>
-
-                <RadioGroup
-                  name="importMode"
-                  value={importMode}
-                  onValueChange={(v) => setImportMode(v as 'merge' | 'replace')}
-                  className="flex gap-6 mb-4"
-                >
-                  <RadioButton value="merge">{t.settings.exportImport.merge}</RadioButton>
-                  <RadioButton value="replace">{t.settings.exportImport.replace}</RadioButton>
-                </RadioGroup>
-
-                <Button
-                  onClick={handleImportClick}
-                  variant="secondary"
-                  className="w-full h-14 flex items-center justify-center gap-3 bg-primary hover:bg-primary-hover text-white dark:text-gray-900 border-none rounded-xl"
-                >
-                  <CloudUpload size={20} />
-                  <span className="font-bold uppercase tracking-wider text-sm">
-                    {t.settings.exportImport.import}
-                  </span>
-                </Button>
-
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".json"
-                  onChange={handleFileChange}
-                  className="hidden"
-                />
-              </div>
-            </div>
-          </Card>
+            </Card>
+          </section>
         </section>
       </div>
     </div>

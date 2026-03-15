@@ -438,7 +438,44 @@ Crie um hook customizado quando o componente tiver:
 
 ---
 
-# 13) Comandos
+# 13) Definition of Done (Engenharia)
+
+Toda história só pode ser considerada concluída quando **todos** os itens abaixo estiverem atendidos.
+
+## Checklist Obrigatória
+
+- **Arquitetura e responsabilidades**
+  - Componentes de UI focados em renderização; lógica em hooks/stores.
+  - Feature nova ou refatorada organizada de forma coesa em `src/features/[feature]`.
+  - Sem import reverso de `shared` para `features`.
+- **Contratos entre módulos**
+  - Código reutilizável em `src/shared`.
+  - Não criar acoplamento direto entre features; promover contratos estáveis por `types/lib/hooks` compartilhados quando necessário.
+  - Barrels (`index.ts`) devem exportar apenas o que possui consumidor real.
+- **Higiene de código**
+  - Remover no mesmo ciclo arquivos, exports e dependências sem uso.
+  - Não manter implementações duplicadas concorrentes de uma mesma regra de negócio.
+  - Não deixar código legado “temporário” sem plano e sem uso.
+- **Qualidade**
+  - `pnpm lint`
+  - `pnpm test`
+  - `pnpm knip`
+  - Todos devem passar sem regressões.
+- **Documentação e rastreabilidade**
+  - Atualizar documentação relevante (`PROJECT.md`, `docs/technical.md`, etc.) quando houver decisão estrutural.
+  - Registrar aprendizados reutilizáveis no `scripts/ralph/progress.txt`.
+
+## Antipadrões Proibidos
+
+- Exportar símbolos “por precaução” sem consumidor concreto.
+- Adicionar dependência sem uso ativo no código.
+- Manter feature legada em paralelo após a migração já estar funcional.
+- Criar utilitário genérico sem caso real de uso.
+- Duplicar regras de negócio entre pastas (`feature` e `shared`) sem consolidar source of truth.
+
+---
+
+# 14) Comandos
 
 ```bash
 pnpm i          # Instalar dependências

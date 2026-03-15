@@ -13,7 +13,7 @@ export function Stats() {
       variants={fadeIn}
       initial="hidden"
       animate="visible"
-      className="mx-auto w-full max-w-6xl"
+      className="app-shell-page space-y-6"
     >
       <PageHeader
         title={t.navigation.stats}
@@ -21,7 +21,7 @@ export function Stats() {
         icon={<GraphUp size={32} />}
       />
 
-      <div className="min-h-[600px]">
+      <div className="surface-panel min-h-[600px] rounded-2xl p-4 sm:p-6">
         <AdvancedStatsContent />
       </div>
     </motion.div>

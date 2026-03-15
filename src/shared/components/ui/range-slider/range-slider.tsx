@@ -2,7 +2,7 @@ import { motion, useMotionValue, useTransform } from 'framer-motion';
 import { forwardRef, useEffect, useState } from 'react';
 import { cn } from '@/shared/lib';
 
-export type RangeSliderProps = Omit<
+type RangeSliderProps = Omit<
   React.InputHTMLAttributes<HTMLInputElement>,
   'value' | 'onChange'
 > & {

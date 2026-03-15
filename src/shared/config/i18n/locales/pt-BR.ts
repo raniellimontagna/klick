@@ -7,7 +7,9 @@ export const ptBR = {
     home: 'Início',
     history: 'Histórico',
     stats: 'Estatísticas',
+    leaderboard: 'Ranking',
     training: 'Treino',
+    friends: 'Amigos',
     tutorial: 'Tutorial',
     settings: 'Configurações',
     cube3d: 'Cubo 3D',
@@ -22,14 +24,106 @@ export const ptBR = {
     stats: {
       description: 'Análise detalhada de performance e evolução.',
     },
+    leaderboard: {
+      description: 'Compare seu desempenho semanal e mensal com amigos e público.',
+    },
     training: {
       description: 'Pratique algoritmos por caso com metas e notas rápidas.',
+    },
+    friends: {
+      description: 'Envie convites, aceite amigos e controle sua rede social de treino.',
     },
     tutorial: {
       description: 'Aprenda o método CFOP passo a passo.',
     },
     settings: {
       description: 'Personalize o Klick do seu jeito.',
+    },
+  },
+  homeRevamp: {
+    badge: 'Timer Lab',
+    title: 'Cronometragem clara, foco total e feedback instantâneo.',
+    subtitle:
+      'A nova home coloca timer, scramble e métricas no mesmo fluxo. Você alterna entre visualização 3D e 2D sem perder ritmo durante a sessão.',
+    highlights: {
+      inspectionTitle: 'Inspeção Guiada',
+      inspectionDescription: 'Contagem regressiva com alerta visual para iniciar no momento certo.',
+      visualTitle: 'Scramble Visual',
+      visualDescription: 'Troque entre cubo 3D e mapa 2D para entender o estado inicial.',
+      statsTitle: 'Métricas Essenciais',
+      statsDescription: 'Single, ao5, ao12 e melhores médias visíveis o tempo todo.',
+    },
+    timer: {
+      sectionLabel: 'Painel principal do cronômetro',
+      inspectionLabel: 'Inspeção ativa',
+      runningLabel: 'Solve em andamento',
+      personalBest: 'Novo PB',
+      plusTwoApplied: '+2 aplicado',
+      dnfApplied: 'DNF aplicado',
+      modeLabel: 'Atalho principal',
+      spaceHint: 'Segure e solte ESPAÇO',
+      inspectionCountdown: 'Contagem de inspeção',
+      finishLabel: 'Finalizar solve',
+      finishHint: 'Pressione ESPAÇO novamente para parar.',
+      feedbackLabel: 'Feedback',
+      feedbackHint: 'Ajuste +2/DNF e acompanhe consistência.',
+    },
+    scramble: {
+      sectionLabel: 'Painel de embaralhamento',
+      title: 'Scramble Atual',
+      subtitle: 'Copie, regenere e revise o estado antes do solve.',
+      viewModeLabel: 'Modo de visualização do scramble',
+      view3d: 'Ver em 3D',
+      view2d: 'Ver em 2D',
+      focusModeMessage:
+        'Visualização pausada durante a execução para manter performance máxima do timer.',
+      visualUnavailable: 'Visualização 2D indisponível para este scramble.',
+    },
+    controls: {
+      sectionLabel: 'Ações rápidas da sessão',
+      plusTwo: 'Marcar +2',
+      dnf: 'Marcar DNF',
+      undo: 'Desfazer último',
+      helper: 'Atalhos também funcionam pelo teclado quando nenhum modal está aberto.',
+    },
+    statsTitle: 'Painel de estatísticas',
+    solveFeed: {
+      title: 'Histórico Rápido',
+      subtitle: 'Revise os últimos solves sem sair da home.',
+      last: 'Últimos {count}',
+      empty: 'Nenhum solve registrado nesta sessão ainda.',
+      shortcutsLabel: 'Atalhos:',
+    },
+  },
+  progressHub: {
+    title: 'Progressão e Desafios',
+    subtitle: 'Acompanhe streak, XP e metas semanais sem sair do fluxo do timer.',
+    streakLabel: 'Streak atual',
+    streakValue: '{count} dias',
+    bestStreakLabel: 'Melhor sequência: {count} dias',
+    levelLabel: 'Nível',
+    xpLabel: 'XP',
+    weeklyGoalLabel: 'Meta semanal',
+    weeklyGoalStatusDone: 'Meta semanal concluída.',
+    weeklyGoalStatusPending: 'Faltam {remaining} solves para fechar a meta.',
+    challengesTitle: 'Desafios de hoje',
+    empty: 'Nenhum desafio diário disponível no momento.',
+    challengeDone: 'Concluído',
+    challengeInProgress: 'Em andamento',
+    progressText: '{current}/{target}',
+    challengeTypes: {
+      solveCount: {
+        title: 'Complete {target} solves hoje',
+        description: 'Volume diário para manter consistência de treino.',
+      },
+      cleanStreak: {
+        title: 'Faça streak limpa de {target}',
+        description: 'Conquiste solves consecutivos sem DNF.',
+      },
+      ao5Target: {
+        title: 'Feche ao5 em {targetTime}',
+        description: 'Bata a meta de ao5 pelo menos uma vez no dia.',
+      },
     },
   },
   language: {
@@ -81,6 +175,30 @@ export const ptBR = {
         tip2: '• Sempre olhe para a mesma face (frontal) durante todo o embaralhamento',
         tip3: '• Pratique os movimentos básicos antes de embaralhamentos completos',
         tip4: '• Um embaralhamento oficial WCA tem 25 movimentos',
+      },
+    },
+  },
+  cubeViewer: {
+    controls: {
+      title: 'Controles do cubo',
+      progress: 'Passo {current} de {total}',
+      play: 'Reproduzir',
+      pause: 'Pausar',
+      previous: 'Passo anterior',
+      next: 'Próximo passo',
+      restart: 'Reiniciar',
+      finish: 'Ir ao fim',
+      speed: 'Velocidade',
+      reducedMotion: 'Movimento reduzido ativo: o cubo evita autoplay até você iniciar a reprodução.',
+      modes: {
+        autoplay: 'Autoplay ativo: o cubo pode seguir sozinho quando você apertar reproduzir.',
+        'step-by-step': 'Modo guiado: avance, volte ou pause cada etapa no seu ritmo.',
+        static: 'Modo estático: apenas preview final do estado do cubo.',
+      },
+      speeds: {
+        slow: 'Lenta',
+        normal: 'Normal',
+        fast: 'Rápida',
       },
     },
   },
@@ -298,6 +416,230 @@ export const ptBR = {
       importSuccess: 'Dados importados com sucesso!',
       importError: 'Erro ao importar dados. Verifique o formato do arquivo.',
     },
+    cloudSync: {
+      title: 'Conta e Sincronização',
+      description: 'Conecte sua conta para manter sessões e solves sincronizados entre dispositivos.',
+      statusLabel: 'Status da nuvem',
+      statusLocalOnly: 'Local apenas',
+      statusAnonymous: 'Não conectado',
+      statusChecking: 'Validando sessão',
+      statusConnected: 'Conectado',
+      statusSyncing: 'Sincronizando',
+      statusMigrating: 'Migrando dados locais',
+      statusError: 'Erro de sincronização',
+      lastSyncLabel: 'Última sincronização',
+      lastSyncNever: 'Ainda não sincronizado',
+      connectedAs: 'Conectado como',
+      googleSignIn: 'Entrar com Google',
+      magicLinkLabel: 'Ou use magic link por e-mail',
+      magicLinkPlaceholder: 'voce@exemplo.com',
+      magicLinkSend: 'Enviar link',
+      magicLinkRequired: 'Informe um e-mail válido para enviar o link.',
+      magicLinkSent: 'Verifique sua caixa de entrada para concluir o login.',
+      syncNow: 'Sincronizar agora',
+      syncingAction: 'Sincronizando...',
+      syncSuccess: 'Sincronização concluída com sucesso.',
+      syncError: 'Não foi possível sincronizar agora.',
+      signOut: 'Sair da conta',
+      signOutSuccess: 'Sessão encerrada com sucesso.',
+      notConfiguredTitle: 'Supabase não configurado',
+      notConfiguredDescription:
+        'Defina as variáveis de ambiente para ativar login e sincronização na nuvem.',
+      errorPrefix: 'Detalhe:',
+      errorFallback: 'Não foi possível completar a ação. Tente novamente.',
+    },
+    sharing: {
+      title: 'Compartilhamento Social',
+      description: 'Crie links públicos com os dados que você escolher para mostrar sua evolução.',
+      notConfiguredTitle: 'Supabase não configurado',
+      notConfiguredDescription:
+        'Ative as variáveis de ambiente do Supabase para liberar links públicos de compartilhamento.',
+      loginRequiredTitle: 'Faça login para compartilhar',
+      loginRequiredDescription:
+        'Conecte sua conta no bloco acima para criar links públicos e revogar acessos quando quiser.',
+      loading: 'Carregando...',
+      controls: {
+        enableSharing: 'Habilitar compartilhamento público',
+        enableSharingHint:
+          'Quando desligado, todos os links existentes são revogados imediatamente.',
+        profileVisibility: 'Visibilidade do perfil',
+        profilePublic: 'Seu perfil aparece como público no snapshot compartilhado.',
+        profileFriends: 'Seu perfil fica visível apenas para amizades aceitas.',
+        profilePrivate: 'Seu perfil fica privado e só o snapshot é exibido.',
+        rankingVisibility: 'Visibilidade do ranking',
+        rankingPublic: 'Seu ranking fica visível para qualquer usuário autenticado.',
+        rankingFriends: 'Seu ranking fica visível apenas para amizades aceitas.',
+        rankingPrivate: 'Seu ranking fica privado (apenas você visualiza).',
+        shareSingle: 'Compartilhar single',
+        shareSingleHint: 'Inclui seu melhor tempo atual no link público.',
+        shareAverages: 'Compartilhar médias (ao5/ao12)',
+        shareAveragesHint: 'Inclui ao5, ao12, best ao5 e best ao12 da sessão ativa.',
+        shareProgress: 'Compartilhar progresso',
+        shareProgressHint: 'Inclui nível, XP, streak e meta semanal.',
+      },
+      visibility: {
+        public: 'Público',
+        friends: 'Amigos',
+        private: 'Privado',
+      },
+      privacyTitle: 'Privacidade e revogação imediata',
+      privacyDescription:
+        'Somente links marcados como públicos ficam acessíveis. Ao desativar o compartilhamento, todos os links ativos são invalidados.',
+      actions: {
+        createLink: 'Gerar link público',
+        copy: 'Copiar link',
+        revoke: 'Revogar link',
+        revokeAll: 'Revogar todos',
+      },
+      listTitle: 'Links de compartilhamento',
+      listItemTitle: 'Link compartilhado',
+      empty: 'Nenhum link criado ainda.',
+      createdAt: 'Criado em',
+      status: {
+        active: 'Ativo',
+        revoked: 'Revogado',
+      },
+      messages: {
+        created: 'Link público criado com sucesso.',
+        createdAndCopied: 'Link público criado e copiado para a área de transferência.',
+        copied: 'Link copiado para a área de transferência.',
+        revoked: 'Link revogado com sucesso.',
+        revokedAll: 'Todos os links públicos foram revogados.',
+        updated: 'Preferências de compartilhamento atualizadas.',
+      },
+      errors: {
+        generic: 'Não foi possível completar a ação de compartilhamento.',
+        noData: 'Selecione pelo menos um bloco (single, médias ou progresso) para compartilhar.',
+        sharingDisabled: 'Ative o compartilhamento público antes de gerar um link.',
+        copy: 'Não foi possível copiar o link automaticamente.',
+      },
+    },
+  },
+  auth: {
+    callback: {
+      title: 'Conectando sua conta...',
+      description: 'Estamos validando seu login e preparando a sincronização inicial.',
+      processing: 'Processando autenticação',
+      errorPrefix: 'Falha no callback:',
+      errorUnknown: 'Não foi possível concluir o login.',
+    },
+  },
+  sharePage: {
+    badge: 'Snapshot compartilhado',
+    loadingLabel: 'Carregando compartilhamento',
+    loadingDescription: 'Buscando os dados públicos deste link.',
+    generatedAt: 'Gerado em',
+    puzzleType: 'Puzzle',
+    notFoundTitle: 'Link indisponível',
+    notFoundDescription:
+      'Este link não existe, foi revogado ou está privado. Peça um novo link ao dono do compartilhamento.',
+    metrics: {
+      single: 'Single',
+      ao5: 'ao5',
+      ao12: 'ao12',
+      bestAo5: 'Best ao5',
+      bestAo12: 'Best ao12',
+    },
+    progressTitle: 'Progressão compartilhada',
+    progress: {
+      level: 'Nível',
+      xp: 'XP total',
+      currentStreak: 'Streak atual',
+      bestStreak: 'Melhor streak',
+      weeklyGoal: 'Meta semanal',
+    },
+  },
+  socialHub: {
+    friends: {
+      notConfiguredTitle: 'Supabase não configurado',
+      notConfiguredDescription:
+        'Ative o Supabase para liberar convites de amizade e sincronização social.',
+      loginRequiredTitle: 'Faça login para gerenciar amigos',
+      loginRequiredDescription: 'Conecte sua conta nas configurações para enviar e receber convites.',
+      labels: {
+        loading: 'Carregando amizades...',
+        invitedAt: 'Convite em',
+        friendsSince: 'Amigos desde',
+      },
+      invite: {
+        title: 'Enviar convite',
+        description: 'Informe o ID do usuário para enviar o convite de amizade.',
+        inputLabel: 'ID do usuário',
+        placeholder: 'UUID do usuário',
+      },
+      incoming: {
+        title: 'Convites recebidos',
+        empty: 'Nenhum convite pendente recebido.',
+      },
+      outgoing: {
+        title: 'Convites enviados',
+        empty: 'Nenhum convite pendente enviado.',
+      },
+      list: {
+        title: 'Lista de amigos',
+        empty: 'Você ainda não tem amizades ativas.',
+      },
+      actions: {
+        sendInvite: 'Enviar convite',
+        accept: 'Aceitar',
+        reject: 'Recusar',
+        cancel: 'Cancelar',
+        removeFriend: 'Remover amizade',
+      },
+      messages: {
+        targetRequired: 'Informe um ID de usuário para enviar o convite.',
+        invalidTarget: 'Não é possível enviar convite para esse usuário.',
+        alreadyFriends: 'Esta amizade já existe.',
+        pendingInvite: 'Já existe um convite pendente para este par de usuários.',
+        inviteSent: 'Convite enviado com sucesso.',
+        inviteAccepted: 'Convite aceito e amizade criada.',
+        inviteRejected: 'Convite recusado.',
+        inviteCancelled: 'Convite cancelado.',
+        friendRemoved: 'Amizade removida.',
+        errorGeneric: 'Não foi possível concluir a ação social agora.',
+      },
+    },
+    leaderboard: {
+      notConfiguredTitle: 'Supabase não configurado',
+      notConfiguredDescription:
+        'Configure o Supabase para ativar ranking semanal/mensal e comparação social.',
+      loginRequiredTitle: 'Faça login para ver o ranking',
+      loginRequiredDescription: 'Conecte sua conta nas configurações para acessar o leaderboard.',
+      period: {
+        title: 'Período do ranking',
+        weekly: 'Semanal',
+        monthly: 'Mensal',
+      },
+      actions: {
+        refresh: 'Atualizar ranking',
+        syncing: 'Sincronizando...',
+      },
+      labels: {
+        loading: 'Carregando ranking...',
+        periodKey: 'Período',
+        visibilityNote:
+          'A visibilidade segue suas flags de privacidade: privado, amigos ou público.',
+        yourSnapshot: 'Seu snapshot no período',
+        solveCount: 'Quantidade de solves',
+        you: 'Você',
+      },
+      table: {
+        title: 'Classificação',
+        empty: 'Ainda não há entradas visíveis para este período.',
+        columns: {
+          rank: 'Pos.',
+          user: 'Usuário',
+          single: 'Single',
+          ao5: 'ao5',
+          ao12: 'ao12',
+          consistency: 'Consistência',
+          solves: 'Solves',
+        },
+      },
+      messages: {
+        errorGeneric: 'Não foi possível carregar o ranking agora.',
+      },
+    },
   },
   advancedStats: {
     title: 'Estatísticas Avançadas',
@@ -409,98 +751,112 @@ export const ptBR = {
         'Agora você conhece o Klick! Comece a resolver e acompanhe sua evolução. Você pode revisitar este tour a qualquer momento clicando no botão "?" no header.',
     },
   },
-  training: {
-    title: 'Modo de Treino',
-    description: 'Foque em casos específicos e acompanhe seu progresso com metas e checkpoints.',
-    categories: {
-      pll: {
-        label: 'PLL',
-        description: 'Permutar cantos e arestas da última camada.',
+  trainingLab: {
+    title: 'Laboratório de Treino',
+    subtitle: 'Treine blocos curtos do CFOP com apoio visual em 3D e progresso por caso.',
+    method: {
+      label: 'Método ativo',
+      value: 'CFOP - Base progressiva',
+      description: 'Comece com um pacote enxuto de casos e aumente a dificuldade por etapa.',
+    },
+    labels: {
+      trackTabs: 'Selecionar trilha de treino',
+      trackFocus: 'Foco da trilha',
+      trackProgress: 'Volume da trilha',
+      catalogTitle: 'Catálogo de drills',
+      drill: 'Drill',
+      attempts: 'Tentativas',
+      target: 'Meta',
+      focus: 'Foco técnico',
+      difficulty: 'Dificuldade',
+      setup: 'Setup visual',
+      algorithm: 'Algoritmo de execução',
+      recognition: 'Reconhecimento',
+      coaching: 'Coaching rápido',
+      confidence: 'Confiança atual',
+      cubeHint: 'O cubo monta o caso e libera controles para reproduzir, pausar ou avançar no seu ritmo.',
+    },
+    actions: {
+      replay: 'Repetir animação',
+      add1: '+1 tentativa',
+      add5: '+5 tentativas',
+      add10: '+10 tentativas',
+      reset: 'Resetar drill',
+    },
+    progress: {
+      trackSummary: '{attempts} de {target} tentativas concluídas nesta trilha.',
+    },
+    confidence: {
+      starting: 'Aquecendo',
+      building: 'Ganhando ritmo',
+      ready: 'Pronto para velocidade',
+    },
+    focusTags: {
+      recognition: 'Reconhecimento',
+      lookahead: 'Lookahead',
+      execution: 'Execução',
+    },
+    difficulty: {
+      starter: 'Iniciante',
+      core: 'Base CFOP',
+      stretch: 'Desafio controlado',
+    },
+    tracks: {
+      f2l: {
+        label: 'F2L',
+        description: 'Construa pares com fluidez antes de acelerar.',
+        focus: 'Par + slot sem pausas longas.',
+        drills: {
+          f2lPairInsertRight: {
+            title: 'Par frontal à direita',
+            summary: 'Inserção básica para consolidar lookahead.',
+            recognition: 'Procure canto e aresta conectáveis no topo com slot frontal livre.',
+            coaching: "Mantenha a câmera mental no slot enquanto executa U R U' R'.",
+          },
+          f2lPairInsertLeft: {
+            title: 'Par frontal à esquerda',
+            summary: 'Espelho da inserção direita para equilíbrio das mãos.',
+            recognition: 'Identifique o par no topo e alinhe para entrada no slot frontal esquerdo.',
+            coaching: "Use U' L' U L com ritmo uniforme e sem travar o giro U.",
+          },
+        },
       },
       oll: {
         label: 'OLL',
-        description: 'Orientar todas as peças da última camada.',
+        description: 'Oriente a última camada com reconhecimento limpo.',
+        focus: 'Ler padrão antes de executar.',
+        drills: {
+          ollSuneFlow: {
+            title: 'Fluxo Sune',
+            summary: 'Caso de entrada para ritmo contínuo de OLL.',
+            recognition: 'Um canto orientado e bloco amarelo em diagonal no topo.',
+            coaching: "Conecte dois gatilhos R U R' sem acelerar o U2.",
+          },
+          ollHeadlights: {
+            title: 'Headlights',
+            summary: 'Treino de padrão com faróis para transição segura.',
+            recognition: 'Dois cantos adjacentes com amarelo voltado para frente.',
+            coaching: 'Cheque os faróis antes do algoritmo para reduzir regrips.',
+          },
+        },
       },
-      f2l: {
-        label: 'F2L',
-        description: 'Formar e inserir pares das duas primeiras camadas.',
-      },
-    },
-    statuses: {
-      learning: 'Aprendendo',
-      refining: 'Ajustando',
-      mastered: 'Automático',
-    },
-    actions: {
-      repetitionLabel: 'Repetições',
-      add1: '+1',
-      add5: '+5',
-      add10: '+10',
-      reset: 'Zerar',
-      goalLabel: 'Meta',
-      goalPlaceholder: 'ex: 50',
-      statusLabel: 'Checkpoint',
-      algorithmLabel: 'Algoritmo',
-      noteLabel: 'Notas rápidas',
-      notePlaceholder: 'Anote dicas, gatilhos ou ajustes pessoais.',
-      copyAlgorithm: 'Copiar algoritmo',
-      copiedAlgorithm: 'Algoritmo copiado!',
-    },
-    progress: {
-      target: '{current} de {goal} repetições',
-      noGoal: '{current} repetições registradas',
-      goalReached: 'Meta alcançada! Continue reforçando.',
-    },
-    cases: {
       pll: {
-        tPerm: {
-          title: 'T-Perm',
-          description: 'Permuta duas arestas adjacentes mantendo o restante resolvido.',
-          tip: 'Use movimentos amplos com R e mantenha o punho firme para evitar pausas.',
-        },
-        jPerm: {
-          title: 'J-Perm (direita)',
-          description: 'Permuta dois cantos adjacentes e duas arestas opostas.',
-          tip: "O início em F' prepara o bloco; mantenha o ritmo e planeje o U final.",
-        },
-        zPerm: {
-          title: 'Z-Perm',
-          description: 'Permuta dois pares de arestas opostas sem mover os cantos.',
-          tip: 'Priorize camadas M suaves e ritmo constante para não travar a execução.',
-        },
-      },
-      oll: {
-        sune: {
-          title: 'Sune',
-          description: 'Caso clássico com um canto orientado; orienta todas as peças amarelas.',
-          tip: "Treine o gatilho R U R' e mantenha o cotovelo parado para ganhar velocidade.",
-        },
-        antisune: {
-          title: 'Anti-Sune',
-          description: 'Versão espelhada do Sune, começando com movimentos anti-horários.',
-          tip: 'Use o polegar esquerdo para estabilizar e visualize o padrão antes de executar.',
-        },
-        hPattern: {
-          title: 'H-Pattern',
-          description: 'Todos os cantos orientados e arestas invertidas em pares opostos.',
-          tip: "Execute o bloco F...f' sem pausar; pense em duas metades fluidas.",
-        },
-      },
-      f2l: {
-        basicPair: {
-          title: 'Par Básico Frontal',
-          description: 'Canto e aresta formam par e entram no slot frontal direito.',
-          tip: 'Use U antes de inserir para alinhar o par e evitar giros desnecessários.',
-        },
-        backSlot: {
-          title: 'Inserção Slot Traseiro',
-          description: 'Canto e aresta prontos para o slot traseiro direito.',
-          tip: "Visualize o slot enquanto executa R U' R'; mantenha o punho solto.",
-        },
-        edgeOver: {
-          title: 'Aresta sobre o Slot',
-          description: 'Aresta posicionada acima do slot formando par com giro frontal.',
-          tip: "Use U' F' para criar o par e devolva a face frontal com controle.",
+        label: 'PLL',
+        description: 'Finalize a última camada com permutações estáveis.',
+        focus: 'Execução limpa com leitura de ciclo.',
+        drills: {
+          pllTPermFlow: {
+            title: 'T-Perm em fluxo',
+            summary: 'Permutação clássica para construir confiança na finalização.',
+            recognition: 'Dois cantos resolvidos no fundo e troca de arestas na frente.',
+            coaching: "Ancore o bloco com F e mantenha o ritmo até o F' final.",
+          },
+          pllUaPermFlow: {
+            title: 'Ua-Perm controlado',
+            summary: 'Treino de ciclo de três arestas com ritmo contínuo.',
+            recognition: 'Uma barra resolvida e três arestas da U em ciclo horário.',
+            coaching: 'Mantenha os U curtos e antecipe o R2 para fechar sem pausa.',
+          },
         },
       },
     },
@@ -666,6 +1022,175 @@ export const ptBR = {
       D: 'D = Baixo 90° horário',
       DPrime: "D' = Baixo 90° anti-horário",
       number2: '2 = 180° (ex: R2, U2)',
+    },
+  },
+  tutorialGuide: {
+    title: 'Tutorial CFOP com cubo 3D',
+    subtitle: 'Aprenda Cross, F2L, OLL e PLL com casos visuais e foco em consistência.',
+    progress: {
+      stage: 'Etapa {current} de {total}',
+      lesson: 'Lição {current} de {total}',
+    },
+    method: {
+      title: 'Método de estudo',
+      focus: 'Foco do método',
+      estimatedTime: 'Tempo sugerido',
+      ariaLabel: 'Selecionar método de estudo',
+    },
+    stage: {
+      title: 'Etapas do método',
+      objective: 'Objetivo da etapa',
+      ariaLabel: 'Selecionar etapa do método',
+    },
+    lesson: {
+      title: 'Lições práticas',
+      recognition: 'Como reconhecer o caso',
+      algorithm: 'Algoritmo recomendado',
+      checklist: 'Checklist de treino',
+      tip: 'Dica rápida',
+      cubeHint:
+        'O cubo 3D monta o caso e deixa os controles passo a passo prontos para revisar cada movimento no seu ritmo.',
+      replay: 'Reproduzir caso',
+      next: 'Próxima lição',
+      finished: 'CFOP concluído por enquanto',
+    },
+    methods: {
+      cfop: {
+        label: 'CFOP',
+        description:
+          'Fluxo clássico em quatro blocos para sair do básico e ganhar consistência com decisões mais rápidas.',
+        focus: 'Reduzir pausas entre etapas mantendo reconhecimento ativo.',
+        estimatedTime: '12 a 20 minutos por sessão guiada',
+        stages: {
+          cross: {
+            label: 'Cross',
+            description: 'Monte a cruz branca e alinhe as arestas com os centros laterais.',
+            objective: 'Fechar a cruz em poucos movimentos e já observar a primeira dupla de F2L.',
+            lessons: [
+              {
+                title: 'Da Daisy para a Cross',
+                summary: 'Converta a daisy em cruz completa sem perder orientação da camada de cima.',
+                recognition:
+                  'Quatro adesivos brancos ficam na face U formando uma margarida ao redor do centro amarelo.',
+                checklist: [
+                  'Escolha uma aresta branca por vez.',
+                  'Alinhe a cor lateral da aresta com o centro correspondente.',
+                  'Gire 180° para descer a aresta na face branca.',
+                ],
+                tip: 'Procure resolver a última aresta já pensando em onde está o primeiro par de F2L.',
+              },
+              {
+                title: 'Cross com alinhamento final',
+                summary:
+                  'Ajuste a cruz para que todas as cores laterais fiquem corretas antes de iniciar F2L.',
+                recognition:
+                  'A cruz branca está montada, mas uma ou duas arestas laterais não coincidem com o centro.',
+                checklist: [
+                  'Identifique qual aresta precisa trocar de posição.',
+                  'Use U e um pequeno gatilho para reposicionar sem quebrar a cruz.',
+                  'Finalize com todas as laterais alinhadas.',
+                ],
+                tip: 'Evite giros completos do cubo; use apenas U para reorganizar rapidamente.',
+              },
+            ],
+          },
+          f2l: {
+            label: 'F2L',
+            description: 'Resolva pares canto+aresta da primeira e segunda camadas em conjunto.',
+            objective: 'Reconhecer pares prontos e inserir com menos pausas entre os slots.',
+            lessons: [
+              {
+                title: 'Par frontal básico',
+                summary: 'Monte um par simples e insira no slot frontal direito de forma controlada.',
+                recognition:
+                  'Canto e aresta da mesma cor estão separados na camada superior, prontos para emparelhar.',
+                checklist: [
+                  'Faça setup com U para aproximar canto e aresta.',
+                  'Use o gatilho para montar o par.',
+                  'Insira o par sem desmontar a cross.',
+                ],
+                tip: 'Mantenha o cubo levemente inclinado para enxergar o slot durante toda a inserção.',
+              },
+              {
+                title: 'Inserção no slot traseiro',
+                summary: 'Pratique a entrada de pares no slot de trás sem precisar girar o cubo.',
+                recognition:
+                  'O par está formado, mas o slot alvo fica no lado oposto à sua visão principal.',
+                checklist: [
+                  'Posicione o par sobre o slot traseiro correto.',
+                  'Use algoritmo espelhado para inserção sem rotação global.',
+                  'Confira se as duas camadas seguem intactas.',
+                ],
+                tip: 'Treinar slots traseiros reduz muito o tempo perdido com rotações desnecessárias.',
+              },
+            ],
+          },
+          oll: {
+            label: 'OLL',
+            description: 'Oriente a última camada para deixar toda a face superior amarela.',
+            objective: 'Reconhecer padrões rápidos e aplicar o algoritmo correto sem hesitar.',
+            lessons: [
+              {
+                title: 'Sune',
+                summary: 'Caso clássico para orientar cantos quando apenas um já está correto.',
+                recognition:
+                  'Existe um “farol” (dois stickers amarelos adjacentes) e apenas um canto orientado.',
+                checklist: [
+                  'Posicione o farol no lado esquerdo/frente.',
+                  "Execute R U R' U R U2 R'.",
+                  'Confirme se a face amarela ficou completa.',
+                ],
+                tip: 'Conte o ritmo em blocos curtos: gatilho, ajuste, gatilho duplo.',
+              },
+              {
+                title: 'Anti-Sune',
+                summary: 'Versão espelhada do Sune para casos invertidos de orientação.',
+                recognition:
+                  'Padrão muito parecido com Sune, mas o farol aparece no lado oposto.',
+                checklist: [
+                  'Ajuste o cubo para manter o caso espelhado à frente.',
+                  "Execute R' U' R U' R' U2 R.",
+                  'Reavalie a camada superior antes de avançar para PLL.',
+                ],
+                tip: 'Treine Sune e Anti-Sune em sequência para acelerar o reconhecimento.',
+              },
+            ],
+          },
+          pll: {
+            label: 'PLL',
+            description: 'Permute as peças da última camada mantendo a orientação já concluída.',
+            objective:
+              'Finalizar o cubo com leitura de blocos laterais e execução contínua dos perms.',
+            lessons: [
+              {
+                title: 'T-Perm',
+                summary: 'Permuta dois cantos e duas arestas adjacentes, ideal para muitos finais.',
+                recognition:
+                  'Um bloco 2x1 já está resolvido em uma lateral e o restante forma troca em “T”.',
+                checklist: [
+                  'Coloque o bloco resolvido na face esquerda.',
+                  "Execute R U R' U' R' F R2 U' R' U' R U R' F'.",
+                  'Finalize com AUF (ajuste de U) se necessário.',
+                ],
+                tip: 'Foque na transição para o trecho com F/F’ sem travar a mão direita.',
+              },
+              {
+                title: 'Y-Perm',
+                summary:
+                  'Permuta diagonal de cantos com troca de arestas, ótimo para fechar solves difíceis.',
+                recognition:
+                  'Nenhum bloco lateral completo e cantos parecem trocar em diagonal.',
+                checklist: [
+                  'Confirme que é caso de troca diagonal de cantos.',
+                  "Execute F R U' R' U' R U R' F' R U R' U' R' F R F'.",
+                  'Aplique AUF final para encerrar o solve.',
+                ],
+                tip: 'Mantenha os olhos nas arestas durante o algoritmo para prever o AUF final.',
+              },
+            ],
+          },
+        },
+      },
     },
   },
   pwa: {

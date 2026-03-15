@@ -9,6 +9,8 @@ import {
   DropdownMenuTrigger,
   DropdownMenuTriggerButton,
 } from '@/shared/components/ui';
+import { cn } from '@/shared/lib/utils';
+import { useI18nStore } from '@/shared/store/i18n-store';
 import { useSessionsStore } from '@/shared/store/sessions-store';
 import type { PuzzleType } from '@/shared/types';
 
@@ -27,8 +29,13 @@ const PUZZLES: {
   { type: 'square1', label: 'Square-1', icon: Box },
 ];
 
-export function PuzzleSelector() {
+interface PuzzleSelectorProps {
+  className?: string;
+}
+
+export function PuzzleSelector({ className }: PuzzleSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const { t } = useI18nStore();
 
   const activeSession = useSessionsStore((state) => state.getActiveSession());
   const switchPuzzleType = useSessionsStore((state) => state.switchPuzzleType);
@@ -43,17 +50,31 @@ export function PuzzleSelector() {
           icon={<activePuzzleData.icon size={18} />}
           label={activePuzzleData.label}
           isOpen={isOpen}
+          aria-label={`${t.sharePage.puzzleType}: ${activePuzzleData.label}`}
+          title={`${t.sharePage.puzzleType}: ${activePuzzleData.label}`}
+          className={cn(
+            'w-full max-w-full max-[360px]:w-11 max-[360px]:justify-center max-[360px]:px-0',
+            className,
+          )}
+          contentClassName="min-w-0 flex-1 max-[360px]:justify-center"
+          labelClassName="max-[360px]:hidden"
+          chevronClassName="max-[360px]:hidden"
         />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-48">
+      <DropdownMenuContent align="start" className="w-[min(14rem,calc(100vw-1rem))]">
         <DropdownMenuRadioGroup
           value={currentPuzzle}
           onValueChange={(v) => switchPuzzleType(v as PuzzleType)}
         >
           {PUZZLES.map((puzzle) => (
-            <DropdownMenuRadioItem key={puzzle.type} value={puzzle.type} className="gap-3">
+            <DropdownMenuRadioItem
+              key={puzzle.type}
+              value={puzzle.type}
+              className="gap-3"
+              title={puzzle.label}
+            >
               <puzzle.icon className="w-4 h-4 shrink-0" />
-              <span className="font-medium">{puzzle.label}</span>
+              <span className="min-w-0 truncate font-medium">{puzzle.label}</span>
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>

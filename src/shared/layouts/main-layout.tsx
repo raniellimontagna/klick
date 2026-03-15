@@ -1,33 +1,32 @@
-import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { Onboarding, PWAUpdatePrompt, SessionManagerModal, Sidebar, Topbar } from '@/shared';
+import { useMainLayout } from './use-main-layout';
 
 export function MainLayout() {
-  const [isSessionManagerOpen, setSessionManagerOpen] = useState(false);
+  const { isSessionManagerOpen, openSessionManager, closeSessionManager } = useMainLayout();
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background text-text-primary">
-      {/* Sidebar - Desktop only */}
-      <Sidebar className="hidden md:flex w-64 shrink-0" />
+    <div className="app-shell relative flex bg-background text-text-primary">
+      <div aria-hidden="true" className="app-shell-backdrop pointer-events-none absolute inset-0 z-0" />
 
-      {/* Main Content */}
-      <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-        <Topbar onManageClick={() => setSessionManagerOpen(true)} />
+      <Sidebar className="z-10 hidden min-h-0 w-72 shrink-0 md:flex" />
 
-        <main className="flex-1 overflow-y-auto scroll-smooth p-4 md:p-6 pb-20 md:pb-6 min-h-0 flex flex-col">
-          <div className="mx-auto w-full max-w-6xl flex-1 flex flex-col min-h-0">
+      <div className="relative z-10 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <Topbar onManageClick={openSessionManager} />
+
+        <main
+          data-scroll-region="content"
+          className="app-shell-main flex flex-col scroll-smooth px-4 pb-24 pt-4 sm:px-6 sm:pt-6 md:pb-8"
+        >
+          <div className="flex min-h-0 w-full flex-1 flex-col">
             <Outlet />
           </div>
         </main>
       </div>
 
-      {/* Global components */}
       <Onboarding />
       <PWAUpdatePrompt />
-      <SessionManagerModal
-        isOpen={isSessionManagerOpen}
-        onClose={() => setSessionManagerOpen(false)}
-      />
+      <SessionManagerModal isOpen={isSessionManagerOpen} onClose={closeSessionManager} />
     </div>
   );
 }
