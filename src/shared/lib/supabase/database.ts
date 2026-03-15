@@ -115,6 +115,94 @@ export interface Database {
           },
         ];
       };
+      daily_challenges: {
+        Row: {
+          id: string;
+          user_id: string;
+          challenge_date: string;
+          timezone: string;
+          challenge_type: 'solve_count' | 'clean_streak' | 'ao5_target';
+          target_value: number;
+          metadata: Json;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          challenge_date: string;
+          timezone: string;
+          challenge_type: 'solve_count' | 'clean_streak' | 'ao5_target';
+          target_value: number;
+          metadata?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          challenge_date?: string;
+          timezone?: string;
+          challenge_type?: 'solve_count' | 'clean_streak' | 'ao5_target';
+          target_value?: number;
+          metadata?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'daily_challenges_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'users';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      challenge_completions: {
+        Row: {
+          id: string;
+          user_id: string;
+          challenge_date: string;
+          challenge_type: 'solve_count' | 'clean_streak' | 'ao5_target';
+          progress_value: number;
+          is_completed: boolean;
+          completed_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          challenge_date: string;
+          challenge_type: 'solve_count' | 'clean_streak' | 'ao5_target';
+          progress_value?: number;
+          is_completed?: boolean;
+          completed_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          challenge_date?: string;
+          challenge_type?: 'solve_count' | 'clean_streak' | 'ao5_target';
+          progress_value?: number;
+          is_completed?: boolean;
+          completed_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'challenge_completions_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'users';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       user_settings: {
         Row: {
           user_id: string;

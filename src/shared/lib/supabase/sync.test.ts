@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   deserializeEffectiveMs,
   mergeByUpdatedAtLww,
+  mergeByUpdatedAtLwwByKey,
   serializeEffectiveMs,
 } from './sync';
 
@@ -46,5 +47,33 @@ describe('effective ms serialization', () => {
   it('preserves finite values', () => {
     expect(serializeEffectiveMs(12345)).toBe(12345);
     expect(deserializeEffectiveMs(12345)).toBe(12345);
+  });
+});
+
+describe('mergeByUpdatedAtLwwByKey', () => {
+  it('merges rows using a computed key', () => {
+    const local = [
+      {
+        challenge_date: '2026-03-15',
+        challenge_type: 'solve_count',
+        updated_at: '2026-03-15T12:00:00.000Z',
+        source: 'local',
+      },
+    ];
+    const remote = [
+      {
+        challenge_date: '2026-03-15',
+        challenge_type: 'solve_count',
+        updated_at: '2026-03-15T12:00:01.000Z',
+        source: 'remote',
+      },
+    ];
+
+    const merged = mergeByUpdatedAtLwwByKey(local, remote, (row) =>
+      `${row.challenge_date}:${row.challenge_type}`,
+    );
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0].source).toBe('remote');
   });
 });

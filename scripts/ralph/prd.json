@@ -310,7 +310,7 @@
         "Validar qualidade com `pnpm lint` e `pnpm test` sem regressões."
       ],
       "priority": 8,
-      "passes": false,
+      "passes": true,
       "notes": "Depende da US-008 (conta + sync) para valor completo em múltiplos dispositivos."
     },
     {

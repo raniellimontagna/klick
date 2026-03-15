@@ -15,6 +15,8 @@ Started: 2026-03-13
 - Em telas com timer crítico, desacoplar estado/atalhos em hook único e pausar visualizações pesadas durante execução melhora fluidez sem perder recursos visuais.
 - Para sync offline-first com Supabase, manter stores locais como source of truth de runtime e sincronizar por merge `last-write-wins` usando `updated_at` reduz acoplamento entre UI e backend.
 - Para RLS consistente, espelhar a regra `auth.uid() = user_id` em `SELECT/INSERT/UPDATE/DELETE` em todas as tabelas de usuário evita vazamento cross-account no client SDK.
+- Para desafios diários multi-dispositivo, usar chave natural (`user_id`, `challenge_date`, `challenge_type`) simplifica merge offline e evita conflito de IDs gerados localmente.
+- Em stores com recomputação periódica, comparar snapshots ignorando `updatedAt` evita loops de sync sem perder consistência funcional.
 
 ---
 ## [2026-03-13 00:00:00 -0300] - US-001
@@ -248,4 +250,47 @@ Started: 2026-03-13
   - O callback dedicado de OAuth simplifica segurança de redirecionamento e evita dependência de parsing manual em múltiplas rotas.
   - Serializar `Infinity` de DNF como `null` na nuvem e reidratar para `Infinity` no cliente mantém compatibilidade com JSON/Supabase sem quebrar regras de média.
   - O comando `pnpm knip` foi habilitado com `--no-exit-code`; o output atual aponta itens de limpeza técnica que podem ser atacados na US-012.
+---
+## [2026-03-15 11:53:23 -0300] - US-009
+- What was implemented
+  - Motor de progressão adicionado com métricas base (streak atual/melhor, nível/XP e meta semanal) em `src/shared/lib/progress/progress-engine.ts`, incluindo rotação por fuso e catálogo inicial de desafios diários.
+  - Store offline-first de progressão criada em `src/shared/store/progress-store.ts` com persistência local e bootstrap global (`useProgressBootstrap`) para recalcular progresso a partir dos solves.
+  - Home atualizada com painel dedicado de progresso/desafios (`HomeProgressPanel`) exibindo streak, nível/XP, meta semanal e status dos desafios do dia.
+  - Sync Supabase estendido para desafios/completude com merge LWW por chave natural e hidratação local pós-sync.
+  - Nova migration SQL criada para `daily_challenges` e `challenge_completions` com índices, triggers de `updated_at` e políticas RLS por `auth.uid()`.
+  - Namespace i18n `progressHub` adicionado em `pt-BR`, `en-US` e `es-ES`.
+  - Testes unitários adicionados para o motor de progressão e para merge por chave no sync.
+- Files changed
+  - Added:
+    - src/shared/types/progress.ts
+    - src/shared/lib/progress/index.ts
+    - src/shared/lib/progress/progress-engine.ts
+    - src/shared/lib/progress/progress-engine.test.ts
+    - src/shared/store/progress-store.ts
+    - src/shared/hooks/use-progress-bootstrap.ts
+    - src/features/home/components/home-progress-panel.tsx
+    - supabase/migrations/20260315134500_us009_progress_challenges.sql
+  - Updated:
+    - src/shared/lib/supabase/database.ts
+    - src/shared/lib/supabase/sync.ts
+    - src/shared/lib/supabase/sync.test.ts
+    - src/shared/store/auth-store.ts
+    - src/shared/hooks/use-auth-bootstrap.ts
+    - src/app/app.tsx
+    - src/features/home/hooks/use-home-timer-dashboard.ts
+    - src/features/home/home.tsx
+    - src/features/home/components/index.ts
+    - src/shared/config/i18n/locales/pt-BR.ts
+    - src/shared/config/i18n/locales/en-US.ts
+    - src/shared/config/i18n/locales/es-ES.ts
+    - src/shared/hooks/index.ts
+    - src/shared/store/index.ts
+    - src/shared/lib/index.ts
+    - src/shared/types/index.ts
+    - scripts/ralph/prd.json
+    - scripts/ralph/progress.txt
+- Learnings for future iterations:
+  - Derivar progresso de `sessions` no bootstrap evita drift quando solves/penalidades são editados fora da home.
+  - A combinação `daily_challenges` + `challenge_completions` com upsert por chave natural reduz complexidade de reconciliação entre dispositivos em modo offline-first.
+  - `pnpm lint`, `pnpm test`, `pnpm knip` e `pnpm build` passaram nesta entrega.
 ---

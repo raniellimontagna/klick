@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useAuthStore } from '@/shared/store/auth-store';
 import { useI18nStore } from '@/shared/store/i18n-store';
+import { useProgressStore } from '@/shared/store/progress-store';
 import { useSessionsStore } from '@/shared/store/sessions-store';
 import { useSettingsStore } from '@/shared/store/settings-store';
 
@@ -56,6 +57,10 @@ export function useAuthBootstrap() {
       scheduleSync();
     });
 
+    const unsubscribeProgress = useProgressStore.subscribe(() => {
+      scheduleSync();
+    });
+
     const handleOnline = () => {
       scheduleSync();
     };
@@ -66,6 +71,7 @@ export function useAuthBootstrap() {
       unsubscribeSessions();
       unsubscribeSettings();
       unsubscribeI18n();
+      unsubscribeProgress();
 
       window.removeEventListener('online', handleOnline);
 

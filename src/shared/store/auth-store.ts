@@ -2,6 +2,7 @@ import type { Session as SupabaseSession, Subscription, User } from '@supabase/s
 import { create } from 'zustand';
 import type { Language } from '@/shared/config/i18n/translations';
 import { useI18nStore } from './i18n-store';
+import { useProgressStore } from './progress-store';
 import { useSessionsStore } from './sessions-store';
 import { useSettingsStore } from './settings-store';
 import { getSupabaseClient } from '@/shared/lib/supabase/client';
@@ -270,6 +271,7 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
 
     const sessionsState = useSessionsStore.getState();
     const settingsState = useSettingsStore.getState();
+    const progressState = useProgressStore.getState();
     const i18nState = useI18nStore.getState();
 
     const isFirstSync = state.lastSyncAt === null;
@@ -287,10 +289,22 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
         settings: settingsState.settings,
         settingsUpdatedAt: settingsState.updatedAt,
         language: i18nState.language,
+        progress: {
+          timezone: progressState.timezone,
+          challenges: progressState.challenges,
+          summary: progressState.summary,
+          updatedAt: progressState.updatedAt,
+        },
       });
 
       useSessionsStore.getState().hydrateSessions(syncResult.sessions, syncResult.activeSessionId);
       useSettingsStore.getState().hydrateSettings(syncResult.settings, syncResult.settingsUpdatedAt);
+      useProgressStore.getState().hydrateProgress(syncResult.progress);
+      useProgressStore
+        .getState()
+        .evaluateFromSessions(useSessionsStore.getState().sessions, {
+          timezone: syncResult.progress.timezone,
+        });
 
       const nextLanguage = syncResult.language as Language;
       if (nextLanguage !== i18nState.language) {

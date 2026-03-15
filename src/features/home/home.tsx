@@ -2,7 +2,14 @@ import { GraphUp, Stopwatch, Widget } from '@solar-icons/react';
 import { motion } from 'framer-motion';
 import { formatAverage } from '@/shared/lib';
 import { useI18nStore } from '@/shared/store/i18n-store';
-import { HomeControls, HomeScramblePanel, HomeSolveFeed, HomeStatsGrid, HomeTimerPanel } from './components';
+import {
+  HomeControls,
+  HomeProgressPanel,
+  HomeScramblePanel,
+  HomeSolveFeed,
+  HomeStatsGrid,
+  HomeTimerPanel,
+} from './components';
 import { useHomeTimerDashboard } from './hooks/use-home-timer-dashboard';
 
 export function Home() {
@@ -34,6 +41,8 @@ export function Home() {
     ao12,
     bestAo5,
     bestAo12,
+    progressSummary,
+    dailyChallenges,
   } = useHomeTimerDashboard();
 
   const stats = [
@@ -129,6 +138,8 @@ export function Home() {
       />
 
       <HomeStatsGrid title={t.homeRevamp.statsTitle} stats={stats} />
+
+      <HomeProgressPanel summary={progressSummary} challenges={dailyChallenges} />
 
       <HomeSolveFeed solves={filteredSolves} filter={solveFilter} onFilterChange={setSolveFilter} />
     </motion.div>

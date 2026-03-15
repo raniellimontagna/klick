@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useOnboardingStore } from '@/features/home/lib/onboarding/onboarding-store';
 import { shouldPlaySound, sounds } from '@/shared/lib';
+import { useProgressStore } from '@/shared/store/progress-store';
 import { useScrambleStore } from '@/shared/store/scramble-store';
 import { useSessionsStore } from '@/shared/store/sessions-store';
 import { useSettingsStore } from '@/shared/store/settings-store';
-import type { Penalty, Solve, TimerState } from '@/shared/types';
+import type { Penalty, ProgressChallenge, ProgressSummary, Solve, TimerState } from '@/shared/types';
 import type { CubeState } from '../lib/scramble/cube-solver';
 import { shouldIgnoreGlobalShortcut } from '../lib/keyboard-shortcuts';
 import { useTimer } from '../lib/use-timer';
@@ -47,6 +48,8 @@ export interface UseHomeTimerDashboardReturn {
   ao12: ReturnType<SessionsState['getAo12']>;
   bestAo5: ReturnType<SessionsState['getBestAo5']>;
   bestAo12: ReturnType<SessionsState['getBestAo12']>;
+  progressSummary: ProgressSummary;
+  dailyChallenges: ProgressChallenge[];
 }
 
 function resolveLastSolvePenalty(solves: Solve[]): Penalty {
@@ -109,6 +112,10 @@ export function useHomeTimerDashboard(): UseHomeTimerDashboardReturn {
     getBestAo5,
     getBestAo12,
   } = useSessionsStore();
+  const progressSummary = useProgressStore((state) => state.summary);
+  const dailyChallenges = useProgressStore((state) =>
+    state.challenges.filter((challenge) => challenge.dateKey === state.summary.todayKey),
+  );
 
   const [inspectionOvertime, setInspectionOvertime] = useState(0);
   const [cubeState, setCubeState] = useState<CubeState | null>(null);
@@ -321,5 +328,7 @@ export function useHomeTimerDashboard(): UseHomeTimerDashboardReturn {
     ao12: getAo12(),
     bestAo5: getBestAo5(),
     bestAo12: getBestAo12(),
+    progressSummary,
+    dailyChallenges,
   };
 }

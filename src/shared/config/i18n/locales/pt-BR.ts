@@ -87,6 +87,37 @@ export const ptBR = {
       shortcutsLabel: 'Atalhos:',
     },
   },
+  progressHub: {
+    title: 'Progressão e Desafios',
+    subtitle: 'Acompanhe streak, XP e metas semanais sem sair do fluxo do timer.',
+    streakLabel: 'Streak atual',
+    streakValue: '{count} dias',
+    bestStreakLabel: 'Melhor sequência: {count} dias',
+    levelLabel: 'Nível',
+    xpLabel: 'XP',
+    weeklyGoalLabel: 'Meta semanal',
+    weeklyGoalStatusDone: 'Meta semanal concluída.',
+    weeklyGoalStatusPending: 'Faltam {remaining} solves para fechar a meta.',
+    challengesTitle: 'Desafios de hoje',
+    empty: 'Nenhum desafio diário disponível no momento.',
+    challengeDone: 'Concluído',
+    challengeInProgress: 'Em andamento',
+    progressText: '{current}/{target}',
+    challengeTypes: {
+      solveCount: {
+        title: 'Complete {target} solves hoje',
+        description: 'Volume diário para manter consistência de treino.',
+      },
+      cleanStreak: {
+        title: 'Faça streak limpa de {target}',
+        description: 'Conquiste solves consecutivos sem DNF.',
+      },
+      ao5Target: {
+        title: 'Feche ao5 em {targetTime}',
+        description: 'Bata a meta de ao5 pelo menos uma vez no dia.',
+      },
+    },
+  },
   language: {
     title: 'Idioma',
     'pt-BR': 'Português (BR)',

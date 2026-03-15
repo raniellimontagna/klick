@@ -46,3 +46,5 @@ export type Session = z.infer<typeof SessionSchema>;
 export type Settings = z.infer<typeof SettingsSchema>;
 
 export type TimerState = 'idle' | 'inspection' | 'running' | 'stopped';
+
+export * from './progress';
