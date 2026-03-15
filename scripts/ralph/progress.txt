@@ -11,6 +11,7 @@ Started: dom 15 mar 2026 17:02:50 -03
 - On timer-driven screens, memoize non-live panels and invalidate expensive derived stats with a solve/session signature instead of recomputing them on every animation frame.
 - Analytics screens should expose period/metric controls as segmented buttons near the section header and degrade dense tables into card rows before the `lg` breakpoint.
 - Learning-oriented routes stay aligned longer when their cross-navigation lives in one shared header action cluster instead of duplicating route links inside each page.
+- Support surfaces stay coherent when standalone/auth/share pages reuse the same branded shell and when setup/login/empty/error states are promoted to first-class cards instead of inline warning text.
 
 ---
 ## 2026-03-15 17:33:34 -0300 - US-018
@@ -158,4 +159,39 @@ Started: dom 15 mar 2026 17:02:50 -03
   - A single shared action cluster for related routes is cheaper to maintain than mirroring route links in each learning page.
   - Viewer-heavy educational flows read better on mobile when overview and navigation live in secondary cards, leaving the 3D surface dominant in the primary column.
   - Wrapping page-specific cube orchestration in a dedicated hook (`use-cube-workspace`) keeps scene state, status copy and audio/history behavior out of the render layer.
+---
+## 2026-03-15 20:16:00 -0300 - US-023
+- Redesigned `/friends` and `/leaderboard` with summary cards, clearer setup/login states and responsive social listings that keep actions direct on mobile.
+- Reorganized `settings` by extracting import/export logic into `useSettingsContent` and regrouping experience, sync, sharing and backup surfaces with clearer hierarchy.
+- Rebuilt `/share/:slug` and `/auth/callback` as branded standalone pages with explicit loading, unavailable and error states instead of exception-style layouts.
+- Polished auxiliary overlays (`OnboardingTooltip`, `PWAUpdatePrompt`, `SessionManagerModal`) so onboarding, offline/update prompts and session management now follow the same surface contract.
+- Validated the story with `pnpm lint`, `pnpm test`, `pnpm knip` and `pnpm build`.
+- Files changed:
+  - `src/features/friends/friends.tsx`
+  - `src/features/friends/components/friend-invite-form.tsx`
+  - `src/features/friends/components/friend-invites-list.tsx`
+  - `src/features/friends/components/friends-list.tsx`
+  - `src/features/leaderboard/leaderboard.tsx`
+  - `src/features/leaderboard/components/leaderboard-period-switch.tsx`
+  - `src/features/leaderboard/components/leaderboard-table.tsx`
+  - `src/features/settings/components/settings-content/index.ts`
+  - `src/features/settings/components/settings-content/settings-content.tsx`
+  - `src/features/settings/components/settings-content/use-settings-content.ts`
+  - `src/features/settings/components/cloud-sync-section/cloud-sync-section.tsx`
+  - `src/features/settings/components/share-section/share-section.tsx`
+  - `src/features/share/share.tsx`
+  - `src/features/auth-callback/auth-callback.tsx`
+  - `src/shared/components/onboarding/onboarding-tooltip.tsx`
+  - `src/shared/components/pwa-update-prompt/pwa-update-prompt.tsx`
+  - `src/shared/components/session-manager-modal/session-manager-modal.tsx`
+  - `src/shared/config/i18n/locales/pt-BR.ts`
+  - `src/shared/config/i18n/locales/en-US.ts`
+  - `src/shared/config/i18n/locales/es-ES.ts`
+  - `docs/implementation.md`
+  - `docs/changelog.md`
+  - `scripts/ralph/prd.json`
+- Learnings for future iterations:
+  - Social/support pages read faster when readiness states include the next action inline instead of leaving navigation back to the user.
+  - Extracting page-local orchestration into a collocated hook is enough to keep a wide settings screen maintainable without inventing a new shared abstraction.
+  - Public/standalone routes feel less like exceptions when they reuse the same brand shell as auth and sharing rather than rolling bespoke full-screen cards.
 ---

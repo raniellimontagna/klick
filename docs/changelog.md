@@ -4,6 +4,13 @@ All notable changes and implementation milestones for the Klick project.
 
 ## 2026-03-15
 
+### Social, Settings And Sharing Surfaces Redesign (US-023)
+- Refined `/friends` and `/leaderboard` with summary cards, clearer setup/login states and responsive social reading that works as stacked cards on mobile and denser tables/cards on larger screens.
+- Reorganized `/settings` around experience, sync, sharing and data backup, extracting the settings import/export workflow into its own hook-backed `SettingsContent` surface.
+- Rebuilt `/share/:slug` and `/auth/callback` as branded standalone pages with clearer loading/error/unavailable states and stronger public-facing hierarchy.
+- Updated support overlays (`OnboardingTooltip`, `PWAUpdatePrompt`, `SessionManagerModal`) to remove legacy exception styling and align them with the redesign surface contract.
+- Added implementation notes for the social/support surfaces and localized new share-page error copy in pt-BR, en-US and es-ES.
+
 ### Learning Surfaces Redesign (US-022)
 - Unified `/training`, `/tutorial` and `/cube-3d` under the redesign system with shared page headers, cross-navigation actions and calmer overview surfaces.
 - Rebuilt training around the active drill, overall progress and next-step guidance while keeping the 3D viewer and quick progress actions in the primary panel.

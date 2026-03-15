@@ -66,6 +66,12 @@ Componentes específicos de features ficam em `/src/features/[feature]/component
 | `HomeStatsGrid` | home | Resumo rápido de Single, ao5, ao12 e melhores médias |
 | `HomeProgressPanel` | home | Camada secundária de progresso, streak e desafios |
 | `HomeSolveFeed` | home | Histórico rápido com layout responsivo orientado a cards |
+| `FriendInviteForm` | friends | Entrada principal para envio de convites com CTA direto e layout mobile-first |
+| `FriendInvitesList` | friends | Listas de convites recebidos/enviados com estados vazios e ações inline |
+| `FriendsList` | friends | Grade responsiva da rede ativa com remoção direta por amizade |
+| `LeaderboardPeriodSwitch` | leaderboard | Controle de período do ranking com segmentação semanal/mensal |
+| `LeaderboardTable` | leaderboard | Ranking responsivo em cards no mobile e tabela no desktop |
+| `SettingsContent` | settings | Agrupamento principal de experiência, backup/importação e superfícies de conta/compartilhamento |
 | `SolveTable` | history | Lista/tabela responsiva de solves com filtros segmentados e detalhes acionáveis |
 | `SolveDetailsModal` | history | Detalhe do solve que vira bottom sheet no mobile e modal no desktop |
 | `AdvancedStatsContent` | stats | Módulos analíticos com filtros por período/métrica e gráficos mobile-first |
@@ -335,3 +341,31 @@ Workspace 3D integrado ao shell principal, com HUD de status, leitura de progres
 - **Exportar:** JSON da sessão atual ou todas
 - **Importar:** Merge ou replace
 - Validação de estrutura do JSON
+
+---
+
+## Social Hub e Suporte
+
+### Friends
+
+- Resumo superior com convites recebidos, enviados, amizades ativas e conta conectada
+- CTA principal de convite com hierarquia clara e estados vazios mais didáticos
+- Blocos de setup/login agora apontam diretamente para configurações quando o social não está pronto
+
+### Leaderboard
+
+- Cards de resumo com período ativo, volume do ranking e snapshot do usuário
+- `LeaderboardTable` troca para cards densos no mobile e mantém tabela completa no desktop
+- Refresh manual e leitura de privacidade ficam agrupados no topo da superfície
+
+### Settings, Share e Auth
+
+- `SettingsContent` foi reorganizado em torno de experiência do timer, backup/importação, conta e compartilhamento
+- `CloudSyncSection` e `ShareSection` adotam painéis de status, controles agrupados e feedback padronizado
+- `/share/:slug` e `/auth/callback` usam shell standalone com branding, estados distintos e sem aparência de “tela de exceção”
+
+### Overlays Auxiliares
+
+- `OnboardingTooltip` agora segue o contrato de `surface-overlay` com barra de progresso explícita
+- `PWAUpdatePrompt` respeita a safe area do shell mobile e se alinha ao novo sistema visual
+- `SessionManagerModal` foi redesenhado para o mesmo padrão de cards, badges e ações do restante do app

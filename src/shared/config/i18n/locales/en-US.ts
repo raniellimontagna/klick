@@ -205,8 +205,10 @@ export const enUS = {
       nextAction: 'Next action',
       nextActionStates: {
         scrambling: 'Wait for the scramble to finish or skip the animation to take control.',
-        playing: 'Use the controls to pause, step through, or review the algorithm at your own pace.',
-        animating: 'Let the current turn finish before undoing, resetting, or generating another scramble.',
+        playing:
+          'Use the controls to pause, step through, or review the algorithm at your own pace.',
+        animating:
+          'Let the current turn finish before undoing, resetting, or generating another scramble.',
         complete: 'The sequence is done. Restart playback or try another scramble.',
         ready: 'Generate a scramble or apply manual turns to start exploring.',
       },
@@ -221,16 +223,19 @@ export const enUS = {
     },
     workspace: {
       title: 'Cube desk',
-      description: 'The main scene keeps scramble, playback, and corrections together without feeling like a demo.',
+      description:
+        'The main scene keeps scramble, playback, and corrections together without feeling like a demo.',
       scrambling: 'Applying scramble',
       skip: 'Skip animation',
       historyToggleShow: 'Show history',
       historyToggleHide: 'Hide history',
-      historyToggleHint: 'On mobile, open history only when you need to review turns or undo steps.',
+      historyToggleHint:
+        'On mobile, open history only when you need to review turns or undo steps.',
     },
     actions: {
       title: 'Quick actions',
-      description: 'Reshuffle, realign the camera, or adjust audio without leaving the viewer context.',
+      description:
+        'Reshuffle, realign the camera, or adjust audio without leaving the viewer context.',
       scramble: 'New scramble',
       undo: 'Undo',
       realign: 'Realign camera',
@@ -635,6 +640,8 @@ export const enUS = {
     badge: 'Shared snapshot',
     loadingLabel: 'Loading shared data',
     loadingDescription: 'Fetching public data for this link.',
+    errorTitle: 'Unable to load this link',
+    errorDescription: 'There was a problem fetching this public snapshot. Please try again soon.',
     generatedAt: 'Generated at',
     puzzleType: 'Puzzle',
     notFoundTitle: 'Link unavailable',
@@ -913,7 +920,8 @@ export const enUS = {
       recognition: 'Recognition',
       coaching: 'Quick coaching',
       confidence: 'Current confidence',
-      cubeHint: 'The cube sets up the case and gives you playback controls to run, pause, or step through it.',
+      cubeHint:
+        'The cube sets up the case and gives you playback controls to run, pause, or step through it.',
     },
     actions: {
       replay: 'Replay animation',
@@ -1261,8 +1269,7 @@ export const enUS = {
               },
               {
                 title: 'Cross final alignment',
-                summary:
-                  'Fix cross alignment so every side color is correct before entering F2L.',
+                summary: 'Fix cross alignment so every side color is correct before entering F2L.',
                 recognition:
                   'The white cross is done, but one or two side colors do not match their centers.',
                 checklist: [
@@ -1343,7 +1350,8 @@ export const enUS = {
               {
                 title: 'T-Perm',
                 summary: 'Swaps two adjacent corners and two adjacent edges, a common finisher.',
-                recognition: 'One 2x1 side block is solved and remaining pieces form a T-style swap.',
+                recognition:
+                  'One 2x1 side block is solved and remaining pieces form a T-style swap.',
                 checklist: [
                   'Keep the solved block on the left side.',
                   "Execute R U R' U' R' F R2 U' R' U' R U R' F'.",
@@ -1354,8 +1362,7 @@ export const enUS = {
               {
                 title: 'Y-Perm',
                 summary: 'Diagonal corner swap plus edge cycle, useful for awkward endings.',
-                recognition:
-                  'No side block is solved and corners look like they swap diagonally.',
+                recognition: 'No side block is solved and corners look like they swap diagonally.',
                 checklist: [
                   'Confirm diagonal corner swap pattern.',
                   "Execute F R U' R' U' R U R' F' R U R' U' R' F R F'.",

@@ -15,29 +15,29 @@ export function PWAUpdatePrompt() {
           initial={{ opacity: 0, y: 50 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 50 }}
-          className="fixed bottom-4 right-4 left-4 sm:left-auto sm:max-w-md z-50"
+          className="fixed bottom-[calc(var(--safe-area-bottom)+6.5rem)] left-4 right-4 z-50 sm:bottom-4 sm:left-auto sm:max-w-md"
         >
-          <div className="bg-surface border-2 border-primary rounded-2xl p-4 shadow-2xl">
+          <div className="surface-overlay rounded-[1.75rem] p-4">
             <div className="flex items-start gap-3">
-              <div className="shrink-0 w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center">
+              <div className="shrink-0 flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/12 text-primary">
                 <Download className="w-5 h-5 text-primary" />
               </div>
 
               <div className="flex-1 min-w-0">
-                <h3 className="font-semibold text-text-primary mb-1">
+                <h3 className="mb-1 font-semibold text-text-primary">
                   {needRefresh ? t.pwa.update.title : t.pwa.offline.title}
                 </h3>
-                <p className="text-sm text-text-secondary mb-3">
+                <p className="mb-3 text-sm leading-relaxed text-text-secondary">
                   {needRefresh ? t.pwa.update.description : t.pwa.offline.description}
                 </p>
 
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   {needRefresh && (
-                    <Button onClick={handleUpdate} className="px-4 py-2 text-sm">
+                    <Button onClick={handleUpdate} className="text-sm">
                       {t.pwa.update.updateNow}
                     </Button>
                   )}
-                  <Button onClick={close} variant="secondary" className="px-4 py-2 text-sm">
+                  <Button onClick={close} variant="secondary" className="text-sm">
                     {needRefresh ? t.pwa.update.later : t.pwa.offline.understood}
                   </Button>
                 </div>
@@ -47,7 +47,7 @@ export function PWAUpdatePrompt() {
                 onClick={close}
                 variant="ghost"
                 size="icon"
-                className="shrink-0 w-8 h-8"
+                className="h-8 w-8 shrink-0"
                 aria-label={t.pwa.close}
               >
                 <CloseCircle size={20} className="text-text-secondary" />

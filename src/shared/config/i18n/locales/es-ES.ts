@@ -23,7 +23,8 @@ export const esES = {
     },
     sheet: {
       learnDescription: 'Abre entrenamiento y tutorial sin salir del flujo principal de la app.',
-      moreDescription: 'Accede a lo social, herramientas y configuración desde un panel secundario.',
+      moreDescription:
+        'Accede a lo social, herramientas y configuración desde un panel secundario.',
     },
   },
   pages: {
@@ -208,7 +209,8 @@ export const esES = {
       nextActionStates: {
         scrambling: 'Espera a que termine la mezcla o salta la animación para tomar el control.',
         playing: 'Usa los controles para pausar, avanzar o revisar el algoritmo a tu ritmo.',
-        animating: 'Deja que termine el giro actual antes de deshacer, reiniciar o generar otro scramble.',
+        animating:
+          'Deja que termine el giro actual antes de deshacer, reiniciar o generar otro scramble.',
         complete: 'La secuencia terminó. Reinicia el playback o prueba otro scramble.',
         ready: 'Genera un scramble o haz giros manuales para empezar a explorar.',
       },
@@ -235,7 +237,8 @@ export const esES = {
     },
     actions: {
       title: 'Acciones rápidas',
-      description: 'Vuelve a mezclar, realinea la cámara o ajusta el audio sin salir del contexto del viewer.',
+      description:
+        'Vuelve a mezclar, realinea la cámara o ajusta el audio sin salir del contexto del viewer.',
       scramble: 'Nuevo scramble',
       undo: 'Deshacer',
       realign: 'Realinear cámara',
@@ -284,7 +287,8 @@ export const esES = {
       restart: 'Reiniciar',
       finish: 'Ir al final',
       speed: 'Velocidad',
-      reducedMotion: 'El movimiento reducido está activo, así que el autoplay queda en pausa hasta que lo inicies.',
+      reducedMotion:
+        'El movimiento reducido está activo, así que el autoplay queda en pausa hasta que lo inicies.',
       modes: {
         autoplay: 'Modo autoplay: el cubo puede continuar solo cuando pulses reproducir.',
         'step-by-step': 'Modo guiado: avanza, retrocede o pausa a tu propio ritmo.',
@@ -575,7 +579,8 @@ export const esES = {
       loading: 'Cargando...',
       controls: {
         enableSharing: 'Habilitar compartición pública',
-        enableSharingHint: 'Al desactivar esta opción, todos los enlaces activos se revocan al instante.',
+        enableSharingHint:
+          'Al desactivar esta opción, todos los enlaces activos se revocan al instante.',
         profileVisibility: 'Visibilidad del perfil',
         profilePublic: 'Tu perfil aparece como público en los snapshots compartidos.',
         profileFriends: 'Tu perfil solo es visible para amistades aceptadas.',
@@ -587,8 +592,7 @@ export const esES = {
         shareSingle: 'Compartir single',
         shareSingleHint: 'Incluye tu mejor single actual en el enlace público.',
         shareAverages: 'Compartir promedios (ao5/ao12)',
-        shareAveragesHint:
-          'Incluye ao5, ao12, best ao5 y best ao12 de la sesión activa.',
+        shareAveragesHint: 'Incluye ao5, ao12, best ao5 y best ao12 de la sesión activa.',
         shareProgress: 'Compartir progresión',
         shareProgressHint: 'Incluye nivel, XP, racha y meta semanal.',
       },
@@ -643,6 +647,9 @@ export const esES = {
     badge: 'Snapshot compartido',
     loadingLabel: 'Cargando compartición',
     loadingDescription: 'Buscando los datos públicos de este enlace.',
+    errorTitle: 'No fue posible cargar este enlace',
+    errorDescription:
+      'Hubo un problema al buscar este snapshot público. Inténtalo nuevamente en unos momentos.',
     generatedAt: 'Generado el',
     puzzleType: 'Puzzle',
     notFoundTitle: 'Enlace no disponible',
@@ -922,7 +929,8 @@ export const esES = {
       recognition: 'Reconocimiento',
       coaching: 'Coaching rápido',
       confidence: 'Confianza actual',
-      cubeHint: 'El cubo arma el caso y te deja controles para reproducirlo, pausarlo o avanzar a tu ritmo.',
+      cubeHint:
+        'El cubo arma el caso y te deja controles para reproducirlo, pausarlo o avanzar a tu ritmo.',
     },
     actions: {
       replay: 'Repetir animación',
@@ -1335,8 +1343,7 @@ export const esES = {
               {
                 title: 'Anti-Sune',
                 summary: 'Versión espejada del Sune para patrones invertidos de orientación.',
-                recognition:
-                  'Se parece al Sune, pero el faro aparece en el lado contrario.',
+                recognition: 'Se parece al Sune, pero el faro aparece en el lado contrario.',
                 checklist: [
                   'Mantén el caso espejado al frente.',
                   "Ejecuta R' U' R U' R' U2 R.",
@@ -1353,8 +1360,7 @@ export const esES = {
             lessons: [
               {
                 title: 'T-Perm',
-                summary:
-                  'Intercambia dos esquinas y dos aristas adyacentes, muy común en finales.',
+                summary: 'Intercambia dos esquinas y dos aristas adyacentes, muy común en finales.',
                 recognition:
                   'Un bloque lateral 2x1 ya está resuelto y el resto forma un intercambio tipo T.',
                 checklist: [

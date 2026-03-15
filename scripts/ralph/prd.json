@@ -689,7 +689,7 @@
         "Validar qualidade com `pnpm lint`, `pnpm test` e `pnpm build` sem regressões."
       ],
       "priority": 21,
-      "passes": false,
+      "passes": true,
       "dependsOn": [
         "US-022"
       ],

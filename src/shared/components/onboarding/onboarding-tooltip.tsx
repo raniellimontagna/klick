@@ -182,13 +182,14 @@ export function OnboardingTooltip({ step }: OnboardingTooltipProps) {
 
   const stepContent = t.onboarding[step];
   const showProgress = stepConfig.showProgress && !isFirst && !isLast;
+  const progressValue = showProgress ? (currentIndex / totalSteps) * 100 : 0;
 
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.9, y: 20 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.9, y: 20 }}
-      className="fixed z-[10000] bg-white/10 backdrop-blur-md rounded-xl sm:rounded-2xl shadow-2xl border-2 border-primary p-4 sm:p-6 max-w-md"
+      className="surface-overlay fixed z-[10000] max-w-md rounded-[1.75rem] border border-border/70 p-4 shadow-[var(--klick-shadow-3)] sm:p-6"
       style={{
         top: position.top,
         left: position.left,
@@ -198,43 +199,52 @@ export function OnboardingTooltip({ step }: OnboardingTooltipProps) {
       }}
       ref={tooltipRef}
     >
-      {/* Close button */}
       {stepConfig.allowSkip && (
         <Button
           onClick={skipOnboarding}
           variant="ghost"
           size="icon"
-          className="absolute top-3 right-3 sm:top-4 sm:right-4 text-text-muted hover:text-text-primary transition-colors"
+          className="absolute right-3 top-3 text-text-muted sm:right-4 sm:top-4"
           title={t.onboarding.skip}
         >
           <CloseCircle size={18} className="sm:w-5 sm:h-5" />
         </Button>
       )}
 
-      {/* Progress */}
       {showProgress && (
-        <div className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-text-muted mb-2 sm:mb-3">
-          {t.onboarding.progress
-            .replace('{current}', String(currentIndex))
-            .replace('{total}', String(totalSteps))}
+        <div className="mb-4 space-y-2 sm:mb-5">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-muted sm:text-xs">
+              {t.onboarding.progress
+                .replace('{current}', String(currentIndex))
+                .replace('{total}', String(totalSteps))}
+            </div>
+            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">
+              {Math.round(progressValue)}%
+            </span>
+          </div>
+          <div className="h-1.5 rounded-full bg-surface-hover/80">
+            <div
+              className="h-full rounded-full bg-primary transition-[width] duration-200"
+              style={{ width: `${progressValue}%` }}
+            />
+          </div>
         </div>
       )}
 
-      {/* Content */}
-      <h3 className="text-lg sm:text-xl font-bold text-white mb-2 sm:mb-3 pr-6">
-        {stepContent.title}
-      </h3>
-      <p className="text-sm sm:text-base text-text-secondary mb-4 sm:mb-6 leading-relaxed">
-        {stepContent.description}
-      </p>
+      <div className="space-y-2 pr-6">
+        <h3 className="text-lg font-bold text-text-primary sm:text-xl">{stepContent.title}</h3>
+        <p className="text-sm leading-relaxed text-text-secondary sm:text-base">
+          {stepContent.description}
+        </p>
+      </div>
 
-      {/* Actions */}
-      <div className="flex items-center justify-between gap-2 sm:gap-3">
+      <div className="mt-5 flex items-center justify-between gap-2 sm:gap-3">
         {!isFirst && (
           <Button
             onClick={previousStep}
             variant="ghost"
-            className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 text-text-muted hover:text-text-primary hover:bg-white/5 border-none text-sm sm:text-base"
+            className="px-3 text-sm sm:px-4 sm:text-base"
           >
             <AltArrowLeft size={16} className="sm:w-[18px] sm:h-[18px]" />
             <span className="hidden sm:inline">{t.onboarding.previous}</span>
@@ -244,17 +254,11 @@ export function OnboardingTooltip({ step }: OnboardingTooltipProps) {
         <div className="flex-1" />
 
         {isLast ? (
-          <Button
-            onClick={nextStep}
-            className="flex items-center gap-2 px-4 sm:px-6 py-2 text-sm sm:text-base"
-          >
+          <Button onClick={nextStep} className="px-4 text-sm sm:px-6 sm:text-base">
             {t.onboarding.finish}
           </Button>
         ) : (
-          <Button
-            onClick={nextStep}
-            className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 text-sm sm:text-base"
-          >
+          <Button onClick={nextStep} className="px-3 text-sm sm:px-4 sm:text-base">
             <span className="hidden sm:inline">{t.onboarding.next}</span>
             <span className="sm:hidden">Próx.</span>
             <AltArrowRight size={16} className="sm:w-[18px] sm:h-[18px]" />

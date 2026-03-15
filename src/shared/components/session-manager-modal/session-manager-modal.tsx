@@ -42,7 +42,9 @@ export const SessionManagerModal: React.FC<SessionManagerModalProps> = ({
     setActiveSession,
   } = useSessionManagerModal();
 
-  if (!isOpen) return null;
+  if (!isOpen) {
+    return null;
+  }
 
   return (
     <>
@@ -51,120 +53,114 @@ export const SessionManagerModal: React.FC<SessionManagerModalProps> = ({
         onClose={onClose}
         size="md"
         ariaLabel={t.sessions.manage}
-        backdropClassName="bg-black/80 backdrop-blur-sm"
-        containerClassName="p-4"
-        className="flex flex-col max-h-[90vh]"
+        className="flex max-h-[90vh] flex-col"
       >
-        <div className="flex flex-col h-full overflow-hidden">
-          {/* Header */}
-          <header className="flex items-center justify-between p-6 border-b border-white/10 shrink-0">
-            <div className="flex items-center gap-3">
-              <FolderOpen className="text-primary" size={24} aria-hidden="true" />
-              <h2 className="text-xl font-bold text-text-primary">{t.sessions.manage}</h2>
+        <header className="flex items-start justify-between gap-4 border-b border-border/70 px-6 py-5">
+          <div className="flex items-start gap-3">
+            <span className="surface-base inline-flex h-11 w-11 items-center justify-center rounded-2xl text-primary">
+              <FolderOpen size={22} aria-hidden="true" />
+            </span>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-text-muted">
+                {t.sessions.title}
+              </p>
+              <h2 className="mt-1 text-xl font-semibold text-text-primary">{t.sessions.manage}</h2>
             </div>
-            <Button
-              onClick={onClose}
-              variant="ghost"
-              size="icon"
-              className="hover:bg-white/10 text-text-secondary hover:text-text-primary -mr-2 -mt-2"
-              aria-label={t.actions.close}
-            >
-              <CloseCircle size={20} className="text-text-muted" />
-            </Button>
-          </header>
+          </div>
 
-          {/* Content */}
-          <section className="flex-1 overflow-y-auto p-6 scrollbar-thin scrollbar-thumb-white/10">
-            {/* Create New Session */}
-            <div className="mb-8">
+          <Button onClick={onClose} variant="ghost" size="icon" aria-label={t.actions.close}>
+            <CloseCircle size={20} className="text-text-muted" />
+          </Button>
+        </header>
+
+        <section className="flex-1 overflow-y-auto px-6 py-6">
+          <div className="space-y-6">
+            <div className="surface-base rounded-[1.5rem] px-5 py-5">
               <label
                 htmlFor="new-session-name"
-                className="block text-sm font-medium text-text-secondary mb-2"
+                className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-muted"
               >
                 {t.sessions.create}
               </label>
-              <div className="flex gap-2">
+              <div className="mt-3 flex flex-col gap-3 sm:flex-row">
                 <input
                   id="new-session-name"
                   type="text"
                   value={newSessionName}
-                  onChange={(e) => setNewSessionName(e.target.value)}
-                  onKeyDown={(e) => handleKeyDown(e, handleCreate)}
+                  onChange={(event) => setNewSessionName(event.target.value)}
+                  onKeyDown={(event) => handleKeyDown(event, handleCreate)}
                   placeholder={t.sessions.namePlaceholder}
-                  className="flex-1 px-4 py-2.5 bg-black/20 border border-white/10 rounded-lg text-text-primary placeholder-text-muted focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+                  className="h-11 flex-1 rounded-2xl border border-border/75 bg-background/40 px-4 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none"
                 />
                 <Button
                   onClick={handleCreate}
                   disabled={!newSessionName.trim()}
-                  className="flex items-center gap-2 px-6 py-2.5"
+                  className="justify-center sm:min-w-40"
                 >
                   <AddCircle size={18} />
-                  <span className="hidden sm:inline">{t.actions.create}</span>
+                  {t.actions.create}
                 </Button>
               </div>
             </div>
 
-            {/* Sessions List */}
-            <div>
-              <h3 className="text-sm font-medium text-text-secondary mb-3">{t.sessions.title}</h3>
-              <ul className="space-y-3" aria-label="Lista de sessões">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-text-muted">
+                  {t.sessions.title}
+                </h3>
+                <span className="surface-base rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-secondary">
+                  {sessions.length}
+                </span>
+              </div>
+
+              <ul className="grid gap-3" aria-label="Lista de sessões">
                 {sessions.map((session) => (
                   <li
                     key={session.id}
-                    className={`p-1 rounded-xl border-2 transition-all ${
+                    className={`rounded-[1.5rem] border px-4 py-4 ${
                       session.id === activeSessionId
-                        ? 'border-primary bg-primary/5'
-                        : 'border-transparent bg-white/5 hover:border-white/10'
+                        ? 'border-primary/35 bg-primary/10'
+                        : 'border-border/70 bg-surface/65'
                     }`}
                   >
                     {editingId === session.id ? (
-                      // Edit Mode
-                      <div className="flex gap-2 p-3">
+                      <div className="flex flex-col gap-3 sm:flex-row">
                         <input
                           type="text"
                           value={editingName}
-                          onChange={(e) => setEditingName(e.target.value)}
-                          onKeyDown={(e) => handleKeyDown(e, handleSaveEdit)}
-                          className="flex-1 px-3 py-2 bg-black/20 border border-white/10 rounded-lg text-text-primary focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                          onChange={(event) => setEditingName(event.target.value)}
+                          onKeyDown={(event) => handleKeyDown(event, handleSaveEdit)}
+                          className="h-11 flex-1 rounded-2xl border border-border/75 bg-background/40 px-4 text-sm text-text-primary focus:border-primary focus:outline-none"
                           aria-label="Renomear sessão"
                         />
-                        <Button
-                          onClick={handleSaveEdit}
-                          variant="success"
-                          size="sm"
-                          className="px-4"
-                        >
-                          {t.actions.save}
-                        </Button>
-                        <Button
-                          onClick={handleCancelEdit}
-                          variant="secondary"
-                          size="sm"
-                          className="px-4 bg-white/10 hover:bg-white/20 text-text-primary border-none"
-                        >
-                          {t.actions.cancel}
-                        </Button>
+                        <div className="flex gap-2">
+                          <Button onClick={handleSaveEdit} variant="success" size="sm">
+                            {t.actions.save}
+                          </Button>
+                          <Button onClick={handleCancelEdit} variant="secondary" size="sm">
+                            {t.actions.cancel}
+                          </Button>
+                        </div>
                       </div>
                     ) : (
-                      // View Mode
-                      <div className="flex items-center justify-between p-3">
+                      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                         <button
                           type="button"
                           onClick={() => setActiveSession(session.id)}
-                          className="flex-1 text-left group outline-none"
+                          className="min-w-0 flex-1 text-left outline-none"
                           aria-label={`Selecionar sessão ${session.name}`}
                         >
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold text-text-primary group-hover:text-primary transition-colors">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-base font-semibold text-text-primary">
                               {session.name}
                             </span>
-                            {session.id === activeSessionId && (
-                              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 bg-primary/20 text-primary border border-primary/30 rounded">
+                            {session.id === activeSessionId ? (
+                              <span className="rounded-full border border-primary/25 bg-primary/12 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-primary">
                                 {t.sessions.active || 'Ativa'}
                               </span>
-                            )}
+                            ) : null}
                           </div>
-                          <p className="text-sm text-text-muted mt-0.5">
+                          <p className="mt-1 text-sm text-text-secondary">
                             {session.solves.length}{' '}
                             {getSolveCountText(
                               session.solves.length,
@@ -173,26 +169,28 @@ export const SessionManagerModal: React.FC<SessionManagerModalProps> = ({
                             )}
                           </p>
                         </button>
-                        <div className="flex gap-1">
+
+                        <div className="flex flex-wrap gap-2">
                           <Button
                             onClick={() => handleStartEdit(session.id, session.name)}
                             variant="ghost"
-                            size="icon"
-                            className="text-text-muted hover:text-text-primary hover:bg-white/10 rounded-lg"
+                            size="sm"
                             title={t.sessions.rename}
                             aria-label={t.sessions.rename}
                           >
-                            <Pen size={18} />
+                            <Pen size={16} />
+                            {t.sessions.rename}
                           </Button>
                           <Button
                             onClick={() => setDeletingId(session.id)}
                             variant="ghost"
-                            size="icon"
-                            className="text-danger/60 hover:text-danger hover:bg-danger/10 rounded-lg"
+                            size="sm"
                             title={t.sessions.delete}
                             aria-label={t.sessions.delete}
+                            className="text-danger hover:text-danger"
                           >
-                            <TrashBin2 size={18} />
+                            <TrashBin2 size={16} />
+                            {t.sessions.delete}
                           </Button>
                         </div>
                       </div>
@@ -201,22 +199,16 @@ export const SessionManagerModal: React.FC<SessionManagerModalProps> = ({
                 ))}
               </ul>
             </div>
-          </section>
+          </div>
+        </section>
 
-          {/* Footer */}
-          <footer className="p-6 border-t border-white/10 flex justify-end shrink-0">
-            <Button
-              onClick={onClose}
-              variant="secondary"
-              className="px-8 py-2.5 bg-white/5 hover:bg-white/10 text-text-primary border-none"
-            >
-              {t.actions.close}
-            </Button>
-          </footer>
-        </div>
+        <footer className="flex justify-end border-t border-border/70 px-6 py-5">
+          <Button onClick={onClose} variant="secondary">
+            {t.actions.close}
+          </Button>
+        </footer>
       </Modal>
 
-      {/* Delete Confirmation */}
       <ConfirmDialog
         isOpen={deletingId !== null}
         onClose={() => setDeletingId(null)}
@@ -228,35 +220,34 @@ export const SessionManagerModal: React.FC<SessionManagerModalProps> = ({
         variant="danger"
       />
 
-      {/* Success Toasts */}
-      {showCreateSuccess && (
+      {showCreateSuccess ? (
         <Toast
           message={t.sessions.createSuccess}
           type="success"
           onClose={() => setShowCreateSuccess(false)}
         />
-      )}
-      {showRenameSuccess && (
+      ) : null}
+      {showRenameSuccess ? (
         <Toast
           message={t.sessions.renameSuccess}
           type="success"
           onClose={() => setShowRenameSuccess(false)}
         />
-      )}
-      {showDeleteSuccess && (
+      ) : null}
+      {showDeleteSuccess ? (
         <Toast
           message={t.sessions.deleteSuccess}
           type="success"
           onClose={() => setShowDeleteSuccess(false)}
         />
-      )}
-      {showCannotDeleteError && (
+      ) : null}
+      {showCannotDeleteError ? (
         <Toast
           message={t.sessions.cannotDeleteLast}
           type="error"
           onClose={() => setShowCannotDeleteError(false)}
         />
-      )}
+      ) : null}
     </>
   );
 };

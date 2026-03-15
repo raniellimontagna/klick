@@ -22,17 +22,18 @@ export function LeaderboardPeriodSwitch({
 }: LeaderboardPeriodSwitchProps) {
   return (
     <Card className="space-y-4">
-      <header className="space-y-1">
-        <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-text-muted">{title}</h2>
-        <p className="text-sm text-text-secondary">{subtitle}</p>
-      </header>
+      <div className="space-y-2">
+        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-text-muted">{title}</p>
+        <h2 className="text-lg font-semibold text-text-primary">{subtitle}</h2>
+        <p className="text-sm leading-relaxed text-text-secondary">{title}</p>
+      </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="grid gap-3 sm:grid-cols-2">
         <Button
           variant={period === 'weekly' ? 'primary' : 'secondary'}
           onClick={() => onPeriodChange('weekly')}
           disabled={isLoading}
-          className="h-10"
+          className="justify-center"
         >
           {weeklyLabel}
         </Button>
@@ -40,7 +41,7 @@ export function LeaderboardPeriodSwitch({
           variant={period === 'monthly' ? 'primary' : 'secondary'}
           onClick={() => onPeriodChange('monthly')}
           disabled={isLoading}
-          className="h-10"
+          className="justify-center"
         >
           {monthlyLabel}
         </Button>

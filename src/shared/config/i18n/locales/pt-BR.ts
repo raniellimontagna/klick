@@ -208,7 +208,8 @@ export const ptBR = {
       nextActionStates: {
         scrambling: 'Aguarde o embaralhamento terminar ou pule a animação para assumir o controle.',
         playing: 'Use os controles para pausar, avançar ou revisar o algoritmo no seu ritmo.',
-        animating: 'Espere o giro atual concluir antes de desfazer, resetar ou gerar outro scramble.',
+        animating:
+          'Espere o giro atual concluir antes de desfazer, resetar ou gerar outro scramble.',
         complete: 'A sequência terminou. Reinicie o playback ou experimente um novo scramble.',
         ready: 'Gere um scramble ou faça movimentos manuais para começar a explorar.',
       },
@@ -235,7 +236,8 @@ export const ptBR = {
     },
     actions: {
       title: 'Ações rápidas',
-      description: 'Reembaralhe, realinhe a câmera ou ajuste o áudio sem sair do contexto do viewer.',
+      description:
+        'Reembaralhe, realinhe a câmera ou ajuste o áudio sem sair do contexto do viewer.',
       scramble: 'Novo scramble',
       undo: 'Desfazer',
       realign: 'Realinhar câmera',
@@ -284,7 +286,8 @@ export const ptBR = {
       restart: 'Reiniciar',
       finish: 'Ir ao fim',
       speed: 'Velocidade',
-      reducedMotion: 'Movimento reduzido ativo: o cubo evita autoplay até você iniciar a reprodução.',
+      reducedMotion:
+        'Movimento reduzido ativo: o cubo evita autoplay até você iniciar a reprodução.',
       modes: {
         autoplay: 'Autoplay ativo: o cubo pode seguir sozinho quando você apertar reproduzir.',
         'step-by-step': 'Modo guiado: avance, volte ou pause cada etapa no seu ritmo.',
@@ -460,7 +463,8 @@ export const ptBR = {
     description: 'Veja todos os seus solves e acompanhe sua evolução.',
     sessionProgress: 'Progresso da Sessão',
     chartTitle: 'Linha do tempo dos solves',
-    chartDescription: 'Leia tendência, gaps de DNF e ritmo recente sem depender de uma tabela pesada.',
+    chartDescription:
+      'Leia tendência, gaps de DNF e ritmo recente sem depender de uma tabela pesada.',
     summary: {
       total: 'Solves',
       totalMeta: '{valid} válidos · {penalties} com penalidade',
@@ -532,7 +536,8 @@ export const ptBR = {
     },
     cloudSync: {
       title: 'Conta e Sincronização',
-      description: 'Conecte sua conta para manter sessões e solves sincronizados entre dispositivos.',
+      description:
+        'Conecte sua conta para manter sessões e solves sincronizados entre dispositivos.',
       statusLabel: 'Status da nuvem',
       statusLocalOnly: 'Local apenas',
       statusAnonymous: 'Não conectado',
@@ -642,6 +647,9 @@ export const ptBR = {
     badge: 'Snapshot compartilhado',
     loadingLabel: 'Carregando compartilhamento',
     loadingDescription: 'Buscando os dados públicos deste link.',
+    errorTitle: 'Não foi possível carregar este link',
+    errorDescription:
+      'Houve um problema ao buscar o snapshot público. Tente novamente em instantes.',
     generatedAt: 'Gerado em',
     puzzleType: 'Puzzle',
     notFoundTitle: 'Link indisponível',
@@ -669,7 +677,8 @@ export const ptBR = {
       notConfiguredDescription:
         'Ative o Supabase para liberar convites de amizade e sincronização social.',
       loginRequiredTitle: 'Faça login para gerenciar amigos',
-      loginRequiredDescription: 'Conecte sua conta nas configurações para enviar e receber convites.',
+      loginRequiredDescription:
+        'Conecte sua conta nas configurações para enviar e receber convites.',
       labels: {
         loading: 'Carregando amizades...',
         invitedAt: 'Convite em',
@@ -921,7 +930,8 @@ export const ptBR = {
       recognition: 'Reconhecimento',
       coaching: 'Coaching rápido',
       confidence: 'Confiança atual',
-      cubeHint: 'O cubo monta o caso e libera controles para reproduzir, pausar ou avançar no seu ritmo.',
+      cubeHint:
+        'O cubo monta o caso e libera controles para reproduzir, pausar ou avançar no seu ritmo.',
     },
     actions: {
       replay: 'Repetir animação',
@@ -981,7 +991,8 @@ export const ptBR = {
           f2lPairInsertLeft: {
             title: 'Par frontal à esquerda',
             summary: 'Espelho da inserção direita para equilíbrio das mãos.',
-            recognition: 'Identifique o par no topo e alinhe para entrada no slot frontal esquerdo.',
+            recognition:
+              'Identifique o par no topo e alinhe para entrada no slot frontal esquerdo.',
             coaching: "Use U' L' U L com ritmo uniforme e sem travar o giro U.",
           },
         },
@@ -1257,7 +1268,8 @@ export const ptBR = {
             lessons: [
               {
                 title: 'Da Daisy para a Cross',
-                summary: 'Converta a daisy em cruz completa sem perder orientação da camada de cima.',
+                summary:
+                  'Converta a daisy em cruz completa sem perder orientação da camada de cima.',
                 recognition:
                   'Quatro adesivos brancos ficam na face U formando uma margarida ao redor do centro amarelo.',
                 checklist: [
@@ -1289,7 +1301,8 @@ export const ptBR = {
             lessons: [
               {
                 title: 'Par frontal básico',
-                summary: 'Monte um par simples e insira no slot frontal direito de forma controlada.',
+                summary:
+                  'Monte um par simples e insira no slot frontal direito de forma controlada.',
                 recognition:
                   'Canto e aresta da mesma cor estão separados na camada superior, prontos para emparelhar.',
                 checklist: [
@@ -1333,8 +1346,7 @@ export const ptBR = {
               {
                 title: 'Anti-Sune',
                 summary: 'Versão espelhada do Sune para casos invertidos de orientação.',
-                recognition:
-                  'Padrão muito parecido com Sune, mas o farol aparece no lado oposto.',
+                recognition: 'Padrão muito parecido com Sune, mas o farol aparece no lado oposto.',
                 checklist: [
                   'Ajuste o cubo para manter o caso espelhado à frente.',
                   "Execute R' U' R U' R' U2 R.",
@@ -1366,8 +1378,7 @@ export const ptBR = {
                 title: 'Y-Perm',
                 summary:
                   'Permuta diagonal de cantos com troca de arestas, ótimo para fechar solves difíceis.',
-                recognition:
-                  'Nenhum bloco lateral completo e cantos parecem trocar em diagonal.',
+                recognition: 'Nenhum bloco lateral completo e cantos parecem trocar em diagonal.',
                 checklist: [
                   'Confirme que é caso de troca diagonal de cantos.',
                   "Execute F R U' R' U' R U R' F' R U R' U' R' F R F'.",
