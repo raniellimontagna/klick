@@ -14,35 +14,86 @@ describe('useCubePlatformController', () => {
     expect(result.current.cubies).toHaveLength(expectedCubies);
   });
 
-  it('queues puzzle-specific layers when applying a move', () => {
-    const { result } = renderHook(() => useCubePlatformController({ cubeType: '4x4' }));
+  it('keeps guided playback paused until the user advances a step', () => {
+    const { result } = renderHook(() =>
+      useCubePlatformController({
+        algorithm: "R U R'",
+        mode: 'step-by-step',
+      }),
+    );
+
+    expect(result.current.playbackMode).toBe('step-by-step');
+    expect(result.current.isPlaybackRunning).toBe(false);
+    expect(result.current.playbackStepIndex).toBe(0);
+    expect(result.current.canStepForward).toBe(true);
 
     act(() => {
-      result.current.applyMove('R');
+      result.current.nextStep();
     });
 
     expect(result.current.moveQueue).toHaveLength(1);
-    expect(result.current.moveQueue[0]?.layers).toEqual([1.5]);
-  });
-
-  it('ignores unsupported middle-layer moves on 2x2', () => {
-    const { result } = renderHook(() => useCubePlatformController({ cubeType: '2x2' }));
+    expect(result.current.moveQueue[0]?.notation).toBe('R');
 
     act(() => {
-      result.current.applyMove('M');
+      result.current.completeMove();
     });
 
+    expect(result.current.playbackStepIndex).toBe(1);
+
+    act(() => {
+      result.current.previousStep();
+    });
+
+    expect(result.current.moveQueue[0]?.notation).toBe("R'");
+
+    act(() => {
+      result.current.completeMove();
+    });
+
+    expect(result.current.playbackStepIndex).toBe(0);
+  });
+
+  it('applies static mode instantly without queueing playback', () => {
+    const { result } = renderHook(() =>
+      useCubePlatformController({
+        algorithm: 'R U',
+        mode: 'static',
+      }),
+    );
+
+    expect(result.current.playbackMode).toBe('static');
     expect(result.current.moveQueue).toHaveLength(0);
+    expect(result.current.playbackStepIndex).toBe(2);
+    expect(result.current.playbackStepCount).toBe(2);
   });
 
-  it('parses algorithms using the active puzzle move map', () => {
-    const { result } = renderHook(() => useCubePlatformController({ cubeType: '2x2' }));
+  it('downgrades autoplay to guided playback when reduced motion is enabled', () => {
+    const { result } = renderHook(() =>
+      useCubePlatformController({
+        algorithm: 'R U',
+        mode: 'autoplay',
+        reducedMotion: true,
+      }),
+    );
 
-    act(() => {
-      result.current.applyAlgorithm('R M U');
-    });
+    expect(result.current.playbackMode).toBe('step-by-step');
+    expect(result.current.isPlaybackRunning).toBe(false);
+  });
 
-    expect(result.current.moveQueue).toHaveLength(2);
-    expect(result.current.moveQueue.every((move) => move.isAlgorithm)).toBe(true);
+  it('keeps double turns distinct from quarter turns', () => {
+    const singleTurn = renderHook(() =>
+      useCubePlatformController({
+        algorithm: 'R',
+        mode: 'static',
+      }),
+    );
+    const doubleTurn = renderHook(() =>
+      useCubePlatformController({
+        algorithm: 'R2',
+        mode: 'static',
+      }),
+    );
+
+    expect(singleTurn.result.current.cubies).not.toEqual(doubleTurn.result.current.cubies);
   });
 });

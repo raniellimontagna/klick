@@ -5,6 +5,7 @@ export interface MoveDefinition {
   axis: Axis;
   layers: number[];
   direction: Direction;
+  turns?: 1 | 2;
 }
 
 export type MoveMap = Record<string, MoveDefinition>;
@@ -18,13 +19,19 @@ interface CreateMoveMapOptions {
 export const FACE_MOVE_KEYS = ['F', 'L', 'R', 'U', 'D', 'B'] as const;
 
 function withTurns(moveMap: MoveMap, notation: string, move: MoveDefinition) {
-  moveMap[notation] = move;
+  moveMap[notation] = { ...move, turns: move.turns ?? 1 };
   moveMap[`${notation}'`] = {
     axis: move.axis,
     layers: move.layers,
     direction: move.direction === 1 ? -1 : 1,
+    turns: move.turns ?? 1,
   };
-  moveMap[`${notation}2`] = move;
+  moveMap[`${notation}2`] = {
+    axis: move.axis,
+    layers: move.layers,
+    direction: move.direction,
+    turns: 2,
+  };
 }
 
 export function createMoveMap({

@@ -1,3 +1,5 @@
+import type { CubeCameraPresetId } from '@/shared/lib/cube-platform';
+
 export type TrainingMethodId = 'cfop';
 export type TrainingTrackId = 'f2l' | 'oll' | 'pll';
 export type TrainingFocusTag = 'recognition' | 'lookahead' | 'execution';
@@ -10,6 +12,7 @@ export interface TrainingDrillDefinition {
   solveAlgorithm: string;
   setupAlgorithm: string;
   demoAlgorithm: string;
+  viewerPreset?: CubeCameraPresetId;
   focusTag: TrainingFocusTag;
   difficulty: TrainingDifficulty;
   targetAttempts: number;

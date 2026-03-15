@@ -11,6 +11,7 @@ interface RubiksCubeProps {
   moveQueue: MoveDefinition[];
   completeMove: () => void;
   startMove?: () => void;
+  animationDuration?: number;
   onPointerDown?: (e: ThreeEvent<PointerEvent>, position: Vec3, face: CubieFace) => void;
   onPointerUp?: (e: ThreeEvent<PointerEvent>) => void;
   cubeGeneration?: number;
@@ -26,6 +27,7 @@ export const RubiksCube: React.FC<RubiksCubeProps> = ({
   moveQueue,
   completeMove,
   startMove,
+  animationDuration = 0.26,
   onPointerDown,
   onPointerUp,
   cubeGeneration = 0,
@@ -77,7 +79,7 @@ export const RubiksCube: React.FC<RubiksCubeProps> = ({
       // Start animation
       currentMoveUid.current = queuedMove.uid || null;
       currentAxis.current = queuedMove.axis;
-      targetAngle.current = (Math.PI / 2) * queuedMove.direction;
+      targetAngle.current = (Math.PI / 2) * (queuedMove.turns ?? 1) * queuedMove.direction;
       currentAngle.current = 0;
       isAnimating.current = true;
 
@@ -105,8 +107,7 @@ export const RubiksCube: React.FC<RubiksCubeProps> = ({
 
     // 2. Process animation frame
     if (isAnimating.current && pivotRef.current) {
-      const duration = 0.25; // seconds
-      const progress = Math.min(1, currentAngle.current + delta / duration);
+      const progress = Math.min(1, currentAngle.current + delta / animationDuration);
       currentAngle.current = progress;
 
       // Cubic ease-out: f(t) = 1 - (1 - t)^3

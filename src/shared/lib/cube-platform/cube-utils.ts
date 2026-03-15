@@ -123,28 +123,35 @@ export function createSolvedCube(cubeType: CubePuzzleType = '3x3'): CubeState {
  * Applies a move to the cube state.
  */
 export function applyMoveToState(state: CubeState, move: MoveDefinition): CubeState {
-  const axisIndex = move.axis === 'x' ? 0 : move.axis === 'y' ? 1 : 2;
+  let nextState = state;
+  const turns = move.turns ?? 1;
 
-  const newCubies = state.cubies.map((cubie) => {
-    if (!move.layers.some((layer) => isSameLayer(layer, cubie.position[axisIndex]))) {
-      return cubie;
-    }
+  for (let turn = 0; turn < turns; turn += 1) {
+    const axisIndex = move.axis === 'x' ? 0 : move.axis === 'y' ? 1 : 2;
 
-    const newPosition = rotateVector(cubie.position, move.axis, move.direction);
+    const newCubies = nextState.cubies.map((cubie) => {
+      if (!move.layers.some((layer) => isSameLayer(layer, cubie.position[axisIndex]))) {
+        return cubie;
+      }
 
-    const newFaces = cubie.faces.map((face) => ({
-      id: face.id,
-      color: face.color,
-      colorKey: face.colorKey,
-      normal: rotateVector(face.normal, move.axis, move.direction),
-    }));
+      const newPosition = rotateVector(cubie.position, move.axis, move.direction);
 
-    return {
-      ...cubie,
-      position: newPosition as CubiePosition,
-      faces: newFaces,
-    };
-  });
+      const newFaces = cubie.faces.map((face) => ({
+        id: face.id,
+        color: face.color,
+        colorKey: face.colorKey,
+        normal: rotateVector(face.normal, move.axis, move.direction),
+      }));
 
-  return { cubies: newCubies };
+      return {
+        ...cubie,
+        position: newPosition as CubiePosition,
+        faces: newFaces,
+      };
+    });
+
+    nextState = { cubies: newCubies };
+  }
+
+  return nextState;
 }

@@ -254,6 +254,16 @@ Localizados em `/src/shared/components/ui/`:
 - **useTheme Hook:** Controle programático
 - **Suporte:** Dark (padrão) e Light
 
+## Contrato do Cubo 3D
+
+- `CubePlatform` é a API compartilhada para previews e experiências guiadas do cubo.
+- O contrato atual suporta `mode="static" | "autoplay" | "step-by-step"`.
+- `initialAlgorithm` monta o caso-base sem animação; `algorithm` define a sequência de playback/reprodução.
+- `cameraPreset` centraliza orientações por contexto (`home`, `tutorial`, `training`, `explorer`, `front`, `top-front`, `front-right`).
+- `useCubePlatformController` é o source of truth de playback: play, pause, next, previous, restart, finish e speed (`slow`, `normal`, `fast`).
+- `prefers-reduced-motion` desativa autoplay agressivo, convertendo previews automáticos em fluxo guiado/pausado.
+- Telemetria de uso do visualizador fica em `src/shared/store/cube-platform-telemetry-store.ts`, com eventos de play/pause/step/speed/restart/finish.
+
 ## Internacionalização
 
 ### Estrutura

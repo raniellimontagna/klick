@@ -1,9 +1,10 @@
 import { DoubleAltArrowRight } from '@solar-icons/react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
-import { CubePlatformScene } from '@/shared/components/cube-platform';
+import { CubePlaybackControls, CubePlatformScene } from '@/shared/components/cube-platform';
 import { useCubePlatformController } from '@/shared/hooks/use-cube-platform-controller';
 import { useCubePlatformKeyboard } from '@/shared/hooks/use-cube-platform-keyboard';
+import { usePrefersReducedMotion } from '@/shared/hooks/use-prefers-reduced-motion';
 import { MOVES } from '@/shared/lib/cube-platform/moves';
 import { useScrambleStore } from '@/shared/store/scramble-store';
 import { CubeActionBar } from './components/cube-action-bar';
@@ -13,6 +14,7 @@ import { useCubeSound } from './hooks/use-cube-sound';
 
 export function Cube3D() {
   const { scramble } = useScrambleStore();
+  const prefersReducedMotion = usePrefersReducedMotion();
   const {
     cubeType,
     cubies,
@@ -26,9 +28,30 @@ export function Cube3D() {
     skipAlgorithm,
     startMove,
     cubeGeneration,
+    playbackMode,
+    playbackSpeed,
+    playbackStepIndex,
+    playbackStepCount,
+    isPlaybackRunning,
+    animationDuration,
+    canPlay,
+    canPause,
+    canStepForward,
+    canStepBackward,
+    canRestart,
+    canFinish,
+    play,
+    pause,
+    nextStep,
+    previousStep,
+    restartPlayback,
+    finishPlayback,
+    updatePlaybackSpeed,
   } = useCubePlatformController({
     algorithm: scramble,
-    autoApplyAlgorithm: true,
+    mode: 'autoplay',
+    reducedMotion: prefersReducedMotion,
+    telemetryContext: 'cube-3d',
   });
   const [realignCounter, setRealignCounter] = useState(0);
   const { playClick } = useCubeSound();
@@ -53,6 +76,7 @@ export function Cube3D() {
         ([_, def]) =>
           def.axis === currentMove.axis &&
           def.direction === currentMove.direction &&
+          (def.turns ?? 1) === (currentMove.turns ?? 1) &&
           JSON.stringify(def.layers) === JSON.stringify(currentMove.layers),
       );
 
@@ -87,6 +111,8 @@ export function Cube3D() {
           cubeType={cubeType}
           cubeGeneration={cubeGeneration}
           realignCounter={realignCounter}
+          cameraPreset="explorer"
+          animationDuration={animationDuration}
         />
       </div>
 
@@ -112,7 +138,7 @@ export function Cube3D() {
       {/* Scramble Overlay */}
       {/* Scramble Status UI - Non-intrusive */}
       <AnimatePresence>
-        {isApplyingAlgorithm && (
+        {isPlaybackRunning && isApplyingAlgorithm && (
           <motion.div
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}
@@ -160,6 +186,32 @@ export function Cube3D() {
         </AnimatePresence>
 
         {/* Action Bar */}
+        {playbackStepCount > 0 ? (
+          <div className="pointer-events-auto w-full max-w-3xl">
+            <CubePlaybackControls
+              mode={playbackMode}
+              speed={playbackSpeed}
+              stepIndex={playbackStepIndex}
+              stepCount={playbackStepCount}
+              reducedMotion={prefersReducedMotion}
+              className="rounded-2xl border border-white/10 bg-[#161B22]/80"
+              canPlay={canPlay}
+              canPause={canPause}
+              canStepForward={canStepForward}
+              canStepBackward={canStepBackward}
+              canRestart={canRestart}
+              canFinish={canFinish}
+              onPlay={play}
+              onPause={pause}
+              onNextStep={nextStep}
+              onPreviousStep={previousStep}
+              onRestart={restartPlayback}
+              onFinish={finishPlayback}
+              onSpeedChange={updatePlaybackSpeed}
+            />
+          </div>
+        ) : null}
+
         <div className="pointer-events-auto">
           <CubeActionBar
             onUndo={undo}

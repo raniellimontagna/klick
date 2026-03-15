@@ -113,7 +113,14 @@ export function HomeScramblePanel({
             </div>
           ) : visualizationMode === '3d' ? (
             <div className="h-72 w-full">
-              <CubePlatform algorithm={scramble} interactive={false} className="h-full w-full" />
+              <CubePlatform
+                algorithm={scramble}
+                mode="static"
+                interactive={false}
+                cameraPreset="home"
+                showPlaybackControls={false}
+                className="h-full w-full"
+              />
             </div>
           ) : cubeState ? (
             <CubeVisualizer

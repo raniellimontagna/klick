@@ -198,12 +198,16 @@ export function Tutorial() {
             </span>
           </div>
 
-          <div className="h-72 w-full overflow-hidden rounded-2xl border border-white/10 bg-black/20">
+          <div className="w-full overflow-hidden rounded-2xl border border-white/10 bg-black/20">
             <CubePlatform
               key={`${methodId}-${activeStage.id}-${activeLesson.id}-${replaySeed}`}
-              algorithm={activeLesson.setupAlgorithm}
+              initialAlgorithm={activeLesson.setupAlgorithm}
+              algorithm={activeLesson.solveAlgorithm}
+              mode="step-by-step"
               interactive={false}
-              className="h-full w-full"
+              cameraPreset={activeLesson.viewerPreset ?? 'tutorial'}
+              telemetryContext="tutorial"
+              className="min-h-[22rem] w-full"
             />
           </div>
           <p className="text-xs text-text-secondary">{guide.lesson.cubeHint}</p>

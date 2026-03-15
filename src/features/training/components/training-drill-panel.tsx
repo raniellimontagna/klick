@@ -95,12 +95,16 @@ export function TrainingDrillPanel({
         </div>
       </div>
 
-      <div className="h-72 w-full overflow-hidden rounded-2xl border border-white/10 bg-black/20">
+      <div className="w-full overflow-hidden rounded-2xl border border-white/10 bg-black/20">
         <CubePlatform
           key={`${drill.id}-${replaySeed}`}
-          algorithm={drill.demoAlgorithm}
+          initialAlgorithm={drill.setupAlgorithm}
+          algorithm={drill.solveAlgorithm}
+          mode="step-by-step"
           interactive={false}
-          className="h-full w-full"
+          cameraPreset={drill.viewerPreset ?? 'training'}
+          telemetryContext="training"
+          className="min-h-[22rem] w-full"
         />
       </div>
       <p className="text-xs text-text-secondary">{copy.labels.cubeHint}</p>

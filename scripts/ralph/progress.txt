@@ -28,6 +28,9 @@ Started: 2026-03-13
 - Em refatoração greenfield, remover módulos duplicados/legados no mesmo ciclo evita drift entre fontes de verdade de negócio.
 - Para shell com header persistente, aplicar lock de viewport apenas enquanto o layout principal está montado (`klick-shell-locked`) e concentrar o scroll em `main.app-shell-main` evita conflito com rotas públicas e fallbacks lazy.
 - Para controles do topo com labels variáveis, manter o trigger shared em `inline-flex` com `min-w-0`, `truncate`, `title/aria-label` e fallback `icon-only` em `max-[360px]` elimina wrap sem sacrificar acessibilidade.
+- Para visualização didática do cubo 3D, separar `initialAlgorithm` (montagem do caso) de `algorithm` (reprodução) permite preview estável, autoplay e passo-a-passo sem lógica duplicada nas features.
+- Presets de câmera compartilhados por contexto (`home`, `tutorial`, `training`, `explorer`, etc.) evitam ajustes ad hoc por rota e permitem override limpo por metadados de lição/drill.
+- Tratar giros `2` com `turns` explícito no move definition mantém estado e animação sincronizados e evita regressão silenciosa em scrambles/algoritmos.
 
 ---
 ## [2026-03-13 00:00:00 -0300] - US-001
@@ -562,4 +565,48 @@ Started: 2026-03-13
   - O trigger compartilhado do topo deve continuar sendo a única source of truth para altura, raio, foco e truncamento; evitar variantes locais para cada seletor previne drift visual.
   - Em larguras críticas, esconder label e chevron abaixo de `360px` preserva estabilidade do topo melhor do que reduzir fonte ou permitir wrap.
   - `pnpm lint`, `pnpm test`, `pnpm knip` e `pnpm build` passaram nesta entrega.
+---
+## [2026-03-15 15:00:15 -0300] - US-017
+- What was implemented
+  - O contrato compartilhado do cubo 3D evoluiu para suportar `mode="static" | "autoplay" | "step-by-step"`, `initialAlgorithm`, controles de playback (play/pause/next/previous/restart/finish) e velocidades `slow/normal/fast`.
+  - Presets de câmera foram adicionados ao core do cubo, com defaults estáveis por rota: home em preview estável, tutorial/treino em modo guiado e `/cube-3d` em modo interativo completo.
+  - `prefers-reduced-motion` passou a desativar autoplay agressivo, priorizando fluxo pausado/guiado quando necessário.
+  - Telemetria local foi adicionada para eventos de UX do visualizador (`play`, `pause`, `next-step`, `previous-step`, `restart`, `finish`, `speed-change`).
+  - Tutorial e treino agora montam o caso via `initialAlgorithm` e reproduzem o algoritmo de solução em modo guiado, com override de câmera por metadados de lição/drill.
+  - O motor de movimentos/animação foi corrigido para suportar giros `2` (`R2`, `U2`, etc.) com `turns` explícito.
+- Files changed
+  - src/shared/hooks/use-cube-platform-controller.ts
+  - src/shared/hooks/use-cube-platform-controller.test.ts
+  - src/shared/hooks/use-prefers-reduced-motion.ts
+  - src/shared/hooks/index.ts
+  - src/shared/lib/cube-platform/types.ts
+  - src/shared/lib/cube-platform/moves.ts
+  - src/shared/lib/cube-platform/cube-utils.ts
+  - src/shared/lib/cube-platform/camera-presets.ts
+  - src/shared/lib/cube-platform/camera-presets.test.ts
+  - src/shared/lib/cube-platform/index.ts
+  - src/shared/store/cube-platform-telemetry-store.ts
+  - src/shared/components/cube-platform/cube-platform.tsx
+  - src/shared/components/cube-platform/cube-playback-controls.tsx
+  - src/shared/components/cube-platform/cube-scene.tsx
+  - src/shared/components/cube-platform/rubiks-cube.tsx
+  - src/shared/components/cube-platform/index.ts
+  - src/features/home/components/home-scramble-panel.tsx
+  - src/features/tutorial/lib/tutorial-guide-model.ts
+  - src/features/tutorial/tutorial.tsx
+  - src/features/training/lib/training-lab-types.ts
+  - src/features/training/lib/training-lab-catalog.ts
+  - src/features/training/components/training-drill-panel.tsx
+  - src/features/cube-3d/cube-3d.tsx
+  - src/shared/config/i18n/locales/pt-BR.ts
+  - src/shared/config/i18n/locales/en-US.ts
+  - src/shared/config/i18n/locales/es-ES.ts
+  - docs/technical.md
+  - docs/implementation.md
+  - scripts/ralph/prd.json
+  - scripts/ralph/progress.txt
+- Learnings for future iterations:
+  - `initialAlgorithm` + `algorithm` é o contrato certo para conteúdo didático: o caso nasce estável e a solução fica controlável sem remontar lógica na feature.
+  - Presets de câmera no shared layer reduzem retrabalho quando novas telas precisarem do cubo com orientação específica.
+  - `pnpm lint`, `pnpm test`, `pnpm knip` e `pnpm build` passaram.
 ---

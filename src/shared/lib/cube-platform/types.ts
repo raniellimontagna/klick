@@ -1,6 +1,25 @@
 export type FaceColorKey = 'UP' | 'DOWN' | 'LEFT' | 'RIGHT' | 'FRONT' | 'BACK' | 'BLACK';
 
 export type CubePuzzleType = '2x2' | '3x3' | '4x4';
+export type CubePlaybackMode = 'static' | 'autoplay' | 'step-by-step';
+export type CubePlaybackSpeed = 'slow' | 'normal' | 'fast';
+export type CubeCameraPresetId =
+  | 'home'
+  | 'tutorial'
+  | 'training'
+  | 'explorer'
+  | 'front'
+  | 'top-front'
+  | 'front-right';
+
+export interface CubeCameraPreset {
+  id: CubeCameraPresetId;
+  position: Vec3;
+  target: Vec3;
+  minDistance: number;
+  maxDistance: number;
+  fov?: number;
+}
 
 export const CUBE_3D_COLORS = {
   WHITE: '#FFFFFF', // Pure White

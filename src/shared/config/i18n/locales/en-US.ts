@@ -176,6 +176,30 @@ export const enUS = {
       },
     },
   },
+  cubeViewer: {
+    controls: {
+      title: 'Cube controls',
+      progress: 'Step {current} of {total}',
+      play: 'Play',
+      pause: 'Pause',
+      previous: 'Previous step',
+      next: 'Next step',
+      restart: 'Restart',
+      finish: 'Finish',
+      speed: 'Speed',
+      reducedMotion: 'Reduced motion is enabled, so autoplay stays paused until you start it.',
+      modes: {
+        autoplay: 'Autoplay mode: the cube can keep going once you press play.',
+        'step-by-step': 'Guided mode: step forward, step back, or pause at your own pace.',
+        static: 'Static mode: final cube preview only.',
+      },
+      speeds: {
+        slow: 'Slow',
+        normal: 'Normal',
+        fast: 'Fast',
+      },
+    },
+  },
   timer: {
     inspection: 'Inspection',
     ready: 'Ready',
@@ -745,7 +769,7 @@ export const enUS = {
       recognition: 'Recognition',
       coaching: 'Quick coaching',
       confidence: 'Current confidence',
-      cubeHint: 'The cube applies setup + algorithm so you can see the full case cycle.',
+      cubeHint: 'The cube sets up the case and gives you playback controls to run, pause, or step through it.',
     },
     actions: {
       replay: 'Replay animation',
@@ -1020,7 +1044,7 @@ export const enUS = {
       checklist: 'Practice checklist',
       tip: 'Quick tip',
       cubeHint:
-        'The 3D cube plays the case automatically. Use "Replay case" whenever you need another pass.',
+        'The 3D cube sets up the case and keeps step-by-step controls ready so you can review every move at your own pace.',
       replay: 'Replay case',
       next: 'Next lesson',
       finished: 'CFOP currently completed',

@@ -48,6 +48,8 @@ Container reutilizável.
 | `Logo` | `/logo/` | Logo do app |
 | `PageHeader` | `/page-header/` | Header de página |
 | `Toast` | `/toast/` | Notificações temporárias |
+| `CubePlatform` | `/cube-platform/` | Plataforma compartilhada do cubo 3D com modos static/autoplay/step-by-step |
+| `CubePlaybackControls` | `/cube-platform/` | Controles reutilizáveis de play/pause/step/speed para experiências guiadas |
 
 ---
 
@@ -110,6 +112,18 @@ Componentes específicos de features ficam em `/src/features/[feature]/component
 |------------|------|-----------|
 | `PWAUpdatePrompt` | `/pwa-update-prompt/` | Prompt de atualização do PWA |
 | `CubeVisualizer` | `/cube-visualizer/` | Visualização 2D do cubo |
+
+---
+
+## Visualizador 3D
+
+- `CubePlatform` aceita `initialAlgorithm` para montar o caso e `algorithm` para a reprodução didática.
+- Modos disponíveis:
+  - `static`: preview final estável, usado na home.
+  - `autoplay`: reprodução automática com controles, usado no `/cube-3d`.
+  - `step-by-step`: fluxo guiado com play/pause/next/previous, usado em tutorial e treino.
+- Presets de câmera compartilhados evitam hacks por tela e permitem override por metadados de lição/drill.
+- `prefers-reduced-motion` reduz autoplay automático e prioriza visual estático/pausado.
 
 ---
 

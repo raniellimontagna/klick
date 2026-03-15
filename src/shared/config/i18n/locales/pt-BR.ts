@@ -178,6 +178,30 @@ export const ptBR = {
       },
     },
   },
+  cubeViewer: {
+    controls: {
+      title: 'Controles do cubo',
+      progress: 'Passo {current} de {total}',
+      play: 'Reproduzir',
+      pause: 'Pausar',
+      previous: 'Passo anterior',
+      next: 'Próximo passo',
+      restart: 'Reiniciar',
+      finish: 'Ir ao fim',
+      speed: 'Velocidade',
+      reducedMotion: 'Movimento reduzido ativo: o cubo evita autoplay até você iniciar a reprodução.',
+      modes: {
+        autoplay: 'Autoplay ativo: o cubo pode seguir sozinho quando você apertar reproduzir.',
+        'step-by-step': 'Modo guiado: avance, volte ou pause cada etapa no seu ritmo.',
+        static: 'Modo estático: apenas preview final do estado do cubo.',
+      },
+      speeds: {
+        slow: 'Lenta',
+        normal: 'Normal',
+        fast: 'Rápida',
+      },
+    },
+  },
   timer: {
     inspection: 'Inspeção',
     ready: 'Pronto',
@@ -750,7 +774,7 @@ export const ptBR = {
       recognition: 'Reconhecimento',
       coaching: 'Coaching rápido',
       confidence: 'Confiança atual',
-      cubeHint: 'O cubo aplica setup + algoritmo para mostrar o caso completo.',
+      cubeHint: 'O cubo monta o caso e libera controles para reproduzir, pausar ou avançar no seu ritmo.',
     },
     actions: {
       replay: 'Repetir animação',
@@ -1025,7 +1049,7 @@ export const ptBR = {
       checklist: 'Checklist de treino',
       tip: 'Dica rápida',
       cubeHint:
-        'O cubo 3D reproduz o caso automaticamente. Use "Reproduzir caso" para revisar quantas vezes quiser.',
+        'O cubo 3D monta o caso e deixa os controles passo a passo prontos para revisar cada movimento no seu ritmo.',
       replay: 'Reproduzir caso',
       next: 'Próxima lição',
       finished: 'CFOP concluído por enquanto',

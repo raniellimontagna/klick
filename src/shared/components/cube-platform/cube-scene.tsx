@@ -4,8 +4,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import { useCubePlatformInteraction } from '@/shared/hooks/use-cube-platform-interaction';
 import {
+  getCubeCameraPreset,
   getCubePuzzleDefinition,
   type MoveDefinition,
+  type CubeCameraPresetId,
   type CubePuzzleType,
   type CubieData,
 } from '@/shared/lib/cube-platform';
@@ -21,6 +23,8 @@ interface CubePlatformSceneProps {
   cubeGeneration?: number;
   realignCounter?: number;
   interactive?: boolean;
+  cameraPreset?: CubeCameraPresetId;
+  animationDuration?: number;
 }
 
 export const CubePlatformScene: React.FC<CubePlatformSceneProps> = ({
@@ -33,10 +37,13 @@ export const CubePlatformScene: React.FC<CubePlatformSceneProps> = ({
   cubeGeneration = 0,
   realignCounter = 0,
   interactive = true,
+  cameraPreset = 'explorer',
+  animationDuration = 0.26,
 }: CubePlatformSceneProps): React.ReactElement => {
   const [orbitEnabled, setOrbitEnabled] = useState(true);
   const controlsRef = useRef<OrbitControlsImpl>(null);
   const renderScale = useMemo(() => getCubePuzzleDefinition(cubeType).renderScale, [cubeType]);
+  const viewPreset = useMemo(() => getCubeCameraPreset(cameraPreset), [cameraPreset]);
 
   useEffect(() => {
     if (controlsRef.current && realignCounter > 0) {
@@ -53,8 +60,9 @@ export const CubePlatformScene: React.FC<CubePlatformSceneProps> = ({
 
   return (
     <Canvas
+      key={`${cubeType}-${cameraPreset}`}
       dpr={[1, 1.5]}
-      camera={{ position: [6, 5, 6], fov: 40 }}
+      camera={{ position: viewPreset.position, fov: viewPreset.fov ?? 40 }}
       style={{ touchAction: 'none' }}
       gl={{ alpha: true }}
       shadows
@@ -72,6 +80,7 @@ export const CubePlatformScene: React.FC<CubePlatformSceneProps> = ({
             moveQueue={moveQueue}
             completeMove={completeMove}
             startMove={startMove}
+            animationDuration={animationDuration}
             onPointerDown={handlePointerDown}
             onPointerUp={handlePointerUp}
             cubeGeneration={cubeGeneration}
@@ -92,12 +101,13 @@ export const CubePlatformScene: React.FC<CubePlatformSceneProps> = ({
       <OrbitControls
         ref={controlsRef}
         enablePan={false}
-        minDistance={6}
-        maxDistance={12}
+        minDistance={viewPreset.minDistance}
+        maxDistance={viewPreset.maxDistance}
         autoRotate={false}
         autoRotateSpeed={0.8}
+        target={viewPreset.target}
         makeDefault
-        enabled={orbitEnabled || !interactive}
+        enabled={interactive && orbitEnabled}
       />
     </Canvas>
   );

@@ -426,7 +426,7 @@
         "Validar qualidade com `pnpm lint`, `pnpm test` e `pnpm build` sem regressões."
       ],
       "priority": 15,
-      "passes": false,
+      "passes": true,
       "notes": "Complementa US-004/US-005 e resolve o problema de cubo 'entrar girando' em telas de aprendizado."
     }
   ]
