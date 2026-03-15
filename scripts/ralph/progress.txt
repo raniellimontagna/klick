@@ -11,6 +11,7 @@ Started: 2026-03-13
 - Plataforma de cubo 3D reutilizável foi centralizada em `src/shared` com camadas separadas: `lib/cube-platform` (motor), `hooks/use-cube-platform-*` (controle/estado) e `components/cube-platform` (render/integração).
 - Para fluxos didáticos, modelar conteúdo em `lib` (método/etapa/lição) e manter textos em namespace i18n próprio evita acoplamento entre UI e conteúdo.
 - Para reescrita greenfield de feature, remover o legado da pasta da feature e reconstruir com núcleo orientado a dados (`lib`), orquestração em hook e renderização desacoplada em componentes.
+- Em telas com timer crítico, desacoplar estado/atalhos em hook único e pausar visualizações pesadas durante execução melhora fluidez sem perder recursos visuais.
 
 ---
 ## [2026-03-13 00:00:00 -0300] - US-001
@@ -120,4 +121,43 @@ Started: 2026-03-13
   - Um catálogo com `trackDefinitions + drills` e IDs estáveis permite adicionar novos casos sem alterar a UI core.
   - Calcular `setupAlgorithm` como inverso do `solveAlgorithm` reduz manutenção manual e gera demonstração 3D reproduzível.
   - `pnpm lint`, `pnpm test` e `pnpm build` passaram; `pnpm knip` continua com itens pré-existentes fora do escopo da US-003.
+---
+## [2026-03-15 10:56:56 -0300] - US-005
+- What was implemented
+  - Reescrita greenfield da `/` com nova composição visual: hero orientado a iniciantes, painel do timer, painel de scramble e histórico rápido na mesma tela.
+  - Novo fluxo de visualização do scramble com alternância explícita entre 3D (`CubePlatform`) e 2D (`CubeVisualizer`).
+  - Fluxos essenciais preservados e reforçados: timer com Space, inspeção, registro automático de solve, atalhos `N/P/D/U`, botões de +2/DNF/desfazer e cards de estatísticas (single/ao5/ao12/best).
+  - Ajuste de robustez nos atalhos globais para bloquear interações quando inputs/select/contentEditable/modal estiverem ativos.
+  - Novo namespace i18n `homeRevamp` criado em `pt-BR`, `en-US` e `es-ES` para os textos da home refeita.
+- Files changed
+  - Removed (legacy):
+    - src/features/home/use-home.ts
+    - src/features/home/components/home-page-components/stat-card.tsx
+    - src/features/home/components/home-page-components/stats-info-modal.tsx
+    - src/features/home/components/inspection-display/inspection-display.tsx
+    - src/features/home/components/scramble-box/scramble-box.tsx
+    - src/features/home/components/scramble-box/use-scramble-box.ts
+    - src/features/home/components/timer-display/timer-display.tsx
+  - Added (greenfield):
+    - src/features/home/hooks/use-home-timer-dashboard.ts
+    - src/features/home/lib/keyboard-shortcuts.ts
+    - src/features/home/components/home-timer-panel.tsx
+    - src/features/home/components/home-scramble-panel.tsx
+    - src/features/home/components/home-controls.tsx
+    - src/features/home/components/home-stats-grid.tsx
+    - src/features/home/components/home-solve-feed.tsx
+    - src/features/home/components/index.ts
+  - Recreated/updated:
+    - src/features/home/home.tsx
+    - src/features/home/index.ts
+    - src/features/home/lib/use-timer.ts
+    - src/shared/config/i18n/locales/pt-BR.ts
+    - src/shared/config/i18n/locales/en-US.ts
+    - src/shared/config/i18n/locales/es-ES.ts
+    - scripts/ralph/prd.json
+    - scripts/ralph/progress.txt
+- Learnings for future iterations:
+  - Para home com timer em tempo real, pausar renderização pesada durante `running/inspection` reduz risco de jitter perceptível.
+  - Centralizar atalhos em um guard utilitário (`shouldIgnoreGlobalShortcut`) evita conflito com modais e campos editáveis sem duplicar regra em cada hook.
+  - `pnpm lint` e `pnpm test` passaram; `pnpm knip` falhou por ausência do comando no projeto (`Command "knip" not found`).
 ---

@@ -236,7 +236,7 @@
         "Validar qualidade com `pnpm lint` e `pnpm test` sem regressões."
       ],
       "priority": 5,
-      "passes": false,
+      "passes": true,
       "notes": "Refatoração estrutural completa da home. Depende da plataforma de cubo 3D reutilizável (US-004)."
     },
     {
