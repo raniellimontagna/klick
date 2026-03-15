@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { MedalRibbon, ShieldCheck, Target } from '@solar-icons/react';
 import { formatTime } from '@/shared/lib';
 import { useI18nStore } from '@/shared/store/i18n-store';
@@ -46,7 +47,10 @@ function getChallengeDescription(
   return strings.progressHub.challengeTypes.ao5Target.description;
 }
 
-export function HomeProgressPanel({ summary, challenges }: HomeProgressPanelProps) {
+export const HomeProgressPanel = memo(function HomeProgressPanel({
+  summary,
+  challenges,
+}: HomeProgressPanelProps) {
   const { t } = useI18nStore();
 
   const xpLevelSize = summary.xpIntoLevel + summary.xpToNextLevel;
@@ -60,7 +64,7 @@ export function HomeProgressPanel({ summary, challenges }: HomeProgressPanelProp
   const weeklyRemaining = Math.max(0, summary.weeklySolveTarget - summary.weeklySolveCount);
 
   return (
-    <section className="surface-panel rounded-3xl p-4 sm:p-6">
+    <section className="surface-panel rounded-3xl p-4 sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-muted">
@@ -191,4 +195,4 @@ export function HomeProgressPanel({ summary, challenges }: HomeProgressPanelProp
       </div>
     </section>
   );
-}
+});

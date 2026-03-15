@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Bolt, ClockCircle, Stopwatch, Target } from '@solar-icons/react';
 import { motion } from 'framer-motion';
 import { formatTime } from '@/shared/lib';
@@ -11,6 +12,7 @@ interface HomeTimerPanelProps {
   inspectionDuration: number;
   isNewBest: boolean;
   lastPenalty: Penalty;
+  actions: ReactNode;
 }
 
 function getStatusLabel(
@@ -49,6 +51,7 @@ export function HomeTimerPanel({
   inspectionDuration,
   isNewBest,
   lastPenalty,
+  actions,
 }: HomeTimerPanelProps) {
   const { t } = useI18nStore();
   const isInspection = state === 'inspection';
@@ -59,6 +62,8 @@ export function HomeTimerPanel({
   );
 
   const statusLabel = getStatusLabel(state, isNewBest, lastPenalty, t);
+  const stateHint =
+    state === 'running' ? t.homeRevamp.timer.finishHint : t.homeRevamp.timer.spaceHint;
 
   const timerToneClass =
     state === 'running'
@@ -69,39 +74,59 @@ export function HomeTimerPanel({
           ? 'text-danger'
           : 'text-text-primary';
 
+  const statusClass =
+    state === 'running'
+      ? 'border-accent/35 bg-accent/14 text-accent'
+      : state === 'inspection'
+        ? 'border-warning/35 bg-warning/14 text-warning'
+        : state === 'stopped' && lastPenalty === 'DNF'
+          ? 'border-danger/35 bg-danger/14 text-danger'
+          : 'border-border/80 bg-surface/75 text-text-secondary';
+
   return (
     <section
       data-onboarding="timer"
-      className="surface-panel relative overflow-hidden rounded-3xl bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--color-primary)_26%,transparent)_0%,color-mix(in_srgb,var(--color-surface)_88%,transparent)_52%,color-mix(in_srgb,var(--color-background)_95%,transparent)_100%)] p-5 sm:p-8"
+      className="surface-panel relative overflow-hidden rounded-3xl bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--color-primary)_18%,transparent)_0%,transparent_52%),linear-gradient(180deg,color-mix(in_srgb,var(--color-surface)_94%,var(--color-background-elevated)_6%),color-mix(in_srgb,var(--color-background-elevated)_96%,transparent))] p-4 sm:p-6"
       aria-label={t.homeRevamp.timer.sectionLabel}
     >
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(130deg,rgba(57,255,136,0.08),transparent_30%,transparent_70%,rgba(124,77,255,0.2))]" />
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(140deg,rgba(122,111,240,0.12),transparent_34%,transparent_68%,rgba(61,207,142,0.08))]" />
 
-      <div className="relative z-10 flex flex-col gap-8">
+      <div className="relative z-10 flex flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="inline-flex items-center gap-2 rounded-full border border-border/80 bg-surface/75 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-text-secondary">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-border/80 bg-surface/72 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-text-secondary">
+              <Stopwatch size={14} />
+              {t.homeRevamp.badge}
+            </div>
+            <p className="mt-2 text-[13px] leading-relaxed text-text-secondary sm:text-sm">{stateHint}</p>
+          </div>
+          <div
+            className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${statusClass}`}
+          >
             <Stopwatch size={16} />
             {statusLabel}
           </div>
-          <div className="text-right">
-            <p className="text-xs uppercase tracking-[0.16em] text-text-muted">
-              {t.homeRevamp.timer.modeLabel}
-            </p>
-            <p className="text-sm font-semibold text-text-secondary">{t.homeRevamp.timer.spaceHint}</p>
-          </div>
         </div>
 
-        <div className="space-y-5">
+        <div className="space-y-3">
           <motion.div
-            key={`${state}-${Math.floor(timeMs / 100)}`}
             animate={{ scale: state === 'running' ? 1.03 : 1 }}
             transition={{ type: 'spring', stiffness: 220, damping: 20 }}
-            className={`font-mono text-center text-6xl font-black tracking-tight tabular-nums sm:text-7xl lg:text-8xl ${timerToneClass}`}
+            className={`font-mono text-center text-[clamp(3.8rem,17vw,6.4rem)] font-black tracking-[-0.06em] tabular-nums ${timerToneClass}`}
             role="timer"
             aria-valuenow={timeMs}
           >
             {formatTime(timeMs)}
           </motion.div>
+
+          <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-text-muted">
+            <span className="rounded-full border border-border/80 bg-surface/70 px-3 py-1 font-semibold uppercase tracking-[0.14em] text-text-secondary">
+              {t.homeRevamp.timer.modeLabel}
+            </span>
+            <kbd className="rounded-xl border border-border/75 bg-surface/78 px-2.5 py-1 font-mono font-semibold text-text-primary">
+              Space
+            </kbd>
+          </div>
 
           {isInspection && (
             <div className="space-y-3 rounded-2xl border border-warning/35 bg-warning/15 p-4">
@@ -124,8 +149,8 @@ export function HomeTimerPanel({
           )}
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="rounded-2xl border border-border/75 bg-surface/65 p-4">
+        <div className="grid gap-2 sm:grid-cols-2">
+          <div className="rounded-2xl border border-border/75 bg-surface/62 p-3">
             <p className="mb-1 text-xs uppercase tracking-[0.16em] text-text-muted">
               {t.homeRevamp.timer.finishLabel}
             </p>
@@ -134,7 +159,7 @@ export function HomeTimerPanel({
               {t.homeRevamp.timer.finishHint}
             </p>
           </div>
-          <div className="rounded-2xl border border-accent/30 bg-accent/12 p-4">
+          <div className="rounded-2xl border border-accent/30 bg-accent/12 p-3">
             <p className="mb-1 text-xs uppercase tracking-[0.16em] text-accent">
               {t.homeRevamp.timer.feedbackLabel}
             </p>
@@ -144,6 +169,8 @@ export function HomeTimerPanel({
             </p>
           </div>
         </div>
+
+        <div>{actions}</div>
       </div>
     </section>
   );

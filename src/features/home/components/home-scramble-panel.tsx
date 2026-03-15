@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import {
   Box,
   CheckCircle,
@@ -24,7 +25,7 @@ interface HomeScramblePanelProps {
   onChangeVisualizationMode: (mode: HomeVisualizationMode) => void;
 }
 
-export function HomeScramblePanel({
+export const HomeScramblePanel = memo(function HomeScramblePanel({
   scramble,
   cubeState,
   copied,
@@ -41,7 +42,7 @@ export function HomeScramblePanel({
     <>
       <section
         data-onboarding="scramble"
-        className="surface-panel rounded-3xl p-5 sm:p-6"
+        className="surface-panel rounded-3xl p-4 sm:p-5"
         aria-label={t.homeRevamp.scramble.sectionLabel}
       >
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -49,14 +50,16 @@ export function HomeScramblePanel({
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-muted">
               {t.homeRevamp.scramble.title}
             </p>
-            <h2 className="mt-1 text-lg font-semibold text-text-primary">{t.homeRevamp.scramble.subtitle}</h2>
+            <h2 className="mt-1 text-base font-semibold text-text-primary sm:text-lg">
+              {t.homeRevamp.scramble.subtitle}
+            </h2>
           </div>
 
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"
               size="icon"
-              className="text-text-secondary hover:text-text-primary"
+              className="h-10 w-10 rounded-2xl text-text-secondary hover:text-text-primary"
               onClick={openGuide}
               aria-label={t.scramble.guide}
               title={t.scramble.guide}
@@ -66,53 +69,74 @@ export function HomeScramblePanel({
             <Button
               variant="secondary"
               size="sm"
-              className="border-border/75 bg-surface/72 text-text-primary"
+              className="rounded-2xl border-border/75 bg-surface/72 text-text-primary"
               onClick={onCopy}
             >
               {copied ? <CheckCircle size={16} className="text-emerald-300" /> : <Copy size={16} />}
               {copied ? t.scramble.copySuccess : t.scramble.copy}
             </Button>
-            <Button variant="primary" size="sm" onClick={onNewScramble}>
+            <Button
+              variant="secondary"
+              size="icon"
+              className="h-10 w-10 rounded-2xl text-text-primary"
+              onClick={onNewScramble}
+              aria-label={t.scramble.new}
+              title={t.scramble.new}
+            >
               <Restart size={16} />
-              {t.scramble.new}
             </Button>
           </div>
         </div>
 
-        <p className="mt-4 rounded-2xl border border-border/75 bg-surface/60 p-4 font-mono text-lg font-semibold leading-relaxed tracking-tight text-text-primary sm:text-2xl">
+        <p className="mt-4 rounded-2xl border border-border/75 bg-surface/62 p-4 font-mono text-base font-semibold leading-relaxed tracking-tight text-text-primary sm:text-xl">
           {scramble || t.scramble.generating}
         </p>
 
-        <div className="mt-4 flex items-center gap-2" role="tablist" aria-label={t.homeRevamp.scramble.viewModeLabel}>
-          <Button
-            size="sm"
-            variant={visualizationMode === '3d' ? 'primary' : 'secondary'}
-            className={visualizationMode === '3d' ? '' : 'border-border/75 bg-surface/70 text-text-secondary'}
-            onClick={() => onChangeVisualizationMode('3d')}
-            aria-pressed={visualizationMode === '3d'}
-          >
-            <Box size={16} />
-            {t.homeRevamp.scramble.view3d}
-          </Button>
-          <Button
-            size="sm"
-            variant={visualizationMode === '2d' ? 'primary' : 'secondary'}
-            className={visualizationMode === '2d' ? '' : 'border-border/75 bg-surface/70 text-text-secondary'}
-            onClick={() => onChangeVisualizationMode('2d')}
-            aria-pressed={visualizationMode === '2d'}
-          >
-            <Widget size={16} />
-            {t.homeRevamp.scramble.view2d}
-          </Button>
+        <div
+          className="mt-4 rounded-2xl border border-border/75 bg-surface/66 p-1"
+          role="tablist"
+          aria-label={t.homeRevamp.scramble.viewModeLabel}
+        >
+          <div className="grid grid-cols-2 gap-1">
+            <Button
+              size="sm"
+              variant={visualizationMode === '3d' ? 'primary' : 'ghost'}
+              className={
+                visualizationMode === '3d'
+                  ? 'rounded-[1rem]'
+                  : 'rounded-[1rem] border border-transparent text-text-secondary hover:bg-surface-hover/75'
+              }
+              onClick={() => onChangeVisualizationMode('3d')}
+              aria-pressed={visualizationMode === '3d'}
+            >
+              <Box size={16} />
+              {t.homeRevamp.scramble.view3d}
+            </Button>
+            <Button
+              size="sm"
+              variant={visualizationMode === '2d' ? 'primary' : 'ghost'}
+              className={
+                visualizationMode === '2d'
+                  ? 'rounded-[1rem]'
+                  : 'rounded-[1rem] border border-transparent text-text-secondary hover:bg-surface-hover/75'
+              }
+              onClick={() => onChangeVisualizationMode('2d')}
+              aria-pressed={visualizationMode === '2d'}
+            >
+              <Widget size={16} />
+              {t.homeRevamp.scramble.view2d}
+            </Button>
+          </div>
         </div>
+        <p className="mt-2 text-xs leading-relaxed text-text-muted">{t.homeRevamp.scramble.viewHint}</p>
 
-        <div className="mt-4 overflow-hidden rounded-2xl border border-border/75 bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--color-surface-hover)_78%,transparent)_0%,color-mix(in_srgb,var(--color-background)_95%,transparent)_100%)]">
+        <div className="mt-4 overflow-hidden rounded-2xl border border-border/75 bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--color-surface-hover)_72%,transparent)_0%,color-mix(in_srgb,var(--color-background)_95%,transparent)_100%)]">
           {isFocusMode ? (
-            <div className="flex h-72 items-center justify-center px-6 text-center text-sm text-text-secondary">
+            <div className="flex h-44 items-center justify-center px-6 text-center text-sm text-text-secondary sm:h-56">
               {t.homeRevamp.scramble.focusModeMessage}
             </div>
           ) : visualizationMode === '3d' ? (
-            <div className="h-72 w-full">
+            <div className="h-44 w-full sm:h-56">
               <CubePlatform
                 algorithm={scramble}
                 mode="static"
@@ -134,10 +158,10 @@ export function HomeScramblePanel({
                   { label: 'B', colors: cubeState.B },
                 ],
               }}
-              className="h-72 border-none bg-transparent"
+              className="h-44 border-none bg-transparent sm:h-56"
             />
           ) : (
-            <div className="flex h-72 items-center justify-center px-6 text-center text-sm text-text-secondary">
+            <div className="flex h-44 items-center justify-center px-6 text-center text-sm text-text-secondary sm:h-56">
               {t.homeRevamp.scramble.visualUnavailable}
             </div>
           )}
@@ -147,4 +171,4 @@ export function HomeScramblePanel({
       <ScrambleGuideModal isOpen={isOpen} onClose={closeGuide} />
     </>
   );
-}
+});

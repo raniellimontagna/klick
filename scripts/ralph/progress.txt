@@ -8,6 +8,7 @@ Started: dom 15 mar 2026 17:02:50 -03
 - Avoid default glassmorphism in shared primitives; blur, glow and strong gradients should be opt-in accents for spotlight moments, not the baseline container treatment.
 - Keep shell information architecture in a single shared navigation hook (`src/shared/components/navigation/use-shell-navigation.ts`) so mobile sheets, desktop sidebar and topbar context cannot drift apart.
 - In the mobile shell, recurring flows stay on the fixed bottom bar while secondary/admin routes move to labeled sheets; safe-area padding belongs to the shell contract, not to individual pages.
+- On timer-driven screens, memoize non-live panels and invalidate expensive derived stats with a solve/session signature instead of recomputing them on every animation frame.
 
 ---
 ## 2026-03-15 17:33:34 -0300 - US-018
@@ -60,4 +61,30 @@ Started: dom 15 mar 2026 17:02:50 -03
   - The shell should own safe-area padding centrally; route pages only need `app-shell-page` and should not guess bottom/nav offsets.
   - Grouped route metadata is worth keeping as a shared contract because mobile and desktop IA now evolve from the same source instead of duplicated link arrays.
   - Bottom navigation needs a more solid surface than the rest of the shell to avoid content bleed-through on dense home layouts.
+---
+## 2026-03-15 18:43:05 -0300 - US-020
+- Rebuilt the home around the timer core loop by removing the hero-style intro, integrating primary actions into the timer panel and moving stats/progress/history into a secondary section.
+- Refined the scramble area with clearer 3D/2D switching, compact preview sizing and copy/regenerate controls that stay lightweight on mobile.
+- Reduced timer-loop overhead by memoizing non-live home panels and caching session stats behind a solve/session signature so the 3D scramble panel no longer re-renders on every animation frame.
+- Updated `docs/implementation.md` and `docs/changelog.md` to reflect the redesigned home component set and the new mobile-first hierarchy.
+- Validated the story with `pnpm lint`, `pnpm test`, `pnpm knip` and `pnpm build`, plus Playwright CLI screenshots at `390x844` and `1440x1024` using blocked service workers and onboarding-disabled storage.
+- Files changed:
+  - `src/features/home/home.tsx`
+  - `src/features/home/hooks/use-home-timer-dashboard.ts`
+  - `src/features/home/components/home-timer-panel.tsx`
+  - `src/features/home/components/home-controls.tsx`
+  - `src/features/home/components/home-scramble-panel.tsx`
+  - `src/features/home/components/home-stats-grid.tsx`
+  - `src/features/home/components/home-progress-panel.tsx`
+  - `src/features/home/components/home-solve-feed.tsx`
+  - `src/shared/config/i18n/locales/pt-BR.ts`
+  - `src/shared/config/i18n/locales/en-US.ts`
+  - `src/shared/config/i18n/locales/es-ES.ts`
+  - `docs/implementation.md`
+  - `docs/changelog.md`
+  - `scripts/ralph/prd.json`
+- Learnings for future iterations:
+  - Mobile-first fold targets are easy to miss if action grids silently collapse to one column; enforce base grid columns explicitly instead of relying on `sm:` breakpoints.
+  - PWA/offline prompts can invalidate visual QA for critical first-fold flows, so screenshot runs should block service workers or preload a storage state that suppresses transient overlays.
+  - Compacting first-fold support cards is usually cheaper than shrinking the timer digits; preserve timer dominance and reclaim space from secondary explanatory blocks first.
 ---

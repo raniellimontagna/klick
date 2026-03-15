@@ -4,6 +4,13 @@ All notable changes and implementation milestones for the Klick project.
 
 ## 2026-03-15
 
+### Home Core Loop Redesign (US-020)
+- Removed the promotional hero from `/` and rebuilt the first fold around the operational solve loop: timer, state, primary actions and scramble entry.
+- Integrated primary actions into the timer card, prioritized a 2-column mobile action grid and pushed stats/progress/history into a secondary layer below the fold.
+- Refined the scramble panel hierarchy with clearer 3D/2D switching, compact preview sizing and beginner-facing guidance text.
+- Reduced timer-page work during active solves by memoizing non-live home panels and invalidating expensive stats calculations only when the active session/last solve changes.
+- Updated `docs/implementation.md` so the home feature documentation now reflects the current component set instead of the pre-redesign names.
+
 ### Engineering Governance (US-012)
 - Added a formal **Definition of Done** to `PROJECT.md` with mandatory architecture, hygiene, quality and documentation gates.
 - Expanded `docs/technical.md` with engineering governance, module-contract conventions and forbidden anti-patterns.

@@ -155,6 +155,25 @@ export function useHomeTimerDashboard(): UseHomeTimerDashboardReturn {
     return [...solves].reverse().slice(0, solveFilter);
   }, [solves, solveFilter]);
 
+  const statsSignature = `${activeSession?.id ?? 'no-session'}:${solves.length}:${
+    solves.at(-1)?.id ?? 'no-solve'
+  }:${solves.at(-1)?.penalty ?? 'NONE'}:${solves.at(-1)?.effectiveMs ?? 0}`;
+
+  const stats = useMemo(
+    () => {
+      void statsSignature;
+
+      return {
+        single: getSingle(),
+        ao5: getAo5(),
+        ao12: getAo12(),
+        bestAo5: getBestAo5(),
+        bestAo12: getBestAo12(),
+      };
+    },
+    [getAo5, getAo12, getBestAo5, getBestAo12, getSingle, statsSignature],
+  );
+
   const copyScramble = useCallback(async () => {
     if (!scramble) {
       return;
@@ -331,11 +350,11 @@ export function useHomeTimerDashboard(): UseHomeTimerDashboardReturn {
     toggleLastPlus2,
     toggleLastDNF,
     undoLastSolve,
-    single: getSingle(),
-    ao5: getAo5(),
-    ao12: getAo12(),
-    bestAo5: getBestAo5(),
-    bestAo12: getBestAo12(),
+    single: stats.single,
+    ao5: stats.ao5,
+    ao12: stats.ao12,
+    bestAo5: stats.bestAo5,
+    bestAo12: stats.bestAo12,
     progressSummary,
     dailyChallenges,
   };

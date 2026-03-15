@@ -90,6 +90,7 @@ export const ptBR = {
       viewModeLabel: 'Modo de visualização do scramble',
       view3d: 'Ver em 3D',
       view2d: 'Ver em 2D',
+      viewHint: 'Use 3D para orientação espacial e 2D para conferir stickers com rapidez.',
       focusModeMessage:
         'Visualização pausada durante a execução para manter performance máxima do timer.',
       visualUnavailable: 'Visualização 2D indisponível para este scramble.',

@@ -59,10 +59,12 @@ Componentes específicos de features ficam em `/src/features/[feature]/component
 
 | Componente | Feature | Descrição |
 |------------|---------|-----------|
-| `TimerDisplay` | home | Display do cronômetro com estados |
-| `ScrambleBox` | home | Box do scramble copiável |
-| `InspectionDisplay` | home | Contagem regressiva de inspeção |
-| `StatCard` | home | Card de estatísticas animado |
+| `HomeTimerPanel` | home | Painel dominante do timer com status, feedback e ações rápidas |
+| `HomeScramblePanel` | home | Painel de scramble com troca 3D/2D e visualização compacta |
+| `HomeControls` | home | Ações primárias da sessão priorizadas para mobile |
+| `HomeStatsGrid` | home | Resumo rápido de Single, ao5, ao12 e melhores médias |
+| `HomeProgressPanel` | home | Camada secundária de progresso, streak e desafios |
+| `HomeSolveFeed` | home | Histórico rápido com layout responsivo orientado a cards |
 | `SolveTable` | history | Tabela de solves com filtros |
 | `AdvancedStatsModal` | stats | Modal com gráficos e métricas |
 | `TutorialModal` | tutorial | Tutorial layer-by-layer |

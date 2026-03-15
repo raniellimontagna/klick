@@ -90,6 +90,7 @@ export const esES = {
       viewModeLabel: 'Modo de visualización de mezcla',
       view3d: 'Vista 3D',
       view2d: 'Vista 2D',
+      viewHint: 'Usa 3D para orientación espacial y 2D para revisar stickers con más rapidez.',
       focusModeMessage:
         'La visualización se pausa durante el solve para mantener el rendimiento del timer.',
       visualUnavailable: 'Visualización 2D no disponible para esta mezcla.',

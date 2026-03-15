@@ -90,6 +90,7 @@ export const enUS = {
       viewModeLabel: 'Scramble view mode',
       view3d: '3D View',
       view2d: '2D View',
+      viewHint: 'Use 3D for spatial orientation and 2D for a quicker sticker check.',
       focusModeMessage: 'Visualization is paused while solving to preserve timer performance.',
       visualUnavailable: '2D visualization unavailable for this scramble.',
     },
