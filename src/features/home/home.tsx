@@ -58,10 +58,8 @@ export function Home() {
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
-      className="relative flex min-h-full flex-col gap-6 pb-4"
+      className="app-shell-page app-shell-page-wide flex min-h-0 flex-col gap-6 pb-4"
     >
-      <div className="pointer-events-none absolute inset-x-0 -top-10 h-72 rounded-[3rem] bg-[radial-gradient(circle_at_top,rgba(124,77,255,0.24),rgba(12,17,25,0))]" />
-
       <section className="surface-panel relative rounded-3xl p-5 sm:p-6">
         <div className="inline-flex items-center gap-2 rounded-full border border-border/80 bg-surface/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-text-secondary">
           <Stopwatch size={16} />

@@ -27,7 +27,7 @@ export default function AppRouter() {
         <Route
           path="/auth/callback"
           element={
-            <Suspense fallback={<RouteLoader />}>
+            <Suspense fallback={<RouteLoader fullscreen />}>
               <AuthCallback />
             </Suspense>
           }
@@ -35,7 +35,7 @@ export default function AppRouter() {
         <Route
           path="/share/:slug"
           element={
-            <Suspense fallback={<RouteLoader />}>
+            <Suspense fallback={<RouteLoader fullscreen />}>
               <SharePage />
             </Suspense>
           }

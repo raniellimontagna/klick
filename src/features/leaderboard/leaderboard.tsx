@@ -38,7 +38,7 @@ export function Leaderboard() {
   }));
 
   return (
-    <motion.div variants={fadeIn} initial="hidden" animate="visible" className="mx-auto w-full max-w-6xl space-y-6">
+    <motion.div variants={fadeIn} initial="hidden" animate="visible" className="app-shell-page space-y-6">
       <PageHeader
         title={t.navigation.leaderboard}
         description={t.pages.leaderboard.description}

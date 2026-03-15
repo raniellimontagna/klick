@@ -26,6 +26,7 @@ Started: 2026-03-13
 - Para governança contínua, tratar `pnpm lint`, `pnpm test` e `pnpm knip` como gate obrigatório de merge reduz entropia incremental.
 - Barrels (`index.ts`) devem ter superfície mínima: exportar só símbolos com consumidor real evita APIs fantasmas e ruído no `knip`.
 - Em refatoração greenfield, remover módulos duplicados/legados no mesmo ciclo evita drift entre fontes de verdade de negócio.
+- Para shell com header persistente, aplicar lock de viewport apenas enquanto o layout principal está montado (`klick-shell-locked`) e concentrar o scroll em `main.app-shell-main` evita conflito com rotas públicas e fallbacks lazy.
 
 ---
 ## [2026-03-13 00:00:00 -0300] - US-001
@@ -502,4 +503,39 @@ Started: 2026-03-13
   - Resolver ruído de `knip` exige limitar superfície pública dos barrels, não apenas apagar arquivos.
   - Consolidar duplicações de regra de negócio cedo (stats/shared) evita manutenção paralela e regressão silenciosa.
   - `pnpm lint`, `pnpm test`, `pnpm knip` e `pnpm build` passaram nesta entrega.
+---
+## [2026-03-15 14:18:23 -0300] - US-015
+- What was implemented
+  - Contrato do shell consolidado em `MainLayout` com `app-shell` fixado ao viewport, `app-shell-main` como único container scrollável e backdrop decorativo unificado em `app-shell-backdrop`.
+  - Lock de scroll do viewport movido para um hook dedicado (`useMainLayout`), aplicado apenas enquanto o shell principal está montado, preservando compatibilidade com rotas públicas fora do layout.
+  - `RouteLoader` passou a diferenciar fallback interno e fullscreen para evitar `min-h-screen` indevido dentro do `main` durante lazy loading.
+  - Páginas principais padronizadas no contrato `app-shell-page`; home perdeu o overlay extra de página inteira e as rotas públicas `share`/`auth-callback` passaram a usar o mesmo shell visual com scroll interno.
+  - Topbar e navegação foram estabilizadas para o shell: `MobileNav` volta a aparecer corretamente até `md`, `Sidebar` passou a respeitar `min-h-0/overflow-hidden` e o header permanece fora do fluxo de scroll.
+- Files changed
+  - docs/technical.md
+  - scripts/ralph/prd.json
+  - scripts/ralph/progress.txt
+  - src/app/app-router.tsx
+  - src/app/styles/index.css
+  - src/features/auth-callback/auth-callback.tsx
+  - src/features/friends/friends.tsx
+  - src/features/history/history.tsx
+  - src/features/home/home.tsx
+  - src/features/leaderboard/leaderboard.tsx
+  - src/features/settings/settings.tsx
+  - src/features/share/share.tsx
+  - src/features/stats/stats.tsx
+  - src/features/training/training.tsx
+  - src/features/tutorial/tutorial.tsx
+  - src/shared/components/navigation/sidebar.tsx
+  - src/shared/components/navigation/topbar.tsx
+  - src/shared/components/onboarding/spotlight.tsx
+  - src/shared/components/route-loader/route-loader.tsx
+  - src/shared/layouts/main-layout.tsx
+  - src/shared/layouts/use-main-layout.ts
+- Learnings for future iterations:
+  - Shell responsivo fica mais previsível quando as rotas só definem conteúdo/largura (`app-shell-page`) e deixam altura/overflow exclusivamente no layout global.
+  - Separar fallback lazy interno de fullscreen evita scroll falso e layout shift em páginas que já vivem dentro de um container com altura controlada.
+  - Checklist de QA por breakpoint desta story ficou registrado por contrato responsivo: `320/360/375/390/412` usam `MobileNav` (`md:hidden`) sem sidebar; `768/1024/1280+` usam `Sidebar` (`md:flex`) com header persistente e `main` scrollável.
+  - `pnpm lint`, `pnpm test`, `pnpm knip` e `pnpm build` passaram; a validação visual automatizada via browser ficou limitada pelo ambiente (`vite preview` bloqueado por `EPERM` e instalação do Chromium do Playwright sem retorno útil).
 ---

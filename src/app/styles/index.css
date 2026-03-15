@@ -33,6 +33,7 @@
   --klick-shadow-glow: 0 0 0 1px rgba(124, 77, 255, 0.18), 0 18px 40px -26px rgba(124, 77, 255, 0.45);
   --klick-overlay-top: radial-gradient(circle at 14% -12%, rgba(124, 77, 255, 0.3), transparent 52%);
   --klick-overlay-bottom: radial-gradient(circle at 86% 2%, rgba(57, 255, 136, 0.18), transparent 42%);
+  --klick-shell-backdrop: linear-gradient(180deg, rgba(255, 255, 255, 0.018), rgba(255, 255, 255, 0));
 }
 
 :root.light {
@@ -68,12 +69,23 @@
   html,
   body,
   #root {
+    height: 100%;
     min-height: 100%;
+  }
+
+  #root {
+    isolation: isolate;
+  }
+
+  html.klick-shell-locked,
+  body.klick-shell-locked,
+  #root.klick-shell-locked {
+    overflow: hidden;
+    overscroll-behavior: none;
   }
 
   body {
     background-color: var(--color-background);
-    background-image: var(--klick-overlay-top), var(--klick-overlay-bottom), linear-gradient(180deg, rgba(255, 255, 255, 0.015), rgba(255, 255, 255, 0));
     color: var(--color-text-primary);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -127,6 +139,49 @@
   .glow-border {
     box-shadow: var(--klick-shadow-glow);
   }
+
+  .app-shell {
+    position: relative;
+    height: 100vh;
+    min-height: 100vh;
+    overflow: hidden;
+  }
+
+  @supports (height: 100dvh) {
+    .app-shell {
+      height: 100dvh;
+      min-height: 100dvh;
+    }
+  }
+
+  .app-shell-backdrop {
+    background-image: var(--klick-overlay-top), var(--klick-overlay-bottom), var(--klick-shell-backdrop);
+    background-repeat: no-repeat;
+    background-size:
+      100% 100%,
+      100% 100%,
+      100% 100%;
+  }
+
+  .app-shell-main {
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scrollbar-gutter: stable;
+  }
+
+  .app-shell-page {
+    width: 100%;
+    min-width: 0;
+    max-width: 72rem;
+    margin-inline: auto;
+  }
+
+  .app-shell-page-wide {
+    max-width: 73.75rem;
+  }
 }
 
 @layer utilities {
@@ -152,6 +207,12 @@
 
   .border-subtle {
     border-color: color-mix(in srgb, var(--color-border) 62%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell-main {
+    scroll-behavior: auto;
   }
 }
 

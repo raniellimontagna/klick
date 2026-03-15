@@ -214,6 +214,14 @@ type Session = {
 
 Todas as rotas usam **lazy loading** via `React.lazy()` para otimizar bundle size.
 
+## Layout Shell
+
+- `MainLayout` define o shell global do app com altura fixa no viewport (`100dvh` quando disponível).
+- `Topbar` permanece sempre visível enquanto o scroll vertical fica restrito ao `main.app-shell-main`.
+- `body` e `#root` não participam do scroll das rotas principais; backgrounds decorativos vivem em uma única camada (`app-shell-backdrop`).
+- Páginas dentro do shell devem usar o contrato `app-shell-page` e evitar `min-h-screen`/`overflow-*` no root da rota.
+- `RouteLoader` distingue fallback fullscreen (rotas fora do shell) de fallback interno, evitando layout shift durante lazy loading.
+
 ## Code Splitting
 
 ### Strategy

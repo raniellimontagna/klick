@@ -36,7 +36,7 @@ export function History() {
       variants={fadeIn}
       initial="hidden"
       animate="visible"
-      className="mx-auto w-full max-w-6xl space-y-6"
+      className="app-shell-page space-y-6"
     >
       <PageHeader
         title={t.navigation.history}

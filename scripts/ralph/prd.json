@@ -366,6 +366,68 @@
       "priority": 11,
       "passes": true,
       "notes": "Depende de US-008 (conta + sync). Expande a camada social além do compartilhamento básico da US-010."
+    },
+    {
+      "id": "US-015",
+      "title": "Padronizar layout shell, backgrounds e scroll por conteúdo",
+      "description": "Como usuário, quero navegação estável com header sempre visível e scroll apenas no conteúdo da página, sem comportamento inconsistente entre rotas.",
+      "acceptanceCriteria": [
+        "Consolidar contrato de layout global com `Topbar` sticky/fixo e `main` como único container com `overflow-y-auto`.",
+        "Eliminar scroll do viewport (`body`/`#root`) durante navegação normal, mantendo scroll restrito ao conteúdo interno.",
+        "Auditar rotas principais (`/`, `/history`, `/stats`, `/training`, `/tutorial`, `/settings`, `/friends`, `/leaderboard`) para remover wrappers que injetam `min-h-screen`/`overflow` conflitante.",
+        "Padronizar backgrounds decorativos em camada única de layout, evitando variações por tela que alterem comportamento de scroll.",
+        "Garantir que overlays e gradientes decorativos usem `pointer-events-none` e não gerem altura extra que provoque scroll global.",
+        "Validar comportamento de header sempre visível em telas longas e curtas sem flicker/layout shift.",
+        "Executar validação em breakpoints críticos (320, 360, 375, 390, 412, 768, 1024, 1280+) e registrar evidências de QA.",
+        "Garantir consistência em tema claro/escuro para superfícies de fundo e legibilidade durante scroll.",
+        "Documentar no progress log o contrato final do shell de layout e antipadrões proibidos para novas rotas.",
+        "Validar qualidade com `pnpm lint`, `pnpm test` e `pnpm build` sem regressões."
+      ],
+      "priority": 13,
+      "passes": true,
+      "notes": "Story base para estabilizar navegação e comportamento de scroll. Pré-requisito para polimento visual do topo (US-016)."
+    },
+    {
+      "id": "US-016",
+      "title": "Refino profissional do app bar, sessão e seletor de puzzle",
+      "description": "Como usuário, quero que os controles do topo permaneçam estáveis, legíveis e sem quebra em duas linhas, com comportamento responsivo consistente.",
+      "acceptanceCriteria": [
+        "Revisar `Topbar`, `SessionSwitcher`, `PuzzleSelector` e gatilhos de dropdown para impedir quebra de texto em 2 linhas nos estados normal, hover e foco.",
+        "Garantir linha única com `truncate`, limites de largura (`min/max/clamp`) e alinhamento consistente de ícone + label + chevron.",
+        "Adicionar fallback responsivo para larguras estreitas (ex.: modo compacto icon-only com `aria-label` preservando acessibilidade).",
+        "Eliminar clipping visual de labels longas (nome de sessão e puzzle) com estratégia de tooltip/title sem deslocamento vertical do controle.",
+        "Padronizar altura, raio, espaçamento interno e peso tipográfico dos controles do topo para aparência premium consistente.",
+        "Validar estados de foco/teclado e contraste mínimo para acessibilidade em temas claro e escuro.",
+        "Executar revisão de consistência visual do topo em mobile e desktop, incluindo interação com menu móvel.",
+        "Registrar checklist de QA visual do app bar com evidências em breakpoints críticos.",
+        "Documentar no progress log o padrão definitivo de controles do topo para reuso em novos componentes.",
+        "Validar qualidade com `pnpm lint`, `pnpm test` e `pnpm build` sem regressões."
+      ],
+      "priority": 14,
+      "passes": false,
+      "notes": "Depende do shell estável da US-015. Foco exclusivo em profissionalização visual e responsividade do topo."
+    },
+    {
+      "id": "US-017",
+      "title": "Evoluir cubo 3D para modo guiado (estático, autoplay e passo-a-passo)",
+      "description": "Como usuário, quero controlar como o cubo se comporta em cada tela para aprender melhor (sem autoanimação forçada), com orientação inicial e controles de reprodução.",
+      "acceptanceCriteria": [
+        "Evoluir a API compartilhada do cubo para suportar modos explícitos: `static`, `autoplay` e `step-by-step`.",
+        "Permitir desabilitar autoaplicação de algoritmo por tela/componente sem hacks locais.",
+        "Adicionar controles de reprodução quando aplicável: play, pause, next step, previous step, restart e finish.",
+        "Adicionar controle de velocidade da animação (lento, normal, rápido) para contextos didáticos.",
+        "Introduzir suporte a orientação inicial/câmera por contexto (Home, Tutorial, Training) com presets configuráveis.",
+        "Permitir override de orientação inicial por item de conteúdo (lição e drill) via metadados nos domínios de tutorial/treino.",
+        "Definir defaults por rota: Home em preview estável, Tutorial/Training em modo pedagógico, `/cube-3d` mantendo modo interativo completo.",
+        "Respeitar `prefers-reduced-motion`, priorizando modo estático e transições reduzidas quando necessário.",
+        "Adicionar telemetria para eventos de UX do visualizador (play/pause/step/speed/reset) para identificar fricção de uso.",
+        "Adicionar testes para controller e integração cobrindo modos de reprodução, orientação inicial e regressões de algoritmo.",
+        "Documentar no progress log os novos contratos da API do cubo e trade-offs de performance vs didática.",
+        "Validar qualidade com `pnpm lint`, `pnpm test` e `pnpm build` sem regressões."
+      ],
+      "priority": 15,
+      "passes": false,
+      "notes": "Complementa US-004/US-005 e resolve o problema de cubo 'entrar girando' em telas de aprendizado."
     }
   ]
 }
