@@ -65,8 +65,9 @@ Componentes específicos de features ficam em `/src/features/[feature]/component
 | `HomeStatsGrid` | home | Resumo rápido de Single, ao5, ao12 e melhores médias |
 | `HomeProgressPanel` | home | Camada secundária de progresso, streak e desafios |
 | `HomeSolveFeed` | home | Histórico rápido com layout responsivo orientado a cards |
-| `SolveTable` | history | Tabela de solves com filtros |
-| `AdvancedStatsModal` | stats | Modal com gráficos e métricas |
+| `SolveTable` | history | Lista/tabela responsiva de solves com filtros segmentados e detalhes acionáveis |
+| `SolveDetailsModal` | history | Detalhe do solve que vira bottom sheet no mobile e modal no desktop |
+| `AdvancedStatsContent` | stats | Módulos analíticos com filtros por período/métrica e gráficos mobile-first |
 | `TutorialModal` | tutorial | Tutorial layer-by-layer |
 
 ---

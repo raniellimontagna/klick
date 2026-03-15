@@ -36,7 +36,7 @@ export function History() {
       variants={fadeIn}
       initial="hidden"
       animate="visible"
-      className="app-shell-page space-y-6"
+      className="app-shell-page app-shell-page-wide space-y-5"
     >
       <PageHeader
         title={t.navigation.history}
@@ -44,21 +44,30 @@ export function History() {
         icon={<HistoryIcon size={32} />}
       />
 
-      <div className="space-y-6">
-        <section>
+      <div className="space-y-5">
+        <section className="space-y-5">
           <SummaryCards solves={solves} />
+
+          <section className="surface-panel rounded-3xl p-4 sm:p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted">
+                  {t.history.sessionProgress}
+                </p>
+                <h3 className="mt-2 text-xl font-black tracking-tight text-text-primary">
+                  {t.history.chartTitle}
+                </h3>
+                <p className="mt-1 text-sm text-text-secondary">{t.history.chartDescription}</p>
+              </div>
+            </div>
+
+            <div className="mt-5">
+              <HistoryCharts solves={solves} />
+            </div>
+          </section>
         </section>
 
-        <section className="surface-panel rounded-2xl p-6">
-          <h3 className="mb-4 text-lg font-black tracking-tight text-text-primary">
-            {t.history.sessionProgress}
-          </h3>
-          <HistoryCharts solves={solves} />
-        </section>
-
-        <section>
-          <SolveTable onViewDetails={handleViewDetails} />
-        </section>
+        <SolveTable onViewDetails={handleViewDetails} />
       </div>
 
       <SolveDetailsModal

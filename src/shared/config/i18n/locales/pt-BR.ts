@@ -344,6 +344,7 @@ export const ptBR = {
   solveTable: {
     title: 'Histórico de Solves',
     empty: 'Nenhum solve registrado ainda',
+    summary: '{visible} de {total} solves visíveis',
     columns: {
       number: '#',
       time: 'Tempo',
@@ -379,7 +380,22 @@ export const ptBR = {
   history: {
     description: 'Veja todos os seus solves e acompanhe sua evolução.',
     sessionProgress: 'Progresso da Sessão',
+    chartTitle: 'Linha do tempo dos solves',
+    chartDescription: 'Leia tendência, gaps de DNF e ritmo recente sem depender de uma tabela pesada.',
+    summary: {
+      total: 'Solves',
+      totalMeta: '{valid} válidos · {penalties} com penalidade',
+      best: 'Melhor single',
+      bestMeta: 'Melhor tempo válido da sessão atual',
+      average: 'Média válida',
+      averageMeta: '{valid} solves entram nesta leitura',
+      recentAo5: 'ao5 atual',
+      recentAo5Meta: 'Janela dos 5 solves mais recentes',
+      needMoreSolves: 'Complete {count} solves para destravar esta leitura',
+    },
     charts: {
+      legendSingle: 'Tempo final',
+      legendDnf: 'DNF aparece como lacuna',
       noData: {
         title: 'Nenhum dado disponível',
         description: 'Complete solves para visualizar o progresso',
@@ -392,6 +408,9 @@ export const ptBR = {
         solve: 'Solve #',
         penaltyApplied: 'Penalidade aplicada',
       },
+      trendFaster: 'Último solve {delta} mais rápido que o início',
+      trendSlower: 'Último solve {delta} mais lento que o início',
+      trendStable: 'Ritmo recente está estável',
     },
   },
   inspection: {
@@ -659,6 +678,30 @@ export const ptBR = {
   },
   advancedStats: {
     title: 'Estatísticas Avançadas',
+    filters: {
+      category: 'Bloco de insight',
+      period: 'Período',
+      metric: 'Métrica',
+      allMetrics: 'Todas',
+      last12: '12',
+      last25: '25',
+      last50: '50',
+      all: 'Tudo',
+      single: 'Single',
+      ao5: 'ao5',
+      ao12: 'ao12',
+    },
+    overview: {
+      sample: 'Janela',
+      sampleMeta: '{count} solves considerados em {period}',
+      bestSingle: 'Melhor single',
+      bestSingleMeta: 'Menor tempo válido dentro do período filtrado',
+      currentAo5: 'ao5 atual',
+      currentAo5Meta: 'Últimos 5 solves do recorte selecionado',
+      averageTPS: 'TPS médio',
+      averageTPSMeta: 'Velocidade média de execução neste recorte',
+      needMore: 'Colete {count} solves para preencher este card',
+    },
     tabs: {
       evolution: 'Evolução',
       consistency: 'Consistência',
@@ -671,6 +714,7 @@ export const ptBR = {
       single: 'Single',
       ao5: 'ao5',
       ao12: 'ao12',
+      legendDnf: 'DNF vira lacuna no gráfico',
       solveNumber: 'Solve #',
       time: 'Tempo (ms)',
       noData: 'Sem dados suficientes para gráficos',
@@ -720,6 +764,11 @@ export const ptBR = {
         chartTitle: 'Histograma de Tempos',
         xAxis: 'Faixa de Tempo',
         yAxis: 'Quantidade de Solves',
+      },
+      dominantRange: {
+        title: 'Faixa dominante',
+        description: 'É onde seus solves mais se concentram dentro do período filtrado.',
+        empty: 'Mais solves ajudam a revelar uma faixa dominante.',
       },
     },
     close: 'Fechar',

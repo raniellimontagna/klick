@@ -1,6 +1,5 @@
 import {
   CartesianGrid,
-  Legend,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -9,32 +8,50 @@ import {
   YAxis,
 } from 'recharts';
 import type { ChartDataPoint } from '@/features/stats/advanced';
+import { useMediaQuery } from '@/shared/hooks';
 import { formatTime } from '@/shared/lib';
-import { useI18nStore } from '@/shared/store/i18n-store';
+
+export type EvolutionSeriesKey = 'single' | 'ao5' | 'ao12';
 
 type EvolutionChartProps = {
   data: ChartDataPoint[];
+  visibleSeries: EvolutionSeriesKey[];
+};
+
+const seriesConfig: Record<EvolutionSeriesKey, { color: string; strokeDasharray?: string }> = {
+  ao5: { color: 'var(--color-success)', strokeDasharray: '5 5' },
+  ao12: { color: 'var(--color-info)' },
+  single: { color: 'var(--color-primary)' },
 };
 
 export const EvolutionChart: React.FC<EvolutionChartProps> = ({
   data,
+  visibleSeries,
 }: EvolutionChartProps): React.ReactElement => {
-  const { t } = useI18nStore();
+  const isMobile = useMediaQuery('(max-width: 767px)');
 
   const chartData = data.map((point) => ({
-    solve: point.index,
-    single: point.single ? point.single / 1000 : null, // Convert to seconds
-    ao5: point.ao5 ? point.ao5 / 1000 : null,
     ao12: point.ao12 ? point.ao12 / 1000 : null,
-    rawSingle: point.single,
-    rawAo5: point.ao5,
+    ao5: point.ao5 ? point.ao5 / 1000 : null,
     rawAo12: point.ao12,
+    rawAo5: point.ao5,
+    rawSingle: point.single,
+    single: point.single ? point.single / 1000 : null,
+    solve: point.index,
   }));
 
   return (
-    <div className="w-full h-80" role="img" aria-label="Gráfico de evolução de tempos">
+    <div className="h-72 w-full sm:h-80" role="img" aria-label="Gráfico de evolução de tempos">
       <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={100}>
-        <LineChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+        <LineChart
+          data={chartData}
+          margin={{
+            bottom: 0,
+            left: isMobile ? -24 : -12,
+            right: isMobile ? 4 : 12,
+            top: 8,
+          }}
+        >
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(138, 150, 173, 0.28)" vertical={false} />
           <XAxis
             dataKey="solve"
@@ -43,6 +60,7 @@ export const EvolutionChart: React.FC<EvolutionChartProps> = ({
             tickLine={false}
             axisLine={false}
             tick={{ fill: 'var(--color-text-muted)' }}
+            minTickGap={isMobile ? 18 : 10}
           />
           <YAxis
             stroke="var(--color-text-muted)"
@@ -52,17 +70,18 @@ export const EvolutionChart: React.FC<EvolutionChartProps> = ({
             axisLine={false}
             tick={{ fill: 'var(--color-text-muted)' }}
             domain={['auto', 'auto']}
+            width={isMobile ? 40 : 50}
           />
           <Tooltip
             cursor={{ stroke: 'rgba(138, 150, 173, 0.38)', strokeWidth: 2 }}
             content={({ active, payload, label }) => {
               if (active && payload && payload.length) {
                 return (
-                  <div className="surface-panel min-w-[150px] rounded-xl p-3 shadow-xl">
-                    <p className="text-text-muted text-xs mb-2 font-bold uppercase tracking-wider">
+                  <div className="surface-overlay min-w-[10rem] rounded-2xl p-3">
+                    <p className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-text-muted">
                       Solve #{label}
                     </p>
-                    <div className="space-y-1">
+                    <div className="space-y-1.5">
                       {payload.map((item) => {
                         const dataKey = String(item.dataKey);
                         const rawKey = `raw${dataKey.charAt(0).toUpperCase() + dataKey.slice(1)}`;
@@ -75,7 +94,7 @@ export const EvolutionChart: React.FC<EvolutionChartProps> = ({
                             <span className="text-xs font-medium" style={{ color: item.color }}>
                               {item.name}
                             </span>
-                            <span className="text-sm font-mono font-bold text-text-primary">
+                            <span className="font-mono text-sm font-bold text-text-primary">
                               {typeof value === 'number' ? formatTime(value) : '-'}
                             </span>
                           </div>
@@ -88,46 +107,26 @@ export const EvolutionChart: React.FC<EvolutionChartProps> = ({
               return null;
             }}
           />
-          <Legend
-            wrapperStyle={{ paddingTop: '20px' }}
-            iconType="circle"
-            formatter={(value) => <span className="text-xs text-text-muted ml-1">{value}</span>}
-          />
-          <Line
-            type="monotone"
-            dataKey="single"
-            stroke="var(--color-primary)"
-            name={t.advancedStats.evolution.single}
-            strokeWidth={2}
-            dot={{ r: 3, fill: 'var(--color-surface)', strokeWidth: 2 }}
-            activeDot={{ r: 5, fill: 'var(--color-primary)' }}
-            connectNulls={false}
-            animationDuration={500}
-          />
-          <Line
-            type="monotone"
-            dataKey="ao5"
-            stroke="var(--color-success)"
-            name={t.advancedStats.evolution.ao5}
-            strokeWidth={2}
-            dot={false}
-            strokeDasharray="5 5"
-            activeDot={{ r: 5, fill: 'var(--color-success)' }}
-            connectNulls={false}
-            animationDuration={500}
-          />
-          <Line
-            type="monotone"
-            dataKey="ao12"
-            stroke="var(--color-info)"
-            name={t.advancedStats.evolution.ao12}
-            strokeWidth={2}
-            dot={false}
-            strokeOpacity={0.7}
-            activeDot={{ r: 5, fill: 'var(--color-info)' }}
-            connectNulls={false}
-            animationDuration={500}
-          />
+
+          {visibleSeries.map((series) => {
+            const config = seriesConfig[series];
+
+            return (
+              <Line
+                key={series}
+                type="monotone"
+                dataKey={series}
+                stroke={config.color}
+                name={series}
+                strokeWidth={series === 'single' ? 2.5 : 2}
+                dot={false}
+                activeDot={{ r: 5, fill: config.color }}
+                connectNulls={false}
+                animationDuration={500}
+                strokeDasharray={config.strokeDasharray}
+              />
+            );
+          })}
         </LineChart>
       </ResponsiveContainer>
     </div>

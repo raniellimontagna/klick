@@ -4,6 +4,12 @@ All notable changes and implementation milestones for the Klick project.
 
 ## 2026-03-15
 
+### History And Stats Mobile Readability (US-021)
+- Redesigned `/history` with objective summary cards, a quieter session chart container and a sticky segmented filter bar for responsive solve browsing.
+- Converted solve review into a clearer responsive pattern: card stack on small screens, denser table on desktop and solve details that open as a bottom sheet on mobile and a modal on desktop.
+- Reworked `/stats` around insight modules with period and metric segment controls, overview cards and charts that reduce noise on smaller viewports.
+- Updated `docs/implementation.md` so the history/stats component map reflects the new responsive analytics surfaces.
+
 ### Home Core Loop Redesign (US-020)
 - Removed the promotional hero from `/` and rebuilt the first fold around the operational solve loop: timer, state, primary actions and scramble entry.
 - Integrated primary actions into the timer card, prioritized a 2-column mobile action grid and pushed stats/progress/history into a secondary layer below the fold.

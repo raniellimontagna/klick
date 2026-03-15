@@ -9,6 +9,7 @@ Started: dom 15 mar 2026 17:02:50 -03
 - Keep shell information architecture in a single shared navigation hook (`src/shared/components/navigation/use-shell-navigation.ts`) so mobile sheets, desktop sidebar and topbar context cannot drift apart.
 - In the mobile shell, recurring flows stay on the fixed bottom bar while secondary/admin routes move to labeled sheets; safe-area padding belongs to the shell contract, not to individual pages.
 - On timer-driven screens, memoize non-live panels and invalidate expensive derived stats with a solve/session signature instead of recomputing them on every animation frame.
+- Analytics screens should expose period/metric controls as segmented buttons near the section header and degrade dense tables into card rows before the `lg` breakpoint.
 
 ---
 ## 2026-03-15 17:33:34 -0300 - US-018
@@ -87,4 +88,37 @@ Started: dom 15 mar 2026 17:02:50 -03
   - Mobile-first fold targets are easy to miss if action grids silently collapse to one column; enforce base grid columns explicitly instead of relying on `sm:` breakpoints.
   - PWA/offline prompts can invalidate visual QA for critical first-fold flows, so screenshot runs should block service workers or preload a storage state that suppresses transient overlays.
   - Compacting first-fold support cards is usually cheaper than shrinking the timer digits; preserve timer dominance and reclaim space from secondary explanatory blocks first.
+---
+## 2026-03-15 19:06:42 -0300 - US-021
+- Refined `history` with objective summary cards, a calmer session chart container, segmented responsive filters and a solve list that stays readable as cards on mobile and a table on desktop.
+- Rebuilt solve details to follow the redesign contract: bottom sheet on mobile, centered modal on desktop, lighter surfaces and direct penalty actions without reintroducing glass-heavy styling.
+- Reworked `stats` around insight modules with period/métrica segmented controls, overview cards and lower-noise charts, including a vertical distribution chart for mobile legibility.
+- Added a shared `useMediaQuery` hook for responsive behavior in analytics/detail surfaces and updated locale strings plus implementation/changelog docs to reflect the new contracts.
+- Validated the story with `pnpm lint`, `pnpm test`, `pnpm build` and `pnpm knip`.
+- Files changed:
+  - `src/features/history/history.tsx`
+  - `src/features/history/components/summary-cards/summary-cards.tsx`
+  - `src/features/history/components/summary-cards/use-summary-cards.ts`
+  - `src/features/history/components/history-charts/history-charts.tsx`
+  - `src/features/history/components/solve-table/solve-table.tsx`
+  - `src/features/history/components/solve-table/use-solve-table.ts`
+  - `src/features/history/components/solve-details-modal/solve-details-modal.tsx`
+  - `src/features/history/components/solve-details-modal/use-solve-details-modal.ts`
+  - `src/features/stats/stats.tsx`
+  - `src/features/stats/components/advanced-stats/advanced-stats-content.tsx`
+  - `src/features/stats/components/advanced-stats/evolution-chart.tsx`
+  - `src/features/stats/components/advanced-stats/distribution-chart.tsx`
+  - `src/features/stats/components/advanced-stats/use-advanced-stats-modal.ts`
+  - `src/shared/hooks/use-media-query.ts`
+  - `src/shared/hooks/index.ts`
+  - `src/shared/config/i18n/locales/pt-BR.ts`
+  - `src/shared/config/i18n/locales/en-US.ts`
+  - `src/shared/config/i18n/locales/es-ES.ts`
+  - `docs/implementation.md`
+  - `docs/changelog.md`
+  - `scripts/ralph/prd.json`
+- Learnings for future iterations:
+  - History/details flows are easier to keep coherent when the responsive switch lives in the feature hook and the content body stays shared between modal and sheet renderers.
+  - Analytics charts need explicit series/period controls in the page chrome; relying only on chart legends is not enough for one-hand mobile exploration.
+  - Vertical histograms are a better default than rotated x-axis labels for mobile data distribution views in this codebase.
 ---

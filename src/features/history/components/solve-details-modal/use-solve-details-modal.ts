@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { useMediaQuery } from '@/shared/hooks';
 import { useI18nStore } from '@/shared/store/i18n-store';
 import { useSessionsStore } from '@/shared/store/sessions-store';
 import type { Penalty, Solve } from '@/shared/types';
@@ -13,6 +14,7 @@ interface PenaltyInfo {
 export function useSolveDetailsModal(solve: Solve | null) {
   const { t, language } = useI18nStore();
   const { updateSolvePenalty } = useSessionsStore();
+  const isMobile = useMediaQuery('(max-width: 767px)');
   const [copied, setCopied] = useState(false);
 
   const togglePenalty = useCallback(
@@ -29,7 +31,7 @@ export function useSolveDetailsModal(solve: Solve | null) {
   );
 
   const copyScramble = useCallback(() => {
-    if (!solve) return;
+    if (!solve || typeof navigator === 'undefined' || !navigator.clipboard) return;
 
     navigator.clipboard.writeText(solve.scramble);
     setCopied(true);
@@ -64,18 +66,18 @@ export function useSolveDetailsModal(solve: Solve | null) {
     if (solve.penalty === 'DNF') {
       return {
         label: t.penalties.dnf,
-        color: 'text-red-400',
-        bgColor: 'bg-red-500/20',
-        borderColor: 'border-red-500/30',
+        color: 'text-danger',
+        bgColor: 'bg-danger/12',
+        borderColor: 'border-danger/30',
       };
     }
 
     if (solve.penalty === '+2') {
       return {
         label: t.penalties.plus2,
-        color: 'text-yellow-400',
-        bgColor: 'bg-yellow-500/20',
-        borderColor: 'border-yellow-500/30',
+        color: 'text-warning',
+        bgColor: 'bg-warning/12',
+        borderColor: 'border-warning/30',
       };
     }
 
@@ -91,6 +93,7 @@ export function useSolveDetailsModal(solve: Solve | null) {
     copied,
     copyScramble,
     formatFullDate,
+    isMobile,
     penaltyInfo: getPenaltyInfo(),
     togglePenalty,
   };

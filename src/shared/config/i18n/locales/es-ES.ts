@@ -343,6 +343,7 @@ export const esES = {
   solveTable: {
     title: 'Historial de Solves',
     empty: 'Aún no hay solves registrados',
+    summary: '{visible} de {total} solves visibles',
     columns: {
       number: '#',
       time: 'Tiempo',
@@ -378,7 +379,23 @@ export const esES = {
   history: {
     description: 'Revisa todos tus solves y sigue tu progreso.',
     sessionProgress: 'Progreso de la Sesión',
+    chartTitle: 'Línea de tiempo de solves',
+    chartDescription:
+      'Lee la tendencia, los huecos por DNF y el ritmo reciente sin depender de una tabla pesada.',
+    summary: {
+      total: 'Solves',
+      totalMeta: '{valid} válidos · {penalties} con penalización',
+      best: 'Mejor single',
+      bestMeta: 'Mejor tiempo válido de la sesión actual',
+      average: 'Promedio válido',
+      averageMeta: '{valid} solves entran en esta lectura',
+      recentAo5: 'ao5 actual',
+      recentAo5Meta: 'Ventana de los 5 solves más recientes',
+      needMoreSolves: 'Completa {count} solves para desbloquear esta lectura',
+    },
     charts: {
+      legendSingle: 'Tiempo final',
+      legendDnf: 'DNF aparece como hueco',
       noData: {
         title: 'No hay datos disponibles',
         description: 'Completa solves para visualizar el progreso',
@@ -391,6 +408,9 @@ export const esES = {
         solve: 'Solve #',
         penaltyApplied: 'Penalización aplicada',
       },
+      trendFaster: 'El último solve es {delta} más rápido que el inicio',
+      trendSlower: 'El último solve es {delta} más lento que el inicio',
+      trendStable: 'El ritmo reciente está estable',
     },
   },
   inspection: {
@@ -659,6 +679,30 @@ export const esES = {
   },
   advancedStats: {
     title: 'Estadísticas Avanzadas',
+    filters: {
+      category: 'Bloque de insight',
+      period: 'Período',
+      metric: 'Métrica',
+      allMetrics: 'Todas',
+      last12: '12',
+      last25: '25',
+      last50: '50',
+      all: 'Todo',
+      single: 'Single',
+      ao5: 'ao5',
+      ao12: 'ao12',
+    },
+    overview: {
+      sample: 'Ventana',
+      sampleMeta: '{count} solves considerados en {period}',
+      bestSingle: 'Mejor single',
+      bestSingleMeta: 'Tiempo válido más bajo dentro del período filtrado',
+      currentAo5: 'ao5 actual',
+      currentAo5Meta: 'Últimos 5 solves del rango seleccionado',
+      averageTPS: 'TPS promedio',
+      averageTPSMeta: 'Velocidad media de ejecución en este recorte',
+      needMore: 'Reúne {count} solves para completar esta tarjeta',
+    },
     tabs: {
       evolution: 'Evolución',
       consistency: 'Consistencia',
@@ -671,6 +715,7 @@ export const esES = {
       single: 'Single',
       ao5: 'ao5',
       ao12: 'ao12',
+      legendDnf: 'DNF se convierte en hueco en el gráfico',
       solveNumber: 'Solve #',
       time: 'Tiempo (ms)',
       noData: 'No hay datos suficientes para gráficos',
@@ -720,6 +765,11 @@ export const esES = {
         chartTitle: 'Histograma de Tiempos',
         xAxis: 'Rango de Tiempo',
         yAxis: 'Cantidad de Solves',
+      },
+      dominantRange: {
+        title: 'Rango dominante',
+        description: 'Es donde más se concentran tus solves dentro del período filtrado.',
+        empty: 'Más solves ayudan a revelar un rango dominante.',
       },
     },
     close: 'Cerrar',

@@ -341,6 +341,7 @@ export const enUS = {
   solveTable: {
     title: 'Solve History',
     empty: 'No solves recorded yet',
+    summary: '{visible} of {total} solves visible',
     columns: {
       number: '#',
       time: 'Time',
@@ -376,7 +377,22 @@ export const enUS = {
   history: {
     description: 'Review every solve and track your progress over time.',
     sessionProgress: 'Session Progress',
+    chartTitle: 'Solve timeline',
+    chartDescription: 'Read trend, DNF gaps, and recent pace without relying on a heavy table.',
+    summary: {
+      total: 'Solves',
+      totalMeta: '{valid} valid · {penalties} with penalty',
+      best: 'Best single',
+      bestMeta: 'Best valid time in the current session',
+      average: 'Valid average',
+      averageMeta: '{valid} solves feed this reading',
+      recentAo5: 'Current ao5',
+      recentAo5Meta: 'Window from the 5 most recent solves',
+      needMoreSolves: 'Complete {count} solves to unlock this reading',
+    },
     charts: {
+      legendSingle: 'Final time',
+      legendDnf: 'DNF shows as a gap',
       noData: {
         title: 'No data available',
         description: 'Complete solves to visualize progress',
@@ -389,6 +405,9 @@ export const enUS = {
         solve: 'Solve #',
         penaltyApplied: 'Penalty applied',
       },
+      trendFaster: 'Latest solve is {delta} faster than the start',
+      trendSlower: 'Latest solve is {delta} slower than the start',
+      trendStable: 'Recent pace is stable',
     },
   },
   inspection: {
@@ -654,6 +673,30 @@ export const enUS = {
   },
   advancedStats: {
     title: 'Advanced Statistics',
+    filters: {
+      category: 'Insight block',
+      period: 'Period',
+      metric: 'Metric',
+      allMetrics: 'All',
+      last12: '12',
+      last25: '25',
+      last50: '50',
+      all: 'All',
+      single: 'Single',
+      ao5: 'ao5',
+      ao12: 'ao12',
+    },
+    overview: {
+      sample: 'Window',
+      sampleMeta: '{count} solves considered in {period}',
+      bestSingle: 'Best single',
+      bestSingleMeta: 'Lowest valid time inside the filtered window',
+      currentAo5: 'Current ao5',
+      currentAo5Meta: 'Last 5 solves in the selected range',
+      averageTPS: 'Average TPS',
+      averageTPSMeta: 'Average execution speed in this window',
+      needMore: 'Collect {count} solves to fill this card',
+    },
     tabs: {
       evolution: 'Evolution',
       consistency: 'Consistency',
@@ -666,6 +709,7 @@ export const enUS = {
       single: 'Single',
       ao5: 'ao5',
       ao12: 'ao12',
+      legendDnf: 'DNF becomes a gap on the chart',
       solveNumber: 'Solve #',
       time: 'Time (ms)',
       noData: 'Not enough data for charts',
@@ -715,6 +759,11 @@ export const enUS = {
         chartTitle: 'Time Histogram',
         xAxis: 'Time Range',
         yAxis: 'Number of Solves',
+      },
+      dominantRange: {
+        title: 'Dominant range',
+        description: 'This is where most of your solves cluster inside the filtered window.',
+        empty: 'More solves help reveal a dominant range.',
       },
     },
     close: 'Close',
