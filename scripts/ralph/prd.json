@@ -129,7 +129,9 @@
     ],
     "standalone": [
       "/auth/callback",
-      "/share/:slug"
+      "/share/:slug",
+      "/privacy-policy",
+      "/terms-of-service"
     ]
   },
   "codingRules": {
@@ -711,6 +713,26 @@
         "US-023"
       ],
       "notes": "Story final da iniciativa. Só conclui com um pass global do produto."
+    },
+    {
+      "id": "US-025",
+      "title": "Criar páginas de Política de Privacidade e Termos de Serviço",
+      "description": "Como time de produto, queremos disponibilizar as páginas legais de Política de Privacidade e Termos de Serviço para cumprir requisitos de autenticação OAuth e dar transparência para usuários.",
+      "acceptanceCriteria": [
+        "Criar as rotas públicas `/privacy-policy` e `/terms-of-service` com páginas responsivas e acessíveis.",
+        "Implementar conteúdo inicial estruturado para Política de Privacidade e Termos de Serviço com seções mínimas (dados coletados, uso de dados, retenção, contato, responsabilidades e limites).",
+        "Adicionar links visíveis para as duas páginas nas superfícies públicas relevantes (ex.: footer, auth/login e onboarding quando aplicável).",
+        "Garantir consistência visual com o design system atual e suporte a light/dark theme.",
+        "Documentar no progress log as URLs finais publicadas para uso em configurações externas.",
+        "Registrar e validar no Google Cloud OAuth Consent Screen as URLs públicas de Política de Privacidade e Termos de Serviço após deploy.",
+        "Validar qualidade com `pnpm lint`, `pnpm test` e `pnpm build` sem regressões."
+      ],
+      "priority": 23,
+      "passes": false,
+      "dependsOn": [
+        "US-023"
+      ],
+      "notes": "Necessária para compliance e para vinculação correta no Google Cloud OAuth."
     }
   ]
 }
