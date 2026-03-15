@@ -2,9 +2,10 @@ import { forwardRef, type HTMLAttributes } from 'react';
 import { cn } from '@/shared/lib';
 
 const variantClasses = {
-  surface: 'bg-surface border border-border',
-  background: 'bg-background border border-border',
-  overlay: 'bg-black/60 backdrop-blur-md border border-white/10',
+  surface: 'surface-panel',
+  background: 'bg-background-elevated/90 border border-border/70 shadow-[var(--klick-shadow-soft)]',
+  overlay:
+    'border border-border/70 bg-[color-mix(in_srgb,var(--color-surface)_88%,transparent)] shadow-[var(--klick-shadow-soft)] backdrop-blur-xl',
 };
 
 const paddingClasses = {
@@ -29,7 +30,7 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(function Card(
   return (
     <div
       ref={ref}
-      className={cn('rounded-xl', variantClasses[variant], paddingClasses[padding], className)}
+      className={cn('rounded-2xl', variantClasses[variant], paddingClasses[padding], className)}
       {...props}
     >
       {children}

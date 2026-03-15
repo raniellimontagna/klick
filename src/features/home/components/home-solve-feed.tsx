@@ -38,16 +38,16 @@ export function HomeSolveFeed({ solves, filter, onFilterChange }: HomeSolveFeedP
   const { t } = useI18nStore();
 
   return (
-    <section className="rounded-3xl border border-white/10 bg-zinc-900/70 p-4 sm:p-6">
+    <section className="surface-panel rounded-3xl p-4 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-muted">
             {t.homeRevamp.solveFeed.title}
           </p>
-          <p className="mt-1 text-sm text-zinc-300">{t.homeRevamp.solveFeed.subtitle}</p>
+          <p className="mt-1 text-sm text-text-secondary">{t.homeRevamp.solveFeed.subtitle}</p>
         </div>
 
-        <div className="inline-flex rounded-full border border-white/10 bg-black/30 p-1">
+        <div className="inline-flex rounded-full border border-border/75 bg-surface/70 p-1">
           {FILTER_OPTIONS.map((option) => {
             const isSelected = filter === option;
             return (
@@ -57,8 +57,8 @@ export function HomeSolveFeed({ solves, filter, onFilterChange }: HomeSolveFeedP
                 onClick={() => onFilterChange(option)}
                 className={`rounded-full px-3 py-1 text-xs font-semibold tracking-wide transition ${
                   isSelected
-                    ? 'bg-primary text-fixed-white'
-                    : 'text-zinc-300 hover:bg-white/10 hover:text-white'
+                    ? 'bg-primary text-white'
+                    : 'text-text-secondary hover:bg-surface-hover/70 hover:text-text-primary'
                 }`}
                 aria-pressed={isSelected}
               >
@@ -70,19 +70,19 @@ export function HomeSolveFeed({ solves, filter, onFilterChange }: HomeSolveFeedP
       </div>
 
       {solves.length === 0 ? (
-        <div className="mt-4 rounded-2xl border border-dashed border-white/20 bg-black/20 p-8 text-center text-sm text-zinc-300">
+        <div className="mt-4 rounded-2xl border border-dashed border-border/80 bg-surface/55 p-8 text-center text-sm text-text-secondary">
           {t.homeRevamp.solveFeed.empty}
         </div>
       ) : (
-        <div className="mt-4 overflow-hidden rounded-2xl border border-white/10">
-          <div className="hidden grid-cols-[auto_1fr_auto_auto] gap-3 border-b border-white/10 bg-black/35 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.15em] text-zinc-400 sm:grid">
+        <div className="mt-4 overflow-hidden rounded-2xl border border-border/75">
+          <div className="hidden grid-cols-[auto_1fr_auto_auto] gap-3 border-b border-border/75 bg-surface/65 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.15em] text-text-muted sm:grid">
             <span>#</span>
             <span>{t.solveTable.columns.time}</span>
             <span>{t.solveTable.columns.date}</span>
             <span>{t.solveTable.columns.scramble}</span>
           </div>
 
-          <ul className="max-h-80 divide-y divide-white/5 overflow-y-auto">
+          <ul className="max-h-80 divide-y divide-border/70 overflow-y-auto">
             {solves.map((solve, index) => {
               const solveNumber = solves.length - index;
               const penaltyTag = getPenaltyTag(solve.penalty);
@@ -90,27 +90,27 @@ export function HomeSolveFeed({ solves, filter, onFilterChange }: HomeSolveFeedP
               return (
                 <li
                   key={solve.id}
-                  className="grid gap-2 bg-black/20 px-4 py-3 sm:grid-cols-[auto_1fr_auto_auto] sm:items-center sm:gap-3"
+                  className="grid gap-2 bg-surface/58 px-4 py-3 sm:grid-cols-[auto_1fr_auto_auto] sm:items-center sm:gap-3"
                 >
-                  <span className="font-mono text-xs text-zinc-400">#{solveNumber}</span>
+                  <span className="font-mono text-xs text-text-muted">#{solveNumber}</span>
 
                   <div className="flex items-center gap-2">
                     <span
                       className={`font-mono text-xl font-black tracking-tight ${
-                        solve.penalty === 'DNF' ? 'text-rose-300' : 'text-zinc-100'
+                        solve.penalty === 'DNF' ? 'text-danger' : 'text-text-primary'
                       }`}
                     >
                       {solve.penalty === 'DNF' ? 'DNF' : formatTime(solve.effectiveMs)}
                     </span>
                     {penaltyTag && penaltyTag !== 'DNF' && (
-                      <span className="rounded-md border border-amber-300/30 bg-amber-300/10 px-1.5 py-0.5 text-[11px] font-bold text-amber-200">
+                      <span className="rounded-md border border-warning/35 bg-warning/15 px-1.5 py-0.5 text-[11px] font-bold text-warning">
                         {penaltyTag}
                       </span>
                     )}
                   </div>
 
-                  <span className="text-xs text-zinc-300">{formatCreatedAt(solve.createdAt)}</span>
-                  <span className="truncate font-mono text-xs text-zinc-400" title={solve.scramble}>
+                  <span className="text-xs text-text-secondary">{formatCreatedAt(solve.createdAt)}</span>
+                  <span className="truncate font-mono text-xs text-text-muted" title={solve.scramble}>
                     {solve.scramble}
                   </span>
                 </li>
@@ -122,24 +122,24 @@ export function HomeSolveFeed({ solves, filter, onFilterChange }: HomeSolveFeedP
 
       <div
         data-onboarding="shortcuts"
-        className="mt-4 flex flex-wrap items-center gap-2 text-xs text-zinc-400"
+        className="mt-4 flex flex-wrap items-center gap-2 text-xs text-text-muted"
       >
-        <span className="font-semibold uppercase tracking-[0.14em] text-zinc-300">
+        <span className="font-semibold uppercase tracking-[0.14em] text-text-secondary">
           {t.homeRevamp.solveFeed.shortcutsLabel}
         </span>
-        <kbd className="rounded border border-white/15 bg-black/35 px-2 py-1 font-mono text-zinc-100">
+        <kbd className="rounded border border-border/75 bg-surface/80 px-2 py-1 font-mono text-text-primary">
           Space
         </kbd>
-        <kbd className="rounded border border-white/15 bg-black/35 px-2 py-1 font-mono text-zinc-100">
+        <kbd className="rounded border border-border/75 bg-surface/80 px-2 py-1 font-mono text-text-primary">
           N
         </kbd>
-        <kbd className="rounded border border-white/15 bg-black/35 px-2 py-1 font-mono text-zinc-100">
+        <kbd className="rounded border border-border/75 bg-surface/80 px-2 py-1 font-mono text-text-primary">
           P
         </kbd>
-        <kbd className="rounded border border-white/15 bg-black/35 px-2 py-1 font-mono text-zinc-100">
+        <kbd className="rounded border border-border/75 bg-surface/80 px-2 py-1 font-mono text-text-primary">
           D
         </kbd>
-        <kbd className="rounded border border-white/15 bg-black/35 px-2 py-1 font-mono text-zinc-100">
+        <kbd className="rounded border border-border/75 bg-surface/80 px-2 py-1 font-mono text-text-primary">
           U
         </kbd>
       </div>

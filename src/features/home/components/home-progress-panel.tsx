@@ -60,42 +60,42 @@ export function HomeProgressPanel({ summary, challenges }: HomeProgressPanelProp
   const weeklyRemaining = Math.max(0, summary.weeklySolveTarget - summary.weeklySolveCount);
 
   return (
-    <section className="rounded-3xl border border-white/10 bg-zinc-900/70 p-4 sm:p-6">
+    <section className="surface-panel rounded-3xl p-4 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-muted">
             {t.progressHub.title}
           </p>
-          <p className="mt-1 text-sm text-zinc-300">{t.progressHub.subtitle}</p>
+          <p className="mt-1 text-sm text-text-secondary">{t.progressHub.subtitle}</p>
         </div>
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-3">
-        <article className="rounded-2xl border border-white/10 bg-black/25 p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
+        <article className="rounded-2xl border border-border/75 bg-surface/62 p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">
             {t.progressHub.streakLabel}
           </p>
-          <p className="mt-2 inline-flex items-center gap-2 text-2xl font-black tracking-tight text-zinc-100">
+          <p className="mt-2 inline-flex items-center gap-2 text-2xl font-black tracking-tight text-text-primary">
             <ShieldCheck size={18} />
             {t.progressHub.streakValue.replace('{count}', String(summary.currentStreak))}
           </p>
-          <p className="mt-2 text-xs text-zinc-400">
+          <p className="mt-2 text-xs text-text-muted">
             {t.progressHub.bestStreakLabel.replace('{count}', String(summary.bestStreak))}
           </p>
         </article>
 
-        <article className="rounded-2xl border border-white/10 bg-black/25 p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
+        <article className="rounded-2xl border border-border/75 bg-surface/62 p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">
             {t.progressHub.levelLabel}
           </p>
-          <p className="mt-2 inline-flex items-center gap-2 text-2xl font-black tracking-tight text-zinc-100">
+          <p className="mt-2 inline-flex items-center gap-2 text-2xl font-black tracking-tight text-text-primary">
             <MedalRibbon size={18} />
             Lv. {summary.level}
           </p>
-          <p className="mt-2 text-xs text-zinc-300">
+          <p className="mt-2 text-xs text-text-secondary">
             {t.progressHub.xpLabel}: {summary.xpIntoLevel}/{summary.xpIntoLevel + summary.xpToNextLevel}
           </p>
-          <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface-hover/70">
             <div
               className="h-full rounded-full bg-[linear-gradient(90deg,#7C4DFF,#39FF88)] transition-all"
               style={{ width: `${xpPercent}%` }}
@@ -103,20 +103,20 @@ export function HomeProgressPanel({ summary, challenges }: HomeProgressPanelProp
           </div>
         </article>
 
-        <article className="rounded-2xl border border-white/10 bg-black/25 p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
+        <article className="rounded-2xl border border-border/75 bg-surface/62 p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">
             {t.progressHub.weeklyGoalLabel}
           </p>
-          <p className="mt-2 inline-flex items-center gap-2 text-2xl font-black tracking-tight text-zinc-100">
+          <p className="mt-2 inline-flex items-center gap-2 text-2xl font-black tracking-tight text-text-primary">
             <Target size={18} />
             {summary.weeklySolveCount}/{summary.weeklySolveTarget}
           </p>
-          <p className="mt-2 text-xs text-zinc-300">
+          <p className="mt-2 text-xs text-text-secondary">
             {summary.weeklyGoalCompleted
               ? t.progressHub.weeklyGoalStatusDone
               : t.progressHub.weeklyGoalStatusPending.replace('{remaining}', String(weeklyRemaining))}
           </p>
-          <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface-hover/70">
             <div
               className="h-full rounded-full bg-primary transition-all"
               style={{ width: `${weeklyProgress}%` }}
@@ -126,12 +126,12 @@ export function HomeProgressPanel({ summary, challenges }: HomeProgressPanelProp
       </div>
 
       <div className="mt-6">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-muted">
           {t.progressHub.challengesTitle}
         </p>
 
         {challenges.length === 0 ? (
-          <div className="mt-3 rounded-2xl border border-dashed border-white/20 bg-black/20 p-6 text-center text-sm text-zinc-300">
+          <div className="mt-3 rounded-2xl border border-dashed border-border/75 bg-surface/58 p-6 text-center text-sm text-text-secondary">
             {t.progressHub.empty}
           </div>
         ) : (
@@ -145,22 +145,22 @@ export function HomeProgressPanel({ summary, challenges }: HomeProgressPanelProp
               return (
                 <li
                   key={`${challenge.dateKey}-${challenge.type}`}
-                  className="rounded-2xl border border-white/10 bg-black/20 p-4"
+                  className="rounded-2xl border border-border/75 bg-surface/60 p-4"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="text-sm font-semibold text-zinc-100">
+                      <p className="text-sm font-semibold text-text-primary">
                         {getChallengeTitle(challenge, t)}
                       </p>
-                      <p className="mt-1 text-xs leading-relaxed text-zinc-400">
+                      <p className="mt-1 text-xs leading-relaxed text-text-muted">
                         {getChallengeDescription(challenge, t)}
                       </p>
                     </div>
                     <span
                       className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] ${
                         challenge.isCompleted
-                          ? 'border border-emerald-300/30 bg-emerald-300/15 text-emerald-200'
-                          : 'border border-white/15 bg-white/5 text-zinc-300'
+                          ? 'border border-accent/35 bg-accent/16 text-accent'
+                          : 'border border-border/80 bg-surface/75 text-text-secondary'
                       }`}
                     >
                       {challenge.isCompleted
@@ -169,16 +169,16 @@ export function HomeProgressPanel({ summary, challenges }: HomeProgressPanelProp
                     </span>
                   </div>
 
-                  <p className="mt-3 text-xs font-semibold text-zinc-300">
+                  <p className="mt-3 text-xs font-semibold text-text-secondary">
                     {t.progressHub.progressText
                       .replace('{current}', String(challenge.progressValue))
                       .replace('{target}', String(challenge.targetValue))}
                   </p>
 
-                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface-hover/70">
                     <div
                       className={`h-full rounded-full transition-all ${
-                        challenge.isCompleted ? 'bg-emerald-300' : 'bg-primary'
+                        challenge.isCompleted ? 'bg-accent' : 'bg-primary'
                       }`}
                       style={{ width: `${progressPercent}%` }}
                     />

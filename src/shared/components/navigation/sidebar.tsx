@@ -27,14 +27,19 @@ export function Sidebar({ className }: { className?: string }) {
   ];
 
   return (
-    <aside className={cn('flex flex-col glass border-0 border-r border-white/5 z-20', className)}>
-      <div className="flex h-16 items-center px-6 border-b border-white/5">
+    <aside
+      className={cn(
+        'surface-panel flex flex-col border-0 border-r border-border/70 bg-surface/85 backdrop-blur-xl',
+        className,
+      )}
+    >
+      <div className="flex h-16 items-center border-b border-border/70 px-6">
         <Link to="/" className="flex items-center gap-2 transition-opacity hover:opacity-80">
           <Logo size="sm" />
         </Link>
       </div>
 
-      <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
+      <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
         {links.map((link) => {
           const isActive = pathname === link.href;
           return (
@@ -42,15 +47,15 @@ export function Sidebar({ className }: { className?: string }) {
               key={link.href}
               to={link.href}
               className={cn(
-                'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group',
+                'group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-all duration-200',
                 isActive
-                  ? 'bg-primary/10 text-primary shadow-sm'
-                  : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary',
+                  ? 'glow-border bg-primary/18 text-primary'
+                  : 'text-text-secondary hover:bg-surface-hover/70 hover:text-text-primary',
               )}
             >
               <link.icon
                 className={cn(
-                  'w-5 h-5 transition-colors',
+                  'h-5 w-5 transition-colors',
                   isActive ? 'text-primary' : 'text-text-secondary group-hover:text-primary',
                 )}
               />
@@ -60,8 +65,8 @@ export function Sidebar({ className }: { className?: string }) {
         })}
       </nav>
 
-      <div className="p-4 border-t border-white/5">
-        <div className="text-xs text-text-muted text-center">{t.app.tagline}</div>
+      <div className="border-t border-border/70 p-4">
+        <div className="text-center text-xs font-medium tracking-wide text-text-muted">{t.app.tagline}</div>
       </div>
     </aside>
   );

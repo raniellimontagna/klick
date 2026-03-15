@@ -58,49 +58,49 @@ export function Home() {
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
-      className="relative flex min-h-full flex-col gap-5 pb-4"
+      className="relative flex min-h-full flex-col gap-6 pb-4"
     >
-      <div className="pointer-events-none absolute inset-x-0 -top-10 h-72 rounded-[3rem] bg-[radial-gradient(circle_at_top,rgba(124,77,255,0.22),rgba(12,17,25,0))]" />
+      <div className="pointer-events-none absolute inset-x-0 -top-10 h-72 rounded-[3rem] bg-[radial-gradient(circle_at_top,rgba(124,77,255,0.24),rgba(12,17,25,0))]" />
 
-      <section className="relative rounded-3xl border border-white/10 bg-zinc-900/70 p-5 sm:p-6">
-        <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/25 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-300">
+      <section className="surface-panel relative rounded-3xl p-5 sm:p-6">
+        <div className="inline-flex items-center gap-2 rounded-full border border-border/80 bg-surface/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-text-secondary">
           <Stopwatch size={16} />
           {t.homeRevamp.badge}
         </div>
 
-        <h1 className="mt-3 text-2xl font-black tracking-tight text-zinc-100 sm:text-3xl">
+        <h1 className="mt-3 text-2xl font-black tracking-tight text-text-primary sm:text-3xl">
           {t.homeRevamp.title}
         </h1>
-        <p className="mt-2 max-w-3xl text-sm leading-relaxed text-zinc-300 sm:text-base">
+        <p className="mt-2 max-w-3xl text-sm leading-relaxed text-text-secondary sm:text-base">
           {t.homeRevamp.subtitle}
         </p>
 
         <div className="mt-5 grid gap-3 sm:grid-cols-3">
-          <article className="rounded-2xl border border-white/10 bg-black/25 p-4">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-zinc-400">
+          <article className="rounded-2xl border border-border/80 bg-surface/55 p-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-text-muted">
               {t.homeRevamp.highlights.inspectionTitle}
             </p>
-            <p className="mt-2 inline-flex items-center gap-2 text-sm font-semibold text-zinc-100">
+            <p className="mt-2 inline-flex items-center gap-2 text-sm font-semibold text-text-primary">
               <Stopwatch size={16} />
               {t.homeRevamp.highlights.inspectionDescription}
             </p>
           </article>
 
-          <article className="rounded-2xl border border-white/10 bg-black/25 p-4">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-zinc-400">
+          <article className="rounded-2xl border border-border/80 bg-surface/55 p-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-text-muted">
               {t.homeRevamp.highlights.visualTitle}
             </p>
-            <p className="mt-2 inline-flex items-center gap-2 text-sm font-semibold text-zinc-100">
+            <p className="mt-2 inline-flex items-center gap-2 text-sm font-semibold text-text-primary">
               <Widget size={16} />
               {t.homeRevamp.highlights.visualDescription}
             </p>
           </article>
 
-          <article className="rounded-2xl border border-white/10 bg-black/25 p-4">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-zinc-400">
+          <article className="rounded-2xl border border-border/80 bg-surface/55 p-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-text-muted">
               {t.homeRevamp.highlights.statsTitle}
             </p>
-            <p className="mt-2 inline-flex items-center gap-2 text-sm font-semibold text-zinc-100">
+            <p className="mt-2 inline-flex items-center gap-2 text-sm font-semibold text-text-primary">
               <GraphUp size={16} />
               {t.homeRevamp.highlights.statsDescription}
             </p>

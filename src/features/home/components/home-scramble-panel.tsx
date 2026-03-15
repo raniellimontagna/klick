@@ -42,22 +42,22 @@ export function HomeScramblePanel({
     <>
       <section
         data-onboarding="scramble"
-        className="rounded-3xl border border-white/10 bg-zinc-900/70 p-5 shadow-[0_18px_80px_rgba(0,0,0,0.35)] sm:p-6"
+        className="surface-panel rounded-3xl p-5 sm:p-6"
         aria-label={t.homeRevamp.scramble.sectionLabel}
       >
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-muted">
               {t.homeRevamp.scramble.title}
             </p>
-            <h2 className="mt-1 text-lg font-semibold text-zinc-100">{t.homeRevamp.scramble.subtitle}</h2>
+            <h2 className="mt-1 text-lg font-semibold text-text-primary">{t.homeRevamp.scramble.subtitle}</h2>
           </div>
 
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"
               size="icon"
-              className="text-zinc-300 hover:text-white"
+              className="text-text-secondary hover:text-text-primary"
               onClick={openGuide}
               aria-label={t.scramble.guide}
               title={t.scramble.guide}
@@ -67,7 +67,7 @@ export function HomeScramblePanel({
             <Button
               variant="secondary"
               size="sm"
-              className="border-white/10 bg-white/5 text-zinc-100"
+              className="border-border/75 bg-surface/72 text-text-primary"
               onClick={onCopy}
             >
               {copied ? <CheckCircle size={16} className="text-emerald-300" /> : <Copy size={16} />}
@@ -80,7 +80,7 @@ export function HomeScramblePanel({
           </div>
         </div>
 
-        <p className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4 font-mono text-lg font-semibold leading-relaxed tracking-tight text-zinc-100 sm:text-2xl">
+        <p className="mt-4 rounded-2xl border border-border/75 bg-surface/60 p-4 font-mono text-lg font-semibold leading-relaxed tracking-tight text-text-primary sm:text-2xl">
           {scramble || t.scramble.generating}
         </p>
 
@@ -88,7 +88,7 @@ export function HomeScramblePanel({
           <Button
             size="sm"
             variant={visualizationMode === '3d' ? 'primary' : 'secondary'}
-            className={visualizationMode === '3d' ? '' : 'bg-white/5 border-white/10 text-zinc-200'}
+            className={visualizationMode === '3d' ? '' : 'border-border/75 bg-surface/70 text-text-secondary'}
             onClick={() => onChangeVisualizationMode('3d')}
             aria-pressed={visualizationMode === '3d'}
           >
@@ -98,7 +98,7 @@ export function HomeScramblePanel({
           <Button
             size="sm"
             variant={visualizationMode === '2d' ? 'primary' : 'secondary'}
-            className={visualizationMode === '2d' ? '' : 'bg-white/5 border-white/10 text-zinc-200'}
+            className={visualizationMode === '2d' ? '' : 'border-border/75 bg-surface/70 text-text-secondary'}
             onClick={() => onChangeVisualizationMode('2d')}
             aria-pressed={visualizationMode === '2d'}
           >
@@ -107,9 +107,9 @@ export function HomeScramblePanel({
           </Button>
         </div>
 
-        <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[radial-gradient(circle_at_top,#1f2937_0%,#09090b_100%)]">
+        <div className="mt-4 overflow-hidden rounded-2xl border border-border/75 bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--color-surface-hover)_78%,transparent)_0%,color-mix(in_srgb,var(--color-background)_95%,transparent)_100%)]">
           {isFocusMode ? (
-            <div className="flex h-72 items-center justify-center px-6 text-center text-sm text-zinc-300">
+            <div className="flex h-72 items-center justify-center px-6 text-center text-sm text-text-secondary">
               {t.homeRevamp.scramble.focusModeMessage}
             </div>
           ) : visualizationMode === '3d' ? (
@@ -131,7 +131,7 @@ export function HomeScramblePanel({
               className="h-72 border-none bg-transparent"
             />
           ) : (
-            <div className="flex h-72 items-center justify-center px-6 text-center text-sm text-zinc-300">
+            <div className="flex h-72 items-center justify-center px-6 text-center text-sm text-text-secondary">
               {t.homeRevamp.scramble.visualUnavailable}
             </div>
           )}

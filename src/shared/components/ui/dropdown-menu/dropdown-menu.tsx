@@ -19,8 +19,8 @@ const DropdownMenuContent = forwardRef<
       ref={ref}
       sideOffset={sideOffset}
       className={cn(
-        'z-[1000] min-w-[180px] overflow-hidden rounded-xl p-1',
-        'bg-surface/95 backdrop-blur-md border border-white/10 shadow-2xl',
+        'z-[1000] min-w-[180px] overflow-hidden rounded-2xl p-1.5',
+        'surface-panel border border-border/75 bg-surface/95 backdrop-blur-xl shadow-2xl',
         'data-[state=open]:animate-in data-[state=closed]:animate-out',
         'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
         'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
@@ -43,9 +43,9 @@ const DropdownMenuItem = forwardRef<
   <DropdownMenuPrimitive.Item
     ref={ref}
     className={cn(
-      'relative flex cursor-pointer select-none items-center gap-2 rounded-lg px-3 py-2 text-sm outline-none transition-colors',
-      'text-text-secondary hover:bg-white/10 hover:text-text-primary',
-      'focus:bg-white/10 focus:text-text-primary',
+      'relative flex cursor-pointer select-none items-center gap-2 rounded-xl px-3 py-2 text-sm outline-none transition-colors',
+      'text-text-secondary hover:bg-surface-hover/80 hover:text-text-primary',
+      'focus:bg-surface-hover/80 focus:text-text-primary',
       'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
       inset && 'pl-8',
       className,
@@ -62,9 +62,9 @@ const DropdownMenuCheckboxItem = forwardRef<
   <DropdownMenuPrimitive.CheckboxItem
     ref={ref}
     className={cn(
-      'relative flex cursor-pointer select-none items-center rounded-lg py-2 pl-8 pr-3 text-sm outline-none transition-colors',
-      'text-text-secondary hover:bg-white/10 hover:text-text-primary',
-      'focus:bg-white/10 focus:text-text-primary',
+      'relative flex cursor-pointer select-none items-center rounded-xl py-2 pl-8 pr-3 text-sm outline-none transition-colors',
+      'text-text-secondary hover:bg-surface-hover/80 hover:text-text-primary',
+      'focus:bg-surface-hover/80 focus:text-text-primary',
       'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
       className,
     )}
@@ -88,10 +88,10 @@ const DropdownMenuRadioItem = forwardRef<
   <DropdownMenuPrimitive.RadioItem
     ref={ref}
     className={cn(
-      'relative flex cursor-pointer select-none items-center rounded-lg py-2.5 pl-8 pr-3 text-sm outline-none transition-colors',
-      'text-text-secondary hover:bg-white/10 hover:text-text-primary',
-      'focus:bg-white/10 focus:text-text-primary',
-      'data-[state=checked]:bg-white/10 data-[state=checked]:text-primary',
+      'relative flex cursor-pointer select-none items-center rounded-xl py-2.5 pl-8 pr-3 text-sm outline-none transition-colors',
+      'text-text-secondary hover:bg-surface-hover/80 hover:text-text-primary',
+      'focus:bg-surface-hover/80 focus:text-text-primary',
+      'data-[state=checked]:bg-primary/14 data-[state=checked]:text-primary',
       'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
       className,
     )}
@@ -131,7 +131,7 @@ const DropdownMenuSeparator = forwardRef<
 >(({ className, ...props }, ref) => (
   <DropdownMenuPrimitive.Separator
     ref={ref}
-    className={cn('my-1 h-px bg-white/10', className)}
+    className={cn('my-1 h-px bg-border/70', className)}
     {...props}
   />
 ));
@@ -153,9 +153,9 @@ const DropdownMenuTriggerButton = forwardRef<
     ref={ref}
     type="button"
     className={cn(
-      'h-10 flex items-center gap-2 px-3 sm:px-4 text-sm font-medium transition-all rounded-xl',
-      'glass-button border border-white/10 hover:border-white/20 hover:bg-white/10',
-      'text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50',
+      'glass-button h-10 rounded-xl border border-border/75 px-3 text-sm font-semibold text-text-primary transition-all sm:px-4',
+      'hover:border-border-strong/75 hover:bg-surface-hover/70',
+      'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
       className,
     )}
     {...props}

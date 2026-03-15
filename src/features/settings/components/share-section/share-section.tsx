@@ -42,7 +42,7 @@ export function ShareSection() {
       )}
 
       {isConfigured && !isAuthenticated && (
-        <div className="rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-text-secondary">
+        <div className="rounded-xl border border-border/70 bg-surface/65 p-4 text-sm text-text-secondary">
           <p className="font-semibold text-text-primary">{t.settings.sharing.loginRequiredTitle}</p>
           <p className="mt-2 text-xs leading-relaxed">{t.settings.sharing.loginRequiredDescription}</p>
         </div>
@@ -63,7 +63,7 @@ export function ShareSection() {
 
       {canManageSharing && (
         <>
-          <ul className="divide-y divide-white/5 overflow-hidden rounded-xl border border-white/10 bg-black/20">
+          <ul className="divide-y divide-border/70 overflow-hidden rounded-xl border border-border/70 bg-surface/65">
             <li className="flex items-center justify-between gap-4 p-4">
               <div className="pr-3">
                 <p className="text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">
@@ -195,7 +195,7 @@ export function ShareSection() {
             </header>
 
             {links.length === 0 ? (
-              <div className="rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-text-secondary">
+              <div className="rounded-xl border border-border/70 bg-surface/65 p-4 text-sm text-text-secondary">
                 {t.settings.sharing.empty}
               </div>
             ) : (
@@ -203,7 +203,7 @@ export function ShareSection() {
                 {links.map((link) => (
                   <li
                     key={link.id}
-                    className="rounded-xl border border-white/10 bg-black/20 p-4"
+                    className="rounded-xl border border-border/70 bg-surface/65 p-4"
                     aria-label={`${t.settings.sharing.listItemTitle} ${link.slug}`}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">

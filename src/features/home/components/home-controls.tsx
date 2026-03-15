@@ -10,7 +10,7 @@ interface HomeControlsProps {
 }
 
 const keycapClass =
-  'inline-flex min-w-6 items-center justify-center rounded-md border border-white/15 bg-black/30 px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wider text-zinc-100';
+  'inline-flex min-w-6 items-center justify-center rounded-md border border-border/75 bg-surface/80 px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wider text-text-primary';
 
 export function HomeControls({
   onNewScramble,
@@ -27,7 +27,7 @@ export function HomeControls({
     >
       <Button
         variant="secondary"
-        className="h-12 justify-between border-white/10 bg-white/5 px-4 text-zinc-100"
+        className="h-12 justify-between border-border/75 bg-surface/72 px-4 text-text-primary"
         onClick={onNewScramble}
       >
         <span className="inline-flex items-center gap-2 text-sm font-semibold">
@@ -39,7 +39,7 @@ export function HomeControls({
 
       <Button
         variant="secondary"
-        className="h-12 justify-between border-white/10 bg-white/5 px-4 text-zinc-100"
+        className="h-12 justify-between border-border/75 bg-surface/72 px-4 text-text-primary"
         onClick={onTogglePlus2}
       >
         <span className="inline-flex items-center gap-2 text-sm font-semibold">
@@ -51,7 +51,7 @@ export function HomeControls({
 
       <Button
         variant="secondary"
-        className="h-12 justify-between border-white/10 bg-white/5 px-4 text-zinc-100"
+        className="h-12 justify-between border-border/75 bg-surface/72 px-4 text-text-primary"
         onClick={onToggleDNF}
       >
         <span className="inline-flex items-center gap-2 text-sm font-semibold">
@@ -63,7 +63,7 @@ export function HomeControls({
 
       <Button
         variant="secondary"
-        className="h-12 justify-between border-white/10 bg-white/5 px-4 text-zinc-100"
+        className="h-12 justify-between border-border/75 bg-surface/72 px-4 text-text-primary"
         onClick={onUndoLast}
       >
         <span className="inline-flex items-center gap-2 text-sm font-semibold">
@@ -73,7 +73,7 @@ export function HomeControls({
         <span className={keycapClass}>U</span>
       </Button>
 
-      <p className="col-span-full inline-flex items-center gap-2 text-xs text-zinc-400">
+      <p className="col-span-full inline-flex items-center gap-2 text-xs text-text-muted">
         <DangerTriangle size={15} />
         {t.homeRevamp.controls.helper}
       </p>

@@ -346,7 +346,7 @@
         "Validar qualidade com `pnpm lint` e `pnpm test` sem regressões."
       ],
       "priority": 10,
-      "passes": false,
+      "passes": true,
       "notes": "Story transversal. Pode ser executada em ondas por rota, mas só conclui com revisão visual completa do produto."
     },
     {

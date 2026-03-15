@@ -14,19 +14,19 @@ export function HomeStatsGrid({ title, stats }: HomeStatsGridProps) {
     <section
       data-onboarding="stats"
       aria-label={title}
-      className="rounded-3xl border border-white/10 bg-zinc-900/70 p-4 sm:p-6"
+      className="surface-panel rounded-3xl p-4 sm:p-6"
     >
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">{title}</p>
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-muted">{title}</p>
       <ul className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {stats.map((stat) => (
           <li
             key={stat.id}
-            className="rounded-2xl border border-white/10 bg-black/25 p-4 transition hover:border-white/20"
+            className="rounded-2xl border border-border/75 bg-surface/62 p-4 transition hover:border-border-strong/75"
           >
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">
               {stat.label}
             </p>
-            <p className="mt-2 font-mono text-2xl font-black tracking-tight text-zinc-100">
+            <p className="mt-2 font-mono text-2xl font-black tracking-tight text-text-primary">
               {stat.value}
             </p>
           </li>

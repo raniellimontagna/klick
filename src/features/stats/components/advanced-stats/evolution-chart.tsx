@@ -35,7 +35,7 @@ export const EvolutionChart: React.FC<EvolutionChartProps> = ({
     <div className="w-full h-80" role="img" aria-label="Gráfico de evolução de tempos">
       <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={100}>
         <LineChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="var(--color-white-5)" vertical={false} />
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(138, 150, 173, 0.28)" vertical={false} />
           <XAxis
             dataKey="solve"
             stroke="var(--color-text-muted)"
@@ -54,11 +54,11 @@ export const EvolutionChart: React.FC<EvolutionChartProps> = ({
             domain={['auto', 'auto']}
           />
           <Tooltip
-            cursor={{ stroke: 'var(--color-white-10)', strokeWidth: 2 }}
+            cursor={{ stroke: 'rgba(138, 150, 173, 0.38)', strokeWidth: 2 }}
             content={({ active, payload, label }) => {
               if (active && payload && payload.length) {
                 return (
-                  <div className="glass p-3 rounded-lg border border-white/10 shadow-xl min-w-[150px]">
+                  <div className="surface-panel min-w-[150px] rounded-xl p-3 shadow-xl">
                     <p className="text-text-muted text-xs mb-2 font-bold uppercase tracking-wider">
                       Solve #{label}
                     </p>

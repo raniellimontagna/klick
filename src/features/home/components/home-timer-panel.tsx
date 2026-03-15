@@ -62,32 +62,32 @@ export function HomeTimerPanel({
 
   const timerToneClass =
     state === 'running'
-      ? 'text-emerald-300'
+      ? 'text-accent'
       : state === 'inspection'
-        ? 'text-amber-300'
+        ? 'text-warning'
         : state === 'stopped' && lastPenalty === 'DNF'
-          ? 'text-rose-300'
-          : 'text-zinc-100';
+          ? 'text-danger'
+          : 'text-text-primary';
 
   return (
     <section
       data-onboarding="timer"
-      className="relative overflow-hidden rounded-3xl border border-white/10 bg-[radial-gradient(circle_at_top,#2a2156_0%,#0f1524_52%,#090d14_100%)] p-5 sm:p-8"
+      className="surface-panel relative overflow-hidden rounded-3xl bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--color-primary)_26%,transparent)_0%,color-mix(in_srgb,var(--color-surface)_88%,transparent)_52%,color-mix(in_srgb,var(--color-background)_95%,transparent)_100%)] p-5 sm:p-8"
       aria-label={t.homeRevamp.timer.sectionLabel}
     >
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(130deg,rgba(57,255,136,0.08),transparent_30%,transparent_70%,rgba(124,77,255,0.2))]" />
 
       <div className="relative z-10 flex flex-col gap-8">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/25 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-300">
+          <div className="inline-flex items-center gap-2 rounded-full border border-border/80 bg-surface/75 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-text-secondary">
             <Stopwatch size={16} />
             {statusLabel}
           </div>
           <div className="text-right">
-            <p className="text-xs uppercase tracking-[0.16em] text-zinc-400">
+            <p className="text-xs uppercase tracking-[0.16em] text-text-muted">
               {t.homeRevamp.timer.modeLabel}
             </p>
-            <p className="text-sm font-semibold text-zinc-200">{t.homeRevamp.timer.spaceHint}</p>
+            <p className="text-sm font-semibold text-text-secondary">{t.homeRevamp.timer.spaceHint}</p>
           </div>
         </div>
 
@@ -104,8 +104,8 @@ export function HomeTimerPanel({
           </motion.div>
 
           {isInspection && (
-            <div className="space-y-3 rounded-2xl border border-amber-400/30 bg-amber-300/10 p-4">
-              <div className="flex items-center justify-between text-amber-100">
+            <div className="space-y-3 rounded-2xl border border-warning/35 bg-warning/15 p-4">
+              <div className="flex items-center justify-between text-warning">
                 <div className="inline-flex items-center gap-2 text-sm font-semibold">
                   <ClockCircle size={18} />
                   {t.homeRevamp.timer.inspectionCountdown}
@@ -114,9 +114,9 @@ export function HomeTimerPanel({
                   {Math.ceil(inspectionTimeLeft)}s
                 </span>
               </div>
-              <div className="h-2 overflow-hidden rounded-full bg-amber-500/20">
+              <div className="h-2 overflow-hidden rounded-full bg-warning/25">
                 <div
-                  className="h-full rounded-full bg-amber-300 transition-all duration-100"
+                  className="h-full rounded-full bg-warning transition-all duration-100"
                   style={{ width: `${progressPercent}%` }}
                 />
               </div>
@@ -125,20 +125,20 @@ export function HomeTimerPanel({
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
-            <p className="mb-1 text-xs uppercase tracking-[0.16em] text-zinc-400">
+          <div className="rounded-2xl border border-border/75 bg-surface/65 p-4">
+            <p className="mb-1 text-xs uppercase tracking-[0.16em] text-text-muted">
               {t.homeRevamp.timer.finishLabel}
             </p>
-            <p className="inline-flex items-center gap-2 text-sm font-semibold text-zinc-100">
+            <p className="inline-flex items-center gap-2 text-sm font-semibold text-text-primary">
               <Target size={16} />
               {t.homeRevamp.timer.finishHint}
             </p>
           </div>
-          <div className="rounded-2xl border border-emerald-300/20 bg-emerald-300/10 p-4">
-            <p className="mb-1 text-xs uppercase tracking-[0.16em] text-emerald-100/90">
+          <div className="rounded-2xl border border-accent/30 bg-accent/12 p-4">
+            <p className="mb-1 text-xs uppercase tracking-[0.16em] text-accent">
               {t.homeRevamp.timer.feedbackLabel}
             </p>
-            <p className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-100">
+            <p className="inline-flex items-center gap-2 text-sm font-semibold text-accent">
               <Bolt size={16} />
               {isNewBest ? t.homeRevamp.timer.personalBest : t.homeRevamp.timer.feedbackHint}
             </p>

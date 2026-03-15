@@ -46,7 +46,12 @@ export function Training() {
   });
 
   return (
-    <motion.div variants={fadeIn} initial="initial" animate="animate" className="space-y-6 sm:space-y-8">
+    <motion.div
+      variants={fadeIn}
+      initial="initial"
+      animate="animate"
+      className="mx-auto w-full max-w-6xl space-y-6 sm:space-y-8"
+    >
       <PageHeader
         title={copy.title}
         description={copy.subtitle}

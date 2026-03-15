@@ -29,10 +29,10 @@ export function CloudSyncSection() {
         <p className="text-xs text-text-secondary">{t.settings.cloudSync.description}</p>
       </header>
 
-      <div className="rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-text-secondary">
+      <div className="rounded-xl border border-border/70 bg-surface/65 p-4 text-sm text-text-secondary">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <span className="font-semibold text-text-primary">{t.settings.cloudSync.statusLabel}</span>
-          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-text-primary">
+          <span className="rounded-full border border-border/70 bg-surface/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-text-primary">
             {statusLabel}
           </span>
         </div>
@@ -105,7 +105,7 @@ export function CloudSyncSection() {
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 placeholder={t.settings.cloudSync.magicLinkPlaceholder}
-                className="h-11 flex-1 rounded-lg border border-white/10 bg-black/20 px-3 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none"
+                className="h-11 flex-1 rounded-lg border border-border/75 bg-surface/70 px-3 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none"
                 autoComplete="email"
               />
               <Button type="submit" variant="secondary" className="h-11 sm:px-5" disabled={isSyncing}>

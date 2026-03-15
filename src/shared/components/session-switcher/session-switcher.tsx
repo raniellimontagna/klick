@@ -55,7 +55,7 @@ export function SessionSwitcher({
                 onClick={() => handleSessionSelect(session.id)}
                 className={cn(
                   'flex items-center justify-between gap-2 py-3 mb-1 last:mb-0',
-                  session.id === activeSessionId && 'bg-white/10 text-text-primary',
+                  session.id === activeSessionId && 'bg-primary/14 text-text-primary',
                 )}
               >
                 <div className="flex-1 min-w-0">

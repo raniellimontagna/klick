@@ -19,6 +19,8 @@ Started: 2026-03-13
 - Em stores com recomputação periódica, comparar snapshots ignorando `updatedAt` evita loops de sync sem perder consistência funcional.
 - Para sharing social seguro, separar `share_preferences` (política do usuário) de `share_links` (snapshot compartilhável) reduz acoplamento entre UX de privacidade e payload público.
 - Em conteúdo compartilhável público, usar snapshot JSON versionado por link (em vez de consulta em tempo real ao estado interno) facilita revogação imediata e limita superfície de exposição.
+- Para redesign transversal sem regressão funcional, centralizar tokens/superfícies em `src/app/styles/index.css` e propagar via primitives (`Button`, `Card`, `PageHeader`, navigation shell) reduz retrabalho por feature.
+- Em pass visual global, atualizar primeiro layout+navegação e depois páginas críticas (`history`, `stats`, `settings`) entrega consistência perceptível sem alterar lógica de domínio.
 
 ---
 ## [2026-03-13 00:00:00 -0300] - US-001
@@ -334,5 +336,55 @@ Started: 2026-03-13
     - `SELECT` em `share_links` só permite leitura por dono (`auth.uid() = user_id`) ou por link explicitamente público e ativo (`is_active = true` + `visibility = 'public'`).
     - `INSERT/UPDATE/DELETE` em `share_links` e `share_preferences` restritos ao dono via RLS.
     - Desativar compartilhamento revoga acesso público existente em lote (hard revocation no mesmo fluxo de UX).
+  - `pnpm lint`, `pnpm test`, `pnpm knip` e `pnpm build` passaram nesta entrega.
+---
+## [2026-03-15 12:25:57 -0300] - US-011
+- What was implemented
+  - Redesign global aplicado em todas as telas principais (`/`, `/history`, `/stats`, `/training`, `/tutorial`, `/settings`) com direção visual única baseada em superfícies suaves, contraste alto e ambientação por gradientes.
+  - Tokens globais atualizados em `src/app/styles/index.css` com refinamento de tema dark/light, foco visível acessível, novas camadas de superfície e sombras consistentes.
+  - Shell de navegação unificado (`MainLayout`, `Sidebar`, `Topbar`, `MobileNav`) para manter linguagem visual coesa entre desktop e mobile.
+  - Primitives compartilhados (`Button`, `Card`, `DropdownMenu`, `PageHeader`) revisados para padronizar estados de interação, bordas, elevação e legibilidade.
+  - Pass de polimento nas páginas com maior divergência visual (`history`, `stats`, `settings`) e harmonização dos painéis da home (timer/scramble/stats/progresso/histórico curto).
+- Files changed
+  - Updated (global foundation):
+    - src/app/styles/index.css
+    - src/shared/layouts/main-layout.tsx
+    - src/shared/components/navigation/sidebar.tsx
+    - src/shared/components/navigation/topbar.tsx
+    - src/shared/components/navigation/mobile-nav.tsx
+    - src/shared/components/page-header/page-header.tsx
+    - src/shared/components/ui/button/button.tsx
+    - src/shared/components/ui/card/card.tsx
+    - src/shared/components/ui/dropdown-menu/dropdown-menu.tsx
+    - src/shared/components/header-dropdown-button/header-dropdown-button.tsx
+    - src/shared/components/route-loader/route-loader.tsx
+    - src/shared/components/session-switcher/session-switcher.tsx
+  - Updated (feature pages/components):
+    - src/features/home/home.tsx
+    - src/features/home/components/home-timer-panel.tsx
+    - src/features/home/components/home-scramble-panel.tsx
+    - src/features/home/components/home-controls.tsx
+    - src/features/home/components/home-stats-grid.tsx
+    - src/features/home/components/home-solve-feed.tsx
+    - src/features/home/components/home-progress-panel.tsx
+    - src/features/history/history.tsx
+    - src/features/history/components/summary-cards/summary-cards.tsx
+    - src/features/history/components/history-charts/history-charts.tsx
+    - src/features/history/components/solve-table/solve-table.tsx
+    - src/features/stats/stats.tsx
+    - src/features/stats/components/advanced-stats/advanced-stats-content.tsx
+    - src/features/stats/components/advanced-stats/evolution-chart.tsx
+    - src/features/stats/components/advanced-stats/distribution-chart.tsx
+    - src/features/training/training.tsx
+    - src/features/tutorial/tutorial.tsx
+    - src/features/settings/settings.tsx
+    - src/features/settings/components/settings-content.tsx
+    - src/features/settings/components/cloud-sync-section/cloud-sync-section.tsx
+    - src/features/settings/components/share-section/share-section.tsx
+    - scripts/ralph/prd.json
+    - scripts/ralph/progress.txt
+- Learnings for future iterations:
+  - Consolidar contraste e profundidade por tokens semânticos (em vez de cores diretas por componente) simplifica manutenção de consistência em páginas novas e legadas.
+  - Revisar primeiro primitives compartilhados e depois features reduz volume de override local e evita drift visual entre rotas.
   - `pnpm lint`, `pnpm test`, `pnpm knip` e `pnpm build` passaram nesta entrega.
 ---

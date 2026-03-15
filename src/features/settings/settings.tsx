@@ -13,7 +13,7 @@ export const Settings: React.FC = (): React.ReactElement => {
       variants={fadeIn}
       initial="hidden"
       animate="visible"
-      className="mx-auto w-full max-w-6xl"
+      className="mx-auto w-full max-w-6xl space-y-6"
     >
       <PageHeader
         title={t.navigation.settings}
@@ -21,7 +21,7 @@ export const Settings: React.FC = (): React.ReactElement => {
         icon={<SettingsIcon size={32} />}
       />
 
-      <section className="mt-8">
+      <section>
         <SettingsContent />
       </section>
     </motion.div>

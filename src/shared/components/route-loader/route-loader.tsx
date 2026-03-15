@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 
 export const RouteLoader = () => {
   return (
-    <div className="flex items-center justify-center min-h-screen bg-background">
+    <div className="flex min-h-screen items-center justify-center bg-background">
       <div className="flex flex-col items-center gap-4">
         <motion.div
           initial={{ opacity: 0, scale: 0.8 }}
@@ -14,7 +14,7 @@ export const RouteLoader = () => {
           }}
           className="relative"
         >
-          <div className="w-16 h-16 bg-linear-to-br from-primary/20 to-accent/20 rounded-lg border-2 border-primary/40 shadow-lg shadow-primary/20" />
+          <div className="h-16 w-16 rounded-xl border-2 border-primary/40 bg-linear-to-br from-primary/20 to-accent/20 shadow-lg shadow-primary/20" />
           <motion.div
             className="absolute inset-0 flex items-center justify-center"
             animate={{
@@ -52,7 +52,7 @@ export const RouteLoader = () => {
         </motion.div>
 
         {/* Optional progress bar */}
-        <div className="w-48 h-1 bg-surface rounded-full overflow-hidden">
+        <div className="h-1 w-48 overflow-hidden rounded-full bg-surface">
           <motion.div
             className="h-full bg-linear-to-r from-primary to-accent"
             initial={{ x: '-100%' }}

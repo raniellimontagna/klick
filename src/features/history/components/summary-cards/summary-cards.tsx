@@ -62,10 +62,10 @@ export const SummaryCards: React.FC<SummaryCardsProps> = ({
       {cards.map((card) => (
         <article
           key={card.label}
-          className="glass p-4 rounded-xl border border-white/5 flex flex-col items-center justify-center text-center"
+          className="surface-panel flex flex-col items-center justify-center rounded-2xl p-4 text-center"
         >
           <div
-            className={`p-2 rounded-full bg-surface mb-2 ${card.color} bg-opacity-10`}
+            className={`mb-2 rounded-full border border-border/70 bg-surface/70 p-2 ${card.color}`}
             aria-hidden="true"
           >
             <card.icon size={18} className={card.color} />

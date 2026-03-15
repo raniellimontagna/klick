@@ -34,7 +34,7 @@ export const HeaderDropdownButton = forwardRef<HTMLButtonElement, HeaderDropdown
         aria-expanded={isOpen}
         variant="secondary"
         size="sm"
-        className="h-10 flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 glass-button border border-white/10 hover:border-white/20 hover:bg-white/10 rounded-xl min-w-0 text-text-primary transition-all"
+        className="glass-button h-10 min-w-0 rounded-xl border border-border/75 px-3 text-text-primary transition-all hover:border-border-strong/80 hover:bg-surface-hover/75 sm:gap-2 sm:px-4"
       >
         <span className="shrink-0 text-primary">{icon}</span>
         <span
