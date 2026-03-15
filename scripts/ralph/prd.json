@@ -1,7 +1,7 @@
 {
   "project": "Klick",
-  "branchName": "ralph/klick-core",
-  "description": "Klick é um timer web para cubo mágico com foco em clareza visual, aprendizado para iniciantes e feedback instantâneo. A aplicação possui timer com inspeção, histórico de solves, estatísticas (single/ao5/ao12), treinos, tutorial e internacionalização.",
+  "branchName": "ralph/klick-mobile-redesign",
+  "description": "Klick é um timer web para cubo mágico com foco em clareza visual, aprendizado para iniciantes e feedback instantâneo. A aplicação possui timer com inspeção, histórico de solves, estatísticas (single/ao5/ao12), treinos, tutorial, social, compartilhamento e internacionalização. A iniciativa ativa atual é o redesign mobile-first inspirado em Notion e Linear.",
   "productContext": {
     "type": "Aplicação web front-end (PWA) para speedcubing",
     "primaryUsers": [
@@ -104,6 +104,10 @@
       "training",
       "tutorial",
       "settings",
+      "friends",
+      "leaderboard",
+      "share",
+      "auth-callback",
       "cube-3d"
     ]
   },
@@ -114,11 +118,18 @@
       "/stats",
       "/training",
       "/tutorial",
-      "/settings"
+      "/settings",
+      "/friends",
+      "/leaderboard",
+      "/cube-3d"
     ],
-    "socialPlanned": [
+    "social": [
       "/friends",
       "/leaderboard"
+    ],
+    "standalone": [
+      "/auth/callback",
+      "/share/:slug"
     ]
   },
   "codingRules": {
@@ -144,6 +155,139 @@
       "pnpm build"
     ]
   },
+  "activeInitiative": {
+    "name": "Redesign Mobile-First 2026",
+    "sourceDocument": "docs/redesign-prd.md",
+    "goal": "Reposicionar o Klick com uma experiência visual mais forte, consistente e mobile-first, usando princípios inspirados em Notion e Linear sem perder clareza operacional no loop principal do timer.",
+    "designReferences": [
+      "Notion",
+      "Linear"
+    ],
+    "northStar": [
+      "Home orientada ao core loop do timer já na primeira dobra mobile",
+      "Navegação mobile mais rápida com bottom navigation e superfícies secundárias em sheet",
+      "Design system unificado entre core, analytics, aprendizado e social",
+      "Melhor percepção de qualidade sem regressão de performance, acessibilidade ou clareza"
+    ],
+    "notes": [
+      "Esta iniciativa aprofunda e estende o redesign já entregue anteriormente na US-011.",
+      "A Fase 0 de auditoria, benchmark e PRD já foi concluída e documentada em docs/redesign-prd.md."
+    ]
+  },
+  "executionPlan": [
+    {
+      "phaseId": "EP-0",
+      "name": "Auditoria, benchmark e PRD",
+      "status": "completed",
+      "goal": "Consolidar diagnóstico visual, princípios de produto, escopo de telas e roadmap do redesign.",
+      "deliverables": [
+        "Inventário das rotas e componentes atuais",
+        "PRD completo do redesign em docs/redesign-prd.md",
+        "Direção visual baseada em Notion e Linear"
+      ]
+    },
+    {
+      "phaseId": "EP-1",
+      "name": "Fundações do design system",
+      "status": "pending",
+      "goal": "Definir tokens, padrões visuais e componentes base para sustentar o redesign inteiro.",
+      "dependsOn": [
+        "EP-0"
+      ],
+      "deliverables": [
+        "Tokens de cor, tipografia, espaçamento, radius, elevação e motion",
+        "Revisão das superfícies globais em src/app/styles/index.css",
+        "Componentes base atualizados para o novo sistema"
+      ]
+    },
+    {
+      "phaseId": "EP-2",
+      "name": "Shell e navegação global",
+      "status": "pending",
+      "goal": "Refazer a moldura do app com navegação mobile-first e estrutura consistente entre rotas.",
+      "dependsOn": [
+        "EP-1"
+      ],
+      "deliverables": [
+        "Bottom navigation mobile",
+        "Sidebar desktop refinada",
+        "Topbar utilitária e headers simplificados",
+        "Padrão de drawer, bottom sheet e feedback global"
+      ]
+    },
+    {
+      "phaseId": "EP-3",
+      "name": "Home e core loop do timer",
+      "status": "pending",
+      "goal": "Tornar a home a melhor experiência do produto, priorizando solve loop e primeira dobra mobile.",
+      "dependsOn": [
+        "EP-2"
+      ],
+      "deliverables": [
+        "Nova primeira dobra com timer, scramble e ações primárias",
+        "Reorganização de stats, progresso e feed",
+        "Hierarquia clara para inspeção, solve, penalidade e revisão"
+      ]
+    },
+    {
+      "phaseId": "EP-4",
+      "name": "History e stats",
+      "status": "pending",
+      "goal": "Padronizar leitura de dados, analytics e detalhes de solve com forte adaptação para mobile.",
+      "dependsOn": [
+        "EP-3"
+      ],
+      "deliverables": [
+        "Summary cards e gráficos refinados",
+        "Tabelas adaptadas para lista/card em mobile",
+        "Detalhes do solve em modal ou sheet adequado por breakpoint"
+      ]
+    },
+    {
+      "phaseId": "EP-5",
+      "name": "Aprendizado e prática",
+      "status": "pending",
+      "goal": "Unificar training, tutorial e cube-3d na mesma linguagem visual e pedagógica.",
+      "dependsOn": [
+        "EP-4"
+      ],
+      "deliverables": [
+        "Training com foco no drill atual e próximo passo",
+        "Tutorial com progressão mais guiada",
+        "Cube 3D com HUD e controles mais sistêmicos"
+      ]
+    },
+    {
+      "phaseId": "EP-6",
+      "name": "Social, suporte e superfícies auxiliares",
+      "status": "pending",
+      "goal": "Trazer friends, leaderboard, settings, share e auth para o mesmo nível de consistência do core do app.",
+      "dependsOn": [
+        "EP-5"
+      ],
+      "deliverables": [
+        "Friends e leaderboard mais claros no mobile",
+        "Settings reorganizado por contexto",
+        "Share page e auth callback alinhados ao sistema",
+        "Onboarding, prompts e modais auxiliares revisitados"
+      ]
+    },
+    {
+      "phaseId": "EP-7",
+      "name": "QA, acessibilidade e polimento final",
+      "status": "pending",
+      "goal": "Fechar o redesign com validação responsiva, acessibilidade, performance e consistência visual.",
+      "dependsOn": [
+        "EP-6"
+      ],
+      "deliverables": [
+        "Pass de QA por breakpoint",
+        "Validação de contraste, foco, reduced motion e targets touch",
+        "Polimento de motion, feedbacks e estados vazios",
+        "Checklist final de release do redesign"
+      ]
+    }
+  ],
   "userStories": [
     {
       "id": "US-001",
@@ -428,6 +572,145 @@
       "priority": 15,
       "passes": true,
       "notes": "Complementa US-004/US-005 e resolve o problema de cubo 'entrar girando' em telas de aprendizado."
+    },
+    {
+      "id": "US-018",
+      "title": "Definir fundações do redesign mobile-first",
+      "description": "Como time de produto, queremos consolidar o novo design system do Klick para sustentar o redesign completo com consistência, performance e clareza visual.",
+      "acceptanceCriteria": [
+        "Atualizar os tokens globais de cor, tipografia, espaçamento, raio, elevação e motion para refletir a direção visual definida em docs/redesign-prd.md.",
+        "Reduzir o uso indiscriminado de glow, blur e gradientes, definindo regras explícitas de quando cada recurso visual pode ser usado.",
+        "Padronizar superfícies base (`surface`, `overlay`, `background`) e estados visuais compartilhados entre os componentes do app.",
+        "Revisar componentes base de UI mais usados (ex.: Button, Card, PageHeader e padrões de feedback) para aderir ao novo sistema.",
+        "Garantir suporte consistente a dark e light theme sem comprometer contraste e legibilidade.",
+        "Documentar no progress log os tokens, princípios visuais e antipadrões definidos para o redesign.",
+        "Validar qualidade com `pnpm lint`, `pnpm test` e `pnpm build` sem regressões."
+      ],
+      "priority": 16,
+      "passes": false,
+      "dependsOn": [
+        "EP-0"
+      ],
+      "notes": "Primeira story operacional da nova iniciativa de redesign mobile-first."
+    },
+    {
+      "id": "US-019",
+      "title": "Refazer shell global e navegação mobile-first",
+      "description": "Como usuário, quero navegar pelo Klick com uma estrutura mais rápida, previsível e confortável no mobile, sem perder eficiência no desktop.",
+      "acceptanceCriteria": [
+        "Substituir o menu móvel como navegação primária por uma bottom navigation fixa para os fluxos principais, com superfícies secundárias acessadas via sheet/drawer apropriado.",
+        "Refinar Sidebar, Topbar, SessionSwitcher, PuzzleSelector e PageHeader para um shell global mais enxuto e consistente.",
+        "Garantir que o shell respeite safe areas, mantenha scroll restrito ao conteúdo e preserve header estável entre rotas.",
+        "Organizar as rotas secundárias e administrativas em agrupamento coerente com a arquitetura de informação definida no PRD.",
+        "Executar QA visual e funcional em breakpoints mobile críticos antes de considerar a story concluída.",
+        "Documentar no progress log o contrato final do shell, padrões de navegação e decisões de responsividade.",
+        "Validar qualidade com `pnpm lint`, `pnpm test` e `pnpm build` sem regressões."
+      ],
+      "priority": 17,
+      "passes": false,
+      "dependsOn": [
+        "US-018"
+      ],
+      "notes": "Fase estrutural do redesign. Deve preparar terreno para as rotas individuais."
+    },
+    {
+      "id": "US-020",
+      "title": "Reconstruir a home em torno do core loop do timer",
+      "description": "Como usuário, quero abrir o Klick e entender imediatamente o estado do timer, o scramble atual e a ação principal, especialmente em mobile.",
+      "acceptanceCriteria": [
+        "Reposicionar o timer como elemento dominante da primeira dobra mobile, eliminando a sensação de hero promocional antes do uso real.",
+        "Garantir que timer, status, scramble e ações primárias caibam na primeira dobra em breakpoints mobile alvo.",
+        "Reorganizar os blocos de stats, progresso, desafios e feed para aparecerem como camadas secundárias ao solve loop.",
+        "Refinar a troca entre visualização 2D e 3D do scramble com hierarquia clara e baixo atrito.",
+        "Melhorar a legibilidade e o ritmo visual da home sem introduzir regressão de performance perceptível no timer.",
+        "Documentar no progress log os trade-offs de hierarquia, mobile-first e desempenho adotados na home.",
+        "Validar qualidade com `pnpm lint`, `pnpm test` e `pnpm build` sem regressões."
+      ],
+      "priority": 18,
+      "passes": false,
+      "dependsOn": [
+        "US-019"
+      ],
+      "notes": "Esta é a tela mais crítica da iniciativa e deve virar a referência visual do restante do app."
+    },
+    {
+      "id": "US-021",
+      "title": "Padronizar history e stats para leitura de dados em mobile",
+      "description": "Como usuário, quero revisar resultados, gráficos e insights de forma clara no mobile e no desktop, sem tabelas pesadas ou layouts confusos.",
+      "acceptanceCriteria": [
+        "Refinar SummaryCards, charts e containers analíticos para o novo sistema visual do redesign.",
+        "Converter padrões tabulares em representações responsivas adequadas para mobile, mantendo dados essenciais sempre visíveis.",
+        "Adaptar filtros, legendas e segmentações para operação com uma mão e baixa fricção.",
+        "Garantir que detalhes do solve usem modal no desktop e bottom sheet no mobile quando apropriado.",
+        "Reduzir ruído visual e melhorar hierarquia entre métricas principais, metadados e comparativos.",
+        "Documentar no progress log os padrões finais de analytics, listas e tabelas responsivas.",
+        "Validar qualidade com `pnpm lint`, `pnpm test` e `pnpm build` sem regressões."
+      ],
+      "priority": 19,
+      "passes": false,
+      "dependsOn": [
+        "US-020"
+      ],
+      "notes": "A meta é aproximar analytics da linguagem premium do restante do app, sem perder clareza."
+    },
+    {
+      "id": "US-022",
+      "title": "Unificar training, tutorial e cube-3d na linguagem do redesign",
+      "description": "Como usuário em aprendizado, quero uma experiência didática e visualmente consistente entre treino, tutorial e visualização 3D.",
+      "acceptanceCriteria": [
+        "Reorganizar a hierarquia de Training para priorizar drill ativo, progresso e próximo passo em mobile.",
+        "Refinar Tutorial para uma jornada mais guiada, com progressão evidente entre método, etapa e lição.",
+        "Integrar a tela `/cube-3d` ao sistema visual principal, reduzindo aspecto de demo isolada e reforçando aspecto de ferramenta.",
+        "Garantir consistência de componentes, espaçamento, HUD, controles e feedbacks entre as três superfícies.",
+        "Respeitar padrões mobile-first e acessibilidade sem comprometer o valor didático dos fluxos.",
+        "Documentar no progress log os padrões pedagógicos e visuais consolidados para essas áreas.",
+        "Validar qualidade com `pnpm lint`, `pnpm test` e `pnpm build` sem regressões."
+      ],
+      "priority": 20,
+      "passes": false,
+      "dependsOn": [
+        "US-021"
+      ],
+      "notes": "Fase focada em consolidar a experiência de aprendizado e prática em torno do novo design system."
+    },
+    {
+      "id": "US-023",
+      "title": "Redesenhar superfícies sociais, configurações e compartilhamento",
+      "description": "Como usuário, quero que friends, leaderboard, settings, share e autenticação tenham o mesmo nível de clareza, confiança e consistência do restante do produto.",
+      "acceptanceCriteria": [
+        "Refinar `/friends` e `/leaderboard` para leitura rápida, estados claros e melhor adaptação a mobile.",
+        "Reorganizar `/settings` em grupos semânticos mais claros, com foco em experiência, conta, dados e compartilhamento.",
+        "Atualizar `/share/:slug` para uma apresentação pública mais forte, legível e coerente com o redesign.",
+        "Refinar `/auth/callback`, onboarding, prompts e modais auxiliares para remover aparência de telas de exceção.",
+        "Padronizar feedbacks de loading, empty state, erro e sucesso nessas superfícies.",
+        "Documentar no progress log os padrões consolidados para rotas sociais e de suporte.",
+        "Validar qualidade com `pnpm lint`, `pnpm test` e `pnpm build` sem regressões."
+      ],
+      "priority": 21,
+      "passes": false,
+      "dependsOn": [
+        "US-022"
+      ],
+      "notes": "Fase de fechamento das superfícies secundárias e auxiliares do produto."
+    },
+    {
+      "id": "US-024",
+      "title": "Fechar QA visual, acessibilidade e polimento final do redesign",
+      "description": "Como time de produto, queremos concluir o redesign com uma rodada final de QA para garantir qualidade premium, responsividade real e consistência em todo o app.",
+      "acceptanceCriteria": [
+        "Executar revisão visual final de todas as rotas principais e standalone definidas no PRD e no routeMap atualizado.",
+        "Validar contraste, foco visível, reduced motion, tamanho de toque e legibilidade em mobile e desktop.",
+        "Revisar estados de loading, empty, erro, sucesso, hover, active e focus-visible nos componentes mais usados.",
+        "Corrigir inconsistências residuais de layout, densidade, motion e microcopy identificadas durante a rodada de QA.",
+        "Registrar no progress log um checklist final de aceite com os padrões definitivos do redesign.",
+        "Validar qualidade com `pnpm lint`, `pnpm test`, `pnpm knip` e `pnpm build` sem regressões."
+      ],
+      "priority": 22,
+      "passes": false,
+      "dependsOn": [
+        "US-023"
+      ],
+      "notes": "Story final da iniciativa. Só conclui com um pass global do produto."
     }
   ]
 }
