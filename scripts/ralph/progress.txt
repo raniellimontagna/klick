@@ -6,6 +6,8 @@ Started: dom 15 mar 2026 17:02:50 -03
 - Centralize visual foundations in `src/app/styles/index.css` and treat `surface-base`, `surface-panel`, `surface-overlay`, `surface-shell`, `surface-interactive` as the only shared surface contracts.
 - Keep shared feedback semantic by routing toast/dialog states through `feedback-*` classes and theme tokens instead of hardcoded red/green/blue Tailwind palettes.
 - Avoid default glassmorphism in shared primitives; blur, glow and strong gradients should be opt-in accents for spotlight moments, not the baseline container treatment.
+- Keep shell information architecture in a single shared navigation hook (`src/shared/components/navigation/use-shell-navigation.ts`) so mobile sheets, desktop sidebar and topbar context cannot drift apart.
+- In the mobile shell, recurring flows stay on the fixed bottom bar while secondary/admin routes move to labeled sheets; safe-area padding belongs to the shell contract, not to individual pages.
 
 ---
 ## 2026-03-15 17:33:34 -0300 - US-018
@@ -33,4 +35,29 @@ Started: dom 15 mar 2026 17:02:50 -03
   - Surface cleanup has to happen at the CSS contract level first; updating `Card` alone is not enough because many routes use `surface-panel` directly.
   - `DropdownMenuTriggerButton`, `SessionSwitcher` and `LanguageSelector` are part of the shell visual contract and should evolve together in any navigation redesign.
   - `US-019` can reuse the new shell/focus/surface tokens without reintroducing hamburger-era glow and blur treatments.
+---
+## 2026-03-15 18:02:08 -0300 - US-019
+- Implemented the mobile-first shell redesign by replacing the hamburger-first mobile nav with a fixed bottom navigation plus `Aprender` and `Mais` sheets fed by a shared navigation contract.
+- Refined `Sidebar`, `Topbar`, `SessionSwitcher`, `PuzzleSelector` and `PageHeader` so the global shell now shares one information architecture and one control density across breakpoints.
+- Added shell safe-area handling in `src/app/styles/index.css` for topbar, bottom nav and main scroll region, preserving content-only scrolling inside the app shell.
+- Updated `docs/technical.md` to document the final shell contract and route grouping used by the redesign.
+- Ran QA in mobile and desktop using Firefox headless screenshots (`390x844` home + sheets, `1440x1024` history) before closing the story.
+- Validated the story with `pnpm lint`, `pnpm test`, `pnpm knip` and `pnpm build`.
+- Files changed:
+  - `src/shared/components/navigation/use-shell-navigation.ts`
+  - `src/shared/components/navigation/mobile-nav.tsx`
+  - `src/shared/components/navigation/sidebar.tsx`
+  - `src/shared/components/navigation/topbar.tsx`
+  - `src/shared/layouts/main-layout.tsx`
+  - `src/shared/components/page-header/page-header.tsx`
+  - `src/app/styles/index.css`
+  - `src/shared/config/i18n/locales/pt-BR.ts`
+  - `src/shared/config/i18n/locales/en-US.ts`
+  - `src/shared/config/i18n/locales/es-ES.ts`
+  - `docs/technical.md`
+  - `scripts/ralph/prd.json`
+- Learnings for future iterations:
+  - The shell should own safe-area padding centrally; route pages only need `app-shell-page` and should not guess bottom/nav offsets.
+  - Grouped route metadata is worth keeping as a shared contract because mobile and desktop IA now evolve from the same source instead of duplicated link arrays.
+  - Bottom navigation needs a more solid surface than the rest of the shell to avoid content bleed-through on dense home layouts.
 ---

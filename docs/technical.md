@@ -221,6 +221,10 @@ Todas as rotas usam **lazy loading** via `React.lazy()` para otimizar bundle siz
 - `body` e `#root` não participam do scroll das rotas principais; backgrounds decorativos vivem em uma única camada (`app-shell-backdrop`).
 - Páginas dentro do shell devem usar o contrato `app-shell-page` e evitar `min-h-screen`/`overflow-*` no root da rota.
 - `RouteLoader` distingue fallback fullscreen (rotas fora do shell) de fallback interno, evitando layout shift durante lazy loading.
+- Mobile-first: a navegação primária em telas pequenas mora em `MobileNav`, fixada no rodapé com safe area, enquanto `Aprender` e `Mais` abrem sheets para rotas secundárias.
+- Desktop: `Sidebar` agrupa rotas por contexto (`Fluxo principal`, `Aprender`, `Comunidade`, `Ferramentas`) para reduzir repetição visual e manter a IA consistente com o PRD.
+- `Topbar` virou barra utilitária: contexto da rota ativa no desktop, logo no mobile e controles globais (`PuzzleSelector`, `SessionSwitcher`, idioma) com densidade alinhada.
+- `app-shell-topbar`, `app-shell-mobile-nav` e `app-shell-main` são os contratos de safe area do shell; qualquer CTA fixo adicional precisa coexistir com esse padding.
 
 ## Code Splitting
 

@@ -8,11 +8,23 @@ export const enUS = {
     history: 'History',
     stats: 'Statistics',
     leaderboard: 'Leaderboard',
+    learn: 'Learn',
+    more: 'More',
     training: 'Training',
     friends: 'Friends',
     tutorial: 'Tutorial',
     settings: 'Settings',
     cube3d: '3D Cube',
+    groups: {
+      core: 'Core flow',
+      learn: 'Learn',
+      community: 'Community',
+      workspace: 'Tools',
+    },
+    sheet: {
+      learnDescription: 'Open training and tutorial without leaving the main app flow.',
+      moreDescription: 'Reach social areas, tools, and settings from one secondary panel.',
+    },
   },
   pages: {
     home: {
@@ -35,6 +47,9 @@ export const enUS = {
     },
     tutorial: {
       description: 'Learn the CFOP method step by step.',
+    },
+    cube3d: {
+      description: 'Visualize algorithms, rotations, and cube playback in a guided space.',
     },
     settings: {
       description: 'Make Klick behave exactly the way you like.',

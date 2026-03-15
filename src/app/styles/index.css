@@ -31,6 +31,10 @@
 
 :root,
 :root.dark {
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
   --type-display: clamp(2.75rem, 5vw, 4.5rem);
   --type-title: clamp(1.5rem, 2vw, 2.25rem);
   --type-body: 0.95rem;
@@ -261,7 +265,29 @@
     overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior-y: contain;
+    padding-bottom: calc(var(--safe-area-bottom) + 6.5rem);
     scrollbar-gutter: stable;
+  }
+
+  .app-shell-topbar {
+    padding-top: var(--safe-area-top);
+  }
+
+  .app-shell-mobile-nav {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 35;
+    padding-right: max(var(--safe-area-right), 0.75rem);
+    padding-bottom: calc(var(--safe-area-bottom) + 0.75rem);
+    padding-left: max(var(--safe-area-left), 0.75rem);
+  }
+
+  .app-shell-mobile-nav-panel {
+    background: color-mix(in srgb, var(--color-background-elevated) 96%, var(--color-surface) 4%);
+    border: 1px solid color-mix(in srgb, var(--color-border-strong) 62%, transparent);
+    box-shadow: var(--klick-shadow-2);
   }
 
   .app-shell-page {
@@ -302,9 +328,19 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
+  @media (prefers-reduced-motion: reduce) {
   .app-shell-main {
     scroll-behavior: auto;
+  }
+}
+
+@media (min-width: 768px) {
+  .app-shell-main {
+    padding-bottom: 2rem;
+  }
+
+  .app-shell-topbar {
+    padding-top: 0;
   }
 }
 

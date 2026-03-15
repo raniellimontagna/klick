@@ -8,11 +8,23 @@ export const esES = {
     history: 'Historial',
     stats: 'Estadísticas',
     leaderboard: 'Ranking',
+    learn: 'Aprender',
+    more: 'Más',
     training: 'Entrenamiento',
     friends: 'Amigos',
     tutorial: 'Tutorial',
     settings: 'Configuración',
     cube3d: 'Cubo 3D',
+    groups: {
+      core: 'Flujo principal',
+      learn: 'Aprender',
+      community: 'Comunidad',
+      workspace: 'Herramientas',
+    },
+    sheet: {
+      learnDescription: 'Abre entrenamiento y tutorial sin salir del flujo principal de la app.',
+      moreDescription: 'Accede a lo social, herramientas y configuración desde un panel secundario.',
+    },
   },
   pages: {
     home: {
@@ -35,6 +47,9 @@ export const esES = {
     },
     tutorial: {
       description: 'Aprende el método CFOP paso a paso.',
+    },
+    cube3d: {
+      description: 'Visualiza algoritmos, rotaciones y reproducción del cubo en un entorno guiado.',
     },
     settings: {
       description: 'Personaliza Klick a tu manera.',

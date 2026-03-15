@@ -1,5 +1,5 @@
 import { Outlet } from 'react-router-dom';
-import { Onboarding, PWAUpdatePrompt, SessionManagerModal, Sidebar, Topbar } from '@/shared';
+import { MobileNav, Onboarding, PWAUpdatePrompt, SessionManagerModal, Sidebar, Topbar } from '@/shared';
 import { useMainLayout } from './use-main-layout';
 
 export function MainLayout() {
@@ -16,7 +16,7 @@ export function MainLayout() {
 
         <main
           data-scroll-region="content"
-          className="app-shell-main flex flex-col scroll-smooth px-4 pb-24 pt-4 sm:px-6 sm:pt-6 md:pb-8"
+          className="app-shell-main flex flex-col scroll-smooth px-4 pt-4 sm:px-6 sm:pt-6"
         >
           <div className="flex min-h-0 w-full flex-1 flex-col">
             <Outlet />
@@ -24,6 +24,7 @@ export function MainLayout() {
         </main>
       </div>
 
+      <MobileNav />
       <Onboarding />
       <PWAUpdatePrompt />
       <SessionManagerModal isOpen={isSessionManagerOpen} onClose={closeSessionManager} />
