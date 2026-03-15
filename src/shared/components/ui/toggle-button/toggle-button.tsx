@@ -6,16 +6,24 @@ interface ToggleButtonProps {
   onValueChange: () => void;
   'aria-label': string;
   className?: string;
+  disabled?: boolean;
 }
 
-export function ToggleButton({ value, onValueChange, className, ...props }: ToggleButtonProps) {
+export function ToggleButton({
+  value,
+  onValueChange,
+  className,
+  disabled = false,
+  ...props
+}: ToggleButtonProps) {
   return (
     <button
       onClick={onValueChange}
+      disabled={disabled}
       role="switch"
       aria-checked={value}
       className={cn(
-        'relative w-12 h-6 rounded-full transition-colors p-0 justify-start focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+        'relative w-12 h-6 rounded-full transition-colors p-0 justify-start focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed',
         value ? 'bg-primary' : 'bg-border',
         className,
       )}

@@ -416,6 +416,66 @@ export const esES = {
       errorPrefix: 'Detalle:',
       errorFallback: 'No se pudo completar esta acción. Inténtalo nuevamente.',
     },
+    sharing: {
+      title: 'Compartir Social',
+      description: 'Crea enlaces públicos con solo los datos que decidas mostrar.',
+      notConfiguredTitle: 'Supabase no configurado',
+      notConfiguredDescription:
+        'Activa las variables de entorno de Supabase para habilitar enlaces públicos.',
+      loginRequiredTitle: 'Inicia sesión para compartir',
+      loginRequiredDescription:
+        'Conecta tu cuenta en el bloque superior para crear enlaces y revocar accesos cuando quieras.',
+      loading: 'Cargando...',
+      controls: {
+        enableSharing: 'Habilitar compartición pública',
+        enableSharingHint: 'Al desactivar esta opción, todos los enlaces activos se revocan al instante.',
+        profileVisibility: 'Visibilidad del perfil',
+        profilePublic: 'Tu perfil aparece como público en los snapshots compartidos.',
+        profilePrivate: 'Tu perfil permanece privado y solo se muestra el snapshot.',
+        shareSingle: 'Compartir single',
+        shareSingleHint: 'Incluye tu mejor single actual en el enlace público.',
+        shareAverages: 'Compartir promedios (ao5/ao12)',
+        shareAveragesHint:
+          'Incluye ao5, ao12, best ao5 y best ao12 de la sesión activa.',
+        shareProgress: 'Compartir progresión',
+        shareProgressHint: 'Incluye nivel, XP, racha y meta semanal.',
+      },
+      visibility: {
+        public: 'Público',
+        private: 'Privado',
+      },
+      privacyTitle: 'Privacidad y revocación inmediata',
+      privacyDescription:
+        'Solo los enlaces marcados como públicos son visibles. Al desactivar compartir, todos los enlaces activos se invalidan.',
+      actions: {
+        createLink: 'Crear enlace público',
+        copy: 'Copiar enlace',
+        revoke: 'Revocar enlace',
+        revokeAll: 'Revocar todos',
+      },
+      listTitle: 'Enlaces compartidos',
+      listItemTitle: 'Enlace compartido',
+      empty: 'Todavía no hay enlaces creados.',
+      createdAt: 'Creado el',
+      status: {
+        active: 'Activo',
+        revoked: 'Revocado',
+      },
+      messages: {
+        created: 'Enlace público creado correctamente.',
+        createdAndCopied: 'Enlace público creado y copiado al portapapeles.',
+        copied: 'Enlace copiado al portapapeles.',
+        revoked: 'Enlace revocado correctamente.',
+        revokedAll: 'Todos los enlaces públicos fueron revocados.',
+        updated: 'Preferencias de compartición actualizadas.',
+      },
+      errors: {
+        generic: 'No se pudo completar la acción de compartición.',
+        noData: 'Selecciona al menos un bloque (single, promedios o progresión) para compartir.',
+        sharingDisabled: 'Activa la compartición pública antes de crear un enlace.',
+        copy: 'No fue posible copiar el enlace automáticamente.',
+      },
+    },
   },
   auth: {
     callback: {
@@ -424,6 +484,31 @@ export const esES = {
       processing: 'Procesando autenticación',
       errorPrefix: 'Falló el callback:',
       errorUnknown: 'No fue posible completar el acceso.',
+    },
+  },
+  sharePage: {
+    badge: 'Snapshot compartido',
+    loadingLabel: 'Cargando compartición',
+    loadingDescription: 'Buscando los datos públicos de este enlace.',
+    generatedAt: 'Generado el',
+    puzzleType: 'Puzzle',
+    notFoundTitle: 'Enlace no disponible',
+    notFoundDescription:
+      'Este enlace no existe, fue revocado o está privado. Pide un nuevo enlace al propietario.',
+    metrics: {
+      single: 'Single',
+      ao5: 'ao5',
+      ao12: 'ao12',
+      bestAo5: 'Best ao5',
+      bestAo12: 'Best ao12',
+    },
+    progressTitle: 'Progresión compartida',
+    progress: {
+      level: 'Nivel',
+      xp: 'XP total',
+      currentStreak: 'Racha actual',
+      bestStreak: 'Mejor racha',
+      weeklyGoal: 'Meta semanal',
     },
   },
   advancedStats: {

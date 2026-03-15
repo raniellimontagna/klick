@@ -14,6 +14,7 @@ import { useI18nStore } from '@/shared/store/i18n-store';
 import { useSessionsStore } from '@/shared/store/sessions-store';
 import { useSettingsStore } from '@/shared/store/settings-store';
 import { CloudSyncSection } from './cloud-sync-section';
+import { ShareSection } from './share-section';
 
 type ExportImportMessage = {
   type: 'success' | 'error';
@@ -216,6 +217,7 @@ export const SettingsContent: React.FC = (): React.ReactElement => {
 
         <section className="space-y-6">
           <CloudSyncSection />
+          <ShareSection />
 
           {/* Data Persistence Section */}
           <section aria-labelledby="data-mgmt-heading">

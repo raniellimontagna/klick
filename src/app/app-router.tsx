@@ -14,6 +14,7 @@ const Cube3D = lazy(() => import('@/features/cube-3d').then((m) => ({ default: m
 const AuthCallback = lazy(() =>
   import('@/features/auth-callback').then((m) => ({ default: m.AuthCallback })),
 );
+const SharePage = lazy(() => import('@/features/share').then((m) => ({ default: m.SharePage })));
 
 export default function AppRouter() {
   return (
@@ -24,6 +25,14 @@ export default function AppRouter() {
           element={
             <Suspense fallback={<RouteLoader />}>
               <AuthCallback />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/share/:slug"
+          element={
+            <Suspense fallback={<RouteLoader />}>
+              <SharePage />
             </Suspense>
           }
         />

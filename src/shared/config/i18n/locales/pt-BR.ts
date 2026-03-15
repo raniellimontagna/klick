@@ -416,6 +416,66 @@ export const ptBR = {
       errorPrefix: 'Detalhe:',
       errorFallback: 'Não foi possível completar a ação. Tente novamente.',
     },
+    sharing: {
+      title: 'Compartilhamento Social',
+      description: 'Crie links públicos com os dados que você escolher para mostrar sua evolução.',
+      notConfiguredTitle: 'Supabase não configurado',
+      notConfiguredDescription:
+        'Ative as variáveis de ambiente do Supabase para liberar links públicos de compartilhamento.',
+      loginRequiredTitle: 'Faça login para compartilhar',
+      loginRequiredDescription:
+        'Conecte sua conta no bloco acima para criar links públicos e revogar acessos quando quiser.',
+      loading: 'Carregando...',
+      controls: {
+        enableSharing: 'Habilitar compartilhamento público',
+        enableSharingHint:
+          'Quando desligado, todos os links existentes são revogados imediatamente.',
+        profileVisibility: 'Visibilidade do perfil',
+        profilePublic: 'Seu perfil aparece como público no snapshot compartilhado.',
+        profilePrivate: 'Seu perfil fica privado e só o snapshot é exibido.',
+        shareSingle: 'Compartilhar single',
+        shareSingleHint: 'Inclui seu melhor tempo atual no link público.',
+        shareAverages: 'Compartilhar médias (ao5/ao12)',
+        shareAveragesHint: 'Inclui ao5, ao12, best ao5 e best ao12 da sessão ativa.',
+        shareProgress: 'Compartilhar progresso',
+        shareProgressHint: 'Inclui nível, XP, streak e meta semanal.',
+      },
+      visibility: {
+        public: 'Público',
+        private: 'Privado',
+      },
+      privacyTitle: 'Privacidade e revogação imediata',
+      privacyDescription:
+        'Somente links marcados como públicos ficam acessíveis. Ao desativar o compartilhamento, todos os links ativos são invalidados.',
+      actions: {
+        createLink: 'Gerar link público',
+        copy: 'Copiar link',
+        revoke: 'Revogar link',
+        revokeAll: 'Revogar todos',
+      },
+      listTitle: 'Links de compartilhamento',
+      listItemTitle: 'Link compartilhado',
+      empty: 'Nenhum link criado ainda.',
+      createdAt: 'Criado em',
+      status: {
+        active: 'Ativo',
+        revoked: 'Revogado',
+      },
+      messages: {
+        created: 'Link público criado com sucesso.',
+        createdAndCopied: 'Link público criado e copiado para a área de transferência.',
+        copied: 'Link copiado para a área de transferência.',
+        revoked: 'Link revogado com sucesso.',
+        revokedAll: 'Todos os links públicos foram revogados.',
+        updated: 'Preferências de compartilhamento atualizadas.',
+      },
+      errors: {
+        generic: 'Não foi possível completar a ação de compartilhamento.',
+        noData: 'Selecione pelo menos um bloco (single, médias ou progresso) para compartilhar.',
+        sharingDisabled: 'Ative o compartilhamento público antes de gerar um link.',
+        copy: 'Não foi possível copiar o link automaticamente.',
+      },
+    },
   },
   auth: {
     callback: {
@@ -424,6 +484,31 @@ export const ptBR = {
       processing: 'Processando autenticação',
       errorPrefix: 'Falha no callback:',
       errorUnknown: 'Não foi possível concluir o login.',
+    },
+  },
+  sharePage: {
+    badge: 'Snapshot compartilhado',
+    loadingLabel: 'Carregando compartilhamento',
+    loadingDescription: 'Buscando os dados públicos deste link.',
+    generatedAt: 'Gerado em',
+    puzzleType: 'Puzzle',
+    notFoundTitle: 'Link indisponível',
+    notFoundDescription:
+      'Este link não existe, foi revogado ou está privado. Peça um novo link ao dono do compartilhamento.',
+    metrics: {
+      single: 'Single',
+      ao5: 'ao5',
+      ao12: 'ao12',
+      bestAo5: 'Best ao5',
+      bestAo12: 'Best ao12',
+    },
+    progressTitle: 'Progressão compartilhada',
+    progress: {
+      level: 'Nível',
+      xp: 'XP total',
+      currentStreak: 'Streak atual',
+      bestStreak: 'Melhor streak',
+      weeklyGoal: 'Meta semanal',
     },
   },
   advancedStats: {

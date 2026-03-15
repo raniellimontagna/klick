@@ -203,6 +203,94 @@ export interface Database {
           },
         ];
       };
+      share_preferences: {
+        Row: {
+          user_id: string;
+          sharing_enabled: boolean;
+          profile_visibility: 'private' | 'public';
+          share_single: boolean;
+          share_averages: boolean;
+          share_progress: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          sharing_enabled?: boolean;
+          profile_visibility?: 'private' | 'public';
+          share_single?: boolean;
+          share_averages?: boolean;
+          share_progress?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          user_id?: string;
+          sharing_enabled?: boolean;
+          profile_visibility?: 'private' | 'public';
+          share_single?: boolean;
+          share_averages?: boolean;
+          share_progress?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'share_preferences_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: true;
+            referencedRelation: 'users';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      share_links: {
+        Row: {
+          id: string;
+          user_id: string;
+          slug: string;
+          title: string;
+          visibility: 'private' | 'public';
+          payload: Json;
+          is_active: boolean;
+          revoked_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          slug: string;
+          title: string;
+          visibility?: 'private' | 'public';
+          payload: Json;
+          is_active?: boolean;
+          revoked_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          slug?: string;
+          title?: string;
+          visibility?: 'private' | 'public';
+          payload?: Json;
+          is_active?: boolean;
+          revoked_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'share_links_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'users';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       user_settings: {
         Row: {
           user_id: string;

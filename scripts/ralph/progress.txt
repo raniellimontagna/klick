@@ -17,6 +17,8 @@ Started: 2026-03-13
 - Para RLS consistente, espelhar a regra `auth.uid() = user_id` em `SELECT/INSERT/UPDATE/DELETE` em todas as tabelas de usuário evita vazamento cross-account no client SDK.
 - Para desafios diários multi-dispositivo, usar chave natural (`user_id`, `challenge_date`, `challenge_type`) simplifica merge offline e evita conflito de IDs gerados localmente.
 - Em stores com recomputação periódica, comparar snapshots ignorando `updatedAt` evita loops de sync sem perder consistência funcional.
+- Para sharing social seguro, separar `share_preferences` (política do usuário) de `share_links` (snapshot compartilhável) reduz acoplamento entre UX de privacidade e payload público.
+- Em conteúdo compartilhável público, usar snapshot JSON versionado por link (em vez de consulta em tempo real ao estado interno) facilita revogação imediata e limita superfície de exposição.
 
 ---
 ## [2026-03-13 00:00:00 -0300] - US-001
@@ -292,5 +294,45 @@ Started: 2026-03-13
 - Learnings for future iterations:
   - Derivar progresso de `sessions` no bootstrap evita drift quando solves/penalidades são editados fora da home.
   - A combinação `daily_challenges` + `challenge_completions` com upsert por chave natural reduz complexidade de reconciliação entre dispositivos em modo offline-first.
+  - `pnpm lint`, `pnpm test`, `pnpm knip` e `pnpm build` passaram nesta entrega.
+---
+## [2026-03-15 12:11:55 -0300] - US-010
+- What was implemented
+  - Fluxo de compartilhamento social básico implementado em Configurações com controles de privacidade por usuário (habilitar/desabilitar compartilhamento, visibilidade de perfil e seleção granular de dados: single, médias e progressão).
+  - Geração de link público opt-in implementada com snapshot versionado dos dados da sessão ativa, cópia rápida de URL e gerenciamento de links com revogação individual.
+  - Regra de revogação global implementada: ao desligar compartilhamento público, todos os links ativos do usuário são invalidados imediatamente.
+  - Página pública `/share/:slug` criada para exibir snapshot compartilhado (métricas e progressão) sem exigir autenticação do visitante.
+  - Camada Supabase dedicada adicionada (`share_preferences`, `share_links`) com leitura pública estritamente limitada a links ativos e explicitamente públicos.
+  - Internacionalização adicionada para novos fluxos de sharing em `pt-BR`, `en-US` e `es-ES`.
+- Files changed
+  - Added:
+    - supabase/migrations/20260315152000_us010_sharing_social.sql
+    - src/shared/lib/supabase/share.ts
+    - src/shared/types/share.ts
+    - src/features/settings/components/share-section/share-section.tsx
+    - src/features/settings/components/share-section/use-share-section.ts
+    - src/features/settings/components/share-section/index.ts
+    - src/features/share/share.tsx
+    - src/features/share/use-share-page.ts
+    - src/features/share/index.ts
+  - Updated:
+    - src/shared/lib/supabase/database.ts
+    - src/shared/types/index.ts
+    - src/features/settings/components/settings-content.tsx
+    - src/app/app-router.tsx
+    - src/shared/components/ui/toggle-button/toggle-button.tsx
+    - src/shared/config/i18n/locales/pt-BR.ts
+    - src/shared/config/i18n/locales/en-US.ts
+    - src/shared/config/i18n/locales/es-ES.ts
+    - scripts/ralph/prd.json
+    - scripts/ralph/progress.txt
+- Learnings for future iterations:
+  - Modelagem social mínima e segura para compartilhar progresso:
+    - `share_preferences` centraliza políticas do usuário (opt-in, escopo de métricas, visibilidade).
+    - `share_links` armazena snapshots públicos imutáveis por link (payload JSON versionado), reduzindo exposição do modelo interno do app.
+  - Regras de privacidade aplicadas:
+    - `SELECT` em `share_links` só permite leitura por dono (`auth.uid() = user_id`) ou por link explicitamente público e ativo (`is_active = true` + `visibility = 'public'`).
+    - `INSERT/UPDATE/DELETE` em `share_links` e `share_preferences` restritos ao dono via RLS.
+    - Desativar compartilhamento revoga acesso público existente em lote (hard revocation no mesmo fluxo de UX).
   - `pnpm lint`, `pnpm test`, `pnpm knip` e `pnpm build` passaram nesta entrega.
 ---

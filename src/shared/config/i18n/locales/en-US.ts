@@ -413,6 +413,65 @@ export const enUS = {
       errorPrefix: 'Details:',
       errorFallback: 'Could not complete this action. Please try again.',
     },
+    sharing: {
+      title: 'Social Sharing',
+      description: 'Create public links with only the data you choose to share.',
+      notConfiguredTitle: 'Supabase not configured',
+      notConfiguredDescription:
+        'Enable Supabase environment variables to unlock public share links.',
+      loginRequiredTitle: 'Sign in to share',
+      loginRequiredDescription:
+        'Connect your account in the block above to create links and revoke access whenever you need.',
+      loading: 'Loading...',
+      controls: {
+        enableSharing: 'Enable public sharing',
+        enableSharingHint: 'When disabled, all existing links are revoked immediately.',
+        profileVisibility: 'Profile visibility',
+        profilePublic: 'Your profile appears as public in shared snapshots.',
+        profilePrivate: 'Your profile stays private and only the snapshot is shown.',
+        shareSingle: 'Share single',
+        shareSingleHint: 'Includes your best current single on the public link.',
+        shareAverages: 'Share averages (ao5/ao12)',
+        shareAveragesHint: 'Includes ao5, ao12, best ao5 and best ao12 from the active session.',
+        shareProgress: 'Share progression',
+        shareProgressHint: 'Includes level, XP, streak and weekly goal.',
+      },
+      visibility: {
+        public: 'Public',
+        private: 'Private',
+      },
+      privacyTitle: 'Privacy and instant revocation',
+      privacyDescription:
+        'Only links marked as public are readable. Turning sharing off invalidates every active link right away.',
+      actions: {
+        createLink: 'Create public link',
+        copy: 'Copy link',
+        revoke: 'Revoke link',
+        revokeAll: 'Revoke all',
+      },
+      listTitle: 'Shared links',
+      listItemTitle: 'Shared link',
+      empty: 'No links created yet.',
+      createdAt: 'Created at',
+      status: {
+        active: 'Active',
+        revoked: 'Revoked',
+      },
+      messages: {
+        created: 'Public link created successfully.',
+        createdAndCopied: 'Public link created and copied to clipboard.',
+        copied: 'Link copied to clipboard.',
+        revoked: 'Link revoked successfully.',
+        revokedAll: 'All public links were revoked.',
+        updated: 'Sharing preferences updated.',
+      },
+      errors: {
+        generic: 'Could not complete the sharing action.',
+        noData: 'Select at least one block (single, averages or progression) before sharing.',
+        sharingDisabled: 'Enable public sharing before creating a link.',
+        copy: 'Could not copy the link automatically.',
+      },
+    },
   },
   auth: {
     callback: {
@@ -421,6 +480,31 @@ export const enUS = {
       processing: 'Processing authentication',
       errorPrefix: 'Callback failed:',
       errorUnknown: 'Could not complete sign in.',
+    },
+  },
+  sharePage: {
+    badge: 'Shared snapshot',
+    loadingLabel: 'Loading shared data',
+    loadingDescription: 'Fetching public data for this link.',
+    generatedAt: 'Generated at',
+    puzzleType: 'Puzzle',
+    notFoundTitle: 'Link unavailable',
+    notFoundDescription:
+      'This link does not exist, was revoked, or is private. Ask the owner for a new share link.',
+    metrics: {
+      single: 'Single',
+      ao5: 'ao5',
+      ao12: 'ao12',
+      bestAo5: 'Best ao5',
+      bestAo12: 'Best ao12',
+    },
+    progressTitle: 'Shared progression',
+    progress: {
+      level: 'Level',
+      xp: 'Total XP',
+      currentStreak: 'Current streak',
+      bestStreak: 'Best streak',
+      weeklyGoal: 'Weekly goal',
     },
   },
   advancedStats: {
