@@ -13,7 +13,14 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "knip": "knip --no-exit-code"
+    "knip": "knip --no-exit-code",
+    "supabase:migration:new": "pnpm dlx supabase migration new",
+    "supabase:login": "pnpm dlx supabase login",
+    "supabase:link": "pnpm dlx supabase link",
+    "supabase:db:reset": "pnpm dlx supabase db reset",
+    "supabase:db:lint": "pnpm dlx supabase db lint",
+    "supabase:db:push": "pnpm dlx supabase db push",
+    "supabase:migrate": "pnpm supabase:db:reset && pnpm supabase:db:lint && pnpm supabase:db:push"
   },
   "dependencies": {
     "@radix-ui/react-dropdown-menu": "^2.1.16",
