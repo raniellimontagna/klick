@@ -3,9 +3,8 @@ import { cn } from '@/shared/lib';
 
 const variantClasses = {
   surface: 'surface-panel',
-  background: 'bg-background-elevated/90 border border-border/70 shadow-[var(--klick-shadow-soft)]',
-  overlay:
-    'border border-border/70 bg-[color-mix(in_srgb,var(--color-surface)_88%,transparent)] shadow-[var(--klick-shadow-soft)] backdrop-blur-xl',
+  background: 'surface-base',
+  overlay: 'surface-overlay',
 };
 
 const paddingClasses = {

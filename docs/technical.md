@@ -42,8 +42,8 @@ pnpm check     # Lint e format com Biome
 
 ## Temas
 
-- **Dark (padrão):** Fundo `#0D1117`, primário `#7C4DFF`, acento `#39FF88`
-- **Light:** Fundo branco, contraste otimizado
+- **Dark (padrão):** Base graphite `#0B1017`, superfícies `#111923`/`#18212D`, primário `#7A6FF0`, acento reservado `#3DCF8E`
+- **Light:** Base paper `#F6F7FB`, superfícies `#FFFFFF`/`#EDF1F8`, primário `#6D61E0`, feedback semântico preservado
 
 CSS variables para fácil customização em `/src/app/styles/index.css`.
 
@@ -240,6 +240,15 @@ Veja [performance.md](./performance.md) para detalhes completos.
 
 ## Design System
 
+### Foundations
+
+- **Color tokens:** paleta semântica em `src/app/styles/index.css`, com `background`, `surface`, `overlay`, `border`, `text`, `primary`, `accent` e feedback (`success`, `warning`, `danger`, `info`).
+- **Type and spacing:** escala base para display/title/body/caption e espaçamentos utilitários compartilhados via CSS variables.
+- **Radius and elevation:** `radius-sm/md/lg/xl` e `klick-shadow-1/2/3` definem os três níveis máximos de profundidade do redesign.
+- **Motion:** `motion-fast/base/slow` e `ease-standard` padronizam transições curtas e discretas.
+- **Surface contract:** `surface-base`, `surface-panel`, `surface-overlay` e `surface-shell` são as superfícies canônicas; `surface-interactive` e `feedback-*` cobrem estados compartilhados.
+- **Visual anti-patterns:** glow forte, blur pesado e gradientes amplos deixaram de ser o padrão; agora ficam restritos a destaque intencional, nunca como tratamento default de containers.
+
 ### Componentes UI Base
 
 Localizados em `/src/shared/components/ui/`:
@@ -247,10 +256,13 @@ Localizados em `/src/shared/components/ui/`:
 - **Button:** 6 variantes, 4 tamanhos
 - **Card:** 3 variantes (surface, background, overlay)
 - **Modal:** Base para todos os modais
+- **DropdownMenu:** Trigger/content alinhados ao mesmo contrato de superfícies do shell e dos controles globais
+- **ToggleButton / RadioGroup:** Controles binários e de seleção alinhados aos novos estados de foco e contraste
 
 ### Theme System
 
 - **CSS Variables:** Cores semânticas por tema
+- **Surface classes:** superfícies e feedback compartilhado definidos em `src/app/styles/index.css`
 - **useTheme Hook:** Controle programático
 - **Suporte:** Dark (padrão) e Light
 

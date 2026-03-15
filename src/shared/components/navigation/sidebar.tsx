@@ -32,7 +32,7 @@ export function Sidebar({ className }: { className?: string }) {
   return (
     <aside
       className={cn(
-        'surface-panel flex min-h-0 flex-col overflow-hidden border-0 border-r border-border/70 bg-surface/85 backdrop-blur-xl',
+        'surface-shell flex min-h-0 flex-col overflow-hidden border-0 border-r border-border/70',
         className,
       )}
     >
@@ -52,7 +52,7 @@ export function Sidebar({ className }: { className?: string }) {
               className={cn(
                 'group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-all duration-200',
                 isActive
-                  ? 'glow-border bg-primary/18 text-primary'
+                  ? 'border border-primary/25 bg-primary/12 text-text-primary shadow-[var(--klick-shadow-1)]'
                   : 'text-text-secondary hover:bg-surface-hover/70 hover:text-text-primary',
               )}
             >
@@ -69,7 +69,9 @@ export function Sidebar({ className }: { className?: string }) {
       </nav>
 
       <div className="border-t border-border/70 p-4">
-        <div className="text-center text-xs font-medium tracking-wide text-text-muted">{t.app.tagline}</div>
+        <div className="text-center text-xs font-medium tracking-wide text-text-muted">
+          {t.app.tagline}
+        </div>
       </div>
     </aside>
   );

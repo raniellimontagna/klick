@@ -1,7 +1,7 @@
 import { CheckCircle, CloseCircle, DangerCircle, InfoCircle } from '@solar-icons/react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Button } from '@/shared/components/ui';
-import { slideInRight } from '@/shared/lib';
+import { cn, slideInRight } from '@/shared/lib';
 import { useToast } from './use-toast';
 
 type ToastType = 'success' | 'error' | 'info' | 'warning';
@@ -14,19 +14,26 @@ interface ToastProps {
 }
 
 export function Toast({ message, type = 'info', duration = 3000, onClose }: ToastProps) {
-  const { isVisible, handleClose, getStyles } = useToast(duration, onClose);
+  const { isVisible, handleClose } = useToast(duration, onClose);
+
+  const toneClassName: Record<ToastType, string> = {
+    success: 'feedback-success text-success',
+    error: 'feedback-danger text-danger',
+    warning: 'feedback-warning text-warning',
+    info: 'feedback-info text-info',
+  };
 
   const getIcon = () => {
     const size = 18;
     switch (type) {
       case 'success':
-        return <CheckCircle size={size} className="text-green-500 shrink-0" weight="Bold" />;
+        return <CheckCircle size={size} className="text-success shrink-0" weight="Bold" />;
       case 'error':
-        return <CloseCircle size={size} className="text-red-500 shrink-0" weight="Bold" />;
+        return <CloseCircle size={size} className="text-danger shrink-0" weight="Bold" />;
       case 'warning':
-        return <DangerCircle size={size} className="text-orange-500 shrink-0" weight="Bold" />;
+        return <DangerCircle size={size} className="text-warning shrink-0" weight="Bold" />;
       default:
-        return <InfoCircle size={size} className="text-blue-500 shrink-0" weight="Bold" />;
+        return <InfoCircle size={size} className="text-info shrink-0" weight="Bold" />;
     }
   };
 
@@ -38,15 +45,21 @@ export function Toast({ message, type = 'info', duration = 3000, onClose }: Toas
           initial="hidden"
           animate="visible"
           exit="exit"
-          className={`fixed bottom-4 right-4 left-4 sm:left-auto sm:max-w-md flex items-center gap-3 px-4 py-3 rounded-lg border ${getStyles(type)} shadow-lg backdrop-blur-sm z-50`}
+          role={type === 'error' ? 'alert' : 'status'}
+          aria-live={type === 'error' ? 'assertive' : 'polite'}
+          className={cn(
+            'surface-overlay fixed bottom-4 left-4 right-4 z-50 flex items-center gap-3 rounded-2xl px-4 py-3 sm:left-auto sm:max-w-md',
+            toneClassName[type],
+          )}
         >
           {getIcon()}
-          <p className="text-white font-medium text-sm sm:text-base flex-1">{message}</p>
+          <p className="flex-1 text-sm font-medium text-text-primary sm:text-base">{message}</p>
           <Button
             onClick={handleClose}
             variant="ghost"
             size="icon"
             className="ml-2 text-text-secondary hover:text-text-primary transition-colors"
+            aria-label="Fechar notificação"
           >
             <CloseCircle size={18} />
           </Button>

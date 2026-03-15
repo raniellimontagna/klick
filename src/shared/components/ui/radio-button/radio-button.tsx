@@ -55,16 +55,16 @@ export function RadioButton({ value, children }: RadioButtonProps) {
   const isChecked = selectedValue === value;
 
   return (
-    <label className="flex items-center gap-2 cursor-pointer">
+    <label className="flex cursor-pointer items-center gap-2.5 rounded-xl px-1 py-1 text-sm text-text-secondary transition-colors hover:text-text-primary">
       <input
         type="radio"
         name={name}
         value={value}
         checked={isChecked}
         onChange={(e) => onChange(e.target.value)}
-        className="w-4 h-4 text-primary bg-surface border-border focus:ring-primary focus:ring-offset-surface"
+        className="h-4 w-4 border-border bg-background-elevated text-primary focus:ring-primary focus:ring-offset-background"
       />
-      <span className="text-sm text-text-secondary">{children}</span>
+      <span className={cn(isChecked && 'text-text-primary')}>{children}</span>
     </label>
   );
 }

@@ -1,27 +1,29 @@
 @import "tailwindcss";
 
 @theme {
-  --color-background: #0d1117;
-  --color-background-elevated: #131b26;
-  --color-surface: #182132;
-  --color-surface-hover: #212c41;
-  --color-surface-active: #2b3750;
+  --color-background: #0b1017;
+  --color-background-elevated: #111923;
+  --color-surface: #18212d;
+  --color-surface-muted: #121924;
+  --color-surface-hover: #202b39;
+  --color-surface-active: #283548;
+  --color-overlay: rgba(16, 24, 35, 0.92);
 
-  --color-border: #2c3a52;
-  --color-border-strong: #3b4d6b;
+  --color-border: #2d394b;
+  --color-border-strong: #3f4d62;
 
-  --color-text-primary: #f6f7fb;
-  --color-text-secondary: #c6cedd;
-  --color-text-muted: #8a96ad;
+  --color-text-primary: #f5f7fb;
+  --color-text-secondary: #c6cfdd;
+  --color-text-muted: #8994a8;
 
-  --color-primary: #7c4dff;
-  --color-primary-hover: #6940db;
-  --color-accent: #39ff88;
+  --color-primary: #7a6ff0;
+  --color-primary-hover: #6b5fe0;
+  --color-accent: #3dcf8e;
 
-  --color-success: #34d399;
-  --color-warning: #fbbf24;
-  --color-danger: #f87171;
-  --color-info: #60a5fa;
+  --color-success: #35b97d;
+  --color-warning: #d8a248;
+  --color-danger: #e16d6d;
+  --color-info: #4e97ff;
 
   --font-family-sans: "Space Grotesk", "Sora", "Segoe UI", sans-serif;
   --font-family-mono: "IBM Plex Mono", "JetBrains Mono", monospace;
@@ -29,36 +31,63 @@
 
 :root,
 :root.dark {
-  --klick-shadow-soft: 0 24px 44px -26px rgba(5, 9, 16, 0.7);
-  --klick-shadow-glow: 0 0 0 1px rgba(124, 77, 255, 0.18), 0 18px 40px -26px rgba(124, 77, 255, 0.45);
-  --klick-overlay-top: radial-gradient(circle at 14% -12%, rgba(124, 77, 255, 0.3), transparent 52%);
-  --klick-overlay-bottom: radial-gradient(circle at 86% 2%, rgba(57, 255, 136, 0.18), transparent 42%);
-  --klick-shell-backdrop: linear-gradient(180deg, rgba(255, 255, 255, 0.018), rgba(255, 255, 255, 0));
+  --type-display: clamp(2.75rem, 5vw, 4.5rem);
+  --type-title: clamp(1.5rem, 2vw, 2.25rem);
+  --type-body: 0.95rem;
+  --type-caption: 0.8rem;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --radius-sm: 0.875rem;
+  --radius-md: 1.125rem;
+  --radius-lg: 1.375rem;
+  --radius-xl: 1.75rem;
+  --klick-shadow-1: 0 10px 24px -20px rgba(4, 8, 16, 0.62);
+  --klick-shadow-2: 0 20px 44px -28px rgba(4, 8, 16, 0.74);
+  --klick-shadow-3: 0 28px 60px -34px rgba(4, 8, 16, 0.84);
+  --klick-shadow-accent: 0 18px 36px -26px rgba(122, 111, 240, 0.42);
+  --klick-focus-ring: color-mix(in srgb, var(--color-primary) 72%, white 28%);
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-slow: 220ms;
+  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --klick-overlay-top: radial-gradient(circle at 16% -8%, rgba(122, 111, 240, 0.12), transparent 46%);
+  --klick-overlay-bottom: radial-gradient(circle at 84% 0%, rgba(61, 207, 142, 0.08), transparent 38%);
+  --klick-shell-backdrop: linear-gradient(180deg, rgba(255, 255, 255, 0.014), rgba(255, 255, 255, 0));
 }
 
 :root.light {
   color-scheme: light;
-  --color-background: #f4f7fc;
+  --color-background: #f6f7fb;
   --color-background-elevated: #ffffff;
-  --color-surface: #eef3fb;
-  --color-surface-hover: #e2eaf8;
-  --color-surface-active: #d4deef;
-  --color-border: #ccd6e8;
-  --color-border-strong: #b3c2dc;
-  --color-text-primary: #172033;
-  --color-text-secondary: #31405d;
-  --color-text-muted: #5f6d87;
-  --color-primary: #6d45dd;
-  --color-primary-hover: #5f3bc6;
-  --color-accent: #11995f;
-  --color-success: #059669;
-  --color-warning: #d97706;
-  --color-danger: #dc2626;
-  --color-info: #2563eb;
-  --klick-shadow-soft: 0 20px 40px -30px rgba(30, 41, 59, 0.45);
-  --klick-shadow-glow: 0 0 0 1px rgba(109, 69, 221, 0.2), 0 20px 42px -30px rgba(109, 69, 221, 0.38);
-  --klick-overlay-top: radial-gradient(circle at 14% -12%, rgba(109, 69, 221, 0.18), transparent 54%);
-  --klick-overlay-bottom: radial-gradient(circle at 86% 2%, rgba(17, 153, 95, 0.14), transparent 44%);
+  --color-surface: #edf1f8;
+  --color-surface-muted: #f1f4f9;
+  --color-surface-hover: #e4ebf6;
+  --color-surface-active: #d7e0ee;
+  --color-overlay: rgba(255, 255, 255, 0.92);
+  --color-border: #cfd8e6;
+  --color-border-strong: #b6c3d8;
+  --color-text-primary: #182133;
+  --color-text-secondary: #3a4861;
+  --color-text-muted: #66748a;
+  --color-primary: #6d61e0;
+  --color-primary-hover: #5f55cb;
+  --color-accent: #129060;
+  --color-success: #168c62;
+  --color-warning: #b87a16;
+  --color-danger: #cf4f4f;
+  --color-info: #2e6ee6;
+  --klick-shadow-1: 0 10px 24px -20px rgba(31, 41, 55, 0.14);
+  --klick-shadow-2: 0 18px 40px -28px rgba(31, 41, 55, 0.18);
+  --klick-shadow-3: 0 26px 56px -34px rgba(31, 41, 55, 0.22);
+  --klick-shadow-accent: 0 18px 36px -28px rgba(109, 97, 224, 0.22);
+  --klick-focus-ring: color-mix(in srgb, var(--color-primary) 76%, white 18%);
+  --klick-overlay-top: radial-gradient(circle at 16% -8%, rgba(109, 97, 224, 0.1), transparent 48%);
+  --klick-overlay-bottom: radial-gradient(circle at 84% 0%, rgba(18, 144, 96, 0.07), transparent 40%);
 }
 
 @layer base {
@@ -92,12 +121,12 @@
     font-family: var(--font-family-sans);
     text-rendering: optimizeLegibility;
     transition:
-      background-color 0.25s ease,
-      color 0.25s ease;
+      background-color var(--motion-slow) var(--ease-standard),
+      color var(--motion-base) var(--ease-standard);
   }
 
   *:focus-visible {
-    outline: 2px solid color-mix(in srgb, var(--color-primary) 75%, white 25%);
+    outline: 2px solid var(--klick-focus-ring);
     outline-offset: 2px;
   }
 
@@ -106,38 +135,101 @@
     color: var(--color-text-primary);
   }
 
-  .glass {
-    background: color-mix(in srgb, var(--color-surface) 86%, transparent);
-    border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
-    box-shadow: var(--klick-shadow-soft);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-  }
-
-  .glass-hover:hover {
-    background: color-mix(in srgb, var(--color-surface-hover) 84%, transparent);
-    border-color: color-mix(in srgb, var(--color-border-strong) 62%, transparent);
-  }
-
-  .glass-button {
-    background: color-mix(in srgb, var(--color-surface) 80%, transparent);
-    border: 1px solid color-mix(in srgb, var(--color-border) 62%, transparent);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+  .surface-base {
+    background: color-mix(in srgb, var(--color-background-elevated) 92%, var(--color-surface) 8%);
+    border: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
+    box-shadow: var(--klick-shadow-1);
   }
 
   .surface-panel {
     background: linear-gradient(
-      155deg,
-      color-mix(in srgb, var(--color-surface) 94%, transparent),
+      180deg,
+      color-mix(in srgb, var(--color-surface) 92%, var(--color-background-elevated) 8%),
       color-mix(in srgb, var(--color-background-elevated) 96%, transparent)
     );
+    border: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
+    box-shadow: var(--klick-shadow-2);
+  }
+
+  .surface-overlay {
+    background: color-mix(in srgb, var(--color-overlay) 94%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-border-strong) 70%, transparent);
+    box-shadow: var(--klick-shadow-3);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+
+  .surface-shell {
+    background: color-mix(in srgb, var(--color-background-elevated) 88%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-border) 74%, transparent);
+    box-shadow: var(--klick-shadow-1);
+  }
+
+  .surface-interactive {
+    background: color-mix(in srgb, var(--color-surface) 80%, transparent);
     border: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
-    box-shadow: var(--klick-shadow-soft);
+    box-shadow: var(--klick-shadow-1);
+    transition:
+      background-color var(--motion-base) var(--ease-standard),
+      border-color var(--motion-base) var(--ease-standard),
+      box-shadow var(--motion-base) var(--ease-standard),
+      transform var(--motion-fast) var(--ease-standard);
+  }
+
+  .surface-interactive:hover {
+    background: color-mix(in srgb, var(--color-surface-hover) 84%, transparent);
+    border-color: color-mix(in srgb, var(--color-border-strong) 76%, transparent);
+  }
+
+  .surface-interactive:active {
+    transform: translateY(1px);
+  }
+
+  .glass {
+    background: color-mix(in srgb, var(--color-overlay) 92%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-border) 74%, transparent);
+    box-shadow: var(--klick-shadow-2);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
+  .glass-hover:hover {
+    background: color-mix(in srgb, var(--color-surface-hover) 84%, transparent);
+    border-color: color-mix(in srgb, var(--color-border-strong) 76%, transparent);
+  }
+
+  .glass-button {
+    background: color-mix(in srgb, var(--color-surface) 82%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
+    box-shadow: var(--klick-shadow-1);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
   }
 
   .glow-border {
-    box-shadow: var(--klick-shadow-glow);
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 24%, var(--color-border) 76%),
+      var(--klick-shadow-1);
+  }
+
+  .feedback-success {
+    background: color-mix(in srgb, var(--color-background-elevated) 90%, var(--color-success) 10%);
+    border-color: color-mix(in srgb, var(--color-success) 38%, var(--color-border) 62%);
+  }
+
+  .feedback-warning {
+    background: color-mix(in srgb, var(--color-background-elevated) 90%, var(--color-warning) 10%);
+    border-color: color-mix(in srgb, var(--color-warning) 42%, var(--color-border) 58%);
+  }
+
+  .feedback-danger {
+    background: color-mix(in srgb, var(--color-background-elevated) 90%, var(--color-danger) 10%);
+    border-color: color-mix(in srgb, var(--color-danger) 42%, var(--color-border) 58%);
+  }
+
+  .feedback-info {
+    background: color-mix(in srgb, var(--color-background-elevated) 90%, var(--color-info) 10%);
+    border-color: color-mix(in srgb, var(--color-info) 38%, var(--color-border) 62%);
   }
 
   .app-shell {

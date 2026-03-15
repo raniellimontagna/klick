@@ -3,5 +3,33 @@ Started: dom 15 mar 2026 17:02:50 -03
 
 ## Codebase Patterns
 - Document reusable codebase patterns found during iterations.
+- Centralize visual foundations in `src/app/styles/index.css` and treat `surface-base`, `surface-panel`, `surface-overlay`, `surface-shell`, `surface-interactive` as the only shared surface contracts.
+- Keep shared feedback semantic by routing toast/dialog states through `feedback-*` classes and theme tokens instead of hardcoded red/green/blue Tailwind palettes.
+- Avoid default glassmorphism in shared primitives; blur, glow and strong gradients should be opt-in accents for spotlight moments, not the baseline container treatment.
 
+---
+## 2026-03-15 17:33:34 -0300 - US-018
+- Implemented the mobile-first redesign foundations by refreshing global tokens for color, type, spacing, radius, elevation and motion in `src/app/styles/index.css`.
+- Standardized shared surfaces and refreshed the most-used shared primitives: `Button`, `Card`, `Modal`, `DropdownMenu`, `PageHeader`, `Topbar`, `Sidebar`, `MobileNav`, `Toast` and `ConfirmDialog`.
+- Updated `docs/technical.md` to document the new surface contract, theme direction and redesign anti-patterns.
+- Files changed:
+  - `src/app/styles/index.css`
+  - `src/shared/components/ui/button/button.tsx`
+  - `src/shared/components/ui/card/card.tsx`
+  - `src/shared/components/ui/modal/modal.tsx`
+  - `src/shared/components/ui/dropdown-menu/dropdown-menu.tsx`
+  - `src/shared/components/ui/radio-button/radio-button.tsx`
+  - `src/shared/components/ui/toggle-button/toggle-button.tsx`
+  - `src/shared/components/page-header/page-header.tsx`
+  - `src/shared/components/navigation/topbar.tsx`
+  - `src/shared/components/navigation/sidebar.tsx`
+  - `src/shared/components/navigation/mobile-nav.tsx`
+  - `src/shared/components/toast/toast.tsx`
+  - `src/shared/components/toast/use-toast.ts`
+  - `src/shared/components/confirm-dialog/confirm-dialog.tsx`
+  - `docs/technical.md`
+- Learnings for future iterations:
+  - Surface cleanup has to happen at the CSS contract level first; updating `Card` alone is not enough because many routes use `surface-panel` directly.
+  - `DropdownMenuTriggerButton`, `SessionSwitcher` and `LanguageSelector` are part of the shell visual contract and should evolve together in any navigation redesign.
+  - `US-019` can reuse the new shell/focus/surface tokens without reintroducing hamburger-era glow and blur treatments.
 ---

@@ -17,7 +17,7 @@ const DropdownMenuContent = forwardRef<
       sideOffset={sideOffset}
       className={cn(
         'z-[1000] min-w-[180px] overflow-hidden rounded-2xl p-1.5',
-        'surface-panel border border-border/75 bg-surface/95 backdrop-blur-xl shadow-2xl',
+        'surface-overlay',
         'data-[state=open]:animate-in data-[state=closed]:animate-out',
         'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
         'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
@@ -108,7 +108,6 @@ const DropdownMenuSeparator = forwardRef<
 ));
 DropdownMenuSeparator.displayName = DropdownMenuPrimitive.Separator.displayName;
 
-// Custom Trigger Button with Glassmorphism
 interface DropdownMenuTriggerButtonProps {
   icon?: ReactNode;
   label: ReactNode;
@@ -142,9 +141,8 @@ const DropdownMenuTriggerButton = forwardRef<
       ref={ref}
       type="button"
       className={cn(
-        'glass-button inline-flex h-11 min-w-0 max-w-full items-center gap-2.5 rounded-2xl border border-border/75 px-3 text-sm font-semibold text-text-primary transition-all sm:px-4',
-        'whitespace-nowrap shadow-[var(--klick-shadow-soft)]',
-        'hover:border-border-strong/75 hover:bg-surface-hover/70',
+        'surface-interactive inline-flex h-11 min-w-0 max-w-full items-center gap-2.5 rounded-2xl px-3 text-sm font-semibold text-text-primary sm:px-4',
+        'whitespace-nowrap',
         'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
         className,
       )}

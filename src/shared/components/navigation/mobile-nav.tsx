@@ -41,7 +41,7 @@ export function MobileNav() {
       <button
         type="button"
         onClick={() => setIsOpen(true)}
-        className="glass-button flex h-11 w-11 items-center justify-center rounded-2xl border border-border/75 text-text-primary shadow-[var(--klick-shadow-soft)] transition-all hover:border-border-strong/80 hover:bg-surface-hover/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+        className="surface-interactive flex h-11 w-11 items-center justify-center rounded-2xl text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
         aria-label="Menu"
       >
         <HamburgerMenu size={20} />
@@ -66,10 +66,10 @@ export function MobileNav() {
                   animate={{ x: 0 }}
                   exit={{ x: '100%' }}
                   transition={{ type: 'tween', duration: 0.3 }}
-                  className="surface-panel absolute inset-y-0 right-0 w-80 max-w-[85vw] border-l border-border/70 bg-background-elevated shadow-2xl"
+                  className="surface-overlay absolute inset-y-0 right-0 w-80 max-w-[85vw] border-l border-border/70"
                 >
-                  <div className="flex flex-col h-full">
-                    <div className="flex items-center justify-between border-b border-border/70 bg-surface/50 p-4">
+                  <div className="flex h-full flex-col">
+                    <div className="flex items-center justify-between border-b border-border/70 px-4 py-4">
                       <h2 className="text-lg font-bold text-text-primary">{t.app.title}</h2>
                       <Button
                         onClick={closeMenu}
@@ -90,10 +90,10 @@ export function MobileNav() {
                             to={to}
                             onClick={closeMenu}
                             className={({ isActive }) =>
-                              `flex items-center gap-3 rounded-xl px-3 py-2.5 font-semibold transition-all ${
+                              `flex items-center gap-3 rounded-xl border px-3 py-2.5 font-semibold transition-all ${
                                 isActive
-                                  ? 'glow-border bg-primary/18 text-primary'
-                                  : 'text-text-secondary hover:bg-surface-hover/80 hover:text-text-primary'
+                                  ? 'border-primary/25 bg-primary/12 text-text-primary shadow-[var(--klick-shadow-1)]'
+                                  : 'border-transparent text-text-secondary hover:bg-surface-hover/80 hover:text-text-primary'
                               }`
                             }
                           >
@@ -104,7 +104,7 @@ export function MobileNav() {
                       </div>
                     </nav>
 
-                    <div className="border-t border-border/70 bg-surface/50 p-4">
+                    <div className="border-t border-border/70 p-4">
                       <p className="text-center text-xs text-text-secondary">{t.app.tagline}</p>
                     </div>
                   </div>

@@ -23,14 +23,16 @@ export function ToggleButton({
       role="switch"
       aria-checked={value}
       className={cn(
-        'relative w-12 h-6 rounded-full transition-colors p-0 justify-start focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed',
-        value ? 'bg-primary' : 'bg-border',
+        'relative h-7 w-12 rounded-full border p-0 transition-[background-color,border-color,box-shadow] duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50',
+        value
+          ? 'border-primary/35 bg-primary shadow-[var(--klick-shadow-accent)]'
+          : 'border-border/80 bg-surface-active/80',
         className,
       )}
       {...props}
     >
       <motion.span
-        className="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full"
+        className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-[0_8px_16px_-12px_rgba(15,23,42,0.7)]"
         initial={false}
         animate={{ x: value ? 24 : 0 }}
         transition={{ type: 'spring', stiffness: 700, damping: 30 }}

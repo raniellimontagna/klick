@@ -28,7 +28,7 @@ export const Modal: React.FC<ModalProps> = ({
   ariaLabel,
   ariaDescribedBy,
   className = '',
-  backdropClassName = 'bg-black/60 backdrop-blur-sm',
+  backdropClassName = 'bg-black/56 backdrop-blur-[2px]',
   containerClassName = 'p-4',
 }: ModalProps): React.ReactElement | null => {
   if (typeof document === 'undefined') {
@@ -73,7 +73,7 @@ export const Modal: React.FC<ModalProps> = ({
             className={`relative w-full ${sizeClasses[size]} ${containerClassName} pointer-events-none`}
           >
             <div
-              className={`glass border border-white/10 shadow-2xl rounded-2xl overflow-hidden pointer-events-auto ${className}`}
+              className={`surface-overlay rounded-[1.625rem] overflow-hidden pointer-events-auto ${className}`}
             >
               {children}
             </div>
