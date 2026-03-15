@@ -5,9 +5,15 @@ import { useProgressStore } from '@/shared/store/progress-store';
 import { useScrambleStore } from '@/shared/store/scramble-store';
 import { useSessionsStore } from '@/shared/store/sessions-store';
 import { useSettingsStore } from '@/shared/store/settings-store';
-import type { Penalty, ProgressChallenge, ProgressSummary, Solve, TimerState } from '@/shared/types';
-import type { CubeState } from '../lib/scramble/cube-solver';
+import type {
+  Penalty,
+  ProgressChallenge,
+  ProgressSummary,
+  Solve,
+  TimerState,
+} from '@/shared/types';
 import { shouldIgnoreGlobalShortcut } from '../lib/keyboard-shortcuts';
+import type { CubeState } from '../lib/scramble/cube-solver';
 import { useTimer } from '../lib/use-timer';
 
 export type HomeVisualizationMode = '3d' | '2d';
@@ -113,8 +119,10 @@ export function useHomeTimerDashboard(): UseHomeTimerDashboardReturn {
     getBestAo12,
   } = useSessionsStore();
   const progressSummary = useProgressStore((state) => state.summary);
-  const dailyChallenges = useProgressStore((state) =>
-    state.challenges.filter((challenge) => challenge.dateKey === state.summary.todayKey),
+  const progressChallenges = useProgressStore((state) => state.challenges);
+  const dailyChallenges = useMemo(
+    () => progressChallenges.filter((challenge) => challenge.dateKey === progressSummary.todayKey),
+    [progressChallenges, progressSummary.todayKey],
   );
 
   const [inspectionOvertime, setInspectionOvertime] = useState(0);
