@@ -31,12 +31,15 @@ export function buildSeed(nowTs) {
   const total = PLAN.reduce((a, [, c]) => a + c, 0);
   const solves = [];
   let i = 0;
+  const startOfDay = new Date(nowTs).setHours(0, 0, 0, 0);
   for (const [ago, count] of PLAN) {
     const day = new Date(nowTs);
     day.setDate(day.getDate() - ago);
     day.setHours(19, 0, 0, 0);
     for (let j = 0; j < count; j++) {
-      const at = ago === 0 ? nowTs - (count - j) * 150000 : day.getTime() + j * 150000;
+      // Hoje: espaçamento de 2,5 min, encolhido perto da meia-noite para os solves não caírem em ontem.
+      const spacing = ago === 0 ? Math.max(1, Math.min(150000, Math.floor((nowTs - startOfDay) / (count + 1)))) : 150000;
+      const at = ago === 0 ? nowTs - (count - j) * spacing : day.getTime() + j * spacing;
       const p = i / (total - 1);
       const base = 92000 - 26000 * p;
       let ms = Math.round((base + (rand() - 0.5) * 14000) / 10) * 10;

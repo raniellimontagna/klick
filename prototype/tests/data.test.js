@@ -37,3 +37,11 @@ test('a base fictícia bate com o que a spec promete', () => {
 test('a base fictícia é igual para o mesmo "agora"', () => {
   assert.deepEqual(buildSeed(NOW), buildSeed(NOW));
 });
+
+test('perto da meia-noite os 12 solves de hoje continuam hoje', () => {
+  const nearMidnight = new Date(2026, 9, 8, 0, 15, 0).getTime();
+  const { solves } = buildSeed(nearMidnight);
+  assert.equal(solvesOnDay(solves, nearMidnight).length, 12);
+  assert.ok(solves.every((x, i) => i === 0 || x.at > solves[i - 1].at), 'ordem cronológica');
+  assert.equal(currentStreak(solves, nearMidnight), 4);
+});
