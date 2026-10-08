@@ -61,6 +61,7 @@ export function createTimer({ now = () => performance.now(), holdMs = 300, inspe
   }
 
   function release() {
+    tick(); // reavalia o tempo: soltar depois do tempo de armar sempre larga
     if (pendingInspect) {
       pendingInspect = false;
       inspStart = now();
@@ -124,6 +125,8 @@ export function createTimer({ now = () => performance.now(), holdMs = 300, inspe
     reset() {
       pendingInspect = false;
       base = STATES.IDLE;
+      result = null;
+      penalty = null;
       set(STATES.IDLE);
     },
     on(ev, fn) {

@@ -13,7 +13,7 @@ function rig(opts = {}) {
     t = ms;
     timer.tick();
   };
-  return { timer, log, at };
+  return { timer, log, at, setTime: (ms) => { t = ms; } };
 }
 
 test('sem inspeção: segurar 0,3 s arma, soltar larga, apertar para', () => {
@@ -145,4 +145,23 @@ test('setOptions vale no próximo ciclo e reset volta ao parado', () => {
   assert.equal(timer.state, STATES.IDLE);
   at(100);
   assert.equal(timer.inspectElapsed, 0);
+});
+
+test('soltar depois do tempo de armar larga mesmo sem tick no meio', () => {
+  const { timer, setTime } = rig();
+  timer.press();
+  setTime(310);
+  timer.release();
+  assert.equal(timer.state, STATES.RUNNING);
+});
+
+test('reset limpa o resultado anterior', () => {
+  const { timer, at } = rig({ holdMs: 0 });
+  timer.press();
+  timer.release();
+  at(1000);
+  timer.press();
+  assert.deepEqual(timer.result, { ms: 1000, penalty: null });
+  timer.reset();
+  assert.equal(timer.result, null);
 });
