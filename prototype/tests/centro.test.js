@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ringFor, eyesFor, renderCentro, paletteFor, PALETTES, RING_ORDER } from '../scripts/centro.js';
+import { ringFor, eyesFor, renderCentro, updateCentro, paletteFor, PALETTES, RING_ORDER } from '../scripts/centro.js';
 
 const N = null;
 
@@ -66,4 +66,35 @@ test('acabamentos mudam o corpo; o tema escuro tem brilho nos adesivos acesos', 
   assert.match(renderCentro({ finish: 'brilho' }), /fill="url\(#ct\d+g\)"/);
   assert.match(renderCentro({ theme: 'dark', ring: Array(8).fill('green') }), /drop-shadow\(0 0 2.2px/);
   assert.doesNotMatch(renderCentro({ theme: 'light', ring: Array(8).fill('green') }), /drop-shadow/);
+});
+
+function stubSvg(theme) {
+  const mk = (data) => {
+    const el = { dataset: data, attrs: {}, style: {}, cls: new Set() };
+    el.setAttribute = (n, v) => { el.attrs[n] = v; };
+    el.classList = { toggle: (c, on) => (on ? el.cls.add(c) : el.cls.delete(c)) };
+    return el;
+  };
+  const rings = Array.from({ length: 8 }, (_, k) => mk({ k: String(k) }));
+  const eyes = ['open', 'half', 'focus', 'happy', 'sleep'].map((e) => mk({ e }));
+  return { dataset: { theme, finish: 'fosco' }, rings, eyes, querySelectorAll: (sel) => (sel === '.ring' ? rings : sel === '.eyes' ? eyes : []) };
+}
+
+test('updateCentro usa o tema do próprio SVG e pinta anel e olhos', () => {
+  const svg = stubSvg('dark');
+  updateCentro(svg, { ring: ['green', N, N, N, N, N, N, N], eyes: 'focus' });
+  assert.equal(svg.rings[0].attrs.fill, PALETTES.dark.green);
+  assert.match(svg.rings[0].style.filter, /drop-shadow\(0 0 2.2px/);
+  assert.ok(svg.rings[0].cls.has('lit'));
+  assert.equal(svg.rings[1].attrs.fill, PALETTES.dark.off);
+  assert.equal(svg.dataset.eyes, 'focus');
+  assert.equal(svg.eyes.find((g) => g.dataset.e === 'focus').attrs.opacity, '1');
+  assert.equal(svg.eyes.find((g) => g.dataset.e === 'open').attrs.opacity, '0');
+  assert.match(renderCentro({ theme: 'dark' }), /data-theme="dark"/);
+});
+
+test('na inspeção, depois de 15 s os olhos ficam semicerrados', () => {
+  assert.equal(eyesFor({ state: 'inspect', inspectElapsed: 9000 }), 'open');
+  assert.equal(eyesFor({ state: 'inspect', inspectElapsed: 16000 }), 'half');
+  assert.equal(eyesFor({ state: 'inspect', inspectElapsed: 18000 }), 'half');
 });

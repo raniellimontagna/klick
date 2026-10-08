@@ -69,6 +69,8 @@ export function eyesFor(view) {
     case 'reaction':
       if (view.result === 'pb') return 'happy';
       return view.result === 'dnf' || view.result === 'plus2' ? 'half' : 'open';
+    case 'inspect':
+      return (view.inspectElapsed || 0) > 15000 ? 'half' : 'open';
     default:
       return 'open';
   }
@@ -81,6 +83,11 @@ export function paletteFor(theme, finish) {
 
 const cell = (i) => [(i % 3) * 33.333 + 3.2, Math.floor(i / 3) * 33.333 + 3.2];
 const glowStyle = (p, color) => (p.glow ? ` style="filter:drop-shadow(0 0 ${p.glow}px ${color})"` : '');
+// Cor e brilho de um adesivo do anel (usado no render e na atualização).
+function ringPaint(p, key) {
+  const color = key ? p[key] : p.off;
+  return { color, filter: key && p.glow ? `drop-shadow(0 0 ${p.glow}px ${color})` : '' };
+}
 let uid = 0;
 
 export function renderCentro({ theme = 'light', ring = empty(), eyes = 'open', topLit = 0, sideLit = 0, finish = 'fosco', label = 'Centro' } = {}) {
@@ -97,7 +104,7 @@ export function renderCentro({ theme = 'light', ring = empty(), eyes = 'open', t
     for (let i = 0; i < 9; i++) s += rect(i, i < lit ? p[color] : p.off, i < lit ? ` class="lit"${glowStyle(p, p[color])}` : '') + gloss(i);
     return `${s}</g>`;
   };
-  let s = `<svg class="centro" viewBox="-9 -9 148 148" role="img" aria-label="${label}" data-finish="${finish}" data-eyes="${eyes}">`;
+  let s = `<svg class="centro" viewBox="-9 -9 148 148" role="img" aria-label="${label}" data-finish="${finish}" data-theme="${theme === 'dark' ? 'dark' : 'light'}" data-eyes="${eyes}">`;
   s += `<defs><linearGradient id="${id}g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".5"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/></linearGradient>`;
   s += `<pattern id="${id}c" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#151515"/><rect width="3" height="6" fill="#222"/></pattern></defs>`;
   s += `<polygon class="body" points="0,30 30,0 130,0 130,100 100,130 0,130" fill="${f.carbon ? `url(#${id}c)` : p.body}" stroke="${p.body}" stroke-width="14" stroke-linejoin="round"${f.bodyOpacity ? ` opacity="${f.bodyOpacity}"` : ''}/>`;
@@ -111,8 +118,8 @@ export function renderCentro({ theme = 'light', ring = empty(), eyes = 'open', t
     }
     const k = RING_ORDER.indexOf(i);
     const key = ring[k];
-    const color = key ? p[key] : p.off;
-    s += rect(i, color, ` class="ring${key ? ' lit' : ''}" data-k="${k}"${key ? glowStyle(p, color) : ''}`) + gloss(i);
+    const { color, filter } = ringPaint(p, key);
+    s += rect(i, color, ` class="ring${key ? ' lit' : ''}" data-k="${k}"${filter ? ` style="filter:${filter}"` : ''}`) + gloss(i);
   }
   const vis = (name) => `class="eyes" data-e="${name}" opacity="${eyes === name ? 1 : 0}"`;
   const stroke = `fill="none" stroke="${p.eye}" stroke-width="2.6" stroke-linecap="round"`;
@@ -125,15 +132,17 @@ export function renderCentro({ theme = 'light', ring = empty(), eyes = 'open', t
 }
 
 // Atualiza anel e olhos de um <svg class="centro"> já no DOM, sem recriar (deixa as transições do CSS agirem).
-export function updateCentro(svg, { theme = 'light', finish = 'fosco', ring = empty(), eyes = 'open' }) {
+// Tema e acabamento vêm do próprio SVG quando omitidos; trocar tema ou acabamento pede renderCentro de novo.
+export function updateCentro(svg, opts = {}) {
   if (!svg) return;
+  const { ring = empty(), eyes = 'open', theme = svg.dataset.theme, finish = svg.dataset.finish } = opts;
   const p = paletteFor(theme, finish);
   svg.querySelectorAll('.ring').forEach((r) => {
     const key = ring[Number(r.dataset.k)];
-    const color = key ? p[key] : p.off;
+    const { color, filter } = ringPaint(p, key);
     r.setAttribute('fill', color);
     r.classList.toggle('lit', Boolean(key));
-    r.style.filter = key && p.glow ? `drop-shadow(0 0 ${p.glow}px ${color})` : '';
+    r.style.filter = filter;
   });
   svg.dataset.eyes = eyes;
   svg.querySelectorAll('.eyes').forEach((g) => g.setAttribute('opacity', g.dataset.e === eyes ? '1' : '0'));
