@@ -1,0 +1,407 @@
+/* Barra do topo */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  padding: 18px 28px;
+}
+
+.wordmark {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 20px;
+  letter-spacing: -0.035em;
+}
+
+.glyph {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+  width: 18px;
+  height: 18px;
+}
+
+.glyph i {
+  background: var(--ink);
+  border-radius: 2px;
+}
+
+.glyph i:nth-child(5) {
+  background: var(--arm);
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.tab {
+  position: relative;
+  border: 0;
+  background: none;
+  padding: 6px 10px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.tab[aria-current='page'] {
+  color: var(--ink);
+}
+
+.tab[aria-current='page']::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -4px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--ink);
+  transform: translateX(-50%);
+}
+
+.topbar .meta {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.pill {
+  border: 1px solid var(--line);
+  background: none;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+/* Cartões, chips, botões */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  padding: 16px 18px;
+  box-shadow: var(--inner);
+}
+
+.card-h {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.chip.pb {
+  background: var(--pb-bg);
+  color: var(--pb-ink);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 7px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-btn);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.btn.primary {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--bg);
+}
+
+.btn[aria-pressed='true'] {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.btn kbd,
+.key {
+  font-size: 11px;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: var(--r-key);
+  color: var(--muted);
+  background: var(--surface);
+}
+
+/* Tiles de métrica */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.tile {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-tile);
+  padding: 12px 14px;
+  box-shadow: var(--inner);
+}
+
+.tile small {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.tile b {
+  display: block;
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
+}
+
+.tile em {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.tile b.pb {
+  color: var(--pb);
+}
+
+/* Mapa de constância */
+.heat {
+  display: grid;
+  grid-template-columns: repeat(16, 1fr);
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.heat i {
+  aspect-ratio: 1;
+  border-radius: 3px;
+  background: var(--heat-0);
+}
+
+.heat i.l1 { background: var(--heat-1); }
+.heat i.l2 { background: var(--heat-2); }
+.heat i.l3 { background: var(--heat-3); }
+.heat i.pb { background: var(--pb); }
+
+.heat i.today {
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink);
+}
+
+.heat i.pop {
+  animation: pop 450ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes pop {
+  from {
+    transform: scale(1.8);
+    opacity: 0;
+  }
+}
+
+/* Seletor segmentado e toggle */
+.seg {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+
+.seg button {
+  border: 0;
+  background: none;
+  padding: 5px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.seg button[aria-pressed='true'] {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.switch {
+  appearance: none;
+  width: 40px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  position: relative;
+  flex-shrink: 0;
+  transition: background var(--t-state) var(--ease);
+}
+
+.switch::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform var(--t-state) var(--ease);
+}
+
+.switch:checked {
+  background: var(--ink);
+}
+
+.switch:checked::after {
+  transform: translateX(16px);
+}
+
+/* Diálogos (sessões, atalhos, primeira vez) */
+.sheet {
+  margin: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--surface);
+  color: var(--ink);
+  padding: 22px;
+  width: min(480px, calc(100vw - 32px));
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.25);
+}
+
+.sheet::backdrop {
+  background: rgba(10, 10, 12, 0.45);
+}
+
+.sheet h2 {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  margin-bottom: 12px;
+}
+
+.sheet table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.sheet td {
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.sheet td:first-child {
+  width: 40%;
+}
+
+.sheet .row {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.sheet input[type='text'] {
+  flex: 1;
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-btn);
+  background: var(--bg);
+}
+
+.list-btn {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-btn);
+  background: var(--bg);
+  margin-top: 6px;
+  text-align: left;
+}
+
+.list-btn[aria-current='true'] {
+  border-color: var(--ink);
+}
+
+/* Aviso com desfazer */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px 10px 16px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--bg);
+  font-size: 14px;
+  z-index: 20;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+.toast button {
+  border: 0;
+  border-radius: 999px;
+  padding: 5px 12px;
+  background: var(--bg);
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+/* Barra de abas do celular */
+.tabbar {
+  display: none;
+}
+
+/* Em telas de toque: alvos de pelo menos 44 px e sem dicas de tecla. */
+@media (pointer: coarse) {
+  .btn kbd {
+    display: none;
+  }
+
+  .btn,
+  .pill,
+  .seg button,
+  .link,
+  .list-btn,
+  .finish {
+    min-height: 44px;
+  }
+}
