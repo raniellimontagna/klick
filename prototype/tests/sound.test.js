@@ -44,23 +44,29 @@ test('cada grupo de som liga e desliga sozinho', () => {
       return { type: '', frequency: {}, Q: {}, connect: (n) => n };
     }
   }
+  const plays = { klick: (s) => s.klick(), insp: (s) => s.tick(), pb: (s) => s.chord() };
+  const count = (s, group) => {
+    const before = made.osc + made.buf;
+    plays[group](s);
+    return made.osc + made.buf - before;
+  };
   const previous = globalThis.window;
   globalThis.window = { AudioContext: FakeCtx };
   try {
-    const s = createSound();
-    s.klick();
-    assert.equal(made.buf, 1);
-    s.tick();
-    assert.equal(made.osc, 1);
-    s.chord();
-    assert.equal(made.osc, 4);
-    s.setEnabled('klick', false);
-    s.setEnabled('insp', false);
-    s.setEnabled('pb', false);
-    s.klick();
-    s.tick();
-    s.chord();
-    assert.deepEqual(made, { osc: 4, buf: 1 });
+    for (const g of Object.keys(plays)) {
+      const s = createSound();
+      s.setEnabled(g, false);
+      s.setEnabled(g, false); // desligar duas vezes continua desligado (não é um "inverter")
+      for (const other of Object.keys(plays)) {
+        if (other === g) assert.equal(count(s, other), 0, `${g} desligado não toca`);
+        else assert.ok(count(s, other) > 0, `${other} continua tocando com ${g} desligado`);
+      }
+      s.setEnabled(g, true);
+      assert.ok(count(s, g) > 0, `${g} volta a tocar quando religado`);
+    }
+    const quiet = createSound({ klick: false, insp: true, pb: true });
+    assert.equal(count(quiet, 'klick'), 0, 'createSound respeita os grupos iniciais');
+    assert.ok(count(quiet, 'insp') > 0);
   } finally {
     if (previous === undefined) delete globalThis.window;
     else globalThis.window = previous;
