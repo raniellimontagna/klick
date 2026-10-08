@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Klick — Seção 1 · Linguagem visual</title>
+<style>
+:root { --bg-primary: #f5f5f7; --bg-secondary: #fff; --bg-tertiary: #e5e5e7; --border: #d1d1d6; --text-primary: #1d1d1f; --text-secondary: #86868b; --text-tertiary: #aeaeb2; --accent: #0071e3; --success: #34c759; --error: #ff3b30; --selected-bg: #e8f4fd; --selected-border: #0071e3; }
+@media (prefers-color-scheme: dark) { :root { --bg-primary: #1d1d1f; --bg-secondary: #2d2d2f; --bg-tertiary: #3d3d3f; --border: #424245; --text-primary: #f5f5f7; --text-tertiary: #636366; --accent: #0a84ff; --selected-bg: rgba(10,132,255,.15); --selected-border: #0a84ff; } }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg-primary); color: var(--text-primary); line-height: 1.5; padding: 2rem; }
+h2 { font-size: 1.5rem; font-weight: 600; margin-bottom: .5rem; }
+h3 { font-size: 1.1rem; font-weight: 600; margin-bottom: .25rem; }
+.subtitle { color: var(--text-secondary); margin-bottom: 1.5rem; }
+.cards { display: grid; gap: 1rem; }
+.card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.card.selected { border-color: var(--selected-border); border-width: 2px; }
+.card-body { padding: 1rem; }
+.card-body p { color: var(--text-secondary); font-size: .85rem; }
+</style>
+</head>
+<body>
+<!-- Referência aprovada no brainstorm de design de 2026-10-08. Fonte da verdade: docs/superpowers/specs/2026-10-08-klick-design.md -->
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap');
+.st { max-width: 1000px; margin: 0 auto; }
+.st h2 { margin-bottom: .3rem; }
+.sec { margin: 1.8rem 0 .7rem; display: flex; align-items: baseline; gap: .6rem; }
+.sec b { font-size: .7rem; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+.sec span { font-size: 1.05rem; font-weight: 600; }
+.note { font-size: .84rem; color: var(--text-secondary); margin-bottom: .8rem; }
+.duo { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+@media (max-width: 760px) { .duo { grid-template-columns: 1fr; } }
+.th { border-radius: 16px; padding: 18px; font-family: 'Geist', system-ui, sans-serif; background: var(--bg); color: var(--ink); border: 1px solid var(--line); }
+.th .tt { font-size: 11px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; display: flex; justify-content: space-between; }
+.c1 { --bg: #F3F0E9; --ink: #17171A; --ink2: #3A3832; --muted: #8A857B; --dec: #A9A397; --line: #E2DCD0; --card: #FBFAF7; --chip: #E8E3D9;
+  --brand: #E5484D; --arm: #D93D42; --go: #23915A; --i8: #E39B12; --i12: #E06A1B; --gold: #B8860B; --gold-bg: #F4E7C3; --gold-ink: #7A5A06;
+  --h0: #E9E4DA; --h1: #CFE7D7; --h2: #94CDA9; --h3: #2F9E5F; }
+.c2 { --bg: #121110; --ink: #F3F1EC; --ink2: #D6D2C9; --muted: #8E8A82; --dec: #66625B; --line: #2A2724; --card: #1A1917; --chip: #23211E;
+  --brand: #FF5A5F; --arm: #FF5A5F; --go: #3DD68C; --i8: #FFB224; --i12: #FF8A3D; --gold: #F0B84C; --gold-bg: #3A2E14; --gold-ink: #F0C46A;
+  --h0: #22201D; --h1: #1E4A33; --h2: #2B7A50; --h3: #3DD68C; }
+.sw { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.sw div { border-radius: 10px; border: 1px solid var(--line); overflow: hidden; background: var(--card); }
+.sw i { display: block; height: 34px; }
+.sw small { display: block; padding: 6px 8px 7px; font-size: 10.5px; line-height: 1.3; color: var(--ink2); }
+.sw small em { font-style: normal; color: var(--muted); display: block; font-family: 'Geist Mono', monospace; font-size: 9.5px; }
+.sw-h { font-size: 11px; color: var(--muted); margin: 12px 0 6px; font-weight: 500; }
+.type .big { font-weight: 600; font-size: 64px; letter-spacing: -.05em; line-height: 1; font-variant-numeric: tabular-nums; }
+.type .big span { color: var(--dec); font-size: .6em; letter-spacing: -.02em; }
+.type .row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line); }
+.type .row code { font-family: 'Geist Mono', monospace; font-size: 10px; color: var(--muted); white-space: nowrap; }
+.type .h1 { font-size: 26px; font-weight: 600; letter-spacing: -.03em; }
+.type .bd { font-size: 15px; font-weight: 500; }
+.type .lb { font-size: 11px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.type .mn { font-family: 'Geist Mono', monospace; font-size: 14px; color: var(--ink2); }
+.comp { display: flex; flex-direction: column; gap: 12px; }
+.comp .r { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 500; padding: 5px 11px; border-radius: 99px; background: var(--chip); color: var(--ink2); font-variant-numeric: tabular-nums; }
+.chip.pb { background: var(--gold-bg); color: var(--gold-ink); }
+.btn { font: inherit; font-size: 13px; font-weight: 600; padding: 8px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+.btn.pri { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.key { font-family: 'Geist Mono', monospace; font-size: 11px; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--line); border-bottom-width: 2px; color: var(--ink2); background: var(--card); }
+.tile { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; flex: 1; min-width: 100px; }
+.tile small { display: block; font-size: 11px; color: var(--muted); font-weight: 500; }
+.tile b { display: block; font-weight: 600; font-size: 22px; letter-spacing: -.025em; font-variant-numeric: tabular-nums; }
+.tile svg { width: 100%; height: 18px; display: block; margin-top: 4px; }
+.nav { display: flex; gap: 18px; font-size: 13px; font-weight: 500; color: var(--muted); }
+.nav .on { color: var(--ink); position: relative; }
+.nav .on::after { content: ''; position: absolute; left: 50%; bottom: -7px; width: 4px; height: 4px; border-radius: 50%; background: var(--ink); transform: translateX(-50%); }
+.heat { display: grid; grid-template-columns: repeat(16, 1fr); gap: 3px; }
+.heat i { aspect-ratio: 1; border-radius: 3px; background: var(--h0); }
+.heat i.l1 { background: var(--h1); } .heat i.l2 { background: var(--h2); } .heat i.l3 { background: var(--h3); } .heat i.pb { background: var(--gold); }
+.coachc { display: grid; grid-template-columns: 64px 1fr; gap: 12px; align-items: center; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 12px; }
+.coachc p { font-size: 13.5px; font-weight: 500; line-height: 1.4; }
+.coachc .lb { font-size: 10px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin-bottom: 3px; }
+.states { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+@media (max-width: 760px) { .states { grid-template-columns: repeat(3, 1fr); } }
+.state { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 10px 10px 9px; text-align: center; }
+.state .ct { width: 72%; margin: 0 auto 6px; }
+.state b { display: block; font-size: 12px; font-weight: 600; }
+.state small { display: block; font-size: 10.5px; color: var(--muted); line-height: 1.3; margin-top: 2px; }
+.ct { display: block; width: 100%; height: auto; overflow: visible; }
+.rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: .7rem; }
+.rules div { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; padding: .75rem .9rem; font-size: .84rem; }
+.rules div b { display: block; font-size: .7rem; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); margin-bottom: .3rem; }
+.rules div p { color: var(--text-secondary); }
+</style>
+
+<div class="st">
+  <h2>Seção 1 · Linguagem visual — Clube</h2>
+  <p class="subtitle">O sistema que você escolheu (D1 + D2), destrinchado em tokens. É isto que vai pra spec e vira base do protótipo.</p>
+
+  <div class="sec"><b>1.1</b><span>Cor — semântica, não decorativa</span></div>
+  <p class="note">Neutros quentes fazem o aconchego. Cor forte só quando significa algo: a luz do stackmat (armando/pronto), a inspeção, o recorde. As cores do cubo aparecem só como luz do Centro — nunca como "bom/ruim".</p>
+  <div class="duo" data-swatches></div>
+
+  <div class="sec"><b>1.2</b><span>Tipografia — Geist + Geist Mono</span></div>
+  <p class="note">Uma família só, gratuita (licença OFL). Números sempre tabulares (não "pulam" enquanto contam). O decimal fica menor e mais claro — o olho lê o segundo primeiro.</p>
+  <div class="duo" data-type></div>
+
+  <div class="sec"><b>1.3</b><span>Componentes base</span></div>
+  <p class="note">Bordas finas no claro, sem sombra; no escuro, um brilho interno sutil. Raios: 6 · 10 · 14 · 16 · pílula. Espaçamento em base 4.</p>
+  <div class="duo" data-comp></div>
+
+  <div class="sec"><b>1.4</b><span>Centro — os estados do anel</span></div>
+  <p class="note">O companion também é linguagem visual: o anel de 8 adesivos é o "display" do app. Abaixo, os estados que ele precisa ter (o comportamento detalhado vem na Seção 2).</p>
+  <div class="th c1" style="margin-bottom:1rem"><div class="tt"><span>Claro</span><span>estados</span></div><div class="states" data-states="c1"></div></div>
+  <div class="th c2"><div class="tt"><span>Noite</span><span>estados</span></div><div class="states" data-states="c2"></div></div>
+
+  <div class="sec"><b>1.5</b><span>Movimento, som e voz</span></div>
+  <div class="rules">
+    <div><b>Movimento</b><p>120 ms micro · 200 ms troca de estado · mola de 450 ms só em celebração. Com "reduzir movimento" ligado: só troca de cor, nada se desloca.</p></div>
+    <div><b>Foco no solve</b><p>Durante o solve, tudo menos o tempo apaga para 8% e o Centro fica imóvel de olhos fechados. Ao parar, a interface volta em 200 ms.</p></div>
+    <div><b>Som-assinatura</b><p>Um "klick" mecânico ao armar e ao parar; tique suave aos 8 s e 12 s da inspeção; acorde curto só no recorde. Liga e desliga nos ajustes.</p></div>
+    <div><b>Voz do coach</b><p>Calma, curta, com número. "0.84 s abaixo da sua média de 5." Sem emoji, sem exclamação, sem culpa ("faz parte — o próximo conta").</p></div>
+    <div><b>Acessibilidade</b><p>Contraste AA nos dois temas; estado nunca só por cor (seta, rótulo, forma do anel); anúncio do tempo final por leitor de tela.</p></div>
+    <div><b>Ícones</b><p>Traço fino de 1,5 px, cantos arredondados (família Lucide). Nada de ícone 3D ou emoji na interface.</p></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var themes = {
+    c1: { name: 'Claro', pal: { body: '#1B1B1E', off: '#2E2E33', top: '#E4DED2', side: '#3E63DD', center: '#F4F1EA', eye: '#1B1B1E', idle: '#8A857B', red: '#E5484D', green: '#30A46C', amber: '#F5A524', orange: '#F07A2B', blue: '#5B7BE0', u: '#F4F1EA', r: '#E5484D', f: '#30A46C', d: '#F5C842', l: '#F07A2B', b: '#3E63DD', glow: 1.2 },
+      sw: [
+        ['Superfícies', [['#F3F0E9', 'fundo', 'bg'], ['#FBFAF7', 'cartão', 'surface'], ['#E8E3D9', 'chip', 'surface-2'], ['#E2DCD0', 'linha', 'line']]],
+        ['Texto', [['#17171A', 'tinta', 'ink'], ['#3A3832', 'tinta 2', 'ink-2'], ['#8A857B', 'apagado', 'muted'], ['#A9A397', 'decimal', 'dec']]],
+        ['Estados', [['#D93D42', 'armando · marca', 'arm'], ['#23915A', 'pronto', 'go'], ['#E39B12', 'inspeção 8 s', 'insp-8'], ['#E06A1B', 'inspeção 12 s', 'insp-12']]],
+        ['Recorde e constância', [['#B8860B', 'recorde', 'pb'], ['#F4E7C3', 'fundo recorde', 'pb-bg'], ['#94CDA9', 'constância', 'heat-2'], ['#2F9E5F', 'constância cheia', 'heat-3']]]
+      ] },
+    c2: { name: 'Noite', pal: { body: '#0A0A0B', off: '#232326', top: '#CFC9BD', side: '#4C6FE8', center: '#EDEAE3', eye: '#0A0A0B', idle: '#6F6B64', red: '#FF5A5F', green: '#3DD68C', amber: '#FFB224', orange: '#FF8A3D', blue: '#6E8BFF', u: '#EDEAE3', r: '#FF5A5F', f: '#3DD68C', d: '#FFD54A', l: '#FF8A3D', b: '#4C6FE8', glow: 2.2 },
+      sw: [
+        ['Superfícies', [['#121110', 'fundo', 'bg'], ['#1A1917', 'cartão', 'surface'], ['#23211E', 'chip', 'surface-2'], ['#2A2724', 'linha', 'line']]],
+        ['Texto', [['#F3F1EC', 'tinta', 'ink'], ['#D6D2C9', 'tinta 2', 'ink-2'], ['#8E8A82', 'apagado', 'muted'], ['#66625B', 'decimal', 'dec']]],
+        ['Estados', [['#FF5A5F', 'armando · marca', 'arm'], ['#3DD68C', 'pronto', 'go'], ['#FFB224', 'inspeção 8 s', 'insp-8'], ['#FF8A3D', 'inspeção 12 s', 'insp-12']]],
+        ['Recorde e constância', [['#F0B84C', 'recorde', 'pb'], ['#3A2E14', 'fundo recorde', 'pb-bg'], ['#2B7A50', 'constância', 'heat-2'], ['#3DD68C', 'constância cheia', 'heat-3']]]
+      ] }
+  };
+
+  function centro(p, ring, eyes) {
+    var cell = function (i) { return [(i % 3) * 33.333 + 3.2, Math.floor(i / 3) * 33.333 + 3.2]; };
+    var order = [0, 1, 2, 5, 8, 7, 6, 3];
+    var R = function (i, fill, glow) { var c = cell(i); return '<rect x="' + c[0].toFixed(2) + '" y="' + c[1].toFixed(2) + '" width="26.9" height="26.9" rx="5" fill="' + fill + '"' + (glow && p.glow ? ' style="filter:drop-shadow(0 0 ' + p.glow + 'px ' + fill + ')"' : '') + '/>'; };
+    var i, s = '<svg class="ct" viewBox="-9 -9 148 148">';
+    s += '<polygon points="0,30 30,0 130,0 130,100 100,130 0,130" fill="' + p.body + '" stroke="' + p.body + '" stroke-width="14" stroke-linejoin="round"/>';
+    s += '<g transform="matrix(1,0,0.3,-0.3,0,30)">'; for (i = 0; i < 9; i++) s += R(i, p.top); s += '</g>';
+    s += '<g transform="matrix(0.3,-0.3,0,1,100,30)">'; for (i = 0; i < 9; i++) s += R(i, p.side); s += '</g>';
+    s += '<g transform="translate(0 30)">';
+    for (i = 0; i < 9; i++) { if (i === 4) { s += R(4, p.center); continue; } var c = ring[order.indexOf(i)]; s += R(i, c ? p[c] || c : p.off, !!c); }
+    var e = p.eye;
+    if (eyes === 'open') s += '<rect x="41.6" y="42.5" width="6.4" height="12" rx="3.2" fill="' + e + '"/><rect x="52" y="42.5" width="6.4" height="12" rx="3.2" fill="' + e + '"/>';
+    if (eyes === 'half') s += '<rect x="41.6" y="46" width="6.4" height="6.5" rx="3" fill="' + e + '"/><rect x="52" y="46" width="6.4" height="6.5" rx="3" fill="' + e + '"/>';
+    if (eyes === 'focus') s += '<path d="M41.4 49.5 h6.8 M51.8 49.5 h6.8" fill="none" stroke="' + e + '" stroke-width="2.6" stroke-linecap="round"/>';
+    if (eyes === 'sleep') s += '<path d="M41.4 49 q3.4 3.4 6.8 0 M51.8 49 q3.4 3.4 6.8 0" fill="none" stroke="' + e + '" stroke-width="2.6" stroke-linecap="round"/>';
+    if (eyes === 'happy') s += '<path d="M41.4 51 q3.4 -5.6 6.8 0 M51.8 51 q3.4 -5.6 6.8 0" fill="none" stroke="' + e + '" stroke-width="2.6" stroke-linecap="round"/>';
+    return s + '</g></svg>';
+  }
+
+  var N = null;
+  var states = [
+    ['Parado', 'um adesivo "respira" em volta', [N, N, 'idle', N, N, N, N, N], 'open'],
+    ['Inspeção', 'anel esvazia nos 15 s', ['u', 'u', 'u', 'u', 'u', N, N, N], 'open'],
+    ['Inspeção 8 s', 'âmbar — passou da metade', ['amber', 'amber', 'amber', N, N, N, N, N], 'open'],
+    ['Inspeção 12 s', 'laranja — hora de ir', ['orange', 'orange', N, N, N, N, N, N], 'open'],
+    ['Armando', 'enche de vermelho ao segurar', ['red', 'red', 'red', 'red', 'red', N, N, N], 'half'],
+    ['Pronto', 'tudo verde — pode soltar', ['green', 'green', 'green', 'green', 'green', 'green', 'green', 'green'], 'focus'],
+    ['Resolvendo', 'apagado, imóvel, olhos fechados', [N, N, N, N, N, N, N, N], 'focus'],
+    ['Abaixo da média', 'verde parcial', ['green', 'green', 'green', 'green', 'green', 'green', N, N], 'open'],
+    ['+2 · DNF', '+2: dois em âmbar · DNF: X vermelho', ['red', N, 'red', N, 'red', N, 'red', N], 'half'],
+    ['Recorde', 'a face se resolve nas 6 cores', ['u', 'r', 'f', 'd', 'l', 'b', 'r', 'f'], 'happy']
+  ];
+  // DNF em X: cantos acesos (índices horários 0, 2, 4, 6 = cantos)
+
+  Object.keys(themes).forEach(function (k) {
+    var t = themes[k];
+    var sw = '<div class="th ' + k + '"><div class="tt"><span>' + t.name + '</span><span>tokens</span></div>';
+    t.sw.forEach(function (grp) {
+      sw += '<div class="sw-h">' + grp[0] + '</div><div class="sw">';
+      grp[1].forEach(function (c) { sw += '<div><i style="background:' + c[0] + '"></i><small>' + c[1] + '<em>' + c[2] + ' · ' + c[0] + '</em></small></div>'; });
+      sw += '</div>';
+    });
+    document.querySelector('[data-swatches]').insertAdjacentHTML('beforeend', sw + '</div>');
+
+    document.querySelector('[data-type]').insertAdjacentHTML('beforeend',
+      '<div class="th type ' + k + '"><div class="tt"><span>' + t.name + '</span><span>tipo</span></div>' +
+      '<div class="big">0:58<span>.42</span></div>' +
+      '<div class="row" style="margin-top:12px"><span class="h1">Evolução</span><code>título · 26/600</code></div>' +
+      '<div class="row"><span class="bd">0.84 s abaixo da sua média de 5.</span><code>texto · 15/500</code></div>' +
+      '<div class="row"><span class="lb">Constância · outubro</span><code>rótulo · 11/600 caps</code></div>' +
+      '<div class="row"><span class="mn">R U R\' U\' F2 D L2 B\'</span><code>mono · 14/400</code></div></div>');
+
+    document.querySelector('[data-comp]').insertAdjacentHTML('beforeend',
+      '<div class="th comp ' + k + '"><div class="tt"><span>' + t.name + '</span><span>componentes</span></div>' +
+      '<div class="nav"><span class="on">Timer</span><span>Evolução</span><span>Companion</span><span>Ajustes</span></div>' +
+      '<div class="r" style="margin-top:6px"><span class="chip">▼ 3.89 s vs média de 5</span><span class="chip pb">◆ Novo recorde</span></div>' +
+      '<div class="r"><button class="btn pri">Nova sessão</button><button class="btn">Exportar</button><span class="key">espaço</span><span class="key">N</span></div>' +
+      '<div class="r"><div class="tile"><small>Média de 5</small><b>1:02.31</b><svg viewBox="0 0 100 20" preserveAspectRatio="none"><polyline points="0,6 20,9 40,7 60,12 80,11 100,15" fill="none" stroke="currentColor" stroke-width="1.6" opacity=".55"/></svg></div><div class="tile"><small>Recorde</small><b>0:54.10</b><svg viewBox="0 0 100 20" preserveAspectRatio="none"><polyline points="0,14 30,14 50,10 70,10 100,6" fill="none" stroke="currentColor" stroke-width="1.6" opacity=".55"/></svg></div></div>' +
+      '<div class="heat">' + [ 'l2','l1','','l3','pb','l2','l3','l1','','','','','','','','' ].map(function (c) { return '<i class="' + c + '"></i>'; }).join('') + '</div>' +
+      '<div class="coachc"><div>' + centro(t.pal, [N, N, N, N, N, N, N, N], 'open') + '</div><div><div class="lb">Coach</div><p>Abaixo da sua média. Constância subindo.</p></div></div></div>');
+
+    document.querySelector('[data-states="' + k + '"]').innerHTML = states.map(function (s) {
+      return '<div class="state">' + centro(t.pal, s[2], s[3]) + '<b>' + s[0] + '</b><small>' + s[1] + '</small></div>';
+    }).join('');
+  });
+})();
+</script>
+
+</body>
+</html>

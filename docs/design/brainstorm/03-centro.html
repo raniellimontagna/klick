@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Klick — Seção 2 · Centro</title>
+<style>
+:root { --bg-primary: #f5f5f7; --bg-secondary: #fff; --bg-tertiary: #e5e5e7; --border: #d1d1d6; --text-primary: #1d1d1f; --text-secondary: #86868b; --text-tertiary: #aeaeb2; --accent: #0071e3; --success: #34c759; --error: #ff3b30; --selected-bg: #e8f4fd; --selected-border: #0071e3; }
+@media (prefers-color-scheme: dark) { :root { --bg-primary: #1d1d1f; --bg-secondary: #2d2d2f; --bg-tertiary: #3d3d3f; --border: #424245; --text-primary: #f5f5f7; --text-tertiary: #636366; --accent: #0a84ff; --selected-bg: rgba(10,132,255,.15); --selected-border: #0a84ff; } }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg-primary); color: var(--text-primary); line-height: 1.5; padding: 2rem; }
+h2 { font-size: 1.5rem; font-weight: 600; margin-bottom: .5rem; }
+h3 { font-size: 1.1rem; font-weight: 600; margin-bottom: .25rem; }
+.subtitle { color: var(--text-secondary); margin-bottom: 1.5rem; }
+.cards { display: grid; gap: 1rem; }
+.card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.card.selected { border-color: var(--selected-border); border-width: 2px; }
+.card-body { padding: 1rem; }
+.card-body p { color: var(--text-secondary); font-size: .85rem; }
+</style>
+</head>
+<body>
+<!-- Referência aprovada no brainstorm de design de 2026-10-08. Fonte da verdade: docs/superpowers/specs/2026-10-08-klick-design.md -->
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap');
+.cs { max-width: 1000px; margin: 0 auto; }
+.sec { margin: 1.9rem 0 .7rem; display: flex; align-items: baseline; gap: .6rem; }
+.sec b { font-size: .7rem; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+.sec span { font-size: 1.05rem; font-weight: 600; }
+.note { font-size: .84rem; color: var(--text-secondary); margin-bottom: .8rem; }
+.dk { --bg: #121110; --ink: #F3F1EC; --ink2: #D6D2C9; --muted: #8E8A82; --line: #2A2724; --card: #1A1917; --chip: #23211E; --gold: #F0B84C; }
+.lt { --bg: #F3F0E9; --ink: #17171A; --ink2: #3A3832; --muted: #8A857B; --line: #E2DCD0; --card: #FBFAF7; --chip: #E8E3D9; --gold: #B8860B; }
+.pane { background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 16px; font-family: 'Geist', system-ui, sans-serif; }
+.player { display: grid; grid-template-columns: 300px 1fr; gap: 22px; padding: 20px; align-items: center; }
+@media (max-width: 760px) { .player { grid-template-columns: 1fr; } }
+.player .big { width: 100%; max-width: 300px; margin: 0 auto; }
+.ct { display: block; width: 100%; height: auto; overflow: visible; }
+.ct .rg { transition: fill .2s ease, filter .2s ease; }
+.ct .ey { transition: opacity .18s ease; }
+.ct .lid { transform-box: fill-box; transform-origin: center; transition: transform .35s ease; }
+.btns { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.btns button { font: inherit; font-family: 'Geist', system-ui; font-size: 12.5px; font-weight: 500; padding: 6px 11px; border-radius: 99px; border: 1px solid var(--line); background: var(--chip); color: var(--ink2); cursor: pointer; }
+.btns button.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.desc b { display: block; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+.desc p { font-size: 15px; font-weight: 500; line-height: 1.45; min-height: 44px; }
+.desc .coach { margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: var(--card); border: 1px solid var(--line); font-size: 13.5px; color: var(--ink2); min-height: 40px; }
+.desc .coach i { font-style: normal; color: var(--muted); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; display: block; margin-bottom: 2px; }
+.flow { padding: 16px; overflow-x: auto; }
+.flow svg { width: 100%; min-width: 640px; height: auto; display: block; }
+.rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .7rem; }
+.rules div { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; padding: .75rem .9rem; font-size: .84rem; }
+.rules div b { display: block; font-size: .7rem; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); margin-bottom: .3rem; }
+.rules div p { color: var(--text-secondary); }
+table.tg { width: 100%; border-collapse: collapse; font-size: .84rem; }
+table.tg th { text-align: left; font-size: .7rem; letter-spacing: .1em; text-transform: uppercase; color: var(--text-secondary); padding: .5rem .6rem; border-bottom: 1px solid var(--border); }
+table.tg td { padding: .55rem .6rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+table.tg td:last-child { color: var(--text-secondary); font-style: italic; }
+.evo { display: grid; grid-template-columns: 1fr; gap: 1rem; }
+.opt { background: var(--bg-secondary); border: 2px solid var(--border); border-radius: 14px; overflow: hidden; }
+.opt.selected { border-color: var(--selected-border); }
+.opt .vis { display: flex; gap: 14px; align-items: flex-end; justify-content: center; padding: 18px 16px 14px; flex-wrap: wrap; }
+.opt .vis .it { text-align: center; width: 120px; }
+.opt .vis .it small { display: block; font-size: 11px; color: var(--muted); margin-top: 6px; }
+.opt .vis .it b { display: block; font-size: 12px; color: var(--ink); font-weight: 600; margin-top: 2px; }
+.opt .body { padding: .8rem 1rem 1rem; }
+.opt h3 { display: flex; align-items: center; gap: .5rem; }
+.opt h3 .lt2 { font-size: .75rem; background: var(--bg-tertiary); color: var(--text-secondary); border-radius: 6px; padding: .1rem .45rem; }
+.opt.selected h3 .lt2 { background: var(--accent); color: #fff; }
+.opt p { font-size: .88rem; color: var(--text-secondary); }
+.opt .pick { margin-top: .7rem; font: inherit; font-size: .85rem; font-weight: 600; padding: .45rem .9rem; border-radius: 8px; border: 2px solid var(--border); background: var(--bg-primary); color: var(--text-primary); cursor: pointer; }
+.opt.selected .pick { background: var(--accent); border-color: var(--accent); color: #fff; }
+.legend { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 18px; font-size: 12px; color: var(--ink2); padding: 0 18px 4px; }
+.legend span::before { content: ''; display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; background: var(--chip); }
+.legend span.g::before { background: var(--gold); }
+.legend span.b::before { background: #4C6FE8; }
+.legend h4 { grid-column: 1 / -1; font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 8px 0 2px; font-weight: 600; }
+.rec { margin-top: 1.4rem; border: 2px solid var(--selected-border); background: var(--selected-bg); border-radius: 14px; padding: 1rem 1.2rem; font-size: .9rem; }
+.rec h3 { margin-bottom: .35rem; }
+</style>
+
+<div class="cs">
+  <h2>Seção 2 · Centro — comportamento e evolução</h2>
+  <p class="subtitle">Como ele reage, quando fala e como cresce com você. No fim, uma decisão sua: o jeito de evoluir.</p>
+
+  <div class="sec"><b>2.1</b><span>Anatomia e estados — teste ao vivo</span></div>
+  <p class="note">Rosto = olhos com pálpebra no adesivo central (mesma ideia do prisma: cada expressão é um conjunto de parâmetros e a troca é interpolada). Anel de 8 = o display. Face de cima e face lateral guardam a evolução (2.5).</p>
+  <div class="pane dk player">
+    <div class="big" data-big></div>
+    <div class="desc">
+      <div class="btns" data-btns></div>
+      <b data-sname>Parado</b>
+      <p data-sdesc></p>
+      <div class="coach"><i>Coach</i><span data-scoach></span></div>
+    </div>
+  </div>
+
+  <div class="sec"><b>2.2</b><span>Ciclo de um solve</span></div>
+  <div class="pane dk flow">
+    <svg viewBox="0 0 900 190" font-family="Geist, system-ui" font-size="13">
+      <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#8E8A82"/></marker></defs>
+      <g fill="#1A1917" stroke="#2A2724" stroke-width="1.5">
+        <rect x="10" y="62" width="104" height="46" rx="12"/><rect x="160" y="62" width="104" height="46" rx="12"/><rect x="310" y="62" width="104" height="46" rx="12"/>
+        <rect x="460" y="62" width="104" height="46" rx="12"/><rect x="610" y="62" width="104" height="46" rx="12"/><rect x="760" y="62" width="120" height="46" rx="12"/>
+        <rect x="10" y="140" width="104" height="40" rx="12"/>
+      </g>
+      <g fill="#F3F1EC" text-anchor="middle" font-weight="600">
+        <text x="62" y="90">Parado</text><text x="212" y="90">Inspeção</text><text x="362" y="90" fill="#FF5A5F">Armando</text>
+        <text x="512" y="90" fill="#3DD68C">Pronto</text><text x="662" y="90">Resolvendo</text><text x="820" y="90" fill="#F0B84C">Resultado</text>
+        <text x="62" y="165" fill="#6E8BFF">Dormindo</text>
+      </g>
+      <g stroke="#8E8A82" stroke-width="1.5" fill="none" marker-end="url(#ar)">
+        <path d="M114 85 H158"/><path d="M264 85 H308"/><path d="M414 85 H458"/><path d="M564 85 H608"/><path d="M714 85 H758"/>
+        <path d="M820 62 C820 20 62 20 62 60"/><path d="M362 108 C362 128 200 128 120 100"/><path d="M62 108 V138"/>
+      </g>
+      <g fill="#8E8A82" font-size="11.5" text-anchor="middle">
+        <text x="136" y="78">espaço</text><text x="286" y="78">segurar</text><text x="436" y="78">0,3 s</text><text x="586" y="78">soltar</text><text x="736" y="78">qualquer tecla</text>
+        <text x="440" y="16">0,4–0,6 s depois do tempo: uma reação de no máx. 2,5 s · voltar a segurar cancela</text>
+        <text x="245" y="140">soltou antes da hora</text><text x="150" y="128" text-anchor="start">5 min</text>
+        <text x="212" y="128">sem inspeção: pula direto</text>
+      </g>
+    </svg>
+  </div>
+
+  <div class="sec"><b>2.3</b><span>Regras de comportamento</span></div>
+  <div class="rules">
+    <div><b>Nunca no solve</b><p>A pose de foco se completa enquanto você segura. Quando o solve começa, nada se mexe e o loop de animação para.</p></div>
+    <div><b>Uma reação por solve</b><p>Começa 0,4–0,6 s depois do tempo aparecer, dura no máximo 2,5 s. Segurar de novo cancela na hora.</p></div>
+    <div><b>Fala pouco</b><p>A maioria dos solves só tem reação de olhos e anel. Texto só em marcos (2.4) — no máximo um por solve, some em 6 s.</p></div>
+    <div><b>Sem culpa</b><p>Nada de "você perdeu a sequência" ou companion triste por ausência. Volta depois de dias = "que bom te ver".</p></div>
+    <div><b>Movimento reduzido</b><p>Sem órbita, sem olhar em volta, sem pulo. Só troca de cor e de expressão, instantâneas.</p></div>
+    <div><b>Modo silencioso</b><p>Um ajuste desliga o texto do coach. O anel e os olhos continuam — eles são informação, não enfeite.</p></div>
+  </div>
+
+  <div class="sec"><b>2.4</b><span>Quando o coach fala</span></div>
+  <table class="tg">
+    <tr><th>Gatilho</th><th>Exemplo</th></tr>
+    <tr><td>Novo recorde (single)</td><td>Novo recorde — 0.84 s mais rápido. Vale lembrar o que funcionou.</td></tr>
+    <tr><td>Novo recorde de média de 5 ou 12</td><td>Sua média de 5 caiu para 1:01.20. Isso é consistência, não sorte.</td></tr>
+    <tr><td>Marco da jornada (2.5)</td><td>Primeiro solve abaixo de 1 minuto. Marco 6 de 9.</td></tr>
+    <tr><td>Sequência estável</td><td>Cinco solves dentro de 3 segundos. Ritmo estável.</td></tr>
+    <tr><td>Meta do dia cumprida</td><td>Meta de 20 solves feita. O resto é bônus.</td></tr>
+    <tr><td>Cansaço (últimos 10 subindo)</td><td>Seus últimos 10 estão subindo. Uma pausa de 5 minutos costuma ajudar.</td></tr>
+    <tr><td>Primeiro DNF da sessão</td><td>DNF acontece. Respira e segue.</td></tr>
+    <tr><td>Volta depois de 3+ dias</td><td>Que bom te ver. Começa leve — o primeiro não conta pra nada.</td></tr>
+  </table>
+
+  <div class="sec"><b>2.5</b><span>Evolução — escolha uma</span></div>
+  <p class="note">"Coach + evolução" pede que o Centro mude com o seu progresso. Três jeitos:</p>
+  <div class="evo" data-evo></div>
+
+  <div class="rec">
+    <h3>Minha recomendação: C, com A como prêmio</h3>
+    O corpo do Centro vira o registro da sua jornada: <b>face de cima = 9 marcos</b> (cada um fica dourado quando você conquista), <b>face lateral = a trilha de aprendizado</b> (camadas → CFOP, acende em azul). Ao fechar os 9 marcos, começa uma nova temporada de marcos e você ganha um <b>acabamento</b> novo (A). Progresso permanente, visível e adulto — sem perder nada nunca. O B é lindo e nerd, mas lento demais pra quem está começando.
+  </div>
+</div>
+
+<script>
+(function () {
+  var P = { body: '#0A0A0B', off: '#232326', top: '#2C2A27', side: '#2C2A27', center: '#EDEAE3', eye: '#0A0A0B', idle: '#6F6B64', red: '#FF5A5F', green: '#3DD68C', amber: '#FFB224', orange: '#FF8A3D', blue: '#6E8BFF', gold: '#F0B84C', trail: '#4C6FE8', u: '#EDEAE3', r: '#FF5A5F', f: '#3DD68C', d: '#FFD54A', l: '#FF8A3D', b: '#4C6FE8', glow: 2.2 };
+  var ORDER = [0, 1, 2, 5, 8, 7, 6, 3];
+  var uid = 0;
+
+  // gera um Centro N×N; o anel (N=3) e as faces podem ser preenchidos por chaves de cor
+  function centro(p, o) {
+    o = o || {}; var n = o.n || 3, id = 'c' + (uid++), cs = 100 / n, gap = 3.2 * 3 / n, w = cs - gap * 2, rx = 5 * 3 / n;
+    var col = function (k, def) { return k ? (p[k] || k) : def; };
+    var R = function (i, fill, attrs, glow) {
+      var x = (i % n) * cs + gap, y = Math.floor(i / n) * cs + gap;
+      return '<rect ' + (attrs || '') + ' x="' + x.toFixed(2) + '" y="' + y.toFixed(2) + '" width="' + w.toFixed(2) + '" height="' + w.toFixed(2) + '" rx="' + rx.toFixed(2) + '" fill="' + fill + '"' + (glow && p.glow ? ' style="filter:drop-shadow(0 0 ' + p.glow + 'px ' + fill + ')"' : '') + '/>';
+    };
+    var body = o.body || p.body, i, s = '<svg class="ct" viewBox="-9 -9 148 148"><defs>' +
+      '<linearGradient id="gl' + id + '" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/></linearGradient>' +
+      '<pattern id="cb' + id + '" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#151515"/><rect width="3" height="6" fill="#222"/></pattern></defs>';
+    s += '<polygon points="0,30 30,0 130,0 130,100 100,130 0,130" fill="' + (o.carbon ? 'url(#cb' + id + ')' : body) + '" stroke="' + body + '" stroke-width="14" stroke-linejoin="round" ' + (o.ice ? 'opacity=".55"' : '') + '/>';
+    var face = function (tr, arr, def, cls) {
+      var g = '<g transform="' + tr + '">';
+      for (var j = 0; j < n * n; j++) { var c = arr && arr[j] ? col(arr[j], def) : def; g += R(j, c, cls ? 'class="' + cls + '" data-i="' + j + '"' : '', arr && arr[j] && o.glowFaces); if (o.gloss) g += R(j, 'url(#gl' + id + ')'); }
+      return g + '</g>';
+    };
+    s += face('matrix(1,0,0.3,-0.3,0,30)', o.topArr, col(o.top, p.top));
+    s += face('matrix(0.3,-0.3,0,1,100,30)', o.sideArr, col(o.side, p.side));
+    s += '<g transform="translate(0 30)">';
+    var mid = (n * n - 1) / 2;
+    for (i = 0; i < n * n; i++) {
+      if (i === mid) { s += R(i, p.center); continue; }
+      var k = n === 3 ? ORDER.indexOf(i) : i, c = o.ring && o.ring[k] ? col(o.ring[k]) : (o.front ? col(o.front) : p.off);
+      s += R(i, c, 'class="rg" data-k="' + k + '"', !!(o.ring && o.ring[k]));
+      if (o.gloss) s += R(i, 'url(#gl' + id + ')');
+    }
+    if (o.gloss) s += R(mid, 'url(#gl' + id + ')');
+    var ex = (mid % n) * cs + gap, ey = Math.floor(mid / n) * cs + gap, sc = w / 26.9, e = p.eye;
+    s += '<g transform="translate(' + ex.toFixed(2) + ' ' + ey.toFixed(2) + ') scale(' + sc.toFixed(3) + ')">';
+    s += '<g class="ey" data-e="open"><rect class="lid" x="5.4" y="6.3" width="6.4" height="12" rx="3.2" fill="' + e + '"/><rect class="lid" x="15.8" y="6.3" width="6.4" height="12" rx="3.2" fill="' + e + '"/></g>';
+    s += '<g class="ey" data-e="focus" opacity="0"><path d="M5.2 13.3 h6.8 M15.6 13.3 h6.8" stroke="' + e + '" stroke-width="2.6" stroke-linecap="round" fill="none"/></g>';
+    s += '<g class="ey" data-e="sleep" opacity="0"><path d="M5.2 12.8 q3.4 3.4 6.8 0 M15.6 12.8 q3.4 3.4 6.8 0" stroke="' + e + '" stroke-width="2.6" stroke-linecap="round" fill="none"/></g>';
+    s += '<g class="ey" data-e="happy" opacity="0"><path d="M5.2 14.8 q3.4 -5.6 6.8 0 M15.6 14.8 q3.4 -5.6 6.8 0" stroke="' + e + '" stroke-width="2.6" stroke-linecap="round" fill="none"/></g>';
+    s += '</g></g></svg>';
+    return s;
+  }
+
+  // ---------- 2.1 player ----------
+  var N = null;
+  var ST = [
+    ['Parado', 'Um adesivo dá a volta devagar, os olhos olham em volta e piscam. Está ali, sem pedir nada.', [N, N, 'idle', N, N, N, N, N], 'open', ''],
+    ['Inspeção', 'O anel esvazia ao longo dos 15 s (cada adesivo ≈ 1,9 s). Olhos atentos.', ['u', 'u', 'u', 'u', 'u', 'u', N, N], 'open', ''],
+    ['Inspeção 8 s', 'Passou da metade: o que resta fica âmbar, com um tique suave.', ['amber', 'amber', 'amber', 'amber', N, N, N, N], 'open', ''],
+    ['Inspeção 12 s', 'Hora de ir: laranja, segundo tique. Passou de 15 s vira +2; de 17 s, DNF.', ['orange', 'orange', N, N, N, N, N, N], 'open', ''],
+    ['Armando', 'Você segura: o anel enche de vermelho no sentido horário e os olhos se estreitam — a pose de foco se completa aqui.', ['red', 'red', 'red', 'red', 'red', N, N, N], 'half', ''],
+    ['Pronto', 'Tudo verde: pode soltar. "Klick".', ['green', 'green', 'green', 'green', 'green', 'green', 'green', 'green'], 'focus', ''],
+    ['Resolvendo', 'Apagado, imóvel, olhos fechados. Nenhum quadro de animação roda.', [N, N, N, N, N, N, N, N], 'focus', ''],
+    ['Abaixo da média', 'Reação curta: verde parcial e olhos abertos. Sem texto.', ['green', 'green', 'green', 'green', 'green', 'green', N, N], 'open', ''],
+    ['Acima da média', 'Âmbar parcial. Neutro, sem drama.', ['amber', 'amber', 'amber', N, N, N, N, N], 'open', ''],
+    ['+2', 'Dois adesivos âmbar no topo do anel.', ['amber', 'amber', N, N, N, N, N, N], 'half', ''],
+    ['DNF', 'X vermelho nos cantos. Olhos meio fechados.', ['red', N, 'red', N, 'red', N, 'red', N], 'half', 'DNF acontece. Respira e segue.'],
+    ['Recorde', 'A face se resolve nas seis cores do cubo, olhos felizes, um pequeno salto. Acorde curto.', ['u', 'r', 'f', 'd', 'l', 'b', 'r', 'f'], 'happy', 'Novo recorde — 0.84 s mais rápido. Vale lembrar o que funcionou.'],
+    ['Dormindo', 'Depois de 5 min parado: olhos fechados, anel azul respirando bem devagar. Qualquer tecla acorda.', ['blue', N, 'blue', N, 'blue', N, 'blue', N], 'sleep', '']
+  ];
+  var big = document.querySelector('[data-big]');
+  big.innerHTML = centro(P, { topArr: ['gold', 'gold', 'gold', 'gold', 'gold', N, N, N, N], sideArr: ['trail', 'trail', 'trail', 'trail', N, N, N, N, N] });
+  function show(idx) {
+    var st = ST[idx], svg = big.querySelector('svg');
+    svg.querySelectorAll('.rg').forEach(function (r) { var k = +r.dataset.k, c = st[2][k]; var v = c ? P[c] : P.off; r.setAttribute('fill', v); r.style.filter = c ? 'drop-shadow(0 0 ' + P.glow + 'px ' + v + ')' : 'none'; });
+    var mode = st[3] === 'half' ? 'open' : st[3];
+    svg.querySelectorAll('.ey').forEach(function (g) { g.setAttribute('opacity', g.dataset.e === mode ? 1 : 0); });
+    svg.querySelectorAll('.lid').forEach(function (l) { l.style.transform = st[3] === 'half' ? 'scaleY(.5)' : 'scaleY(1)'; });
+    document.querySelector('[data-sname]').textContent = st[0];
+    document.querySelector('[data-sdesc]').textContent = st[1];
+    document.querySelector('[data-scoach]').textContent = st[4] || '— (sem texto: só olhos e anel)';
+    document.querySelectorAll('[data-btns] button').forEach(function (b, j) { b.classList.toggle('on', j === idx); });
+  }
+  document.querySelector('[data-btns]').innerHTML = ST.map(function (s, j) { return '<button type="button" data-j="' + j + '">' + s[0] + '</button>'; }).join('');
+  document.querySelectorAll('[data-btns] button').forEach(function (b) { b.addEventListener('click', function () { show(+b.dataset.j); }); });
+  show(0);
+
+  // ---------- 2.5 evolução ----------
+  var LP = { body: '#1B1B1E', off: '#2E2E33', top: '#E4DED2', side: '#3E63DD', center: '#F4F1EA', eye: '#1B1B1E', gold: '#D9A21B', trail: '#3E63DD', idle: '#8A857B', u: '#F4F1EA', r: '#E5484D', f: '#30A46C', d: '#F5C842', l: '#F07A2B', b: '#3E63DD', glow: 0 };
+  var M = { body: '#1B1B1E', off: '#2E2E33', top: '#3A3A40', side: '#3A3A40', center: '#F4F1EA', eye: '#1B1B1E', gold: '#D9A21B', trail: '#3E63DD', glow: 0, u: '#F4F1EA', r: '#E5484D', f: '#30A46C', d: '#F5C842', l: '#F07A2B', b: '#3E63DD' };
+  var solved = function (c) { return [c, c, c, c, c, c, c, c, c]; };
+  var opts = [
+    { k: 'A', choice: 'evo-acabamentos', name: 'Acabamentos', text: 'Marcos reais (sub-1:00, 1.000 solves, 30 dias) desbloqueiam acabamentos: fosco, brilho, gelo, carbono. Você escolhe qual usar. Cosmético, simples, nunca tira nada.',
+      vis: [['Fosco', 'padrão', centro(LP, {})], ['Brilho', 'sub-1:30', centro(LP, { gloss: true })], ['Gelo', '1.000 solves', centro(Object.assign({}, LP, { body: '#9FC3D6', off: '#D8E8F0', top: '#EAF3F7', side: '#9CC8E0' }), { ice: true })], ['Carbono', 'sub-1:00', centro(Object.assign({}, LP, { off: '#2A2A2A' }), { carbon: true })]] },
+    { k: 'B', choice: 'evo-cresce', name: 'O cubo cresce', text: 'O Centro começa 3×3 e vira 5×5, depois 7×7 — cubos ímpares sempre têm centro. Mais adesivos = display com mais resolução, rosto mais expressivo. Muito nerd e bonito, mas cada estágio leva meses.',
+      vis: [['3×3', 'início', centro(LP, { n: 3 })], ['5×5', 'domínio do 3×3', centro(LP, { n: 5 })], ['7×7', 'veterano', centro(LP, { n: 7 })]] },
+    { k: 'C', choice: 'evo-jornada', name: 'O corpo guarda a jornada', text: 'Face de cima = 9 marcos (dourado quando conquistado). Face lateral = a trilha de aprendizado (azul por etapa). A frente continua sendo rosto e display. Fechou os 9 marcos: nova temporada + um acabamento de A.',
+      vis: [['Semana 1', '1 marco · 1 etapa', centro(M, { topArr: ['gold'], sideArr: ['trail'] })], ['Mês 2', '5 marcos · 4 etapas', centro(M, { topArr: ['gold', 'gold', 'gold', 'gold', 'gold'], sideArr: ['trail', 'trail', 'trail', 'trail'] })], ['Temporada 1', '9 marcos · 9 etapas', centro(M, { topArr: solved('gold'), sideArr: solved('trail') })]],
+      legend: true }
+  ];
+  document.querySelector('[data-evo]').innerHTML = opts.map(function (o) {
+    return '<div class="opt lt" data-opt>' +
+      '<div class="vis" style="background:var(--bg)">' + o.vis.map(function (v) { return '<div class="it">' + v[2] + '<b>' + v[0] + '</b><small>' + v[1] + '</small></div>'; }).join('') + '</div>' +
+      (o.legend ? '<div class="legend" style="background:var(--bg);padding-bottom:14px"><h4>Face de cima · temporada 1 (proposta)</h4><span class="g">1 · primeiro solve</span><span class="g">2 · sub-2:00</span><span class="g">3 · 100 solves</span><span class="g">4 · sub-1:30</span><span class="g">5 · média de 5 sub-1:30</span><span>6 · sub-1:00</span><span>7 · 7 dias seguidos</span><span>8 · média de 12 sub-1:00</span><span>9 · 1.000 solves</span><h4>Face lateral · trilha</h4><span class="b">cruz branca</span><span class="b">cantos brancos</span><span class="b">2ª camada</span><span class="b">cruz amarela</span><span>orientar e permutar</span><span>F2L intuitivo</span><span>OLL em 2 passos</span><span>PLL em 2 passos</span><span>F2L com algoritmos</span></div>' : '') +
+      '<div class="body"><h3><span class="lt2">' + o.k + '</span>' + o.name + '</h3><p>' + o.text + '</p><button class="pick" data-choice="' + o.choice + '" onclick="pickOpt(this)">Escolher ' + o.k + ' · ' + o.name + '</button></div></div>';
+  }).join('');
+  window.pickOpt = function (btn) { document.querySelectorAll('[data-opt]').forEach(function (c) { c.classList.remove('selected'); }); btn.closest('[data-opt]').classList.add('selected'); };
+})();
+</script>
+
+</body>
+</html>

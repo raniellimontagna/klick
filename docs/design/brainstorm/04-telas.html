@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Klick — Seção 3 · Telas</title>
+<style>
+:root { --bg-primary: #f5f5f7; --bg-secondary: #fff; --bg-tertiary: #e5e5e7; --border: #d1d1d6; --text-primary: #1d1d1f; --text-secondary: #86868b; --text-tertiary: #aeaeb2; --accent: #0071e3; --success: #34c759; --error: #ff3b30; --selected-bg: #e8f4fd; --selected-border: #0071e3; }
+@media (prefers-color-scheme: dark) { :root { --bg-primary: #1d1d1f; --bg-secondary: #2d2d2f; --bg-tertiary: #3d3d3f; --border: #424245; --text-primary: #f5f5f7; --text-tertiary: #636366; --accent: #0a84ff; --selected-bg: rgba(10,132,255,.15); --selected-border: #0a84ff; } }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg-primary); color: var(--text-primary); line-height: 1.5; padding: 2rem; }
+h2 { font-size: 1.5rem; font-weight: 600; margin-bottom: .5rem; }
+h3 { font-size: 1.1rem; font-weight: 600; margin-bottom: .25rem; }
+.subtitle { color: var(--text-secondary); margin-bottom: 1.5rem; }
+.cards { display: grid; gap: 1rem; }
+.card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.card.selected { border-color: var(--selected-border); border-width: 2px; }
+.card-body { padding: 1rem; }
+.card-body p { color: var(--text-secondary); font-size: .85rem; }
+</style>
+</head>
+<body>
+<!-- Referência aprovada no brainstorm de design de 2026-10-08. Fonte da verdade: docs/superpowers/specs/2026-10-08-klick-design.md -->
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap');
+.tl { max-width: 1000px; margin: 0 auto; }
+.sec { margin: 2rem 0 .7rem; display: flex; align-items: baseline; gap: .6rem; }
+.sec b { font-size: .7rem; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+.sec span { font-size: 1.05rem; font-weight: 600; }
+.note { font-size: .84rem; color: var(--text-secondary); margin-bottom: .8rem; }
+.K { --bg: #F3F0E9; --ink: #17171A; --ink2: #3A3832; --muted: #8A857B; --dec: #A9A397; --line: #E2DCD0; --card: #FBFAF7; --chip: #E8E3D9;
+  --red: #D93D42; --green: #23915A; --gold: #B8860B; --gold-bg: #F4E7C3; --gold-ink: #7A5A06; --blue: #3E63DD;
+  --h0: #E9E4DA; --h1: #CFE7D7; --h2: #94CDA9; --h3: #2F9E5F;
+  background: var(--bg); color: var(--ink); font-family: 'Geist', system-ui, sans-serif; }
+.ct { display: block; width: 100%; height: auto; overflow: visible; }
+.map { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 16px; border-radius: 16px; border: 1px solid var(--line); }
+.map .a { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.map .a b { display: block; font-size: 14px; font-weight: 600; }
+.map .a small { display: block; font-size: 11.5px; color: var(--muted); line-height: 1.35; margin-top: 3px; }
+.map .ov { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 11.5px; color: var(--muted); padding-top: 4px; }
+.map .ov span { background: var(--chip); color: var(--ink2); border-radius: 99px; padding: 3px 10px; font-weight: 500; }
+@media (max-width: 760px) { .map { grid-template-columns: 1fr 1fr; } }
+
+/* frames */
+.dsk { position: relative; aspect-ratio: 16/10; overflow: hidden; container-type: inline-size; border-radius: 14px; border: 1px solid var(--line); }
+.dsk * { box-sizing: border-box; }
+.tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.tabs button { font: inherit; font-size: 12.5px; font-weight: 500; padding: 6px 12px; border-radius: 99px; border: 1px solid var(--border); background: var(--bg-secondary); color: var(--text-primary); cursor: pointer; }
+.tabs button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.top { position: absolute; top: 2.4cqw; left: 3.2cqw; right: 3.2cqw; display: flex; align-items: center; gap: 3cqw; }
+.wm { display: flex; align-items: center; gap: .7cqw; font-weight: 700; font-size: 1.9cqw; letter-spacing: -.035em; }
+.gl { width: 1.8cqw; height: 1.8cqw; display: grid; grid-template-columns: repeat(3, 1fr); gap: .15cqw; }
+.gl i { background: var(--ink); border-radius: .18cqw; } .gl i:nth-child(5) { background: var(--red); }
+.nav { display: flex; gap: 2.1cqw; font-size: 1.2cqw; font-weight: 500; color: var(--muted); }
+.nav .on { color: var(--ink); position: relative; }
+.nav .on::after { content: ''; position: absolute; left: 50%; bottom: -.8cqw; width: .42cqw; height: .42cqw; border-radius: 50%; background: var(--ink); transform: translateX(-50%); }
+.meta { margin-left: auto; display: flex; gap: 1cqw; align-items: center; font-size: 1.05cqw; color: var(--muted); }
+.pill { border: .11cqw solid var(--line); border-radius: 99px; padding: .3cqw 1cqw; color: var(--ink); font-weight: 500; }
+.lab { font-size: .85cqw; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.box { background: var(--card); border: .11cqw solid var(--line); border-radius: 1.5cqw; padding: 1.3cqw 1.4cqw; }
+.chip { display: inline-flex; align-items: center; gap: .4cqw; font-size: 1.05cqw; font-weight: 500; padding: .4cqw 1cqw; border-radius: 99px; background: var(--chip); color: var(--ink2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.gbtn { display: inline-flex; align-items: center; gap: .6cqw; font-size: 1.1cqw; font-weight: 500; padding: .55cqw 1.2cqw; border-radius: 1cqw; border: .11cqw solid var(--line); background: var(--card); color: var(--ink2); }
+.gbtn kbd { font-family: 'Geist Mono', monospace; font-size: .85cqw; color: var(--muted); border: .1cqw solid var(--line); border-bottom-width: .2cqw; border-radius: .4cqw; padding: 0 .4cqw; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* timer desktop */
+.tm .scr { position: absolute; left: 3.2cqw; top: 8.6cqw; width: 56cqw; }
+.tm .scr p { font-family: 'Geist Mono', monospace; font-size: 1.45cqw; margin-top: .4cqw; color: var(--ink2); }
+.tm .time { position: absolute; left: 2.8cqw; top: 13.6cqw; font-weight: 600; font-size: 15cqw; letter-spacing: -.05em; line-height: 1; font-variant-numeric: tabular-nums; transition: color .2s; }
+.tm .time span { color: var(--dec); font-size: .6em; letter-spacing: -.02em; }
+.tm .deltas { position: absolute; left: 3.2cqw; top: 31cqw; display: flex; gap: .7cqw; transition: opacity .2s; }
+.tm .acts { position: absolute; left: 3.2cqw; top: 35.2cqw; display: flex; gap: .7cqw; opacity: 0; transition: opacity .2s; }
+.tm .side { position: absolute; right: 3.2cqw; top: 8.6cqw; width: 31cqw; display: flex; flex-direction: column; gap: 1cqw; }
+.tm .coach { display: grid; grid-template-columns: 9.5cqw 1fr; gap: 1.3cqw; align-items: center; }
+.tm .coach p { font-size: 1.3cqw; font-weight: 500; line-height: 1.4; margin-top: .3cqw; }
+.tm .heat { display: grid; grid-template-columns: repeat(16, 1fr); gap: .3cqw; margin-top: .7cqw; }
+.tm .heat i { aspect-ratio: 1; border-radius: .28cqw; background: var(--h0); }
+.tm .heat i.l1 { background: var(--h1); } .tm .heat i.l2 { background: var(--h2); } .tm .heat i.l3 { background: var(--h3); } .tm .heat i.pb { background: var(--gold); }
+.tm .tiles { position: absolute; left: 3.2cqw; width: 57cqw; bottom: 3.2cqw; display: grid; grid-template-columns: repeat(4, 1fr); gap: .9cqw; }
+.tm .tile { background: var(--card); border: .11cqw solid var(--line); border-radius: 1.3cqw; padding: .9cqw 1.1cqw; }
+.tm .tile small { display: block; font-size: .9cqw; color: var(--muted); font-weight: 500; }
+.tm .tile b { font-weight: 600; font-size: 2cqw; letter-spacing: -.025em; font-variant-numeric: tabular-nums; }
+.tm .fade { transition: opacity .25s; }
+.tm.foco .fade { opacity: .08; }
+.tm.foco .time { color: var(--ink); }
+.tm.res .acts { opacity: 1; }
+.tm .hint { position: absolute; left: 3.2cqw; bottom: 1.1cqw; font-size: .95cqw; color: var(--muted); }
+
+/* evolução */
+.ev .hd { position: absolute; left: 3.2cqw; right: 3.2cqw; top: 8cqw; display: flex; align-items: center; gap: 1.5cqw; }
+.ev .hd h4 { font-size: 2.6cqw; font-weight: 600; letter-spacing: -.03em; margin-right: auto; }
+.seg { display: flex; background: var(--chip); border-radius: 99px; padding: .3cqw; }
+.seg span { font-size: 1.05cqw; font-weight: 500; padding: .35cqw 1.1cqw; border-radius: 99px; color: var(--muted); }
+.seg span.on { background: var(--card); color: var(--ink); box-shadow: 0 .1cqw .3cqw rgba(0,0,0,.08); }
+.ev .kpi { position: absolute; left: 3.2cqw; right: 3.2cqw; top: 13.4cqw; display: grid; grid-template-columns: repeat(5, 1fr); gap: .9cqw; }
+.ev .kpi div { background: var(--card); border: .11cqw solid var(--line); border-radius: 1.3cqw; padding: .9cqw 1.1cqw; }
+.ev .kpi small { display: block; font-size: .9cqw; color: var(--muted); font-weight: 500; }
+.ev .kpi b { font-weight: 600; font-size: 2.1cqw; letter-spacing: -.025em; font-variant-numeric: tabular-nums; }
+.ev .kpi b.pb { color: var(--gold); }
+.ev .kpi em { font-style: normal; font-size: .9cqw; color: var(--muted); display: block; }
+.ev .chart { position: absolute; left: 3.2cqw; top: 21.6cqw; width: 60cqw; height: 17cqw; }
+.ev .chart svg { width: 100%; height: 12.4cqw; display: block; margin-top: .6cqw; }
+.ev .dist { position: absolute; right: 3.2cqw; top: 21.6cqw; width: 30.4cqw; height: 17cqw; }
+.ev .bars { display: flex; align-items: flex-end; gap: .5cqw; height: 11.6cqw; margin-top: .8cqw; }
+.ev .bars i { flex: 1; background: var(--chip); border-radius: .4cqw .4cqw 0 0; }
+.ev .bars i.hl { background: var(--ink); }
+.ev .bx { display: flex; justify-content: space-between; font-size: .85cqw; color: var(--muted); margin-top: .3cqw; }
+.ev .hist { position: absolute; left: 3.2cqw; right: 3.2cqw; top: 39.8cqw; bottom: 2.4cqw; overflow: hidden; }
+.ev table { width: 100%; border-collapse: collapse; font-size: 1.05cqw; }
+.ev th { text-align: left; font-size: .85cqw; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); padding: .4cqw .6cqw; border-bottom: .11cqw solid var(--line); }
+.ev td { padding: .45cqw .6cqw; border-bottom: .11cqw solid var(--line); font-variant-numeric: tabular-nums; color: var(--ink2); }
+.ev td.m { font-family: 'Geist Mono', monospace; font-size: .95cqw; color: var(--muted); }
+.tag { font-size: .8cqw; font-weight: 600; padding: .1cqw .55cqw; border-radius: 99px; background: var(--chip); color: var(--ink2); margin-left: .5cqw; }
+.tag.pb { background: var(--gold-bg); color: var(--gold-ink); }
+
+/* companion */
+.cp .stage { position: absolute; left: 3.2cqw; top: 8.4cqw; width: 36cqw; bottom: 3.2cqw; border-radius: 2cqw; background: radial-gradient(60% 50% at 50% 40%, #FFFFFF 0%, #EFEBE2 100%); border: .11cqw solid var(--line); }
+.cp .stage .big { position: absolute; left: 50%; top: 5cqw; width: 21cqw; transform: translateX(-50%); }
+.cp .stage .who { position: absolute; left: 0; right: 0; top: 29cqw; text-align: center; }
+.cp .stage .who b { display: block; font-size: 2.4cqw; font-weight: 600; letter-spacing: -.03em; }
+.cp .stage .who small { display: block; font-size: 1.1cqw; color: var(--muted); margin-top: .3cqw; }
+.cp .stage .fin { position: absolute; left: 2cqw; right: 2cqw; bottom: 2cqw; display: grid; grid-template-columns: repeat(4, 1fr); gap: .8cqw; }
+.cp .stage .fin div { text-align: center; font-size: .9cqw; color: var(--muted); }
+.cp .stage .fin div i { display: block; aspect-ratio: 1; border-radius: 1cqw; margin-bottom: .4cqw; border: .11cqw solid var(--line); }
+.cp .stage .fin div.on { color: var(--ink); font-weight: 600; }
+.cp .stage .fin div.on i { box-shadow: 0 0 0 .2cqw var(--card), 0 0 0 .4cqw var(--ink); }
+.cp .stage .fin div.lock i { opacity: .35; }
+.cp .col { position: absolute; right: 3.2cqw; top: 8.4cqw; width: 52cqw; display: grid; grid-template-columns: 1fr 1fr; gap: 1cqw; }
+.cp .list { margin-top: .7cqw; display: flex; flex-direction: column; gap: .45cqw; }
+.cp .list div { display: flex; align-items: center; gap: .8cqw; font-size: 1.08cqw; color: var(--ink2); }
+.cp .list div i { width: 1.4cqw; height: 1.4cqw; border-radius: .3cqw; background: var(--chip); flex-shrink: 0; }
+.cp .list div.g i { background: var(--gold); } .cp .list div.b i { background: var(--blue); }
+.cp .list div.nx { color: var(--ink); font-weight: 600; }
+.cp .list div.nx i { background: none; box-shadow: inset 0 0 0 .2cqw var(--ink); }
+.cp .list div em { margin-left: auto; font-style: normal; font-size: .9cqw; color: var(--muted); font-variant-numeric: tabular-nums; }
+.cp .wide { grid-column: 1 / -1; display: flex; align-items: center; gap: 1.2cqw; }
+.cp .tog { width: 3.4cqw; height: 1.9cqw; border-radius: 99px; background: var(--chip); position: relative; margin-left: auto; }
+.cp .tog::after { content: ''; position: absolute; left: .25cqw; top: .25cqw; width: 1.4cqw; height: 1.4cqw; border-radius: 50%; background: var(--card); box-shadow: 0 .1cqw .3cqw rgba(0,0,0,.2); }
+
+/* celular */
+.phones { display: flex; gap: 18px; justify-content: center; flex-wrap: wrap; padding: 18px; border-radius: 16px; border: 1px solid var(--line); }
+.phw { text-align: center; }
+.phw > small { display: block; font-size: 12px; color: var(--muted); margin-top: 8px; font-weight: 500; }
+.phn { position: relative; width: 210px; aspect-ratio: 9/19.5; border-radius: 30px; border: 6px solid #1B1B1E; overflow: hidden; container-type: inline-size; background: var(--bg); }
+.phn * { box-sizing: border-box; }
+.phn .sb { position: absolute; top: 2.5cqw; left: 7cqw; right: 7cqw; display: flex; justify-content: space-between; font-size: 4cqw; font-weight: 600; }
+.phn .isl { position: absolute; top: 2.2cqw; left: 50%; width: 26cqw; height: 6.5cqw; border-radius: 99px; background: #1B1B1E; transform: translateX(-50%); }
+.phn .ph { position: absolute; top: 12cqw; left: 6cqw; right: 6cqw; display: flex; justify-content: space-between; align-items: center; }
+.phn .ph b { font-size: 5.2cqw; font-weight: 700; letter-spacing: -.03em; }
+.phn .ph span { font-size: 3.6cqw; border: .3cqw solid var(--line); border-radius: 99px; padding: .6cqw 2.4cqw; font-weight: 500; }
+.phn .pscr { position: absolute; top: 22cqw; left: 6cqw; right: 6cqw; text-align: center; font-family: 'Geist Mono', monospace; font-size: 4.1cqw; line-height: 1.45; color: var(--ink2); }
+.phn .pcen { position: absolute; top: 45cqw; left: 50%; width: 30cqw; transform: translateX(-50%); }
+.phn .ptime { position: absolute; top: 84cqw; left: 0; right: 0; text-align: center; font-weight: 600; font-size: 21cqw; letter-spacing: -.05em; font-variant-numeric: tabular-nums; }
+.phn .ptime span { color: var(--dec); font-size: .6em; }
+.phn .phint { position: absolute; top: 112cqw; left: 0; right: 0; text-align: center; font-size: 3.6cqw; color: var(--muted); }
+.phn .thumbs { position: absolute; left: 4cqw; right: 4cqw; bottom: 22cqw; height: 50cqw; display: grid; grid-template-columns: 1fr 1fr; gap: 3cqw; }
+.phn .thumbs i { border: .5cqw dashed var(--line); border-radius: 6cqw; display: flex; align-items: center; justify-content: center; font-style: normal; font-size: 3.4cqw; color: var(--muted); }
+.phn .thumbs.on i { border-style: solid; border-color: var(--red); background: rgba(217,61,66,.08); color: var(--red); font-weight: 600; }
+.phn .pchips { position: absolute; top: 112cqw; left: 0; right: 0; display: flex; justify-content: center; gap: 1.6cqw; }
+.phn .pchips span { font-size: 3.3cqw; font-weight: 500; padding: 1cqw 2.6cqw; border-radius: 99px; background: var(--chip); color: var(--ink2); white-space: nowrap; }
+.phn .pacts { position: absolute; top: 123cqw; left: 0; right: 0; display: flex; justify-content: center; gap: 2cqw; }
+.phn .pacts span { font-size: 3.5cqw; font-weight: 500; padding: 1.4cqw 3.4cqw; border-radius: 3cqw; border: .3cqw solid var(--line); background: var(--card); color: var(--ink2); }
+.phn .pcoach { position: absolute; top: 137cqw; left: 7cqw; right: 7cqw; text-align: center; font-size: 3.7cqw; line-height: 1.4; color: var(--ink2); font-weight: 500; }
+.phn .tb { position: absolute; left: 0; right: 0; bottom: 0; height: 17cqw; border-top: .3cqw solid var(--line); background: var(--card); display: grid; grid-template-columns: repeat(4, 1fr); align-items: center; text-align: center; font-size: 3.1cqw; color: var(--muted); font-weight: 500; padding-bottom: 3cqw; }
+.phn .tb span.on { color: var(--ink); font-weight: 600; }
+.phn .tb span i { display: block; width: 4.6cqw; height: 4.6cqw; margin: 0 auto 1cqw; border-radius: 1.2cqw; border: .45cqw solid currentColor; }
+.phn.arm .ptime { color: var(--red); }
+
+/* onboarding + ajustes */
+.two { display: grid; grid-template-columns: 1.15fr .85fr; gap: 14px; }
+@media (max-width: 760px) { .two { grid-template-columns: 1fr; } }
+.ob { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 14px; border-radius: 16px; border: 1px solid var(--line); }
+.ob div { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; text-align: center; }
+.ob div .ct { width: 62%; margin: 2px auto 8px; }
+.ob div b { display: block; font-size: 12.5px; font-weight: 600; }
+.ob div small { display: block; font-size: 11.5px; color: var(--muted); line-height: 1.35; margin-top: 3px; }
+.ob div em { font-style: normal; display: inline-block; font-size: 10px; font-weight: 600; letter-spacing: .12em; color: var(--muted); margin-bottom: 4px; }
+.aj { padding: 14px; border-radius: 16px; border: 1px solid var(--line); font-size: 12.5px; }
+.aj h5 { font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin: 8px 0 4px; font-weight: 600; }
+.aj h5:first-child { margin-top: 0; }
+.aj div { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--line); color: var(--ink2); }
+.aj div span:last-child { color: var(--muted); text-align: right; }
+.rec { margin-top: 1.6rem; border: 2px solid var(--selected-border); background: var(--selected-bg); border-radius: 14px; padding: 1rem 1.2rem; font-size: .9rem; }
+.rec ul { margin: .4rem 0 0 1.1rem; }
+</style>
+
+<div class="tl">
+  <h2>Seção 3 · Telas e navegação</h2>
+  <p class="subtitle">O mapa do app e as telas-chave em média fidelidade (tema claro; o noite é o mesmo sistema). É o que o protótipo vai construir.</p>
+
+  <div class="sec"><b>3.1</b><span>Mapa</span></div>
+  <div class="map K">
+    <div class="a"><b>Timer</b><small>Home. Embaralhamento, tempo, coach, constância, médias. Foco total durante o solve.</small></div>
+    <div class="a"><b>Evolução</b><small>Recorde, médias (5/12/50/100), desvio, gráfico com recordes, distribuição e histórico.</small></div>
+    <div class="a"><b>Companion</b><small>O Centro grande, os 9 marcos (face de cima), a trilha (face lateral), acabamentos e o modo silencioso.</small></div>
+    <div class="a"><b>Ajustes</b><small>Inspeção, tempo pra armar, armar no celular, tema, som, coach, dados, idioma, acessibilidade.</small></div>
+    <div class="ov">Sobrepostos: <span>Sessões (troca e cria)</span><span>Detalhe do solve</span><span>Primeira vez (onboarding)</span><span>Atalhos (?)</span></div>
+  </div>
+
+  <div class="sec"><b>3.2</b><span>Timer — desktop</span></div>
+  <p class="note">Três momentos da mesma tela. No solve, tudo menos o tempo apaga. No resultado, aparecem as ações com atalho de teclado.</p>
+  <div class="tabs" data-tmtabs><button class="on" data-m="">Parado</button><button data-m="foco">Resolvendo · foco</button><button data-m="res">Resultado + ações</button></div>
+  <div class="dsk K tm" data-tm>
+    <div class="top fade"><div class="wm"><span class="gl"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>klick</div><div class="nav"><span class="on">Timer</span><span>Evolução</span><span>Companion</span><span>Ajustes</span></div><div class="meta"><span class="pill">3×3 · sessão 12 ▾</span><span>qui, 8 out</span></div></div>
+    <div class="scr fade"><div class="lab">Embaralhamento</div><p>R U R' U' F2 D L2 B' R2 U2 F' L D2</p></div>
+    <div class="time" data-tmtime>0:58<span>.42</span></div>
+    <div class="deltas fade"><span class="chip">▼ 3.89 s vs média de 5</span><span class="chip">▲ 4.32 s do recorde</span><span class="chip">solve #212</span></div>
+    <div class="acts"><span class="gbtn">+2 <kbd>P</kbd></span><span class="gbtn">DNF <kbd>D</kbd></span><span class="gbtn">Nota <kbd>M</kbd></span><span class="gbtn">Excluir <kbd>⌫</kbd></span></div>
+    <div class="side">
+      <div class="box coach"><div data-centro='{"eyes":"open"}' data-tmcentro></div><div><div class="lab fade">Coach</div><p class="fade" data-tmcoach>Quando quiser. Segure espaço para armar.</p></div></div>
+      <div class="box fade"><div class="lab">Constância · outubro</div><div class="heat"><i class="l2"></i><i class="l1"></i><i></i><i class="l3"></i><i class="pb"></i><i class="l2"></i><i class="l3"></i><i class="l3"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    </div>
+    <div class="tiles fade"><div class="tile"><small>Média de 5</small><b>1:02.31</b></div><div class="tile"><small>Média de 12</small><b>1:05.77</b></div><div class="tile"><small>Recorde</small><b>0:54.10</b></div><div class="tile"><small>Hoje</small><b>12</b></div></div>
+    <div class="hint fade">espaço armar · N novo embaralhamento · ? atalhos</div>
+  </div>
+
+  <div class="sec"><b>3.3</b><span>Timer — celular na mesa</span></div>
+  <p class="note">Arma com os dois polegares (como o timer oficial de 2027, que exige as duas mãos) — evita disparo sem querer. Dá pra trocar para "um toque" nos ajustes.</p>
+  <div class="phones K">
+    <div class="phw"><div class="phn"><div class="isl"></div><div class="sb"><span>9:41</span><span>●●●</span></div><div class="ph"><b>klick</b><span>3×3 · s12</span></div><div class="pscr">R U R' U' F2 D L2<br>B' R2 U2 F' L D2</div><div class="pcen" data-centro='{"eyes":"open","ring":[null,null,"idle"]}'></div><div class="ptime">0:58<span>.42</span></div><div class="thumbs"><i>polegar</i><i>polegar</i></div><div class="tb"><span class="on"><i></i>Timer</span><span><i></i>Evolução</span><span><i></i>Centro</span><span><i></i>Ajustes</span></div></div><small>Parado</small></div>
+    <div class="phw"><div class="phn arm"><div class="isl"></div><div class="sb"><span>9:41</span><span>●●●</span></div><div class="ph"><b>klick</b><span>3×3 · s12</span></div><div class="pscr">R U R' U' F2 D L2<br>B' R2 U2 F' L D2</div><div class="pcen" data-centro='{"eyes":"half","ring":["red","red","red","red","red"]}'></div><div class="ptime">0:00<span>.00</span></div><div class="thumbs on"><i>segurando</i><i>segurando</i></div><div class="tb"><span class="on"><i></i>Timer</span><span><i></i>Evolução</span><span><i></i>Centro</span><span><i></i>Ajustes</span></div></div><small>Armando com os dois polegares</small></div>
+    <div class="phw"><div class="phn"><div class="isl"></div><div class="sb"><span>9:41</span><span>●●●</span></div><div class="ph"><b>klick</b><span>3×3 · s12</span></div><div class="pscr">R U R' U' F2 D L2<br>B' R2 U2 F' L D2</div><div class="pcen" data-centro='{"eyes":"open","ring":["green","green","green","green","green","green"]}'></div><div class="ptime">0:58<span>.42</span></div><div class="pchips"><span>▼ 3.89 s vs média</span><span>#212</span></div><div class="pacts"><span>+2</span><span>DNF</span><span>Nota</span><span>Excluir</span></div><div class="pcoach">3.89 s abaixo da sua média de 5. Ritmo bom.</div><div class="tb"><span class="on"><i></i>Timer</span><span><i></i>Evolução</span><span><i></i>Centro</span><span><i></i>Ajustes</span></div></div><small>Resultado</small></div>
+  </div>
+
+  <div class="sec"><b>3.4</b><span>Evolução — desktop</span></div>
+  <p class="note">Rigor de app de esporte no estilo Clube. Recordes marcados em dourado no gráfico. Treino de algoritmos (camada 2) nunca contamina esses números.</p>
+  <div class="dsk K ev">
+    <div class="top"><div class="wm"><span class="gl"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>klick</div><div class="nav"><span>Timer</span><span class="on">Evolução</span><span>Companion</span><span>Ajustes</span></div><div class="meta"><span class="pill">3×3 · todas as sessões ▾</span></div></div>
+    <div class="hd"><h4>Evolução</h4><div class="seg"><span>7 dias</span><span class="on">30 dias</span><span>Tudo</span></div></div>
+    <div class="kpi"><div><small>Recorde</small><b class="pb">0:54.10</b><em>há 3 dias</em></div><div><small>Média de 5</small><b>1:02.31</b><em>▼ 4.1 s no mês</em></div><div><small>Média de 12</small><b>1:05.77</b><em>▼ 6.0 s no mês</em></div><div><small>Média de 100</small><b>1:11.40</b><em>▼ 9.8 s no mês</em></div><div><small>Desvio</small><b>±6.2 s</b><em>mais estável</em></div></div>
+    <div class="box chart"><div class="lab">Todos os solves · média de 5 · recordes</div>
+      <svg viewBox="0 0 600 120" preserveAspectRatio="none">
+        <g fill="#B5AFA3" opacity=".55"><circle cx="10" cy="22" r="2.2"/><circle cx="30" cy="30" r="2.2"/><circle cx="50" cy="18" r="2.2"/><circle cx="70" cy="36" r="2.2"/><circle cx="90" cy="28" r="2.2"/><circle cx="110" cy="40" r="2.2"/><circle cx="130" cy="34" r="2.2"/><circle cx="150" cy="46" r="2.2"/><circle cx="170" cy="38" r="2.2"/><circle cx="190" cy="52" r="2.2"/><circle cx="210" cy="44" r="2.2"/><circle cx="230" cy="58" r="2.2"/><circle cx="250" cy="50" r="2.2"/><circle cx="270" cy="62" r="2.2"/><circle cx="290" cy="56" r="2.2"/><circle cx="310" cy="66" r="2.2"/><circle cx="330" cy="58" r="2.2"/><circle cx="350" cy="70" r="2.2"/><circle cx="370" cy="64" r="2.2"/><circle cx="390" cy="76" r="2.2"/><circle cx="410" cy="68" r="2.2"/><circle cx="430" cy="80" r="2.2"/><circle cx="450" cy="72" r="2.2"/><circle cx="470" cy="86" r="2.2"/><circle cx="490" cy="78" r="2.2"/><circle cx="510" cy="90" r="2.2"/><circle cx="530" cy="82" r="2.2"/><circle cx="550" cy="96" r="2.2"/><circle cx="570" cy="88" r="2.2"/><circle cx="590" cy="94" r="2.2"/></g>
+        <path d="M10 26 C80 32 140 42 200 48 S320 62 380 70 S500 84 590 92" fill="none" stroke="#17171A" stroke-width="2.2"/>
+        <g fill="#B8860B"><path d="M190 46 l6 6 -6 6 -6 -6z"/><path d="M350 64 l6 6 -6 6 -6 -6z"/><path d="M550 90 l6 6 -6 6 -6 -6z"/></g>
+      </svg>
+    </div>
+    <div class="box dist"><div class="lab">Distribuição · 30 dias</div><div class="bars"><i style="height:15%"></i><i style="height:35%"></i><i style="height:62%"></i><i class="hl" style="height:90%"></i><i style="height:74%"></i><i style="height:48%"></i><i style="height:30%"></i><i style="height:18%"></i><i style="height:9%"></i></div><div class="bx"><span>0:55</span><span>1:05</span><span>1:15</span><span>1:25</span></div></div>
+    <div class="box hist"><table><tr><th>#</th><th>Tempo</th><th>Média de 5</th><th>Embaralhamento</th><th>Quando</th></tr>
+      <tr><td>212</td><td>0:58.42</td><td>1:02.31</td><td class="m">R U R' U' F2 D L2 B' R2 U2…</td><td>agora</td></tr>
+      <tr><td>211</td><td>1:04.90</td><td>1:03.10</td><td class="m">F2 L' D2 R U' B2 L2 F U2…</td><td>há 2 min</td></tr>
+      <tr><td>210</td><td>0:54.10<span class="tag pb">recorde</span></td><td>1:03.88</td><td class="m">D' R2 F U2 L B' R' D2 F2…</td><td>há 3 dias</td></tr>
+      <tr><td>209</td><td>1:12.75<span class="tag">+2</span></td><td>1:05.40</td><td class="m">U L2 B2 R' F D2 L U' R2…</td><td>há 3 dias</td></tr>
+    </table></div>
+  </div>
+
+  <div class="sec"><b>3.5</b><span>Companion — desktop</span></div>
+  <p class="note">A casa do Centro. O corpo mostra a jornada; ao lado, o que cada adesivo significa e o que vem a seguir.</p>
+  <div class="dsk K cp">
+    <div class="top"><div class="wm"><span class="gl"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>klick</div><div class="nav"><span>Timer</span><span>Evolução</span><span class="on">Companion</span><span>Ajustes</span></div></div>
+    <div class="stage">
+      <div class="big" data-centro='{"eyes":"open","top":["gold","gold","gold","gold","gold","gold"],"side":["blue","blue","blue","blue"]}'></div>
+      <div class="who"><b>Centro</b><small>Temporada 1 · 6 de 9 marcos · acabamento Fosco</small></div>
+      <div class="fin"><div class="on"><i style="background:#1B1B1E"></i>Fosco</div><div><i style="background:linear-gradient(135deg,#6b6b70,#1B1B1E 60%)"></i>Brilho</div><div class="lock"><i style="background:#BFD9E6"></i>Gelo · T2</div><div class="lock"><i style="background:repeating-linear-gradient(45deg,#222 0 3px,#151515 3px 6px)"></i>Carbono · T3</div></div>
+    </div>
+    <div class="col">
+      <div class="box"><div class="lab">Face de cima · marcos</div><div class="list">
+        <div class="g"><i></i>Primeiro solve</div><div class="g"><i></i>Sub-2:00</div><div class="g"><i></i>100 solves</div><div class="g"><i></i>Sub-1:30</div><div class="g"><i></i>Média de 5 sub-1:30</div>
+        <div class="g"><i></i>Sub-1:00</div><div class="nx"><i></i>7 dias seguidos<em>4/7</em></div><div><i></i>Média de 12 sub-1:00<em>1:05.77</em></div><div><i></i>1.000 solves<em>212/1000</em></div>
+      </div></div>
+      <div class="box"><div class="lab">Face lateral · trilha</div><div class="list">
+        <div class="b"><i></i>Cruz branca</div><div class="b"><i></i>Cantos brancos</div><div class="b"><i></i>Segunda camada</div><div class="b"><i></i>Cruz amarela</div>
+        <div class="nx"><i></i>Orientar e permutar<em>próxima aula</em></div><div><i></i>F2L intuitivo</div><div><i></i>OLL em 2 passos</div><div><i></i>PLL em 2 passos</div><div><i></i>F2L com algoritmos</div>
+      </div></div>
+      <div class="box wide"><div><div class="lab">Coach</div><div style="font-size:1.15cqw;margin-top:.3cqw;color:var(--ink2)">Modo silencioso — o Centro continua reagindo, mas sem texto.</div></div><div class="tog"></div></div>
+    </div>
+  </div>
+
+  <div class="sec"><b>3.6</b><span>Primeira vez e ajustes</span></div>
+  <div class="two K">
+    <div class="ob">
+      <div><em>1 DE 3</em><div data-centro='{"eyes":"open","ring":[null,null,"idle"]}'></div><b>Esse é o Centro</b><small>Ele acompanha seus solves e guarda sua jornada no próprio corpo.</small></div>
+      <div><em>2 DE 3</em><div data-centro='{"eyes":"focus","ring":["green","green","green","green","green","green","green","green"]}'></div><b>Segure até ficar verde</b><small>Segure espaço (ou os dois polegares). Verde = pode soltar.</small></div>
+      <div><em>3 DE 3</em><div data-centro='{"eyes":"happy","ring":["u","r","f","d","l","b","r","f"],"top":["gold"]}'></div><b>Seu primeiro marco</b><small>Pare com qualquer tecla. O primeiro solve já acende um adesivo dourado.</small></div>
+    </div>
+    <div class="aj">
+      <h5>Timer</h5><div><span>Inspeção de 15 s</span><span>ligada</span></div><div><span>Tempo pra armar</span><span>0 · <b>0,3</b> · 0,55 · 1 s</span></div><div><span>Armar no celular</span><span><b>dois polegares</b> · um toque</span></div>
+      <h5>Aparência e som</h5><div><span>Tema</span><span><b>sistema</b> · claro · noite</span></div><div><span>Sons</span><span>klick · inspeção · recorde</span></div>
+      <h5>Coach e dados</h5><div><span>Modo silencioso</span><span>desligado</span></div><div><span>Dados</span><span>exportar · importar do csTimer</span></div>
+      <h5>Geral</h5><div><span>Idioma</span><span>pt-BR · en</span></div><div><span>Reduzir movimento</span><span>seguir o sistema</span></div>
+    </div>
+  </div>
+
+  <div class="rec">
+    <b>Fica pra depois (camadas 2 e 3), mas o design já reserva espaço:</b>
+    <ul>
+      <li>As aulas da trilha abrem a partir da face lateral do Centro (camada 2).</li>
+      <li>Splits por etapa (estilo LiveSplit) entram no detalhe do solve quando houver smart cube ou marcação manual.</li>
+      <li>Conta, sync e comunidade (camada 3) entram nos ajustes e no seletor de sessões, sem mudar a navegação.</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+(function () {
+  var P = { body: '#1B1B1E', off: '#2E2E33', top: '#2E2E33', side: '#2E2E33', center: '#F4F1EA', eye: '#1B1B1E', idle: '#8A857B', red: '#E5484D', green: '#30A46C', gold: '#D9A21B', blue: '#3E63DD', u: '#F4F1EA', r: '#E5484D', f: '#30A46C', d: '#F5C842', l: '#F07A2B', b: '#3E63DD', glow: 1.2 };
+  var ORDER = [0, 1, 2, 5, 8, 7, 6, 3];
+  function centro(o) {
+    var cell = function (i) { return [(i % 3) * 33.333 + 3.2, Math.floor(i / 3) * 33.333 + 3.2]; };
+    var R = function (i, fill, glow, attr) { var c = cell(i); return '<rect ' + (attr || '') + ' x="' + c[0].toFixed(2) + '" y="' + c[1].toFixed(2) + '" width="26.9" height="26.9" rx="5" fill="' + fill + '"' + (glow ? ' style="filter:drop-shadow(0 0 1.2px ' + fill + ')"' : '') + '/>'; };
+    var col = function (k) { return P[k] || k; };
+    var i, s = '<svg class="ct" viewBox="-9 -9 148 148">';
+    s += '<polygon points="0,30 30,0 130,0 130,100 100,130 0,130" fill="' + P.body + '" stroke="' + P.body + '" stroke-width="14" stroke-linejoin="round"/>';
+    s += '<g transform="matrix(1,0,0.3,-0.3,0,30)">'; for (i = 0; i < 9; i++) s += R(i, o.top && o.top[i] ? col(o.top[i]) : (o.top ? P.top : '#E4DED2')); s += '</g>';
+    s += '<g transform="matrix(0.3,-0.3,0,1,100,30)">'; for (i = 0; i < 9; i++) s += R(i, o.side && o.side[i] ? col(o.side[i]) : (o.side || o.top ? P.side : '#3E63DD')); s += '</g>';
+    s += '<g transform="translate(0 30)">';
+    for (i = 0; i < 9; i++) { if (i === 4) { s += R(4, P.center); continue; } var k = ORDER.indexOf(i), c = o.ring && o.ring[k]; s += R(i, c ? col(c) : P.off, !!c, 'class="rg" data-k="' + k + '"'); }
+    var e = P.eye, ey = o.eyes || 'open';
+    if (ey === 'open') s += '<rect x="41.6" y="42.5" width="6.4" height="12" rx="3.2" fill="' + e + '"/><rect x="52" y="42.5" width="6.4" height="12" rx="3.2" fill="' + e + '"/>';
+    if (ey === 'half') s += '<rect x="41.6" y="46" width="6.4" height="6.5" rx="3" fill="' + e + '"/><rect x="52" y="46" width="6.4" height="6.5" rx="3" fill="' + e + '"/>';
+    if (ey === 'focus') s += '<path d="M41.4 49.5 h6.8 M51.8 49.5 h6.8" fill="none" stroke="' + e + '" stroke-width="2.6" stroke-linecap="round"/>';
+    if (ey === 'happy') s += '<path d="M41.4 51 q3.4 -5.6 6.8 0 M51.8 51 q3.4 -5.6 6.8 0" fill="none" stroke="' + e + '" stroke-width="2.6" stroke-linecap="round"/>';
+    return s + '</g></svg>';
+  }
+  function paint() { document.querySelectorAll('[data-centro]').forEach(function (el) { try { el.innerHTML = centro(JSON.parse(el.dataset.centro)); } catch (e) {} }); }
+  paint();
+
+  var tm = document.querySelector('[data-tm]'), cen = document.querySelector('[data-tmcentro]');
+  var modes = {
+    '': { t: '0:58<span>.42</span>', c: { eyes: 'open', ring: [null, null, 'idle'] }, coach: 'Quando quiser. Segure espaço para armar.' },
+    foco: { t: '0:23<span>.71</span>', c: { eyes: 'focus' }, coach: '' },
+    res: { t: '0:58<span>.42</span>', c: { eyes: 'open', ring: ['green', 'green', 'green', 'green', 'green', 'green'] }, coach: '3.89 s abaixo da sua média de 5. Ritmo bom.' }
+  };
+  function mode(m) {
+    tm.classList.remove('foco', 'res'); if (m) tm.classList.add(m);
+    var d = modes[m]; document.querySelector('[data-tmtime]').innerHTML = d.t;
+    cen.innerHTML = centro(d.c); document.querySelector('[data-tmcoach]').textContent = d.coach;
+    document.querySelectorAll('[data-tmtabs] button').forEach(function (b) { b.classList.toggle('on', b.dataset.m === m); });
+  }
+  document.querySelectorAll('[data-tmtabs] button').forEach(function (b) { b.addEventListener('click', function () { mode(b.dataset.m); }); });
+  mode('');
+})();
+</script>
+
+</body>
+</html>

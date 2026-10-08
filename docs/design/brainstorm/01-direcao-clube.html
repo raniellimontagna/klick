@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Klick — Direção Clube (D1 claro · D2 noite · D3 editorial)</title>
+<style>
+:root { --bg-primary: #f5f5f7; --bg-secondary: #fff; --bg-tertiary: #e5e5e7; --border: #d1d1d6; --text-primary: #1d1d1f; --text-secondary: #86868b; --text-tertiary: #aeaeb2; --accent: #0071e3; --success: #34c759; --error: #ff3b30; --selected-bg: #e8f4fd; --selected-border: #0071e3; }
+@media (prefers-color-scheme: dark) { :root { --bg-primary: #1d1d1f; --bg-secondary: #2d2d2f; --bg-tertiary: #3d3d3f; --border: #424245; --text-primary: #f5f5f7; --text-tertiary: #636366; --accent: #0a84ff; --selected-bg: rgba(10,132,255,.15); --selected-border: #0a84ff; } }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg-primary); color: var(--text-primary); line-height: 1.5; padding: 2rem; }
+h2 { font-size: 1.5rem; font-weight: 600; margin-bottom: .5rem; }
+h3 { font-size: 1.1rem; font-weight: 600; margin-bottom: .25rem; }
+.subtitle { color: var(--text-secondary); margin-bottom: 1.5rem; }
+.cards { display: grid; gap: 1rem; }
+.card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.card.selected { border-color: var(--selected-border); border-width: 2px; }
+.card-body { padding: 1rem; }
+.card-body p { color: var(--text-secondary); font-size: .85rem; }
+</style>
+</head>
+<body>
+<!-- Referência aprovada no brainstorm de design de 2026-10-08. Fonte da verdade: docs/superpowers/specs/2026-10-08-klick-design.md -->
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap');
+.demo { max-width: 1000px; margin: 0 auto; }
+.hud { display: inline-flex; flex-wrap: wrap; gap: .4rem; font-size: .8rem; color: var(--text-secondary); background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 999px; padding: .3rem .85rem; margin-bottom: 1.3rem; }
+.hud b { color: var(--accent); }
+.changes { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .6rem; margin: 0 0 1.4rem; }
+.changes div { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px; padding: .6rem .8rem; font-size: .82rem; color: var(--text-secondary); }
+.changes s { color: var(--text-tertiary); }
+.changes b { color: var(--text-primary); font-weight: 600; }
+.cards.stack { grid-template-columns: 1fr; gap: 1.9rem; }
+.card.dir { cursor: default; }
+.card.dir:hover { transform: none; }
+.card.dir .card-image { aspect-ratio: auto; display: block; background: none; }
+.mk { position: relative; aspect-ratio: 16/9; overflow: hidden; container-type: inline-size; cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: none; }
+.mk * { box-sizing: border-box; }
+.card-body h3 { display: flex; align-items: center; gap: .5rem; }
+.card-body h3 .lt { font-size: .75rem; background: var(--bg-tertiary); color: var(--text-secondary); border-radius: 6px; padding: .1rem .45rem; }
+.card.selected .card-body h3 .lt { background: var(--accent); color: #fff; }
+.refs { display: flex; flex-wrap: wrap; gap: .35rem; margin: .5rem 0 .25rem; }
+.refs span { font-size: .72rem; padding: .12rem .55rem; border-radius: 999px; background: var(--bg-tertiary); color: var(--text-secondary); }
+.sig { font-size: .84rem; margin-top: .5rem; }
+.sig b { font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; color: var(--accent); margin-right: .35rem; }
+.pick { margin-top: .9rem; font: inherit; font-size: .85rem; font-weight: 600; padding: .45rem .9rem; border-radius: 8px; border: 2px solid var(--border); background: var(--bg-primary); color: var(--text-primary); cursor: pointer; }
+.pick:hover { border-color: var(--accent); }
+.card.selected .pick { background: var(--accent); border-color: var(--accent); color: #fff; }
+.rec { margin-top: 1.9rem; border: 2px solid var(--selected-border); background: var(--selected-bg); border-radius: 14px; padding: 1rem 1.2rem; }
+.rec h3 { margin-bottom: .4rem; }
+.rec li, .rec p { font-size: .9rem; }
+.rec ul { margin: .4rem 0 0 1.1rem; }
+
+/* ---------- Centro (companion) ---------- */
+.ct { display: block; width: 100%; height: auto; overflow: visible; }
+.ct .eye { transform-box: fill-box; transform-origin: center; animation: blink 5.5s infinite; }
+@keyframes blink { 0%, 94%, 100% { transform: scaleY(1); } 96.5% { transform: scaleY(.1); } }
+.ct .e-open { transition: transform .45s ease, opacity .15s; transform-box: fill-box; transform-origin: center; }
+.ct .e-focus, .ct .e-happy { opacity: 0; transition: opacity .15s; }
+.ct .ring { transition: fill .16s ease; }
+.demo[data-state=idle] .ct .e-open { animation: look 8s ease-in-out infinite; }
+@keyframes look { 0%, 42%, 100% { transform: translateX(0); } 50%, 60% { transform: translateX(-1.6px); } 70%, 80% { transform: translateX(1.6px); } }
+.demo[data-state=holding] .ct .e-open { transform: scaleY(.55); }
+.demo[data-state=ready] .ct .e-open, .demo[data-state=running] .ct .e-open { opacity: 0; }
+.demo[data-state=ready] .ct .e-focus, .demo[data-state=running] .ct .e-focus { opacity: 1; }
+.demo[data-result=pb] .ct .e-open { opacity: 0; }
+.demo[data-result=pb] .ct .e-happy { opacity: 1; }
+.buddy { transform-origin: 50% 100%; }
+.demo[data-result=pb] .buddy { animation: lift .6s cubic-bezier(.3,.7,.4,1) 2; }
+@keyframes lift { 45% { transform: translateY(-6%); } }
+
+/* ---------- estrutura comum do Clube ---------- */
+.clube { background: var(--bg); color: var(--ink); font-family: 'Geist', 'Inter', system-ui, sans-serif; }
+.clube .top { position: absolute; top: 2.5cqw; left: 3.5cqw; right: 3.5cqw; display: flex; align-items: center; gap: 3.2cqw; }
+.clube .wm { display: flex; align-items: center; gap: .8cqw; font-weight: 700; font-size: 2.1cqw; letter-spacing: -.035em; }
+.clube .gl { width: 2cqw; height: 2cqw; display: grid; grid-template-columns: repeat(3, 1fr); gap: .17cqw; }
+.clube .gl i { background: var(--ink); border-radius: .2cqw; }
+.clube .gl i:nth-child(5) { background: var(--accent); }
+.clube .nav { display: flex; gap: 2.3cqw; font-size: 1.3cqw; font-weight: 500; color: var(--muted); }
+.clube .nav .on { color: var(--ink); position: relative; }
+.clube .nav .on::after { content: ''; position: absolute; left: 50%; bottom: -.9cqw; width: .45cqw; height: .45cqw; border-radius: 50%; background: var(--ink); transform: translateX(-50%); }
+.clube .meta { margin-left: auto; display: flex; gap: 1.1cqw; align-items: center; font-size: 1.15cqw; color: var(--muted); }
+.clube .pill { border: .12cqw solid var(--line); border-radius: 99px; padding: .35cqw 1.05cqw; color: var(--ink); font-weight: 500; }
+.clube .lab { font-size: .92cqw; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.clube .scr { position: absolute; left: 3.5cqw; top: 8.8cqw; width: 56cqw; }
+.clube .scr p { font-family: 'Geist Mono', ui-monospace, monospace; font-size: 1.55cqw; letter-spacing: .02em; margin-top: .45cqw; color: var(--ink2); }
+.clube .time { position: absolute; left: 3cqw; top: 13.6cqw; font-weight: 600; font-size: 15.5cqw; letter-spacing: -.05em; line-height: 1; font-variant-numeric: tabular-nums; transition: color .2s; }
+.clube .time .dec { color: var(--dec); font-size: .6em; letter-spacing: -.02em; transition: color .2s; }
+.demo[data-state=holding] .clube .time { color: var(--red); }
+.demo[data-state=ready] .clube .time { color: var(--green); }
+.demo[data-result=pb] .clube .time, .demo[data-result=pb] .clube .time .dec { color: var(--gold); }
+.clube .deltas { position: absolute; left: 3.5cqw; top: 31.4cqw; display: flex; gap: .8cqw; }
+.clube .chip { display: inline-flex; align-items: center; gap: .45cqw; font-size: 1.15cqw; font-weight: 500; padding: .45cqw 1.05cqw; border-radius: 99px; background: var(--chip); color: var(--ink2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.clube .chip.hl { background: var(--gold-bg); color: var(--gold-ink); }
+.clube .tiles { position: absolute; left: 3.5cqw; width: 56.5cqw; bottom: 3.5cqw; display: grid; grid-template-columns: repeat(4, 1fr); gap: 1cqw; }
+.clube .tile { background: var(--card); border: .12cqw solid var(--line); border-radius: 1.4cqw; padding: 1cqw 1.2cqw; }
+.clube .tile small { display: block; font-size: .95cqw; color: var(--muted); font-weight: 500; }
+.clube .tile b { display: block; font-weight: 600; font-size: 2.15cqw; letter-spacing: -.025em; font-variant-numeric: tabular-nums; margin-top: .15cqw; }
+.clube .tile em { font-style: normal; font-size: .95cqw; color: var(--muted); }
+.clube .tile svg { width: 100%; height: 2cqw; margin-top: .45cqw; display: block; }
+.clube .side { position: absolute; right: 3.5cqw; top: 8.8cqw; width: 33cqw; display: flex; flex-direction: column; gap: 1.1cqw; }
+.clube .box { background: var(--card); border: .12cqw solid var(--line); border-radius: 1.6cqw; padding: 1.3cqw 1.4cqw; }
+.clube .coach { display: grid; grid-template-columns: 10.5cqw 1fr; gap: 1.5cqw; align-items: center; }
+.clube .coach .lab { margin-bottom: .45cqw; }
+.clube .coach .say { font-size: 1.42cqw; line-height: 1.42; font-weight: 500; min-height: 6cqw; transition: opacity .2s; }
+.clube .coach .say.quiet { opacity: 0; }
+.clube .bh { display: flex; justify-content: space-between; align-items: baseline; }
+.clube .bh span { font-size: 1cqw; color: var(--muted); font-variant-numeric: tabular-nums; }
+.clube .heat { display: grid; grid-template-columns: repeat(16, 1fr); gap: .32cqw; margin-top: .8cqw; }
+.clube .heat i { aspect-ratio: 1; border-radius: .3cqw; background: var(--h0); }
+.clube .heat i.l1 { background: var(--h1); } .clube .heat i.l2 { background: var(--h2); } .clube .heat i.l3 { background: var(--h3); }
+.clube .heat i.pb { background: var(--gold); }
+.clube .heat i.today { box-shadow: 0 0 0 .14cqw var(--bg), 0 0 0 .28cqw var(--ink); }
+.clube .heat i.x { background: transparent; }
+.clube .heat i.pop { animation: pop .45s cubic-bezier(.34,1.56,.64,1); }
+@keyframes pop { from { transform: scale(1.8); opacity: 0; } }
+.clube .chart svg { width: 100%; height: 6.4cqw; display: block; margin-top: .6cqw; }
+.clube .axis { display: flex; justify-content: space-between; font-size: .9cqw; color: var(--muted); margin-top: .3cqw; font-variant-numeric: tabular-nums; }
+.clube .tag { position: absolute; left: 45cqw; top: 9.6cqw; font-size: 1cqw; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: var(--gold-ink); background: var(--gold-bg); padding: .3cqw .9cqw; border-radius: 99px; opacity: 0; transform: translateY(40%); transition: opacity .25s, transform .25s; }
+.demo[data-result=pb] .clube .tag { opacity: 1; transform: translateY(0); }
+
+/* D1 · claro */
+.m1 { --bg: #F3F0E9; --ink: #17171A; --ink2: #3A3832; --muted: #8A857B; --dec: #A9A397; --line: #E2DCD0; --card: #FBFAF7; --chip: #E8E3D9;
+  --accent: #E5484D; --red: #D93D42; --green: #23915A; --gold: #B8860B; --gold-bg: #F4E7C3; --gold-ink: #7A5A06;
+  --h0: #E9E4DA; --h1: #CFE7D7; --h2: #94CDA9; --h3: #2F9E5F; }
+
+/* D2 · noite */
+.m2 { --bg: #121110; --ink: #F3F1EC; --ink2: #D6D2C9; --muted: #8E8A82; --dec: #66625B; --line: #2A2724; --card: #1A1917; --chip: #23211E;
+  --accent: #FF5A5F; --red: #FF5A5F; --green: #3DD68C; --gold: #F0B84C; --gold-bg: #3A2E14; --gold-ink: #F0C46A;
+  --h0: #22201D; --h1: #1E4A33; --h2: #2B7A50; --h3: #3DD68C;
+  background: radial-gradient(60cqw 40cqw at 0% 0%, #1F1C18 0%, transparent 70%), radial-gradient(40cqw 30cqw at 100% 100%, #17201B 0%, transparent 70%), #121110; }
+.m2 .box, .m2 .tile { box-shadow: inset 0 .12cqw 0 rgba(255,255,255,.035); }
+
+/* D3 · editorial */
+.m3 { --bg: #EDE7DB; --ink: #1E1B16; --ink2: #3B362D; --muted: #7C7466; --dec: #9A917F; --line: #C9BFAC; --card: transparent; --chip: transparent;
+  --accent: #C2412D; --red: #B8392A; --green: #2F7A4F; --gold: #A0700A; --gold-bg: #E6D7AE; --gold-ink: #6E4E08;
+  --h0: #DDD5C6; --h1: #B9C9B4; --h2: #7FA58A; --h3: #2F6B48; }
+.m3 .wm { font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; font-style: italic; font-size: 2.8cqw; letter-spacing: -.01em; }
+.m3 .time { font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; font-size: 17.5cqw; letter-spacing: -.025em; top: 12.4cqw; }
+.m3 .time .dec { font-style: italic; font-size: .55em; }
+.m3 .box, .m3 .tile { background: none; border: none; border-top: .14cqw solid var(--ink); border-radius: 0; padding-left: 0; padding-right: 0; }
+.m3 .tile { border-top-width: .12cqw; border-top-color: var(--line); }
+.m3 .chip { border: .12cqw solid var(--line); }
+.m3 .chip.hl { border-color: transparent; }
+.m3 .coach .say { font-family: 'Instrument Serif', Georgia, serif; font-style: italic; font-weight: 400; font-size: 2.05cqw; line-height: 1.2; }
+.m3 .heat i { border-radius: 50%; }
+.m3 .pill { border-color: var(--ink); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ct .eye, .demo[data-state=idle] .ct .e-open, .demo[data-result=pb] .buddy { animation: none !important; }
+}
+</style>
+
+<div class="demo" data-state="idle">
+  <h2>D, versão adulta — três tons</h2>
+  <p class="subtitle">Mesma estrutura do Clube Fit (coach + constância + evolução), sem cara de brinquedo. O companion agora é o <b>Centro</b>: o anel de adesivos é a luz do stackmat. Clique num mockup e <b>segure ESPAÇO</b> — solte pra largar, qualquer tecla pra parar.</p>
+
+  <div class="changes">
+    <div><s>fonte arredondada</s> → <b>Geist</b>, grotesca precisa (e serifa no editorial)</div>
+    <div><s>contorno grosso, bochecha, olhão</s> → <b>Centro</b>: cubo sóbrio, olho simples, informação no anel</div>
+    <div><s>emoji e exclamação</s> → <b>coach calmo</b>, frase curta com número</div>
+    <div><s>cor de doce, confete</s> → <b>neutros quentes</b>; recorde em dourado e a face do cubo se resolve</div>
+  </div>
+
+  <div class="hud">estado: <b data-statelabel>parado</b> · recorde fictício 0:54.10 · média de 5 1:02.31</div>
+
+  <div class="cards stack" data-variants></div>
+
+  <div class="rec">
+    <h3>Como ler</h3>
+    <ul>
+      <li><b>D1</b> e <b>D2</b> são o mesmo sistema em tema claro e escuro — dá pra ter os dois no app.</li>
+      <li><b>D3</b> é outro caminho: mais calmo e autoral, com serifa e cara de revista.</li>
+      <li>Em todos, o anel do Centro enche de <b>vermelho</b> enquanto você segura, fica <b>verde</b> quando pode soltar, apaga no solve e mostra o resultado. No recorde, a face acende nas seis cores do cubo.</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+(function () {
+  var root = document.querySelector('.demo');
+  if (!root) return;
+  var PB = 54.10, AO5 = 62.31, HOLD = 500, solveN = 212;
+  var state = 'idle', t0 = 0, raf = 0, holdTimer = 0, fillTimer = 0, orbitTimer = 0, last = null, shown = 58.42, spaceDown = false;
+  var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var labels = { idle: 'parado', holding: 'armando…', ready: 'pronto — solte!', running: 'cronometrando — aperte qualquer tecla pra parar', done: 'resultado' };
+
+  var variants = [
+    { id: 'd1', cls: 'm1', letter: 'D1', name: 'Clube — claro', choice: 'clube-claro',
+      pal: { body: '#1B1B1E', off: '#2E2E33', top: '#E4DED2', side: '#3E63DD', center: '#F4F1EA', eye: '#1B1B1E', idle: '#8A857B', red: '#E5484D', green: '#30A46C', amber: '#F5A524', u: '#F4F1EA', r: '#E5484D', f: '#30A46C', d: '#F5C842', l: '#F07A2B', b: '#3E63DD', glow: 1.4 },
+      desc: 'A alma do Clube Fit, adulta: papel quente, tipografia Geist, número grande com decimal discreto, dados de esporte (média, recorde, constância) e o Centro numa moldura sóbria.',
+      refs: ['Apple Fitness', 'Oura', 'Things 3', 'Gentler Streak'],
+      sig: 'o anel do Centro é a luz do stackmat — e a constância do mês fica sempre à vista.' },
+    { id: 'd2', cls: 'm2', letter: 'D2', name: 'Clube — noite', choice: 'clube-noite',
+      pal: { body: '#0A0A0B', off: '#232326', top: '#CFC9BD', side: '#4C6FE8', center: '#EDEAE3', eye: '#0A0A0B', idle: '#6F6B64', red: '#FF5A5F', green: '#3DD68C', amber: '#FFB224', u: '#EDEAE3', r: '#FF5A5F', f: '#3DD68C', d: '#FFD54A', l: '#FF8A3D', b: '#4C6FE8', glow: 2.4 },
+      desc: 'O mesmo sistema à noite: grafite quente, luzes que brilham de verdade, cara de Whoop e Apple Fitness no escuro. O anel do Centro vira o ponto de luz da tela.',
+      refs: ['Whoop', 'Apple Fitness · escuro', 'Nike Run Club', 'Oura'],
+      sig: 'no escuro, a luz do anel guia o olho: vermelho armando, verde largando.' },
+    { id: 'd3', cls: 'm3', letter: 'D3', name: 'Clube — editorial', choice: 'clube-editorial',
+      pal: { body: '#1E1B16', off: '#3A362F', top: '#E9E2D3', side: '#4D6BB3', center: '#F1ECE1', eye: '#1E1B16', idle: '#7C7466', red: '#C2412D', green: '#2F7A4F', amber: '#C98A1B', u: '#F1ECE1', r: '#C2412D', f: '#2F7A4F', d: '#D9A933', l: '#D2693A', b: '#4D6BB3', glow: 0 },
+      desc: 'Aconchego de revista: papel creme, régua fina, o tempo em serifa (Instrument Serif) e o coach como citação. O mais calmo e autoral dos três.',
+      refs: ['Oura · editorial', 'Kinfolk', 'Readwise Reader', 'Are.na'],
+      sig: 'o tempo em serifa itálica e o coach como citação — parece um diário de treino.' }
+  ];
+
+  function centro(p) {
+    var cell = function (i) { return [(i % 3) * 33.333 + 3.2, Math.floor(i / 3) * 33.333 + 3.2]; };
+    var R = function (i, fill, extra) { var c = cell(i); return '<rect ' + (extra || '') + ' x="' + c[0].toFixed(2) + '" y="' + c[1].toFixed(2) + '" width="26.9" height="26.9" rx="5" fill="' + fill + '"/>'; };
+    var order = [0, 1, 2, 5, 8, 7, 6, 3], i, s = '<svg class="ct" viewBox="-9 -9 148 148" data-off="' + p.off + '" data-pal=\'' + JSON.stringify(p) + '\'>';
+    s += '<polygon points="0,30 30,0 130,0 130,100 100,130 0,130" fill="' + p.body + '" stroke="' + p.body + '" stroke-width="14" stroke-linejoin="round"/>';
+    s += '<g transform="matrix(1,0,0.3,-0.3,0,30)">'; for (i = 0; i < 9; i++) s += R(i, p.top); s += '</g>';
+    s += '<g transform="matrix(0.3,-0.3,0,1,100,30)">'; for (i = 0; i < 9; i++) s += R(i, p.side); s += '</g>';
+    s += '<g transform="translate(0 30)">';
+    for (i = 0; i < 9; i++) { if (i === 4) s += R(4, p.center); else s += R(i, p.off, 'class="ring" data-k="' + order.indexOf(i) + '"'); }
+    s += '<g class="e-open"><rect class="eye" x="41.6" y="42.5" width="6.4" height="12" rx="3.2" fill="' + p.eye + '"/><rect class="eye" x="52" y="42.5" width="6.4" height="12" rx="3.2" fill="' + p.eye + '"/></g>';
+    s += '<g class="e-focus"><path d="M41.4 49.5 h6.8 M51.8 49.5 h6.8" fill="none" stroke="' + p.eye + '" stroke-width="2.6" stroke-linecap="round"/></g>';
+    s += '<g class="e-happy"><path d="M41.4 51 q3.4 -5.6 6.8 0 M51.8 51 q3.4 -5.6 6.8 0" fill="none" stroke="' + p.eye + '" stroke-width="2.6" stroke-linecap="round"/></g>';
+    return s + '</g></svg>';
+  }
+
+  var days = { 1: 'l2', 2: 'l1', 3: '', 4: 'l3', 5: 'pb', 6: 'l2', 7: 'l3' };
+  function heat() { var h = ''; for (var d = 1; d <= 32; d++) { if (d > 31) { h += '<i class="x"></i>'; continue; } h += '<i class="' + (days[d] || '') + (d === 8 ? ' today' : '') + '"></i>'; } return h; }
+
+  function mockup(v) {
+    return '<div class="card dir"><div class="card-image"><div class="mk clube ' + v.cls + '">' +
+      '<div class="top"><div class="wm"><span class="gl">' + '<i></i>'.repeat(9) + '</span>klick</div>' +
+        '<div class="nav"><span class="on">Timer</span><span>Evolução</span><span>Companion</span></div>' +
+        '<div class="meta"><span class="pill">3×3 · sessão 12</span><span>qui, 8 out</span></div></div>' +
+      '<div class="scr"><div class="lab">Embaralhamento</div><p>R U R\' U\' F2 D L2 B\' R2 U2 F\' L D2</p></div>' +
+      '<div class="tag">Novo recorde</div>' +
+      '<div class="time" data-t data-split>0:58<span class="dec">.42</span></div>' +
+      '<div class="deltas"><span class="chip" data-c1>▼ 3.89 s vs média de 5</span><span class="chip" data-c2>▲ 4.32 s do recorde</span><span class="chip" data-c3>solve #212</span></div>' +
+      '<div class="tiles">' +
+        '<div class="tile"><small>Média de 5</small><b>1:02.31</b><svg viewBox="0 0 100 20" preserveAspectRatio="none"><polyline points="0,6 20,9 40,7 60,12 80,11 100,15" fill="none" stroke="currentColor" stroke-width="1.6" opacity=".55"/></svg></div>' +
+        '<div class="tile"><small>Média de 12</small><b>1:05.77</b><svg viewBox="0 0 100 20" preserveAspectRatio="none"><polyline points="0,5 20,7 40,8 60,9 80,12 100,13" fill="none" stroke="currentColor" stroke-width="1.6" opacity=".55"/></svg></div>' +
+        '<div class="tile"><small>Recorde</small><b>0:54.10</b><em>há 3 dias</em></div>' +
+        '<div class="tile"><small>Hoje</small><b>12</b><em>solves · meta 20</em></div>' +
+      '</div>' +
+      '<div class="side">' +
+        '<div class="box coach"><div class="buddy">' + centro(v.pal) + '</div><div><div class="lab">Coach</div><p class="say" data-say></p></div></div>' +
+        '<div class="box"><div class="bh"><span class="lab">Constância · outubro</span><span>6 de 8 dias</span></div><div class="heat">' + heat() + '</div></div>' +
+        '<div class="box chart"><div class="bh"><span class="lab">Evolução</span><span>3 semanas</span></div>' +
+          '<svg viewBox="0 0 300 64" preserveAspectRatio="none"><path d="M0 8 C40 10 70 20 100 24 S160 34 200 40 S260 50 300 56" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="300" cy="56" r="4" fill="currentColor"/></svg>' +
+          '<div class="axis"><span>1:24</span><span>1:08</span><span>0:58</span></div></div>' +
+      '</div>' +
+      '</div></div>' +
+      '<div class="card-body"><h3><span class="lt">' + v.letter + '</span>' + v.name + '</h3><p>' + v.desc + '</p>' +
+      '<div class="refs">' + v.refs.map(function (r) { return '<span>' + r + '</span>'; }).join('') + '</div>' +
+      '<div class="sig"><b>Assinatura</b>' + v.sig + '</div>' +
+      '<button class="pick" data-choice="' + v.choice + '" onclick="pickCard(this)">Escolher ' + v.letter + ' · ' + v.name + '</button></div></div>';
+  }
+  document.querySelector('[data-variants]').innerHTML = variants.map(mockup).join('');
+
+  function fmt(s) { var m = Math.floor(s / 60), r = s - m * 60; return m + ':' + (r < 10 ? '0' : '') + r.toFixed(2); }
+  function setTimes(s) {
+    var f = fmt(s), cut = f.indexOf('.');
+    document.querySelectorAll('[data-t]').forEach(function (el) { el.innerHTML = f.slice(0, cut) + '<span class="dec">' + f.slice(cut) + '</span>'; });
+  }
+  function coach() {
+    if (state === 'idle') return 'Quando quiser. Segure espaço para armar.';
+    if (state === 'holding') return 'Armando…';
+    if (state === 'ready') return 'Solte para começar.';
+    if (state === 'running') return '';
+    var s = last.s;
+    if (last.res === 'pb') return 'Novo recorde — ' + (PB - s).toFixed(2) + ' s mais rápido. Vale lembrar o que funcionou.';
+    if (last.res === 'good') return (AO5 - s).toFixed(2) + ' s abaixo da sua média de 5. Ritmo bom.';
+    return (s - AO5).toFixed(2) + ' s acima da média. Faz parte — o próximo conta.';
+  }
+  function say() {
+    var txt = coach();
+    document.querySelectorAll('[data-say]').forEach(function (el) { if (txt) el.textContent = txt; el.classList.toggle('quiet', !txt); });
+    var lab = document.querySelector('[data-statelabel]'); if (lab) lab.textContent = labels[state];
+  }
+  function paint(fn) {
+    document.querySelectorAll('.ct').forEach(function (svg) {
+      var p = JSON.parse(svg.dataset.pal), off = svg.dataset.off;
+      svg.querySelectorAll('.ring').forEach(function (r) {
+        var c = fn(+r.dataset.k, p);
+        r.setAttribute('fill', c || off);
+        r.style.filter = c && p.glow ? 'drop-shadow(0 0 ' + p.glow + 'px ' + c + ')' : 'none';
+      });
+    });
+  }
+  function clearTimers() { clearTimeout(holdTimer); clearInterval(fillTimer); clearInterval(orbitTimer); }
+  function set(s) {
+    state = s; root.dataset.state = s; if (s !== 'done') delete root.dataset.result;
+    clearTimers();
+    if (s === 'idle') {
+      paint(function () { return null; });
+      if (!reduced) { var k = -1; orbitTimer = setInterval(function () { k = (k + 1) % 8; paint(function (i, p) { return i === k ? p.idle : null; }); }, 950); }
+    }
+    if (s === 'holding') {
+      var n = 0; paint(function () { return null; });
+      fillTimer = setInterval(function () { n++; paint(function (i, p) { return i < n ? p.red : null; }); if (n >= 8) clearInterval(fillTimer); }, HOLD / 8);
+      holdTimer = setTimeout(function () { if (state === 'holding') set('ready'); }, HOLD);
+    }
+    if (s === 'ready') paint(function (i, p) { return p.green; });
+    if (s === 'running') paint(function () { return null; });
+    say();
+  }
+
+  function down() {
+    if (state === 'running') { stop(); return; }
+    if (state === 'idle' || state === 'done') { set('holding'); setTimes(0); }
+  }
+  function up() {
+    if (state === 'ready') start();
+    else if (state === 'holding') { set('idle'); setTimes(shown); }
+  }
+  function start() {
+    set('running'); t0 = performance.now();
+    (function tick() { setTimes((performance.now() - t0) / 1000); raf = requestAnimationFrame(tick); })();
+  }
+  function stop() {
+    cancelAnimationFrame(raf);
+    var s = (performance.now() - t0) / 1000, res = s < PB ? 'pb' : (s < AO5 ? 'good' : 'slow');
+    last = { s: s, res: res }; shown = s; setTimes(s);
+    set('done'); root.dataset.result = res; say();
+    if (res === 'pb') paint(function (i, p) { return [p.u, p.r, p.f, p.d, p.l, p.b, p.r, p.f][i]; });
+    else if (res === 'good') paint(function (i, p) { return i < 6 ? p.green : null; });
+    else paint(function (i, p) { return i < 3 ? p.amber : null; });
+    solveN++;
+    var d5 = AO5 - s;
+    document.querySelectorAll('[data-c1]').forEach(function (el) { el.textContent = (d5 >= 0 ? '▼ ' : '▲ ') + Math.abs(d5).toFixed(2) + ' s vs média de 5'; });
+    document.querySelectorAll('[data-c2]').forEach(function (el) { el.textContent = res === 'pb' ? '◆ ' + (PB - s).toFixed(2) + ' s abaixo do recorde' : '▲ ' + (s - PB).toFixed(2) + ' s do recorde'; el.classList.toggle('hl', res === 'pb'); });
+    document.querySelectorAll('[data-c3]').forEach(function (el) { el.textContent = 'solve #' + solveN; });
+    document.querySelectorAll('.heat .today').forEach(function (el) { el.classList.remove('pop', 'l1', 'l2', 'pb'); void el.offsetWidth; el.classList.add('pop', res === 'pb' ? 'pb' : 'l3'); });
+  }
+
+  window.addEventListener('keydown', function (e) {
+    if (e.code === 'Space') { e.preventDefault(); if (e.repeat || spaceDown) return; spaceDown = true; down(); }
+    else if (state === 'running') { e.preventDefault(); stop(); }
+  });
+  window.addEventListener('keyup', function (e) { if (e.code === 'Space') { e.preventDefault(); spaceDown = false; up(); } });
+  document.querySelectorAll('.mk').forEach(function (mk) { mk.addEventListener('pointerdown', function (e) { e.preventDefault(); down(); }); });
+  window.addEventListener('pointerup', function () { if (!spaceDown) up(); });
+  window.pickCard = function (btn) { document.querySelectorAll('.card.dir').forEach(function (c) { c.classList.remove('selected'); }); btn.closest('.card').classList.add('selected'); };
+
+  set('idle');
+})();
+</script>
+
+</body>
+</html>
