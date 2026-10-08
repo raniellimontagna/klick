@@ -1,5 +1,6 @@
 // Todo texto que a pessoa lê passa por aqui (pt-BR). Facilita traduzir depois.
-const sec = (ms) => (ms / 1000).toFixed(2);
+// Diferenças em segundos, truncadas no centésimo como os tempos.
+const sec = (ms) => (Math.floor(ms / 10) / 100).toFixed(2);
 
 export const MILESTONE_INFO = Object.freeze({
   first: { label: 'Primeiro solve', msg: 'Primeiro solve registrado' },
@@ -62,6 +63,10 @@ export const T = Object.freeze({
     deleted: 'Solve excluído',
     undo: 'Desfazer (Z)',
     exportFail: 'Exportação indisponível neste ambiente.',
+  },
+  progress: {
+    best: (text) => `melhor ${text}`,
+    count: (n, total) => `${n}/${total}`,
   },
   season: (done, finish) => `Temporada 1 · ${done} de 9 marcos · acabamento ${finish}`,
 });

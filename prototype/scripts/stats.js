@@ -1,5 +1,7 @@
 // Estatísticas puras. Um solve é { id, ms, penalty: null | '+2' | 'DNF', at, scramble, note, session }.
 // As listas chegam em ordem cronológica (mais antigo primeiro).
+import { T } from './strings.js';
+
 const DAY = 86400000;
 
 export const MILESTONES = Object.freeze(['first', 'sub2', 'n100', 'sub130', 'ao5sub130', 'sub1', 'streak7', 'ao12sub1', 'n1000']);
@@ -178,14 +180,14 @@ export function milestoneProgress(solves, nowTs) {
   const n = solves.length;
   const progress = {
     first: null,
-    sub2: best === null ? null : `melhor ${formatMs(best)}`,
-    n100: `${Math.min(n, 100)}/100`,
-    sub130: best === null ? null : `melhor ${formatMs(best)}`,
-    ao5sub130: `melhor ${formatMs(bestAverage(solves, 5))}`,
-    sub1: best === null ? null : `melhor ${formatMs(best)}`,
-    streak7: `${currentStreak(solves, nowTs)}/7`,
-    ao12sub1: `melhor ${formatMs(bestAverage(solves, 12))}`,
-    n1000: `${Math.min(n, 1000)}/1000`,
+    sub2: best === null ? null : T.progress.best(formatMs(best)),
+    n100: T.progress.count(Math.min(n, 100), 100),
+    sub130: best === null ? null : T.progress.best(formatMs(best)),
+    ao5sub130: T.progress.best(formatMs(bestAverage(solves, 5))),
+    sub1: best === null ? null : T.progress.best(formatMs(best)),
+    streak7: T.progress.count(currentStreak(solves, nowTs), 7),
+    ao12sub1: T.progress.best(formatMs(bestAverage(solves, 12))),
+    n1000: T.progress.count(Math.min(n, 1000), 1000),
   };
   return MILESTONES.map((id) => ({ id, achieved: at[id] !== undefined, at: at[id] ?? null, progress: at[id] !== undefined ? null : progress[id] }));
 }

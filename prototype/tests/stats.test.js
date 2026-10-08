@@ -4,6 +4,7 @@ import {
   effectiveMs, formatMs, formatSolve, trimCount, averageOf, rollingAverages, bestSingle, bestAverage,
   stdDevMs, dayKey, currentStreak, solveDeltas, resultKind, monthHeat, milestoneProgress, achievedIds, pbFlags,
 } from '../scripts/stats.js';
+import { T } from '../scripts/strings.js';
 
 const DAY = 86400000;
 const NOW = new Date(2026, 9, 8, 20, 0, 0).getTime();
@@ -119,4 +120,11 @@ test('pbFlags marca só quem bateu o recorde da época', () => {
   const xs = [70000, 72000, 65000, 66000, 64000].map((ms) => sv(ms));
   assert.deepEqual(pbFlags(xs), [false, false, true, false, true]);
   assert.deepEqual(pbFlags([sv(60000), sv(50000, 'DNF'), sv(59000)]), [false, false, true]);
+});
+
+test('deltas e progressos vêm de strings.js e truncam no centésimo', () => {
+  assert.equal(T.chips.vsAo5(-429), '▼ 0.42 s vs média de 5');
+  assert.equal(T.coach.pbSingle(1999), 'Novo recorde — 1.99 s mais rápido. Vale lembrar o que funcionou.');
+  assert.equal(T.progress.best('1:29.00'), 'melhor 1:29.00');
+  assert.equal(T.progress.count(3, 100), '3/100');
 });
