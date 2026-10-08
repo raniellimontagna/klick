@@ -62,6 +62,7 @@ export const T = Object.freeze({
   toast: {
     deleted: 'Solve excluído',
     undo: 'Desfazer (Z)',
+    undoTouch: 'Desfazer',
     exportFail: 'Exportação indisponível neste ambiente.',
   },
   progress: {
