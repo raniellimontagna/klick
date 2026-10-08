@@ -59,3 +59,14 @@ test('modo silencioso e solve comum não falam', () => {
   assert.equal(pick({ solve: sv(55000), history: many([59000]), silent: true }), null);
   assert.equal(pick({ solve: sv(69000), history: many([60000, 70000]) }), null);
 });
+
+test('sequência estável não se repete no solve seguinte', () => {
+  const msg = pick({ solve: sv(71500), history: many([70000, 71000, 72000, 70500, 72500]) });
+  assert.equal(msg, null);
+});
+
+test('cansaço não se repete no solve seguinte', () => {
+  const session = many([...Array(12).fill(60000), ...Array(13).fill(66000), 66000, 72000, 70000, 74000, 69000]);
+  const msg = pick({ solve: sv(73000), history: session, sessionSolves: session });
+  assert.equal(msg, null);
+});

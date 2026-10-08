@@ -42,7 +42,7 @@ export const T = Object.freeze({
     arming: 'Armando…',
     ready: 'Solte para começar.',
     pbSingle: (diffMs) => `Novo recorde — ${sec(diffMs)} s mais rápido. Vale lembrar o que funcionou.`,
-    pbAverage: (label, value) => `Sua ${label} caiu para ${value}. Isso é consistência, não sorte.`,
+    pbAverage: (n, value) => `Sua média de ${n} caiu para ${value}. Isso é consistência, não sorte.`,
     milestone: (msg, k) => `${msg}. Marco ${k} de 9.`,
     dailyGoal: (n) => `Meta de ${n} solves feita. O resto é bônus.`,
     stable: 'Cinco solves dentro de 3 segundos. Ritmo estável.',
