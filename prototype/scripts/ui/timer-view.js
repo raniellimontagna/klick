@@ -48,7 +48,13 @@ export function renderTimer(ctx) {
   root.querySelector('[data-heatlabel]').textContent = `Constância · ${monthLabel(now)}`;
   const streak = currentStreak(state.solves, now);
   root.querySelector('[data-streak]').textContent = streak === 1 ? '1 dia seguido' : `${streak} dias seguidos`;
-  const cells = heat.map((h) => `<i class="${h.pb ? 'pb' : h.level ? `l${h.level}` : ''}${h.today ? ' today' : ''}" title="${h.day}: ${h.count} solves"></i>`);
+  const cells = heat.map((h) => {
+    const text = `Dia ${h.day}: ${h.count} ${h.count === 1 ? 'solve' : 'solves'}${h.pb ? ' · recorde' : ''}${h.today ? ' · hoje' : ''}`;
+    return `<i role="img" class="${h.pb ? 'pb' : h.level ? `l${h.level}` : ''}${h.today ? ' today' : ''}" title="${text}" aria-label="${text}"></i>`;
+  });
   while (cells.length < 32) cells.push('<i style="visibility:hidden"></i>');
-  root.querySelector('[data-heat]').innerHTML = cells.join('');
+  const heatEl = root.querySelector('[data-heat]');
+  heatEl.setAttribute('role', 'group');
+  heatEl.setAttribute('aria-label', `Constância · ${monthLabel(now)}`);
+  heatEl.innerHTML = cells.join('');
 }

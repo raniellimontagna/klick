@@ -208,6 +208,7 @@
 }
 
 .heat i {
+  position: relative;
   aspect-ratio: 1;
   border-radius: 3px;
   background: var(--heat-0);
@@ -217,6 +218,15 @@
 .heat i.l2 { background: var(--heat-2); }
 .heat i.l3 { background: var(--heat-3); }
 .heat i.pb { background: var(--pb); }
+
+/* O dia do recorde ganha um ponto, além do dourado. */
+.heat i.pb::after {
+  content: '';
+  position: absolute;
+  inset: 30%;
+  border-radius: 50%;
+  background: var(--surface);
+}
 
 .heat i.today {
   box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink);

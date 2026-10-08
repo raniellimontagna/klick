@@ -20,6 +20,16 @@ test('Evolução: indicadores, gráfico, distribuição e histórico com os dado
   assert.match(root.innerHTML, /aria-pressed="true">30 dias/);
 });
 
+test('Evolução: DNF aparece uma vez por linha e +2 ganha etiqueta', () => {
+  const last = seed.solves.length - 1;
+  const solves = seed.solves.map((x, i) => (i === last ? { ...x, penalty: 'DNF' } : i === last - 1 ? { ...x, penalty: '+2' } : x));
+  const root = { innerHTML: '' };
+  renderEvolucao({ root, solves, sessions: seed.sessions, sessionFilter: 'all', period: '7', now: NOW });
+  assert.doesNotMatch(root.innerHTML, /DNF<span class="tag">/);
+  assert.match(root.innerHTML, /<td>DNF<\/td>/);
+  assert.match(root.innerHTML, /<span class="tag">\+2<\/span>/);
+});
+
 test('Evolução: período vazio mostra aviso em vez de quebrar', () => {
   const root = { innerHTML: '' };
   renderEvolucao({ root, solves: [], sessions: seed.sessions, sessionFilter: 'all', period: '7', now: NOW });

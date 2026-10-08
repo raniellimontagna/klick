@@ -497,7 +497,8 @@ body.solving .t-coach {
   grid-column: 1 / -1;
 }
 
-.silent-row p {
+.silent-row .silent-hint {
+  display: block;
   font-size: 13px;
   color: var(--ink-2);
 }

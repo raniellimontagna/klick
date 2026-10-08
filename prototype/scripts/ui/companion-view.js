@@ -33,7 +33,7 @@ export function renderCompanion({ root, milestones, trail, finish, preview, sile
 
   const tlist = TRAIL.map((name, i) => {
     const cls = trail[i] ? 'done' : i === nextStep ? 'next' : '';
-    return `<li class="${cls}"><i></i>${name}<button class="link" data-trail="${i}">${trail[i] ? 'desfazer' : 'já sei'}</button></li>`;
+    return `<li class="${cls}"><i></i>${name}<button class="link" data-trail="${i}" aria-label="${name}: ${trail[i] ? 'desfazer' : 'já sei'}">${trail[i] ? 'desfazer' : 'já sei'}</button></li>`;
   }).join('');
 
   root.innerHTML = `
@@ -41,7 +41,7 @@ export function renderCompanion({ root, milestones, trail, finish, preview, sile
       <div class="stage">
         <div class="big">${renderCentro({ theme, eyes: 'open', topLit: done, sideLit: trailDone, finish: shown, label: `Centro: ${done} de 9 marcos, ${trailDone} de 9 etapas` })}</div>
         <h2>Centro</h2>
-        <p>${T.season(done, FINISH_INFO[finish].label)}${preview ? ` · prévia: ${FINISH_INFO[preview].label}` : ''}</p>
+        <p>${T.season(done, (FINISH_INFO[finish] || FINISH_INFO.fosco).label)}${preview ? ` · prévia: ${FINISH_INFO[preview].label}` : ''}</p>
         <div class="finishes" role="group" aria-label="Acabamentos">${finishes}</div>
       </div>
       <div class="comp-cols">
@@ -49,7 +49,7 @@ export function renderCompanion({ root, milestones, trail, finish, preview, sile
         <div class="card"><div class="label">Face lateral · trilha</div><ul class="mlist trail">${tlist}</ul></div>
         <div class="card silent-row">
           <input type="checkbox" class="switch" id="silent" data-silent ${silent ? 'checked' : ''} />
-          <label for="silent"><span class="label">Coach</span><p>Modo silencioso — o Centro continua reagindo, mas sem texto.</p></label>
+          <label for="silent"><span class="label">Coach</span><span class="silent-hint">Modo silencioso — o Centro continua reagindo, mas sem texto.</span></label>
         </div>
       </div>
     </div>`;

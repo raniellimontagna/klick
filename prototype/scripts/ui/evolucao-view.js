@@ -39,12 +39,13 @@ export function renderEvolucao({ root, solves, sessions, sessionFilter, period, 
   const bins = histogramBins(times);
   const current = averageOf(pool, 5);
   const maxCount = Math.max(1, ...bins.map((b) => b.count));
-  const bars = bins.map((b) => `<i class="${current !== null && current >= b.from && current < b.to ? 'hl' : ''}" style="height:${Math.max(2, (b.count / maxCount) * 100)}%" title="${formatMs(b.from)}–${formatMs(b.to)}: ${b.count}"></i>`).join('');
+  const hlIndex = current === null ? -1 : bins.findIndex((b) => current >= b.from && current < b.to);
+  const bars = bins.map((b, i) => `<i class="${i === hlIndex ? 'hl' : ''}" style="height:${Math.max(2, (b.count / maxCount) * 100)}%" title="${formatMs(b.from)}–${formatMs(b.to)}: ${b.count}"></i>`).join('');
   const axis = bins.length ? `<span>${formatMs(bins[0].from).slice(0, -3)}</span><span>${formatMs(bins[bins.length - 1].to).slice(0, -3)}</span>` : '';
 
   const rows = inPeriod.slice(-30).reverse().map((x) => {
     const i = pool.indexOf(x);
-    const tag = flags[i] ? '<span class="tag pb">recorde</span>' : x.penalty ? `<span class="tag">${x.penalty}</span>` : '';
+    const tag = flags[i] ? '<span class="tag pb">recorde</span>' : x.penalty === '+2' ? '<span class="tag">+2</span>' : '';
     return `<tr><td class="num">${i + 1}</td><td>${formatSolve(x)}${tag}</td><td>${formatMs(r5[i])}</td><td class="scr">${escapeHtml(truncate(x.scramble, 28))}</td><td>${relativeTime(x.at, now)}</td></tr>`;
   }).join('');
 
@@ -59,8 +60,8 @@ export function renderEvolucao({ root, solves, sessions, sessionFilter, period, 
     </div>
     <div class="kpis">${kpis.join('')}</div>
     <div class="evo-grid">
-      <div class="card"><div class="label">Todos os solves · média de 5 · recordes</div>${chart}</div>
-      <div class="card"><div class="label">Distribuição</div><div class="bars">${bars}</div><div class="bars-x">${axis}</div></div>
+      <div class="card"><div class="label">Solves do período · média de 5 · recordes</div>${chart}</div>
+      <div class="card"><div class="label">Distribuição${hlIndex >= 0 ? ` · em destaque, sua média de 5 (${formatMs(current)})` : ''}</div><div class="bars" role="img" aria-label="Distribuição dos tempos do período">${bars}</div><div class="bars-x">${axis}</div></div>
     </div>
     <div class="card hist"><table>
       <thead><tr><th>#</th><th>Tempo</th><th>Média de 5</th><th class="scr">Embaralhamento</th><th>Quando</th></tr></thead>

@@ -36,9 +36,16 @@ export function announce(text) {
   }, 50);
 }
 
+// Clique no fundo escuro fecha; clique no respiro interno do diálogo, não.
+function clickedBackdrop(e, d) {
+  if (e.target !== d) return false;
+  const r = d.getBoundingClientRect();
+  return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+}
+
 function bindClose(d) {
   d.addEventListener('click', (e) => {
-    if (e.target === d || e.target.closest('[data-close]')) d.close();
+    if (clickedBackdrop(e, d) || e.target.closest('[data-close]')) d.close();
   });
 }
 
@@ -57,6 +64,7 @@ const SHORTCUTS = [
 
 export function openShortcuts() {
   const d = $('[data-dialog="shortcuts"]');
+  d.setAttribute('aria-label', 'Atalhos');
   d.innerHTML = `<h2>Atalhos</h2><table><tbody>${SHORTCUTS.map(([k, v]) => `<tr><td><span class="key">${k}</span></td><td>${v}</td></tr>`).join('')}</tbody></table>
     <div class="row"><button type="button" class="btn" data-close>Fechar</button></div>`;
   if (!d.dataset.bound) {
@@ -70,13 +78,14 @@ export function openShortcuts() {
 export function openSessions({ sessions, current, counts, onPick, onCreate, onRename }) {
   const d = $('[data-dialog="sessions"]');
   const name = (sessions.find((s) => s.id === current) || {}).name || '';
+  d.setAttribute('aria-label', 'Sessões');
   d.innerHTML = `<h2>Sessões</h2>
     ${sessions.map((s) => `<button type="button" class="list-btn" data-pick="${escapeHtml(s.id)}" aria-current="${s.id === current}"><span>${escapeHtml(s.name)}</span><span class="muted num">${counts[s.id] || 0} solves</span></button>`).join('')}
     <div class="row"><input type="text" data-newname placeholder="Nome da nova sessão" aria-label="Nome da nova sessão" /><button type="button" class="btn primary" data-create>Criar</button></div>
     <div class="row"><input type="text" data-rename value="${escapeHtml(name)}" aria-label="Renomear a sessão atual" /><button type="button" class="btn" data-dorename>Renomear</button></div>
     <div class="row"><button type="button" class="btn" data-close>Fechar</button></div>`;
   d.onclick = (e) => {
-    if (e.target === d || e.target.closest('[data-close]')) return d.close();
+    if (clickedBackdrop(e, d) || e.target.closest('[data-close]')) return d.close();
     const pick = e.target.closest('[data-pick]');
     if (pick) {
       d.close();
@@ -97,6 +106,7 @@ export function openSessions({ sessions, current, counts, onPick, onCreate, onRe
 // mode: 'first' (escolhe dados de exemplo ou começar do zero) | 'review' (só fechar).
 export function openOnboarding({ theme, holdMs, mode, onExample, onFresh }) {
   const d = $('[data-dialog="onboarding"]');
+  d.setAttribute('aria-label', 'Primeira vez');
   let step = 1;
   let chosen = false;
   let pressAt = 0;
@@ -122,7 +132,16 @@ export function openOnboarding({ theme, holdMs, mode, onExample, onFresh }) {
     },
   };
 
+  // Foco no que se usa a seguir: o botão de segurar no passo 2, a ação principal nos outros.
+  function focusStep() {
+    if (!d.open) return;
+    const target = step === 2 ? d.querySelector('[data-hold]') : d.querySelector('.actions .primary');
+    if (target) target.focus();
+  }
+
   function render() {
+    cancelAnimationFrame(raf);
+    pressAt = 0;
     const s = steps[step];
     const actions =
       step === 1
@@ -137,6 +156,7 @@ export function openOnboarding({ theme, holdMs, mode, onExample, onFresh }) {
       <h2>${s.title}</h2><p>${s.text}</p>
       ${step === 2 ? `<button type="button" class="hold${practiced ? ' ready' : ''}" data-hold>${practiced ? 'É assim que larga.' : 'Segure aqui'}</button>` : ''}
       <div class="actions">${actions}</div>`;
+    focusStep();
   }
 
   function paint(st, progress) {
@@ -150,7 +170,8 @@ export function openOnboarding({ theme, holdMs, mode, onExample, onFresh }) {
     if (progress >= 1) {
       ready = true;
       paint('ready', 1);
-      d.querySelector('[data-hold]').textContent = 'Agora solte';
+      const hold = d.querySelector('[data-hold]');
+      if (hold) hold.textContent = 'Agora solte';
       return;
     }
     paint('arming', progress);
@@ -174,7 +195,8 @@ export function openOnboarding({ theme, holdMs, mode, onExample, onFresh }) {
       updateCentro(d.querySelector('[data-onb-centro] svg'), { theme, ring: ringFor({ state: 'reaction', result: 'good' }), eyes: 'open' });
     } else {
       paint('idle', 0);
-      d.querySelector('[data-hold]').textContent = 'Segure aqui';
+      const hold = d.querySelector('[data-hold]');
+      if (hold) hold.textContent = 'Segure aqui';
     }
   }
 
@@ -204,18 +226,27 @@ export function openOnboarding({ theme, holdMs, mode, onExample, onFresh }) {
     }
   };
   d.onpointerup = () => up();
-  d.onkeydown = (e) => {
-    if (e.code !== 'Space') return;
+  d.onpointercancel = () => up();
+  // Espaço só segura no passo 2 e fora dos outros botões, que continuam ativando com espaço.
+  // Fica no document porque o foco pode cair no body e aí a tecla não passa pelo diálogo.
+  const isHoldKey = (e) =>
+    e.code === 'Space' && step === 2 && !(e.target instanceof Element && e.target.closest('button:not([data-hold]), input, select, textarea, a'));
+  const onKeyDown = (e) => {
+    if (!isHoldKey(e)) return;
     e.preventDefault();
     if (!e.repeat) down();
   };
-  d.onkeyup = (e) => {
-    if (e.code !== 'Space') return;
+  const onKeyUp = (e) => {
+    if (!isHoldKey(e)) return;
     e.preventDefault();
     up();
   };
+  document.addEventListener('keydown', onKeyDown);
+  document.addEventListener('keyup', onKeyUp);
   d.onclose = () => {
     cancelAnimationFrame(raf);
+    document.removeEventListener('keydown', onKeyDown);
+    document.removeEventListener('keyup', onKeyUp);
     if (mode === 'first' && !chosen) onExample();
   };
   render();
