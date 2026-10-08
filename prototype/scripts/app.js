@@ -57,6 +57,9 @@ const ui = {
   confirm: null,
   looping: false,
   swallowClick: false,
+  spaceHeld: false,
+  previewGen: 0,
+  confirmGen: 0,
   sig: '',
   text: '',
   coachText: null,
@@ -229,6 +232,7 @@ function renderAll() {
 
 function go(tab) {
   if (!TABS.includes(tab)) return;
+  if (tab !== 'timer') abandonHold();
   ui.tab = tab;
   for (const t of TABS) screens[t].hidden = t !== tab;
   document.querySelectorAll('[data-tab]').forEach((b) => (b.dataset.tab === tab ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current')));
@@ -255,6 +259,8 @@ function handleSolve(ms, penalty) {
   });
   const kind = resultKind(history, solve);
   const t0 = performance.now();
+  ui.removed = null; // desfazer vale só até o próximo solve
+  hideToast();
   ui.lastId = solve.id;
   ui.lastKind = kind;
   ui.showResult = true;
@@ -279,15 +285,19 @@ function act(name) {
     const next = store.togglePenalty(state, last.id, name === 'plus2' ? '+2' : 'DNF');
     const idx = next.solves.findIndex((x) => x.id === last.id);
     ui.lastKind = resultKind(next.solves.slice(0, idx), next.solves[idx]);
+    if (ui.reaction) ui.reaction.kind = ui.lastKind; // o anel e o acorde seguem o resultado corrigido
+    ui.coach = null;
     commit(next);
     announce(T.aria.final(formatSolve(next.solves[idx])));
   } else if (name === 'note') {
     noteForm.hidden = false;
+    noteForm.dataset.solveId = String(last.id);
     noteForm.note.value = last.note || '';
     noteForm.note.focus();
   } else if (name === 'delete') {
     const { state: next, removed } = store.deleteSolve(state, last.id);
     ui.removed = removed;
+    noteForm.hidden = true;
     ui.showResult = false;
     ui.reaction = null;
     ui.coach = null;
@@ -304,18 +314,27 @@ function undo() {
   const r = ui.removed;
   ui.removed = null;
   ui.lastId = r.solve.id;
+  noteForm.hidden = true;
   hideToast();
   commit(store.restoreSolve(state, r));
 }
 
 function resetUi() {
   timer.reset();
+  noteForm.hidden = true;
   ui.showResult = false;
   ui.reaction = null;
   ui.coach = null;
   ui.removed = null;
   ui.lastId = lastOfSession()?.id ?? null;
   ui.scramble = state.solves.length;
+}
+
+function resetTo(fresh) {
+  state = { ...fresh, settings: state.settings, onboarded: true };
+  resetUi();
+  save();
+  renderAll();
 }
 
 // ---------- Eventos do timer ----------
@@ -370,13 +389,14 @@ document.addEventListener('keydown', (e) => {
     if (ui.tab !== 'timer') return;
     e.preventDefault();
     if (!e.repeat) {
+      ui.spaceHeld = true;
       sound.unlock();
       timer.press();
       kick();
     }
     return;
   }
-  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
   if (e.key === '?') return openShortcuts();
   if (/^[1-4]$/.test(e.key)) return go(TABS[Number(e.key) - 1]);
   if (ui.tab !== 'timer' || timer.state === 'inspect') return;
@@ -394,10 +414,13 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+// Todo espaço que armou recebe o seu soltar, mesmo se a aba mudou ou um diálogo abriu no meio.
 document.addEventListener('keyup', (e) => {
-  if (e.code !== 'Space' || ui.tab !== 'timer' || typing(e) || dialogOpen()) return;
+  if (e.code !== 'Space' || !ui.spaceHeld) return;
+  ui.spaceHeld = false;
   e.preventDefault();
-  timer.release();
+  if (ui.tab !== 'timer' || dialogOpen()) abandonHold();
+  else timer.release();
   kick();
 });
 
@@ -408,6 +431,7 @@ document.addEventListener(
   (e) => {
     wake();
     sound.unlock();
+    ui.swallowClick = false;
     if (timer.state === 'running' && !e.target.closest('[data-zone]')) {
       e.preventDefault();
       ui.swallowClick = true;
@@ -454,10 +478,11 @@ const lift = (e) => {
   kick();
 };
 zones.addEventListener('pointerup', lift);
-zones.addEventListener('pointercancel', lift);
+zones.addEventListener('pointercancel', () => abandonHold());
 
-// Perdeu o foco ou a página sumiu (ligação, troca de app) segurando: abandona sem largar.
+// Perdeu o foco, a página sumiu (ligação, troca de app) ou o sistema cancelou o toque: abandona sem largar.
 function abandonHold() {
+  ui.spaceHeld = false;
   touch.cancelAll();
   zoneOf.clear();
   zones.querySelectorAll('.zone.down').forEach((z) => z.classList.remove('down'));
@@ -470,9 +495,9 @@ document.addEventListener('visibilitychange', () => {
 
 noteForm.addEventListener('submit', (e) => {
   e.preventDefault();
-  const last = lastSolve();
+  const id = Number(noteForm.dataset.solveId);
   noteForm.hidden = true;
-  if (last) commit(store.setNote(state, last.id, noteForm.note.value.trim()));
+  if (state.solves.some((x) => x.id === id)) commit(store.setNote(state, id, noteForm.note.value.trim()));
 });
 
 function sessionsDialog() {
@@ -506,9 +531,10 @@ function pickFinish(f) {
     return;
   }
   ui.preview = f; // bloqueado: mostra uma prévia por 3 s
+  const gen = ++ui.previewGen;
   renderAll();
   setTimeout(() => {
-    if (ui.preview === f) {
+    if (ui.previewGen === gen) {
       ui.preview = null;
       renderAll();
     }
@@ -537,12 +563,7 @@ function onboarding(mode) {
     holdMs: Math.max(300, state.settings.holdMs),
     mode,
     onExample: () => commit({ ...state, onboarded: true }),
-    onFresh: () => {
-      state = { ...store.emptyState(), settings: state.settings, onboarded: true };
-      resetUi();
-      save();
-      renderAll();
-    },
+    onFresh: () => resetTo(store.emptyState()),
   });
 }
 
@@ -551,9 +572,10 @@ function dataAction(id) {
   if (id === 'onboarding') return onboarding('review');
   if (ui.confirm !== id) {
     ui.confirm = id;
+    const gen = ++ui.confirmGen;
     renderAll();
     setTimeout(() => {
-      if (ui.confirm === id) {
+      if (ui.confirmGen === gen && ui.confirm === id) {
         ui.confirm = null;
         renderAll();
       }
@@ -561,11 +583,7 @@ function dataAction(id) {
     return;
   }
   ui.confirm = null;
-  const fresh = id === 'seed' ? store.seededState(Date.now()) : store.emptyState();
-  state = { ...fresh, settings: state.settings, onboarded: true };
-  resetUi();
-  save();
-  renderAll();
+  resetTo(id === 'seed' ? store.seededState(Date.now()) : store.emptyState());
 }
 
 function applySetting(patch) {
