@@ -22,6 +22,8 @@
   --heat-2: #94cda9;
   --heat-3: #2f9e5f;
   --trail: #3e63dd;
+  --arm-ink: #b8292f;
+  --go-ink: #1b744a;
   --inner: none;
   --font: 'Geist', 'Inter', system-ui, -apple-system, sans-serif;
   --mono: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
@@ -57,6 +59,8 @@
     --heat-2: #2b7a50;
     --heat-3: #3dd68c;
     --trail: #4c6fe8;
+    --arm-ink: #ff5a5f;
+    --go-ink: #3dd68c;
     --inner: inset 0 1px 0 rgba(255, 255, 255, 0.035);
   }
 }
@@ -83,5 +87,7 @@
   --heat-2: #2b7a50;
   --heat-3: #3dd68c;
   --trail: #4c6fe8;
+  --arm-ink: #ff5a5f;
+  --go-ink: #3dd68c;
   --inner: inset 0 1px 0 rgba(255, 255, 255, 0.035);
 }

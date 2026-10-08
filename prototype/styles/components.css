@@ -247,7 +247,7 @@
   padding: 5px 14px;
   border-radius: 999px;
   font-size: 13px;
-  color: var(--muted);
+  color: var(--ink-2);
 }
 
 .seg button[aria-pressed='true'] {
@@ -261,7 +261,7 @@
   width: 40px;
   height: 24px;
   border-radius: 999px;
-  background: var(--surface-2);
+  background: var(--muted);
   position: relative;
   flex-shrink: 0;
   transition: background var(--t-state) var(--ease);
@@ -385,6 +385,10 @@
   font-size: 13px;
 }
 
+.toast :focus-visible {
+  outline-color: var(--bg);
+}
+
 /* Barra de abas do celular */
 .tabbar {
   display: none;
@@ -401,7 +405,11 @@
   .seg button,
   .link,
   .list-btn,
-  .finish {
+  .finish,
+  .tab,
+  .toast button,
+  .sheet input[type='text'],
+  .t-note input {
     min-height: 44px;
   }
 }

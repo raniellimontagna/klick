@@ -26,9 +26,10 @@ const PAIRS = [
   ['ink', 'bg', 4.5], ['ink', 'surface', 4.5], ['ink-2', 'surface-2', 4.5],
   ['muted', 'bg', 4.5], ['muted', 'surface', 4.5], ['pb-ink', 'pb-bg', 4.5],
   ['dec', 'bg', 3], ['arm', 'bg', 3], ['go', 'bg', 3], ['pb', 'bg', 3], ['insp-8', 'bg', 3], ['insp-12', 'bg', 3],
+  ['arm-ink', 'bg', 4.5], ['arm-ink', 'surface', 4.5], ['go-ink', 'bg', 4.5], ['go-ink', 'surface', 4.5],
 ];
 
-for (const [name, selector] of [['claro', ':root {'], ['noite', ":root[data-theme='dark']"]]) {
+for (const [name, selector] of [['claro', ':root {'], ['noite', ":root[data-theme='dark']"], ['noite (sistema)', ":root:not([data-theme='light']) {"]]) {
   test(`contraste AA no tema ${name}`, () => {
     const t = block(selector);
     for (const [fg, bg, min] of PAIRS) {

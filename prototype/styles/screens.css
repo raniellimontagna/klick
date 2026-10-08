@@ -17,7 +17,7 @@
 }
 
 .centro .eyes {
-  transition: opacity 150ms var(--ease);
+  transition: opacity var(--t-state) var(--ease);
 }
 
 .centro .eye {
@@ -50,7 +50,7 @@
 }
 
 [data-cview='reaction'][data-result='pb'] .t-centro .centro {
-  animation: lift 600ms cubic-bezier(0.34, 1.56, 0.64, 1) 2;
+  animation: lift 450ms cubic-bezier(0.34, 1.56, 0.64, 1) 2;
 }
 
 @keyframes lift {
@@ -61,6 +61,7 @@
 body.solving .centro,
 body.solving .centro * {
   animation: none !important;
+  transition: none !important;
 }
 
 /* ---------- Timer ---------- */
@@ -234,13 +235,13 @@ body.solving .t-coach {
 .zone.down {
   border-style: solid;
   border-color: var(--arm);
-  color: var(--arm);
+  color: var(--arm-ink);
   background: color-mix(in srgb, var(--arm) 8%, transparent);
 }
 
 [data-tstate='ready'] .zone.down {
   border-color: var(--go);
-  color: var(--go);
+  color: var(--go-ink);
   background: color-mix(in srgb, var(--go) 10%, transparent);
 }
 
@@ -531,7 +532,7 @@ body.solving .t-coach {
 }
 
 .danger {
-  color: var(--arm);
+  color: var(--arm-ink);
 }
 
 /* ---------- Primeira vez ---------- */
@@ -555,8 +556,8 @@ body.solving .t-coach {
   touch-action: none;
 }
 
-.onb .hold.arming { border-color: var(--arm); color: var(--arm); border-style: solid; }
-.onb .hold.ready { border-color: var(--go); color: var(--go); border-style: solid; }
+.onb .hold.arming { border-color: var(--arm); color: var(--arm-ink); border-style: solid; }
+.onb .hold.ready { border-color: var(--go); color: var(--go-ink); border-style: solid; }
 
 .onb .actions {
   display: flex;
@@ -591,6 +592,7 @@ body.solving .t-coach {
   .topbar .tabs,
   .topbar [data-date] { display: none; }
   .screen { padding: 0 16px 96px; }
+  .toast { bottom: calc(76px + env(safe-area-inset-bottom)); }
 
   .timer {
     display: flex;
