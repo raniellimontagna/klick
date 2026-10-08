@@ -156,6 +156,12 @@ body.solving .centro * {
   background: var(--surface);
 }
 
+@media (pointer: coarse) {
+  .t-note input {
+    min-height: 44px;
+  }
+}
+
 .t-coach {
   display: grid;
   grid-template-columns: 112px 1fr;

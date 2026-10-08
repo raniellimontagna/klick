@@ -253,6 +253,7 @@
 .seg button[aria-pressed='true'] {
   background: var(--surface);
   color: var(--ink);
+  font-weight: 600;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
@@ -408,8 +409,7 @@
   .finish,
   .tab,
   .toast button,
-  .sheet input[type='text'],
-  .t-note input {
+  .sheet input[type='text'] {
     min-height: 44px;
   }
 }
