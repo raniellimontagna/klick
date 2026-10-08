@@ -9,6 +9,7 @@ function rig({ inspection = false, mode = 'two' } = {}) {
   const touch = createTouchArm({
     press: timer.press,
     release: timer.release,
+    cancel: timer.cancel,
     getState: () => timer.state,
     getInspection: () => inspection,
     mode,
@@ -81,11 +82,41 @@ test('modo um toque: qualquer dedo arma', () => {
   assert.equal(timer.state, STATES.RUNNING);
 });
 
-test('cancelAll solta o que estiver pressionado', () => {
+test('cancelAll abandona sem largar: pronto volta ao parado e o toque de inspeção não vale', () => {
   const { timer, touch, at } = rig();
   touch.down(1, 'left');
   touch.down(2, 'right');
-  at(100);
+  at(400);
+  assert.equal(timer.state, STATES.READY);
   touch.cancelAll();
   assert.equal(timer.state, STATES.IDLE);
+  const withInspection = rig({ inspection: true });
+  withInspection.touch.down(1, 'left');
+  withInspection.touch.cancelAll();
+  assert.equal(withInspection.timer.state, STATES.IDLE);
+  withInspection.touch.down(2, 'left');
+  withInspection.touch.up(2);
+  assert.equal(withInspection.timer.state, STATES.INSPECT);
+});
+
+test('parar com dois dedos e inspeção ligada não inicia outra inspeção', () => {
+  const { timer, touch, at } = rig({ inspection: true });
+  touch.down(1, 'left');
+  touch.up(1);
+  at(1000);
+  touch.down(2, 'left');
+  touch.down(3, 'right');
+  at(1300);
+  touch.up(2);
+  assert.equal(timer.state, STATES.RUNNING);
+  touch.up(3);
+  at(5000);
+  touch.down(4, 'left');
+  touch.down(5, 'right');
+  touch.up(4);
+  touch.up(5);
+  assert.equal(timer.state, STATES.DONE);
+  touch.down(6, 'right');
+  touch.up(6);
+  assert.equal(timer.state, STATES.INSPECT);
 });

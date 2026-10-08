@@ -129,6 +129,11 @@ export function createTimer({ now = () => performance.now(), holdMs = 300, inspe
       penalty = null;
       set(STATES.IDLE);
     },
+    // Abandona um segurar (ou o toque que iniciaria a inspeção) sem largar o timer.
+    cancel() {
+      pendingInspect = false;
+      if (state === STATES.ARMING || state === STATES.READY) set(base);
+    },
     on(ev, fn) {
       listeners[ev].add(fn);
       return () => listeners[ev].delete(fn);

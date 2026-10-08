@@ -165,3 +165,20 @@ test('reset limpa o resultado anterior', () => {
   timer.reset();
   assert.equal(timer.result, null);
 });
+
+test('cancel abandona o segurar sem largar e volta à base', () => {
+  const { timer, at } = rig({ inspection: true });
+  timer.press();
+  timer.release();
+  at(2000);
+  timer.press();
+  at(2300);
+  assert.equal(timer.state, STATES.READY);
+  timer.cancel();
+  assert.equal(timer.state, STATES.INSPECT);
+  const plain = rig();
+  plain.timer.press();
+  plain.at(400);
+  plain.timer.cancel();
+  assert.equal(plain.timer.state, STATES.IDLE);
+});
