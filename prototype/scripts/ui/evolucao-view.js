@@ -10,7 +10,7 @@ function variation(now, then) {
   if (now === null || then === null || now === Infinity || then === Infinity) return '—';
   const d = now - then;
   if (Math.abs(d) < 10) return 'sem mudança';
-  return `${d < 0 ? '▼' : '▲'} ${(Math.abs(d) / 1000).toFixed(2)} s no período`;
+  return `${d < 0 ? '▼' : '▲'} ${(Math.trunc(Math.abs(d) / 10) / 100).toFixed(2)} s no período`;
 }
 
 // ctx: { root, solves, sessions, sessionFilter, period, now }
@@ -29,7 +29,7 @@ export function renderEvolucao({ root, solves, sessions, sessionFilter, period, 
     ['Média de 100', averageOf(pool, 100), averageOf(before, 100)],
   ].map(([label, value, then, pb]) => `<div class="tile"><small>${label}</small><b class="${pb ? 'pb' : ''}">${formatMs(value)}</b><em>${period === 'all' ? '&nbsp;' : variation(value, then)}</em></div>`);
   const sd = stdDevMs(inPeriod);
-  kpis.push(`<div class="tile"><small>Desvio</small><b>${sd === null ? '—' : `±${(sd / 1000).toFixed(1)} s`}</b><em>solves do período</em></div>`);
+  kpis.push(`<div class="tile"><small>Desvio</small><b>${sd === null ? '—' : `±${(sd / 1000).toFixed(1)} s`}</b><em>${period === 'all' ? 'solves do período' : variation(sd, stdDevMs(before))}</em></div>`);
 
   const r5 = rollingAverages(pool, 5);
   const flags = pbFlags(pool);
@@ -40,13 +40,16 @@ export function renderEvolucao({ root, solves, sessions, sessionFilter, period, 
   const current = averageOf(pool, 5);
   const maxCount = Math.max(1, ...bins.map((b) => b.count));
   const hlIndex = current === null ? -1 : bins.findIndex((b) => current >= b.from && current < b.to);
+  const counted = bins.reduce((sum, b) => sum + b.count, 0);
+  const top = bins.reduce((a, b) => (b.count > a.count ? b : a), bins[0]);
+  const barsLabel = top ? `Distribuição dos tempos do período: ${counted} solves, mais comuns entre ${formatMs(top.from)} e ${formatMs(top.to)}` : 'Distribuição dos tempos do período: sem solves';
   const bars = bins.map((b, i) => `<i class="${i === hlIndex ? 'hl' : ''}" style="height:${Math.max(2, (b.count / maxCount) * 100)}%" title="${formatMs(b.from)}–${formatMs(b.to)}: ${b.count}"></i>`).join('');
   const axis = bins.length ? `<span>${formatMs(bins[0].from).slice(0, -3)}</span><span>${formatMs(bins[bins.length - 1].to).slice(0, -3)}</span>` : '';
 
   const rows = inPeriod.slice(-30).reverse().map((x) => {
     const i = pool.indexOf(x);
     const tag = flags[i] ? '<span class="tag pb">recorde</span>' : x.penalty === '+2' ? '<span class="tag">+2</span>' : '';
-    return `<tr><td class="num">${i + 1}</td><td>${formatSolve(x)}${tag}</td><td>${formatMs(r5[i])}</td><td class="scr">${escapeHtml(truncate(x.scramble, 28))}</td><td>${relativeTime(x.at, now)}</td></tr>`;
+    return `<tr><td class="num">${i + 1}</td><td>${formatSolve(x)}${tag}${x.note ? `<small class="note">${escapeHtml(truncate(x.note, 48))}</small>` : ''}</td><td>${formatMs(r5[i])}</td><td class="scr">${escapeHtml(truncate(x.scramble, 28))}</td><td>${relativeTime(x.at, now)}</td></tr>`;
   }).join('');
 
   const options = [['all', 'Todas as sessões'], ...sessions.map((s) => [s.id, s.name])]
@@ -61,7 +64,7 @@ export function renderEvolucao({ root, solves, sessions, sessionFilter, period, 
     <div class="kpis">${kpis.join('')}</div>
     <div class="evo-grid">
       <div class="card"><div class="label">Solves do período · média de 5 · recordes</div>${chart}</div>
-      <div class="card"><div class="label">Distribuição${hlIndex >= 0 ? ` · em destaque, sua média de 5 (${formatMs(current)})` : ''}</div><div class="bars" role="img" aria-label="Distribuição dos tempos do período">${bars}</div><div class="bars-x">${axis}</div></div>
+      <div class="card"><div class="label">Distribuição${hlIndex >= 0 ? ` · em destaque, sua média de 5 (${formatMs(current)})` : ''}</div><div class="bars" role="img" aria-label="${barsLabel}">${bars}</div><div class="bars-x">${axis}</div></div>
     </div>
     <div class="card hist"><table>
       <thead><tr><th>#</th><th>Tempo</th><th>Média de 5</th><th class="scr">Embaralhamento</th><th>Quando</th></tr></thead>

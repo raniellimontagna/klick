@@ -55,15 +55,24 @@ export function safeStorage() {
 
 export function loadState(storage) {
   if (!storage) return null;
+  let raw = null;
   try {
-    const raw = storage.getItem(STORAGE_KEY);
+    raw = storage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const data = JSON.parse(raw);
-    if (!data || data.version !== 1 || !Array.isArray(data.solves)) return null;
-    return { ...emptyState(), ...data, settings: cloneSettings(data.settings) };
+    if (data && data.version === 1 && Array.isArray(data.solves)) return { ...emptyState(), ...data, settings: cloneSettings(data.settings) };
   } catch {
-    return null;
+    /* ilegível: segue para a cópia abaixo */
   }
+  // Nada se perde: o que não deu para ler ganha uma cópia antes de o app gravar por cima.
+  if (raw) {
+    try {
+      storage.setItem(`${STORAGE_KEY}.backup.${Date.now()}`, raw);
+    } catch {
+      /* sem espaço: o app segue, só sem a cópia */
+    }
+  }
+  return null;
 }
 
 export function saveState(storage, state) {
@@ -74,6 +83,23 @@ export function saveState(storage, state) {
   } catch {
     return false;
   }
+}
+
+// Exportação no formato do csTimer: uma lista por sessão ([[penalidade, ms], embaralhamento, nota, segundos])
+// e os nomes em properties.sessionData. Penalidade: 0, 2000 (+2) ou -1 (DNF).
+const CS_PENALTY = { '+2': 2000, DNF: -1 };
+export function toCsTimer(state) {
+  const out = {};
+  const meta = {};
+  state.sessions.forEach((s, i) => {
+    const n = i + 1;
+    out[`session${n}`] = state.solves
+      .filter((x) => x.session === s.id)
+      .map((x) => [[CS_PENALTY[x.penalty] ?? 0, x.ms], x.scramble, x.note || '', Math.floor(x.at / 1000)]);
+    meta[n] = { name: s.name, opt: {}, rank: n };
+  });
+  out.properties = { sessionData: JSON.stringify(meta) };
+  return out;
 }
 
 export function addSolve(state, { ms, penalty = null, at, scramble }) {
@@ -109,7 +135,9 @@ export function sessionSolves(state, sessionId = state.currentSession) {
 export function createSession(state, name) {
   const n = state.sessions.length + 1;
   const id = `s${Date.now().toString(36)}${n}`;
-  const session = { id, name: name && name.trim() ? name.trim() : `Sessão ${n}` };
+  const used = state.sessions.map((s) => Number(/^Sessão (\d+)$/.exec(s.name)?.[1] ?? 0));
+  const next = Math.max(state.sessions.length, ...used) + 1;
+  const session = { id, name: name && name.trim() ? name.trim() : `Sessão ${next}` };
   return { ...state, sessions: [...state.sessions, session], currentSession: id };
 }
 

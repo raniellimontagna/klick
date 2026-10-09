@@ -103,10 +103,43 @@ export function openSessions({ sessions, current, counts, onPick, onCreate, onRe
   d.showModal();
 }
 
+// Texto para copiar quando o download não é possível (o link privado bloqueia downloads).
+// ctx: { json, onCopied }
+export function openExport({ json, onCopied }) {
+  const d = $('[data-dialog="export"]');
+  d.setAttribute('aria-label', 'Exportar');
+  d.innerHTML = `<h2>Exportar</h2>
+    <p class="muted">Formato do csTimer. Copie e cole num arquivo .txt para guardar ou importar.</p>
+    <textarea class="export-text" readonly rows="8" aria-label="Solves no formato do csTimer"></textarea>
+    <div class="row"><button type="button" class="btn primary" data-copy>Copiar</button><button type="button" class="btn" data-close>Fechar</button></div>`;
+  const area = d.querySelector('textarea');
+  area.value = json;
+  const byHand = () => {
+    area.focus();
+    area.select();
+  };
+  d.onclick = (e) => {
+    if (clickedBackdrop(e, d) || e.target.closest('[data-close]')) return d.close();
+    if (!e.target.closest('[data-copy]')) return;
+    try {
+      const copy = navigator.clipboard?.writeText(json);
+      if (!copy) return byHand();
+      copy.then(() => {
+        d.close();
+        onCopied();
+      }, byHand);
+    } catch {
+      byHand();
+    }
+  };
+  d.showModal();
+  area.select();
+}
+
 // mode: 'first' (escolhe dados de exemplo ou começar do zero) | 'review' (só fechar).
 export function openOnboarding({ theme, holdMs, mode, onExample, onFresh }) {
   const d = $('[data-dialog="onboarding"]');
-  d.setAttribute('aria-label', 'Primeira vez');
+  d.setAttribute('aria-label', mode === 'first' ? 'Primeira vez' : 'Apresentação');
   let step = 1;
   let chosen = false;
   let pressAt = 0;
@@ -236,8 +269,9 @@ export function openOnboarding({ theme, holdMs, mode, onExample, onFresh }) {
     e.preventDefault();
     if (!e.repeat) down();
   };
+  // O soltar vale para qualquer segurar ativo, mesmo se o foco mudou no meio.
   const onKeyUp = (e) => {
-    if (!isHoldKey(e)) return;
+    if (e.code !== 'Space' || !pressAt) return;
     e.preventDefault();
     up();
   };

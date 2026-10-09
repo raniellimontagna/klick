@@ -88,7 +88,7 @@ body.solving .centro * {
 
 .scramble {
   margin-top: 4px;
-  font: 400 16px/1.5 var(--mono);
+  font: 400 14px/1.5 var(--mono);
   color: var(--ink-2);
   word-spacing: 2px;
 }
@@ -495,6 +495,14 @@ body.solving .t-coach {
   align-items: center;
   gap: 12px;
   grid-column: 1 / -1;
+}
+
+.hist .note {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: normal;
 }
 
 .silent-row .silent-hint {

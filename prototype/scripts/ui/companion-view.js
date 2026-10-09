@@ -41,7 +41,7 @@ export function renderCompanion({ root, milestones, trail, finish, preview, sile
       <div class="stage">
         <div class="big">${renderCentro({ theme, eyes: 'open', topLit: done, sideLit: trailDone, finish: shown, label: `Centro: ${done} de 9 marcos, ${trailDone} de 9 etapas` })}</div>
         <h2>Centro</h2>
-        <p>${T.season(done, (FINISH_INFO[finish] || FINISH_INFO.fosco).label)}${preview ? ` · prévia: ${FINISH_INFO[preview].label}` : ''}</p>
+        <p>${T.season(done, (FINISH_INFO[finish] || FINISH_INFO.fosco).label)}${preview ? ` · prévia: ${(FINISH_INFO[preview] || FINISH_INFO.fosco).label}` : ''}</p>
         <div class="finishes" role="group" aria-label="Acabamentos">${finishes}</div>
       </div>
       <div class="comp-cols">

@@ -36,6 +36,8 @@ export const FINISH_INFO = Object.freeze({
 export const T = Object.freeze({
   coach: {
     idle: 'Quando quiser. Segure espaço para armar.',
+    idleInsp: 'Quando quiser. Aperte espaço para começar a inspeção.',
+    idleInspTouch: 'Quando quiser. Toque para começar a inspeção.',
     idleTouch: 'Quando quiser. Segure com os dois polegares.',
     idleOne: 'Quando quiser. Toque e segure para armar.',
     inspect: 'Inspeção. Segure para armar quando estiver pronto.',
@@ -44,7 +46,7 @@ export const T = Object.freeze({
     pbSingle: (diffMs) => `Novo recorde — ${sec(diffMs)} s mais rápido. Vale lembrar o que funcionou.`,
     pbAverage: (n, value) => `Sua média de ${n} caiu para ${value}. Isso é consistência, não sorte.`,
     milestone: (msg, k) => `${msg}. Marco ${k} de 9.`,
-    dailyGoal: (n) => `Meta de ${n} solves feita. O resto é bônus.`,
+    dailyGoal: (n) => `Meta de ${n} ${n === 1 ? 'solve' : 'solves'} feita. O resto é bônus.`,
     stable: 'Cinco solves dentro de 3 segundos. Ritmo estável.',
     fatigue: 'Seus últimos estão subindo. Uma pausa de 5 minutos costuma ajudar.',
     firstDnf: 'DNF acontece. Respira e segue.',
@@ -63,7 +65,7 @@ export const T = Object.freeze({
     deleted: 'Solve excluído',
     undo: 'Desfazer (Z)',
     undoTouch: 'Desfazer',
-    exportFail: 'Exportação indisponível neste ambiente.',
+    exportCopied: 'Solves copiados. Cole num arquivo .txt para guardar ou importar no csTimer.',
   },
   progress: {
     best: (text) => `melhor ${text}`,

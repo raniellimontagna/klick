@@ -105,9 +105,10 @@ export function currentStreak(solves, nowTs) {
   return n;
 }
 
-export function solveDeltas(history, solve) {
+// A média compara com avgHistory (a sessão); o recorde, com history (todos os solves).
+export function solveDeltas(history, solve, avgHistory = history) {
   const e = effectiveMs(solve);
-  const prevAo5 = averageOf(history, 5);
+  const prevAo5 = averageOf(avgHistory, 5);
   const prevPb = bestSingle(history);
   return {
     vsAo5: prevAo5 !== null && prevAo5 !== Infinity && e !== Infinity ? e - prevAo5 : null,
@@ -117,10 +118,10 @@ export function solveDeltas(history, solve) {
 }
 
 // Tipo de reação do Centro: 'pb' | 'good' | 'slow' | 'plus2' | 'dnf'.
-export function resultKind(history, solve) {
+export function resultKind(history, solve, avgHistory = history) {
   if (solve.penalty === 'DNF') return 'dnf';
   if (solve.penalty === '+2') return 'plus2';
-  const d = solveDeltas(history, solve);
+  const d = solveDeltas(history, solve, avgHistory);
   if (d.isPb) return 'pb';
   return d.vsAo5 === null || d.vsAo5 <= 0 ? 'good' : 'slow';
 }

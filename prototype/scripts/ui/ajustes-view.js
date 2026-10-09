@@ -35,7 +35,7 @@ export function renderAjustes({ root, settings, confirm }) {
       </fieldset>
       <fieldset>
         <legend>Dados</legend>
-        ${row('Exportar', 'Baixa seus solves em JSON.', '<button type="button" class="btn" data-data="export">Exportar</button>')}
+        ${row('Exportar', 'Seus solves no formato do csTimer.', '<button type="button" class="btn" data-data="export">Exportar</button>')}
         ${row('Rever a apresentação', '', '<button type="button" class="btn" data-data="onboarding">Abrir</button>')}
         ${row('Dados de exemplo', 'Troca tudo pelos 212 solves fictícios.', danger('seed', 'Restaurar', 'Tem certeza? Clique de novo'))}
         ${row('Começar do zero', 'Apaga todos os solves deste navegador.', danger('wipe', 'Apagar tudo', 'Tem certeza? Clique de novo'))}

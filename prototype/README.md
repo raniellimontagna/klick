@@ -14,7 +14,7 @@ Abra http://localhost:4173/. Precisa ser por HTTP (ES modules não abrem via `fi
     cd prototype
     npm test
 
-86 testes com o runner nativo do Node (≥ 20), sem dependências.
+`npm test` roda a suíte inteira com o runner nativo do Node (≥ 20), sem dependências.
 
 ## O que é de mentira
 

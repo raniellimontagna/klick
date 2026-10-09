@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   STORAGE_KEY, DEFAULT_SETTINGS, emptyState, seededState, loadState, saveState, addSolve, togglePenalty, setNote,
-  deleteSolve, restoreSolve, sessionSolves, createSession, renameSession, updateSettings,
+  deleteSolve, restoreSolve, sessionSolves, createSession, renameSession, updateSettings, toCsTimer,
 } from '../scripts/store.js';
 
 const NOW = new Date(2026, 9, 8, 20, 0, 0).getTime();
@@ -30,6 +30,27 @@ test('armazenamento vazio, inválido, quebrado ou ausente devolve null sem lanç
   assert.equal(loadState(null), null);
   assert.equal(saveState(broken, emptyState()), false);
   assert.equal(saveState(null, emptyState()), false);
+});
+
+test('dado ilegível ganha cópia de segurança antes de ser sobrescrito', () => {
+  const m = new Map();
+  const s = { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k) };
+  s.setItem(STORAGE_KEY, JSON.stringify({ version: 2, solves: [{ ms: 1 }] }));
+  assert.equal(loadState(s), null);
+  const backups = [...m.keys()].filter((k) => k.startsWith(`${STORAGE_KEY}.backup.`));
+  assert.equal(backups.length, 1);
+  assert.equal(m.get(backups[0]), JSON.stringify({ version: 2, solves: [{ ms: 1 }] }));
+});
+
+test('exporta no formato do csTimer: sessões, penalidades, nota e segundos', () => {
+  const st = seededState(NOW);
+  const out = toCsTimer(st);
+  assert.equal(out.session1.length, 212);
+  const first = st.solves[0];
+  assert.deepEqual(out.session1[0], [[0, first.ms], first.scramble, '', Math.floor(first.at / 1000)]);
+  assert.equal(out.session1[st.solves.findIndex((x) => x.penalty === 'DNF')][0][0], -1);
+  assert.equal(out.session1[st.solves.findIndex((x) => x.penalty === '+2')][0][0], 2000);
+  assert.deepEqual(JSON.parse(out.properties.sessionData), { 1: { name: 'Sessão 12', opt: {}, rank: 1 } });
 });
 
 test('ajustes salvos antigos ganham os padrões que faltam', () => {
@@ -80,6 +101,11 @@ test('sessões: criar troca para a nova; renomear ignora nome vazio; solves por 
   assert.equal(sessionSolves(st).length, 0);
   assert.equal(renameSession(st, st.currentSession, '  ').sessions[1].name, 'Treino de cruz');
   assert.equal(renameSession(st, st.currentSession, 'Cruz').sessions[1].name, 'Cruz');
+});
+
+test('nome padrão de sessão continua a numeração existente', () => {
+  assert.equal(createSession(seededState(NOW), '').sessions[1].name, 'Sessão 13');
+  assert.equal(createSession(emptyState(), '  ').sessions.at(-1).name, `Sessão ${emptyState().sessions.length + 1}`);
 });
 
 test('updateSettings mescla sem perder os outros ajustes', () => {

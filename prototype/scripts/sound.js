@@ -8,7 +8,7 @@ export function createSound(initial = { klick: true, insp: true, pb: true }) {
     if (!AC) return null;
     try {
       if (!ctx) ctx = new AC();
-      if (ctx.state === 'suspended') ctx.resume();
+      if (ctx.state === 'suspended') Promise.resolve(ctx.resume()).catch(() => {});
       return ctx;
     } catch {
       return null;

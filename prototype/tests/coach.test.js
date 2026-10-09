@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { pickCoachMessage } from '../scripts/coach.js';
+import { T } from '../scripts/strings.js';
 
 const DAY = 86400000;
 const NOW = new Date(2026, 9, 8, 20, 0, 0).getTime();
@@ -24,6 +25,11 @@ test('recorde de média sem recorde de single', () => {
 test('marco conquistado', () => {
   const msg = pick({ solve: sv(59000), newMilestones: ['sub1'], achievedCount: 6 });
   assert.equal(msg.text, 'Primeiro solve abaixo de 1 minuto. Marco 6 de 9.');
+});
+
+test('meta do dia de 1 solve fica no singular', () => {
+  assert.equal(T.coach.dailyGoal(1), 'Meta de 1 solve feita. O resto é bônus.');
+  assert.equal(T.coach.dailyGoal(20), 'Meta de 20 solves feita. O resto é bônus.');
 });
 
 test('meta do dia exatamente na meta', () => {

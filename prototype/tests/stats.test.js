@@ -70,6 +70,17 @@ test('currentStreak conta dias seguidos até hoje ou ontem', () => {
   assert.equal(dayKey(NOW), '2026-10-08');
 });
 
+test('solveDeltas e resultKind: média pela sessão, recorde por todos os solves', () => {
+  const all = [60000, 61000, 62000, 63000, 64000, 50000].map((ms) => sv(ms));
+  const session = [70000, 71000, 72000, 73000, 74000].map((ms) => sv(ms));
+  const d = solveDeltas(all, sv(71500), session);
+  assert.equal(d.vsAo5, 71500 - 72000);
+  assert.equal(d.vsPb, 71500 - 50000);
+  assert.equal(d.isPb, false);
+  assert.equal(resultKind(all, sv(71500), session), 'good');
+  assert.equal(resultKind(all, sv(73000), session), 'slow');
+});
+
 test('solveDeltas e resultKind', () => {
   const hist = [62000, 63000, 61000, 64000, 60000].map((ms) => sv(ms));
   assert.deepEqual(solveDeltas(hist, sv(59000)), { vsAo5: 59000 - 62000, vsPb: -1000, isPb: true });

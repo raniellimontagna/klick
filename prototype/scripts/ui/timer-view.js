@@ -9,15 +9,15 @@ export function paintTime(el, text) {
   el.innerHTML = cut < 0 ? escapeHtml(text) : `${escapeHtml(text.slice(0, cut))}<span class="dec">${escapeHtml(text.slice(cut))}</span>`;
 }
 
-// ctx: { root, state, session, last, history, number, kind, showResult, scramble, now }
+// ctx: { root, state, session, last, history, sessionHistory, number, kind, showResult, scramble, now }
 export function renderTimer(ctx) {
-  const { root, state, session, last, history, number, kind, showResult, scramble, now } = ctx;
+  const { root, state, session, last, history, sessionHistory = history, number, kind, showResult, scramble, now } = ctx;
   root.querySelector('[data-scramble]').textContent = scramble;
   root.querySelector('[data-pbtag]').hidden = !(showResult && kind === 'pb');
 
   const chips = root.querySelector('[data-chips]');
   if (last) {
-    const d = solveDeltas(history, last);
+    const d = solveDeltas(history, last, sessionHistory);
     const parts = [];
     if (d.vsAo5 !== null) parts.push(`<span class="chip">${T.chips.vsAo5(d.vsAo5)}</span>`);
     if (d.isPb) parts.push(`<span class="chip pb">${T.chips.newPb(-d.vsPb)}</span>`);
@@ -33,6 +33,10 @@ export function renderTimer(ctx) {
   if (last) {
     actions.querySelector('[data-act="plus2"]').setAttribute('aria-pressed', String(last.penalty === '+2'));
     actions.querySelector('[data-act="dnf"]').setAttribute('aria-pressed', String(last.penalty === 'DNF'));
+    const noteBtn = actions.querySelector('[data-act="note"]');
+    noteBtn.classList.toggle('has-note', Boolean(last.note));
+    if (last.note) noteBtn.setAttribute('aria-label', `Nota: ${last.note}`);
+    else noteBtn.removeAttribute('aria-label');
   }
 
   const best = bestSingleSolve(state.solves);

@@ -12,7 +12,7 @@ import { renderTimer, paintTime } from './ui/timer-view.js';
 import { renderEvolucao } from './ui/evolucao-view.js';
 import { renderCompanion } from './ui/companion-view.js';
 import { renderAjustes } from './ui/ajustes-view.js';
-import { showToast, hideToast, announce, openShortcuts, openSessions, openOnboarding } from './ui/overlays.js';
+import { showToast, hideToast, announce, openShortcuts, openSessions, openOnboarding, openExport } from './ui/overlays.js';
 import { dateLabel } from './ui/format.js';
 
 const TABS = ['timer', 'evolucao', 'companion', 'ajustes'];
@@ -51,6 +51,7 @@ const ui = {
   sleeping: false,
   lastInput: Date.now(),
   removed: null,
+  removedUntil: 0,
   preview: null,
   period: '30',
   evoSession: 'all',
@@ -103,6 +104,7 @@ function applyPrefs() {
   root.dataset.arm = state.settings.mobileArm;
   timer.setOptions({ holdMs: state.settings.holdMs, inspection: state.settings.inspection });
   touch.setMode(state.settings.mobileArm);
+  zones.querySelector('[data-zone="left"]').textContent = state.settings.mobileArm === 'one' ? 'toque e segure' : 'polegar';
   for (const k of ['klick', 'insp', 'pb']) sound.setEnabled(k, state.settings.sound[k]);
 }
 
@@ -119,7 +121,9 @@ function centroView() {
 }
 
 function idleText() {
-  if (!mqCoarse.matches) return T.coach.idle;
+  const insp = state.settings.inspection;
+  if (!mqCoarse.matches) return insp ? T.coach.idleInsp : T.coach.idle;
+  if (insp) return T.coach.idleInspTouch;
   return state.settings.mobileArm === 'one' ? T.coach.idleOne : T.coach.idleTouch;
 }
 
@@ -208,6 +212,7 @@ function renderTimerScreen() {
     session: sess,
     last,
     history: idx >= 0 ? state.solves.slice(0, idx) : [],
+    sessionHistory: last ? sess.slice(0, sess.indexOf(last)) : [],
     number: last ? sess.indexOf(last) + 1 : 0,
     kind: ui.lastKind,
     showResult: ui.showResult && timer.state === 'done',
@@ -216,7 +221,16 @@ function renderTimerScreen() {
   });
 }
 
+// Depois de redesenhar a tela, o foco volta ao mesmo controle: quem usa teclado não volta ao topo.
+const FOCUS_KEYS = ['data-set', 'data-val', 'data-toggle', 'data-period', 'data-evo-session', 'data-trail', 'data-finish', 'data-silent', 'data-data'];
+function focusKey(el) {
+  if (!(el instanceof Element) || !el.closest('[data-screen]')) return null;
+  const parts = FOCUS_KEYS.filter((k) => el.hasAttribute(k)).map((k) => `[${k}="${CSS.escape(el.getAttribute(k))}"]`);
+  return parts.length ? parts.join('') : null;
+}
+
 function renderAll() {
+  const refocus = focusKey(document.activeElement);
   const now = Date.now();
   $('[data-session-pill]').textContent = `3×3 · ${sessionName()} ▾`;
   $('[data-date]').textContent = dateLabel(now);
@@ -228,6 +242,7 @@ function renderAll() {
   ui.text = '';
   ui.coachText = null;
   paintLive();
+  if (refocus && !document.activeElement?.closest('[data-screen]')) document.querySelector(`[data-screen]:not([hidden]) ${refocus}`)?.focus();
 }
 
 function go(tab) {
@@ -257,7 +272,7 @@ function handleSolve(ms, penalty) {
     dailyGoal: state.settings.dailyGoal,
     silent: state.settings.silent,
   });
-  const kind = resultKind(history, solve);
+  const kind = resultKind(history, solve, sessionBefore);
   const t0 = performance.now();
   ui.removed = null; // desfazer vale só até o próximo solve
   hideToast();
@@ -284,7 +299,8 @@ function act(name) {
   if (name === 'plus2' || name === 'dnf') {
     const next = store.togglePenalty(state, last.id, name === 'plus2' ? '+2' : 'DNF');
     const idx = next.solves.findIndex((x) => x.id === last.id);
-    ui.lastKind = resultKind(next.solves.slice(0, idx), next.solves[idx]);
+    const before = next.solves.slice(0, idx);
+    ui.lastKind = resultKind(before, next.solves[idx], before.filter((x) => x.session === next.solves[idx].session));
     if (ui.reaction) ui.reaction.kind = ui.lastKind; // o anel e o acorde seguem o resultado corrigido
     ui.coach = null;
     commit(next);
@@ -297,6 +313,7 @@ function act(name) {
   } else if (name === 'delete') {
     const { state: next, removed } = store.deleteSolve(state, last.id);
     ui.removed = removed;
+    ui.removedUntil = Date.now() + 6000; // Z vale enquanto o aviso estiver na tela (6 s)
     noteForm.hidden = true;
     ui.showResult = false;
     ui.reaction = null;
@@ -310,7 +327,7 @@ function act(name) {
 }
 
 function undo() {
-  if (!ui.removed) return;
+  if (!ui.removed || Date.now() > ui.removedUntil) return;
   const r = ui.removed;
   ui.removed = null;
   ui.lastId = r.solve.id;
@@ -327,6 +344,7 @@ function resetUi() {
   ui.coach = null;
   ui.removed = null;
   ui.lastId = lastOfSession()?.id ?? null;
+  ui.evoSession = 'all';
   ui.scramble = state.solves.length;
 }
 
@@ -374,6 +392,7 @@ document.addEventListener('keydown', (e) => {
   if (dialogOpen()) return;
   if (timer.state === 'running') {
     e.preventDefault();
+    if (e.repeat) return; // espaço ainda segurado de antes não para o solve
     timer.press();
     kick();
     return;
@@ -431,7 +450,7 @@ document.addEventListener(
   (e) => {
     wake();
     sound.unlock();
-    ui.swallowClick = false;
+    if (e.isPrimary) ui.swallowClick = false; // um segundo dedo não libera o clique do primeiro
     if (timer.state === 'running' && !e.target.closest('[data-zone]')) {
       e.preventDefault();
       ui.swallowClick = true;
@@ -455,19 +474,28 @@ document.addEventListener(
 const zones = $('[data-zones]');
 const zoneOf = new Map();
 zones.addEventListener('contextmenu', (e) => e.preventDefault());
-zones.addEventListener('pointerdown', (e) => {
-  const z = e.target.closest('[data-zone]');
-  if (!z) return;
+function pressZone(e, z) {
   e.preventDefault();
   try {
     z.setPointerCapture(e.pointerId);
   } catch {
-    /* captura é só conforto; sem ela o toque funciona igual */
+    /* captura é conforto: o soltar também é ouvido na janela, e sair do Timer ou um pointercancel limpam o toque */
   }
   zoneOf.set(e.pointerId, z);
   z.classList.add('down');
   touch.down(e.pointerId, z.dataset.zone);
   kick();
+}
+zones.addEventListener('pointerdown', (e) => {
+  const z = e.target.closest('[data-zone]');
+  if (z) pressZone(e, z);
+});
+// Um toque: a tela do Timer inteira arma, menos os controles (spec 7.3).
+const CONTROLS = 'button, a, input, select, textarea, label, dialog, [data-noteform]';
+screens.timer.addEventListener('pointerdown', (e) => {
+  if (state.settings.mobileArm !== 'one' || !mqCoarse.matches || e.defaultPrevented) return;
+  if (e.target.closest('[data-zone]') || e.target.closest(CONTROLS)) return;
+  pressZone(e, zones.querySelector('[data-zone="left"]'));
 });
 const lift = (e) => {
   const z = zoneOf.get(e.pointerId);
@@ -477,7 +505,7 @@ const lift = (e) => {
   touch.up(e.pointerId);
   kick();
 };
-zones.addEventListener('pointerup', lift);
+window.addEventListener('pointerup', lift);
 zones.addEventListener('pointercancel', () => abandonHold());
 
 // Perdeu o foco, a página sumiu (ligação, troca de app) ou o sistema cancelou o toque: abandona sem largar.
@@ -486,7 +514,7 @@ function abandonHold() {
   touch.cancelAll();
   zoneOf.clear();
   zones.querySelectorAll('.zone.down').forEach((z) => z.classList.remove('down'));
-  if (timer.state === 'arming' || timer.state === 'ready') timer.cancel();
+  timer.cancel(); // só muda o estado armando ou pronto, e sempre esquece o toque de inspeção pendente
 }
 window.addEventListener('blur', abandonHold);
 document.addEventListener('visibilitychange', () => {
@@ -542,18 +570,21 @@ function pickFinish(f) {
 }
 
 function exportData() {
+  const json = JSON.stringify(store.toCsTimer(state));
+  const showText = () => openExport({ json, onCopied: () => showToast(T.toast.exportCopied) });
+  // Dentro de um iframe (o link privado) o download é bloqueado sem aviso: mostra o texto para copiar.
+  if (window.top !== window.self) return showText();
   try {
-    const data = { app: 'klick-prototype', exportedAt: new Date().toISOString(), sessions: state.sessions, solves: state.solves };
-    const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+    const url = URL.createObjectURL(new Blob([json], { type: 'text/plain' }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = `klick-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `klick-cstimer-${new Date().toISOString().slice(0, 10)}.txt`;
     document.body.append(a);
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   } catch {
-    showToast(T.toast.exportFail);
+    showText();
   }
 }
 
@@ -587,6 +618,7 @@ function dataAction(id) {
 }
 
 function applySetting(patch) {
+  if (patch.silent) ui.coach = null;
   state = store.updateSettings(state, patch);
   save();
   applyPrefs();
