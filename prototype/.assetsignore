@@ -1,0 +1,5 @@
+tests
+node_modules
+package.json
+README.md
+.assetsignore

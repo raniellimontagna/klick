@@ -1,0 +1,14 @@
+// Publica o protótipo (prototype/) em klick.ranimontagna.com como Worker de arquivos estáticos.
+// Para voltar à v1 (Vercel): remova a rota no painel do Cloudflare ou rode `npx wrangler delete`;
+// o registro DNS da Vercel não é alterado.
+{
+  "name": "klick-v2-prototipo",
+  "account_id": "3a9dc0a9d9f05ff97021ce237e3ed92f",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": false,
+  "routes": [{ "pattern": "klick.ranimontagna.com/*", "zone_name": "ranimontagna.com" }],
+  "assets": {
+    "directory": "./prototype",
+    "not_found_handling": "single-page-application"
+  }
+}
