@@ -1,12 +1,12 @@
 import { render, screen } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
 import App from '../../src/ui/App.svelte';
-import { T } from '../../src/strings';
 
 describe('esqueleto', () => {
-  it('monta o App com um texto de strings.ts', () => {
+  // A raiz existe já no carregamento; o conteúdo da casca chega quando boot() termina (casca em app-shell.test.ts).
+  it('monta a raiz do App antes de o estado carregar', () => {
     render(App);
-    expect(screen.getByTestId('app-root')).toHaveTextContent(T.coach.idle);
+    expect(screen.getByTestId('app-root')).toBeInTheDocument();
   });
 
   it('IndexedDB simulado está disponível nos testes', () => {

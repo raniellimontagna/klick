@@ -74,6 +74,8 @@ export const T = Object.freeze({
   // Nome de uma sessão criada sem nome (data/repository.ts). Ele vai gravado junto com a sessão.
   session: {
     defaultName: (n: number) => `Sessão ${n}`,
+    // A pílula do topo: "3×3 · Sessão 1 ▾".
+    pill: (event: string, name: string) => `${event} · ${name} ▾`,
     // O N de um nome no formato acima; null para qualquer outro nome.
     defaultNameNumber: (name: string): number | null => {
       const m = /^Sessão (\d+)$/.exec(name);
@@ -105,6 +107,16 @@ export const T = Object.freeze({
   transfer: {
     klickInvalid: 'Arquivo do Klick inválido.',
     csTimerInvalid: 'Arquivo do csTimer inválido.',
+  },
+  // Casca (ui/App.svelte): nomes das abas, rótulo das duas barras de navegação e o atalho para o conteúdo.
+  tabs: { timer: 'Timer', evolucao: 'Evolução', companion: 'Centro', ajustes: 'Ajustes' },
+  shell: { nav: 'Seções', skip: 'Pular para o conteúdo' },
+  // Avisos de dados (ui/state/app.svelte.ts e a casca). saveFailed é o aviso fixo: enquanto houver solve pendente, fica na tela.
+  data: {
+    dbUnavailable: 'O navegador bloqueou o armazenamento do Klick. Sem ele, os solves não ficam salvos neste aparelho. Libere o armazenamento para este site e recarregue a página.',
+    saveFailed: 'Não consegui salvar. Exporte seus dados agora.',
+    readFailed: 'Não consegui ler seus dados. Recarregue a página.',
+    saved: 'Tudo salvo.',
   },
   season: (done: number, finish: string) => `Temporada 1 · ${done} de 9 marcos · acabamento ${finish}`,
 });
