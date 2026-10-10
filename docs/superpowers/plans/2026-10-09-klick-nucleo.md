@@ -650,7 +650,7 @@ const sv = (ms: number, event: Solve['event'] = '666'): Solve => ({
 
 describe('coach com a média oficial do evento', () => {
   it('no 6×6 o recorde de média fala em média de 3', () => {
-    const history = [sv(200000), sv(210000), sv(205000), sv(190000), sv(195000)];
+    const history = [sv(140000), sv(200000), sv(210000), sv(205000), sv(190000), sv(195000)];
     const session = history.slice();
     const solve = sv(150000);
     const msg = pickCoachMessage({ solve, history, sessionSolves: session, event: '666' });
@@ -659,7 +659,7 @@ describe('coach com a média oficial do evento', () => {
 });
 ```
 
-O teste do recorde de média depende da prioridade do coach (o recorde de single vem antes). Se um single recorde e a média de 3 empatarem na mesma jogada, o recorde de single tem prioridade, como no protótipo. Monte o histórico deste teste com um single melhor no passado para que só a média de 3 seja recorde: use `sv(140000)` como primeiro item do histórico.
+O recorde de single tem prioridade sobre o de média, como no protótipo. Por isso o histórico do teste começa com um single melhor (`sv(140000)`): assim só a média de 3 é recorde.
 
 - [ ] **Step 2: Rodar e ver falhar**
 
@@ -1789,7 +1789,7 @@ export function boot(): Promise<AppState>; // abre o banco, cria repositório e 
    7. pede o primeiro embaralhamento (`queue.next(event)`) e faz `queue.prefetch(event)`;
    8. inscreve `repo.onChange` para chamar `reload()`.
 2. **`addSolve`:**
-   - monta `NewSolve` com a sessão atual, o evento atual e o `scramble` atual, e grava pela `createSaveQueue(repo.addSolve)`, criada no construtor;
+   - monta `NewSolve` com a sessão atual, o evento atual e o `scramble` atual, e grava pela fila criada no construtor com `createSaveQueue((s) => this.repo.addSolve(s), …)`. A chamada passa pela arrow function para usar sempre o `addSolve` atual do repositório, o que os testes precisam para simular falhas;
    - quando grava: atualiza `solves`, soma no meta (`countSolveSaved`) e executa `planAfterSolve`:
      - `backup` chama `createBackup(repo, 'auto50', now)`;
      - `remindExport` liga `exportReminder`;
@@ -2477,10 +2477,10 @@ export function shouldShowInstallGuide(o: { ua: string; maxTouchPoints: number; 
    - "Importar do csTimer", que abre o seletor de arquivo;
    - "Importar da versão anterior", se `app.v1Available`;
    - "Começar do zero".
-   Não há dados de exemplo. Fechar marca `profile.onboarded = true`.
+   Não há dados de exemplo. Os passos 1 e 2 têm o botão "Pular apresentação", que vai direto ao último passo. Fechar marca `profile.onboarded = true`.
 4. **Sessões (`SessionsDialog`):**
    - lista as sessões agrupadas por evento;
-   - criar pede o evento (`<select aria-label="Evento">`, com `EVENTS`) e o nome opcional;
+   - criar pede o evento (`<select aria-label="Evento da nova sessão">`, com `EVENTS`) e o nome opcional;
    - renomear e excluir (excluir manda para a lixeira);
    - clicar no respiro do diálogo não fecha; só o fundo escuro fecha.
 5. **Atalhos (`ShortcutsDialog`):** a mesma tabela do protótipo.
@@ -2662,7 +2662,7 @@ describe('diálogos', () => {
   it('sessões: cria uma de Square-1 e agrupa por evento', async () => {
     const { a } = await app();
     render(SessionsDialog, { app: a, open: true });
-    await fireEvent.change(await screen.findByLabelText('Evento'), { target: { value: 'sq1' } });
+    await fireEvent.change(await screen.findByLabelText('Evento da nova sessão'), { target: { value: 'sq1' } });
     await fireEvent.click(screen.getByRole('button', { name: 'Criar' }));
     await new Promise((r) => setTimeout(r, 30));
     expect(a.event).toBe('sq1');
@@ -2831,6 +2831,7 @@ import { expect, test } from '@playwright/test';
 async function start(page: import('@playwright/test').Page) {
   await page.clock.install();
   await page.goto('/');
+  await page.getByRole('button', { name: 'Pular apresentação' }).click();
   await page.getByRole('button', { name: 'Começar do zero' }).click();
   await expect(page.locator('[data-scramble]')).not.toHaveText('');
 }
@@ -2887,6 +2888,7 @@ import { expect, type Page } from '@playwright/test';
 
 export async function fresh(page: Page) {
   await page.goto('/');
+  await page.getByRole('button', { name: 'Pular apresentação' }).click();
   await page.getByRole('button', { name: 'Começar do zero' }).click();
   await expect(page.locator('[data-scramble]')).not.toHaveText('', { timeout: 20_000 });
 }
@@ -2957,7 +2959,7 @@ test('os 13 eventos geram embaralhamento oficial e imagem 2D', async ({ page }) 
   await fresh(page);
   for (const ev of EVENTS) {
     await page.locator('[data-session-pill]').click();
-    await page.getByLabel('Evento').selectOption(ev);
+    await page.getByLabel('Evento da nova sessão').selectOption(ev);
     await page.getByRole('button', { name: 'Criar' }).click();
     await expect(page.locator('[data-scramble]')).not.toHaveText('', { timeout: 20_000 });
     await expect(page.locator('.scr-img twisty-player')).toHaveCount(1, { timeout: 20_000 });
