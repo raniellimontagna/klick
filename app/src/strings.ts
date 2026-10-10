@@ -347,6 +347,7 @@ export const T = Object.freeze({
     unreadable: (n: number): string =>
       n === 1 ? '1 registro da versão anterior não pôde ser lido.' : `${n} registros da versão anterior não puderam ser lidos.`,
     offerNotMarked: 'Os solves entraram, mas não consegui guardar que a oferta foi feita. Importar de novo não duplica os solves.',
+    settingsApplied: 'Os ajustes e o progresso do arquivo vieram junto.',
   }),
   // Diálogo das cópias automáticas. Restaurar pede um segundo clique: a troca substitui tudo.
   backupsDialog: Object.freeze({

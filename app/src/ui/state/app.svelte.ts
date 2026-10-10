@@ -69,6 +69,7 @@ export interface ImportSummary {
   unreadable: number; // registros da versão anterior que não puderam ser lidos
   missed: number; // solves que a conta do arquivo tinha como novos e o repositório deixou de fora (um id repetido): o resumo diz quantos
   offerNotMarked?: boolean; // os solves entraram, mas a marca "oferta feita" não foi gravada (a importação pode ser refeita)
+  settingsApplied?: boolean; // o arquivo do Klick trouxe perfil: os ajustes e o progresso dele valem agora
 }
 
 const DEFAULT_EVENT: EventId = '333';
@@ -703,12 +704,20 @@ export class AppState {
     return summary;
   }
 
-  // Um arquivo do Klick: junta por id. Nada é apagado; o que já existe e não é mais novo fica como está.
+  // Um arquivo do Klick: junta por id. Nada é apagado; o que já existe e não é mais novo fica como está. O perfil do arquivo vale
+  // por cima do daqui (o repositório diz como).
   importKlick(data: KlickExport): Promise<ImportSummary | null> {
     return this.importJob(async () => {
       const report = await this.repo.importAll(data);
       // No Klick, `skipped` são os solves que já existiam (com a mesma ou mais nova edição): não há conta prévia a conferir.
-      return { solves: report.solvesAdded + report.solvesUpdated, existing: report.skipped, skippedSessions: 0, unreadable: 0, missed: 0 };
+      return {
+        solves: report.solvesAdded + report.solvesUpdated,
+        existing: report.skipped,
+        skippedSessions: 0,
+        unreadable: 0,
+        missed: 0,
+        settingsApplied: data.profile !== null,
+      };
     });
   }
 

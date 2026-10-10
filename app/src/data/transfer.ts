@@ -5,9 +5,9 @@
 // com um erro claro. A migração da v1 não recusa: lê o que bate e conta o que ficou de fora (readV1Invalid), para a pessoa saber.
 // O que fica de fora por falta de dados (sessão sem evento) também volta contado no resultado.
 import { EVENT_IDS, eventFromCsTimer, eventInfo } from '../core/events';
-import type { EventId, Penalty, Session, Solve } from '../core/types';
-import { T } from '../strings';
-import type { KlickExport } from './repository';
+import type { EventId, FinishId, Penalty, Session, Settings, Solve } from '../core/types';
+import { T, TRAIL } from '../strings';
+import type { KlickExport, ProfilePatch } from './repository';
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 // Finito: o JSON.parse devolve Infinity para um número como 1e999.
@@ -68,10 +68,54 @@ export function toKlickJson(data: KlickExport): string {
   return JSON.stringify(data, null, 2);
 }
 
+// --- Perfil do arquivo ---
+// Campo por campo, porque a importação aplica o perfil por cima do daqui: o que não tem o tipo (ou um valor) que o Klick conhece
+// fica de fora, e o resto passa. O arquivo não é recusado por isso: os solves valem mais que um ajuste estranho.
+
+const isBool = (v: unknown): v is boolean => typeof v === 'boolean';
+const oneOf =
+  <V extends string>(options: readonly V[]) =>
+  (v: unknown): v is V =>
+    typeof v === 'string' && (options as readonly string[]).includes(v);
+const isFinish = oneOf<FinishId>(['fosco', 'brilho', 'gelo', 'carbono']);
+
+type Check = (v: unknown) => boolean;
+const SETTING_CHECKS: Record<keyof Omit<Settings, 'sound'>, Check> = {
+  inspection: isBool,
+  holdMs: (v) => isNum(v) && v >= 0,
+  mobileArm: oneOf(['two', 'one']),
+  theme: oneOf(['system', 'light', 'dark']),
+  silent: isBool,
+  reducedMotion: oneOf(['system', 'always']),
+  dailyGoal: (v) => Number.isInteger(v) && (v as number) >= 1,
+  scrambleImage: isBool,
+};
+const SOUND_CHECKS: Record<keyof Settings['sound'], Check> = { klick: isBool, insp: isBool, pb: isBool };
+
+// Só as chaves de `checks` que vieram e passam na checagem.
+function keepValid(source: Record<string, unknown>, checks: Record<string, Check>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(checks).filter(([key, ok]) => key in source && ok(source[key])).map(([key]) => [key, source[key]]));
+}
+
+function profileOf(v: Record<string, unknown>): ProfilePatch {
+  const profile: ProfilePatch = {};
+  if (isRecord(v.settings)) {
+    const settings: NonNullable<ProfilePatch['settings']> = keepValid(v.settings, SETTING_CHECKS);
+    if (isRecord(v.settings.sound)) settings.sound = keepValid(v.settings.sound, SOUND_CHECKS);
+    profile.settings = settings;
+  }
+  if (Array.isArray(v.trail) && v.trail.every(isBool)) profile.trail = v.trail.slice(0, TRAIL.length);
+  if (isFinish(v.finish)) profile.finish = v.finish;
+  if (isBool(v.onboarded)) profile.onboarded = v.onboarded;
+  if (v.currentSessionId === null || typeof v.currentSessionId === 'string') profile.currentSessionId = v.currentSessionId;
+  return profile;
+}
+
 export function parseKlickJson(text: string): KlickExport {
   const data = tryParse(text);
   if (!isKlickExport(data)) throw new Error(T.transfer.klickInvalid);
-  return data;
+  const profile: unknown = data.profile;
+  return { ...data, profile: isRecord(profile) ? profileOf(profile) : null };
 }
 
 // --- csTimer ---

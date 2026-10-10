@@ -44,7 +44,7 @@ export interface KlickExport {
   exportedAt: number;
   sessions: Session[];
   solves: Solve[];
-  profile: Profile | null;
+  profile: ProfilePatch | null; // o export sai completo; o que vem de um arquivo pode faltar campo (quem grava junta com o perfil daqui)
 }
 
 export interface ImportReport {
@@ -84,7 +84,7 @@ export interface Repository {
   getBackup(id: string): Promise<BackupRecord | undefined>;
   deleteBackup(id: string): Promise<void>;
   exportAll(o?: { includeDeleted?: boolean }): Promise<KlickExport>; // includeDeleted padrão true
-  importAll(data: KlickExport): Promise<ImportReport>; // junta por id; fica o de updatedAt maior. Sessão da lixeira que recebe solve ativo do arquivo volta (sem entrar no relatório; avisa sessions)
+  importAll(data: KlickExport): Promise<ImportReport>; // junta por id; fica o de updatedAt maior. Sessão da lixeira que recebe solve ativo do arquivo volta (sem entrar no relatório; avisa sessions). O perfil do arquivo vale por cima do daqui (ver importAll)
   replaceAll(data: KlickExport): Promise<void>; // limpa solves, sessões e perfil e grava os do arquivo, como vieram
   onChange(fn: (kind: ChangeKind, origin: ChangeOrigin) => void): () => void; // mudanças locais e de outras abas, com a origem
   close(): void; // fecha a conexão do banco e o canal; depois disso o repositório não responde mais (usado ao trocar pela conexão reaberta)
@@ -618,11 +618,31 @@ export function createRepository(
           if (await reviveSession(sessions, id, at)) sessionBack = true;
         }
 
-        // O perfil do arquivo só entra se este aparelho ainda não tem um.
+        // O perfil do arquivo vale por cima do daqui: os ajustes e o acabamento são os do arquivo, a trilha soma as duas (nada
+        // desmarca) e o tour feito num dos dois fica feito. A sessão atual passa a ser a do arquivo só quando a daqui não tem solve
+        // nenhum (o aparelho novo) e a de lá existe fora da lixeira. Perfil que não muda nada não é gravado nem avisado.
         let profileSaved = false;
-        if (data.profile && !(await profile.get('current'))) {
-          await profile.put(data.profile, 'current');
-          profileSaved = true;
+        if (data.profile) {
+          const theirs = data.profile;
+          const stored = await profile.get('current');
+          const base = profileOrDefault(stored);
+          let currentSessionId = base.currentSessionId;
+          if (typeof theirs.currentSessionId === 'string' && theirs.currentSessionId !== currentSessionId) {
+            const target = await sessions.get(theirs.currentSessionId);
+            const mineEmpty = currentSessionId === null || (await solves.index('bySession').count(keyRange(currentSessionId))) === 0;
+            if (target?.deletedAt === null && mineEmpty) currentSessionId = target.id;
+          }
+          const merged = mergeProfile(base, {
+            ...theirs,
+            trail: theirs.trail ? base.trail.map((done, i) => done || theirs.trail?.[i] === true) : base.trail,
+            onboarded: base.onboarded || theirs.onboarded === true,
+            currentSessionId,
+          });
+          // Mesma ordem de chaves nos dois (mergeProfile monta ambos), então o JSON compara o conteúdo.
+          if (!stored || JSON.stringify(merged) !== JSON.stringify(base)) {
+            await profile.put(merged, 'current');
+            profileSaved = true;
+          }
         }
         return { profileSaved, sessionBack };
       });
@@ -640,7 +660,7 @@ export function createRepository(
         await Promise.all([sessionStore.clear(), solveStore.clear(), profileStore.clear()]);
         await each(sessions, (s) => sessionStore.put(s));
         await each(solves, (s) => solveStore.put(s));
-        if (profile) await profileStore.put(profile, 'current');
+        if (profile) await profileStore.put(mergeProfile(defaultProfile(), profile), 'current');
       });
       announce('all');
     },

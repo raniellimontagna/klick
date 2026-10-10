@@ -147,6 +147,12 @@ Com isso, o sub-projeto 5 junta dados de vários aparelhos sem migrar o esquema.
      - **csTimer:** ida e volta. Na exportação, cada sessão leva o tipo de embaralhamento do evento, para o csTimer reconhecer.
    - Ao importar do csTimer, cada sessão é ligada a um evento pelo tipo de embaralhamento quando dá. As que não dá, a pessoa escolhe numa tela de mapeamento.
    - Importar junta os dados sem duplicar (por id ou, no csTimer, por data e tempo).
+   - Importar um arquivo do Klick traz também os ajustes e o progresso (decisão de 10/10):
+     - os ajustes e o acabamento são os do arquivo;
+     - a trilha soma a do arquivo com a do aparelho, sem desmarcar nada;
+     - o tour feito em qualquer um dos dois fica feito;
+     - a sessão atual passa a ser a do arquivo só quando a do aparelho não tem solve nenhum;
+     - campo do perfil com tipo ou valor que o Klick não conhece fica de fora, sem recusar o arquivo.
 7. **Migração da v1.**
    - A v1 guardava as sessões na chave `klick-sessions` do `localStorage`, neste mesmo domínio.
    - Se o app encontrar esses dados, oferece importar uma vez e não apaga nada da v1.

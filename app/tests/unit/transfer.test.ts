@@ -95,6 +95,45 @@ describe('formato Klick', () => {
     expect(() => parseKlickJson(fixture('cstimer-export.txt'))).toThrow(KLICK_INVALID);
   });
 
+  // A importação aplica o perfil do arquivo por cima do daqui: um campo com tipo errado não pode chegar aos ajustes.
+  describe('perfil do arquivo, campo por campo', () => {
+    const withProfile = (profile: unknown): string => JSON.stringify({ ...fullExport(), profile });
+
+    it('campo com tipo ou valor errado fica de fora; o resto passa', () => {
+      const parsed = parseKlickJson(withProfile({
+        settings: {
+          inspection: 'sim', holdMs: 550, mobileArm: 'one', theme: 'roxo', sound: { klick: false, insp: 'x' },
+          silent: true, reducedMotion: 'nunca', dailyGoal: -3, scrambleImage: false, extra: 1,
+        },
+        trail: [true, 'x'],
+        finish: 'ouro',
+        onboarded: 1,
+        currentSessionId: 's1',
+        extra: 1,
+      }));
+      expect(parsed.profile).toEqual({
+        settings: { holdMs: 550, mobileArm: 'one', sound: { klick: false }, silent: true, scrambleImage: false },
+        currentSessionId: 's1',
+      });
+    });
+
+    it('ajustes ou sons que não são objeto ficam de fora', () => {
+      expect(parseKlickJson(withProfile({ settings: 5, finish: 'brilho' })).profile).toEqual({ finish: 'brilho' });
+      expect(parseKlickJson(withProfile({ settings: { sound: [], holdMs: 0 } })).profile).toEqual({ settings: { holdMs: 0 } });
+    });
+
+    it('holdMs negativo, meta que não é inteiro positivo e sessão que não é texto ficam de fora', () => {
+      const parsed = parseKlickJson(withProfile({ settings: { holdMs: -1, dailyGoal: 2.5 }, currentSessionId: 7 }));
+      expect(parsed.profile).toEqual({ settings: {} });
+      expect(parseKlickJson(withProfile({ settings: { dailyGoal: 0 } })).profile).toEqual({ settings: {} });
+      expect(parseKlickJson(withProfile({ currentSessionId: null })).profile).toEqual({ currentSessionId: null });
+    });
+
+    it('trilha mais longa que a do Klick é cortada nas 9 etapas', () => {
+      expect(parseKlickJson(withProfile({ trail: Array<boolean>(12).fill(true) })).profile).toEqual({ trail: Array<boolean>(9).fill(true) });
+    });
+  });
+
   describe('rejeita o arquivo inteiro se alguma coisa não bate', () => {
     const ENVELOPE: Array<[string, (d: Loose) => void]> = [
       ['outro formato', (d) => { d.format = 'outro'; }],

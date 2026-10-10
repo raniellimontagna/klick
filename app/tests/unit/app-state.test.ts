@@ -1033,6 +1033,37 @@ describe('estado do app: fix round 3 (brief 9b)', () => {
   });
 });
 
+// Arquivo do Klick num aparelho novo: os ajustes, o progresso e a sessão de lá vêm junto (decisão de 10/10).
+describe('estado do app: importar o Klick traz os ajustes', () => {
+  beforeEach(() => { t = 1_791_500_000_000; });
+
+  async function otherDevice() {
+    const repo = createRepository(await openKlickDb(`app-${++n}`), { now, channel: null });
+    const theirs = await repo.createSession({ event: '444' });
+    await repo.addSolve({ sessionId: theirs.id, event: '444', ms: 90000, penalty: null, at: t, scramble: 'R' });
+    await repo.saveProfile({ settings: { theme: 'dark', holdMs: 550 }, currentSessionId: theirs.id, onboarded: true });
+    return { theirs, data: await repo.exportAll() };
+  }
+
+  it('aplica os ajustes, troca para a sessão do arquivo e pede o embaralhamento do evento dela', async () => {
+    const { app } = await setup();
+    const { theirs, data } = await otherDevice();
+    const summary = await app.importKlick(data);
+    expect(app.profile.settings).toMatchObject({ theme: 'dark', holdMs: 550 });
+    expect(app.currentSession?.id).toBe(theirs.id);
+    expect(app.event).toBe('444');
+    await vi.waitFor(() => expect(app.scramble).toBe('444-1'));
+    expect(summaryLines(summary!)).toContain(T.importDialog.settingsApplied);
+  });
+
+  it('arquivo sem perfil não diz que trouxe ajustes', async () => {
+    const { app } = await setup();
+    const { data } = await otherDevice();
+    const summary = await app.importKlick({ ...data, profile: null });
+    expect(summaryLines(summary!)).not.toContain(T.importDialog.settingsApplied);
+  });
+});
+
 // Importação grande não pode perder solve em silêncio (final review, C1): ids únicos, e o que não entrar aparece no resumo.
 describe('estado do app: importação sem perda', () => {
   beforeEach(() => { t = 1_791_500_000_000; });

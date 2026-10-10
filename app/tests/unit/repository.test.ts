@@ -1089,7 +1089,7 @@ describe('repositório: exportar e importar', () => {
     expect((await target.listSolves({ includeDeleted: true })).find((x) => x.id === a.id)?.note).toBe('segunda cópia');
   });
 
-  it('o perfil do arquivo só entra se não houver um gravado', async () => {
+  it('sem perfil gravado, o do arquivo entra', async () => {
     const source = await fresh();
     await source.saveProfile({ finish: 'gelo', onboarded: true });
     const data = await source.exportAll();
@@ -1097,11 +1097,87 @@ describe('repositório: exportar e importar', () => {
     const empty = await fresh();
     expect(await empty.importAll(data)).toEqual({ sessionsAdded: 0, solvesAdded: 0, solvesUpdated: 0, skipped: 0 });
     expect(await empty.getProfile()).toMatchObject({ finish: 'gelo', onboarded: true });
+  });
 
-    const has = await fresh();
-    await has.saveProfile({ finish: 'carbono' });
-    await has.importAll(data);
-    expect((await has.getProfile()).finish).toBe('carbono');
+  describe('perfil do arquivo sobre um perfil já gravado', () => {
+    const off = (): boolean[] => Array<boolean>(9).fill(false);
+    const marked = (...steps: number[]): boolean[] => off().map((_, i) => steps.includes(i));
+
+    it('os ajustes e o acabamento do arquivo valem, a trilha soma as duas e o tour feito fica feito', async () => {
+      const source = await fresh();
+      await source.saveProfile({ settings: { holdMs: 550, sound: { pb: false } }, finish: 'gelo', trail: marked(0), onboarded: false });
+      const data = await source.exportAll();
+
+      const has = await fresh();
+      await has.saveProfile({ settings: { holdMs: 0, theme: 'dark' }, finish: 'carbono', trail: marked(1), onboarded: true });
+      await has.importAll(data);
+      expect(await has.getProfile()).toMatchObject({
+        settings: { ...DEFAULT_SETTINGS, holdMs: 550, sound: { ...DEFAULT_SETTINGS.sound, pb: false } }, // o tema do arquivo é o padrão
+        finish: 'gelo',
+        trail: marked(0, 1),
+        onboarded: true,
+      });
+    });
+
+    it('perfil parcial no arquivo só muda o que trouxe', async () => {
+      await repo.saveProfile({ settings: { holdMs: 0, theme: 'dark' }, finish: 'carbono', trail: marked(2) });
+      await repo.importAll({ format: 'klick', version: 1, exportedAt: t, sessions: [], solves: [], profile: { settings: { holdMs: 550 } } });
+      expect(await repo.getProfile()).toMatchObject({
+        settings: { ...DEFAULT_SETTINGS, holdMs: 550, theme: 'dark' },
+        finish: 'carbono',
+        trail: marked(2),
+      });
+    });
+
+    it('avisa a mudança do perfil mesmo sem solve novo', async () => {
+      await repo.saveProfile({ finish: 'carbono' });
+      const seen: string[] = [];
+      repo.onChange((k) => seen.push(k));
+      await repo.importAll({ format: 'klick', version: 1, exportedAt: t, sessions: [], solves: [], profile: { finish: 'gelo' } });
+      expect(seen).toEqual(['all']);
+    });
+
+    // O arquivo traz uma sessão de 4×4 com um solve, e ela é a atual dele.
+    async function fileWithCurrent() {
+      const source = await fresh();
+      const theirs = await source.createSession({ event: '444' });
+      await source.addSolve({ ...ns(theirs.id, 90000, 1000), event: '444' });
+      await source.saveProfile({ currentSessionId: theirs.id });
+      return { theirs, data: await source.exportAll() };
+    }
+
+    it('a sessão atual passa a ser a do arquivo quando a daqui está vazia (aparelho novo)', async () => {
+      const { theirs, data } = await fileWithCurrent();
+      const mine = await repo.createSession({ event: '333' });
+      await repo.saveProfile({ currentSessionId: mine.id });
+      await repo.importAll(data);
+      expect((await repo.getProfile()).currentSessionId).toBe(theirs.id);
+    });
+
+    it('a sessão atual daqui com solves continua a atual', async () => {
+      const { data } = await fileWithCurrent();
+      const mine = await repo.createSession({ event: '333' });
+      await repo.addSolve(ns(mine.id, 60000, 2000));
+      await repo.saveProfile({ currentSessionId: mine.id });
+      await repo.importAll(data);
+      expect((await repo.getProfile()).currentSessionId).toBe(mine.id);
+    });
+
+    it('a sessão do arquivo que não existe, ou que está na lixeira, não vira a atual', async () => {
+      const { theirs, data } = await fileWithCurrent();
+      const mine = await repo.createSession({ event: '333' });
+      await repo.saveProfile({ currentSessionId: mine.id });
+      await repo.importAll({ ...data, profile: { ...data.profile, currentSessionId: 'nao-existe' } });
+      expect((await repo.getProfile()).currentSessionId).toBe(mine.id);
+
+      const trashed = { ...data, sessions: data.sessions.map((s) => ({ ...s, deletedAt: t })), solves: [] };
+      const other = await fresh();
+      const empty = await other.createSession({ event: '333' });
+      await other.saveProfile({ currentSessionId: empty.id });
+      await other.importAll(trashed);
+      expect((await other.getProfile()).currentSessionId).toBe(empty.id);
+      expect(theirs.id).not.toBe(empty.id);
+    });
   });
 
   it('substituir troca solves, sessões e perfil e deixa meta, cópias e pasta como estão', async () => {

@@ -19,6 +19,7 @@ export function summaryLines(s: ImportSummary): string[] {
   if (s.skippedSessions > 0) lines.push(T.importDialog.skippedSessions(s.skippedSessions));
   if (s.unreadable > 0) lines.push(T.importDialog.unreadable(s.unreadable));
   if (s.offerNotMarked) lines.push(T.importDialog.offerNotMarked);
+  if (s.settingsApplied) lines.push(T.importDialog.settingsApplied);
   return lines;
 }
 
