@@ -394,7 +394,8 @@ describe('cópias automáticas: detalhes', () => {
     expect(await current()).toEqual([60000, 70000]);
   });
 
-  it('restaurar a cópia mais antiga com a lista cheia funciona, mesmo que a cópia pre-restore a pode', async () => {
+  // BACKUP_KEEP cópias boas, a de número k com os k primeiros solves (1000, 2000, ...). Devolve os ids, da mais antiga à mais nova.
+  async function fullListOfGoodCopies(): Promise<string[]> {
     const ids: string[] = [];
     for (let i = 1; i <= BACKUP_KEEP; i++) {
       await repo.addSolve(ns(i * 1000, sessionId));
@@ -402,8 +403,48 @@ describe('cópias automáticas: detalhes', () => {
       ids.push((await createBackup(repo, 'auto50', t)).id);
     }
     expect(await repo.listBackups()).toHaveLength(BACKUP_KEEP);
+    return ids;
+  }
+
+  it('restaurar a cópia mais antiga com a lista cheia funciona, e ela continua na lista: a pre-restore tira a vaga de outra', async () => {
+    const ids = await fullListOfGoodCopies();
     t += 1000;
     await restoreBackup(repo, ids[0], t); // a mais antiga: só tinha o primeiro solve
+    expect(await current()).toEqual([1000]);
+    const list = (await repo.listBackups()).map((r) => r.id);
+    expect(list).toHaveLength(BACKUP_KEEP);
+    expect(list).toContain(ids[0]); // a escolhida nunca é podada
+    expect(list).not.toContain(ids[1]); // a vaga da pre-restore sai da mais antiga das outras
+  });
+
+  it('createBackup com keepId poupa essa cópia na poda e mantém o total em BACKUP_KEEP; sem ela na lista, poda como sempre', async () => {
+    const ids = await fullListOfGoodCopies();
+    t += 1000;
+    const kept = await createBackup(repo, 'manual', t, ids[0]); // a mais antiga seria a podada
+    let list = (await repo.listBackups()).map((r) => r.id);
+    expect(list).toHaveLength(BACKUP_KEEP);
+    expect(list).toContain(ids[0]);
+    expect(list).toContain(kept.id);
+    expect(list).not.toContain(ids[1]); // saiu a mais antiga das outras
+    t += 1000;
+    await createBackup(repo, 'manual', t, 'id-que-nao-existe'); // keepId fora da lista: poda a mais antiga de verdade
+    list = (await repo.listBackups()).map((r) => r.id);
+    expect(list).toHaveLength(BACKUP_KEEP);
+    expect(list).not.toContain(ids[0]);
+  });
+
+  it('replaceAll falhando ao restaurar a cópia mais antiga da lista cheia: rejeita, a escolhida continua lá e os dados também; tentar de novo funciona', async () => {
+    const ids = await fullListOfGoodCopies();
+    const failing: Repository = { ...repo, replaceAll: async () => { throw new Error('banco fechou'); } };
+    t += 1000;
+    await expect(restoreBackup(failing, ids[0], t)).rejects.toThrow('banco fechou');
+    expect(await repo.getBackup(ids[0])).toBeDefined();
+    expect(await current()).toEqual(Array.from({ length: BACKUP_KEEP }, (_, i) => (i + 1) * 1000)); // dados de agora intactos
+    const list = await repo.listBackups();
+    expect(list).toHaveLength(BACKUP_KEEP);
+    expect(list.filter((r) => r.reason === 'pre-restore')).toHaveLength(1);
+    t += 1000;
+    await restoreBackup(repo, ids[0], t); // a pessoa tenta de novo, agora com o banco bom
     expect(await current()).toEqual([1000]);
   });
 
@@ -411,17 +452,43 @@ describe('cópias automáticas: detalhes', () => {
     ['gzip que não abre', { encoding: 'gzip-base64', payload: btoa('isto nao e gzip') }],
     ['JSON cortado', { encoding: 'json', payload: '{"format":"klick","version":1,' }],
     ['JSON que não é uma cópia do Klick', { encoding: 'json', payload: '{"sessions":[],"solves":[]}' }],
+    ['versão futura do Klick', { encoding: 'json', payload: '{"format":"klick","version":2,"exportedAt":1,"sessions":[],"solves":[],"profile":null}' }],
+    ['codificação que esta versão não conhece', { encoding: 'zstd-base64', payload: 'AAAA' } as unknown as Pick<BackupRecord, 'encoding' | 'payload'>],
   ];
 
-  it.each(unreadable)('cópia corrompida (%s): restaurar rejeita e os dados de agora continuam como estavam', async (_name, bad) => {
+  it.each(unreadable)('cópia corrompida (%s): restaurar rejeita; dados, lista de cópias e Meta continuam como estavam', async (_name, bad) => {
     await repo.addSolve(ns(60000, sessionId));
     const profile = await repo.saveProfile({ finish: 'gelo' });
     await repo.saveBackup({ id: 'ruim', createdAt: t, reason: 'manual', solveCount: 9, ...bad });
+    const idsBefore = (await repo.listBackups()).map((r) => r.id);
+    const metaBefore = await repo.getMeta();
     t += 1000;
     await expect(restoreBackup(repo, 'ruim', t)).rejects.toThrow();
     expect(await current()).toEqual([60000]);
     expect(await repo.listSessions()).toHaveLength(1);
     expect(await repo.getProfile()).toEqual(profile);
+    expect((await repo.listBackups()).map((r) => r.id)).toEqual(idsBefore); // nenhuma pre-restore escrita
+    expect(await repo.getMeta()).toEqual(metaBefore); // e o Meta das cópias intocado
+  });
+
+  // Cada clique em "Restaurar" numa cópia ruim, com a lista cheia, gastava uma cópia boa: nove cliques e a história acabava.
+  it.each(unreadable)('lista cheia e cópia corrompida (%s): restaurar várias vezes não gasta a história (ids e Meta iguais)', async (_name, bad) => {
+    for (let i = 0; i < BACKUP_KEEP - 1; i++) {
+      await repo.addSolve(ns((i + 1) * 1000, sessionId));
+      t += 1000;
+      await createBackup(repo, 'auto50', t);
+    }
+    t += 1000;
+    await repo.saveBackup({ id: 'ruim', createdAt: t, reason: 'manual', solveCount: 9, ...bad });
+    const idsBefore = (await repo.listBackups()).map((r) => r.id);
+    expect(idsBefore).toHaveLength(BACKUP_KEEP);
+    const metaBefore = await repo.getMeta();
+    for (let attempt = 0; attempt < 3; attempt++) {
+      t += 1000;
+      await expect(restoreBackup(repo, 'ruim', t)).rejects.toThrow();
+    }
+    expect((await repo.listBackups()).map((r) => r.id)).toEqual(idsBefore);
+    expect(await repo.getMeta()).toEqual(metaBefore);
   });
 
   it('se a substituição falha, a falha chega a quem chamou, e a cópia pre-restore já estava guardada', async () => {
@@ -457,6 +524,15 @@ describe('armazenamento persistente: detalhes', () => {
     expect(await storageStatus({ estimate: async () => ({ usage: 5 }) })).toEqual({ persisted: null, usage: 5, quota: null });
     expect(await storageStatus({ persisted: async () => false })).toEqual({ persisted: false, usage: null, quota: null });
     expect(await storageStatus({ estimate: async () => ({}) })).toEqual({ persisted: null, usage: null, quota: null });
+  });
+
+  it('uma leitura que rejeita (ou lança na hora) vira null e não derruba a outra', async () => {
+    const down = async (): Promise<never> => { throw new Error('indisponível'); };
+    expect(await storageStatus({ persisted: async () => true, estimate: down })).toEqual({ persisted: true, usage: null, quota: null });
+    expect(await storageStatus({ persisted: down, estimate: async () => ({ usage: 3, quota: 9 }) })).toEqual({ persisted: null, usage: 3, quota: 9 });
+    expect(await storageStatus({ persisted: () => { throw new Error('na hora'); }, estimate: async () => ({ usage: 1 }) }))
+      .toEqual({ persisted: null, usage: 1, quota: null });
+    expect(await storageStatus({ persisted: down, estimate: down })).toEqual({ persisted: null, usage: null, quota: null });
   });
 
   it('chama os métodos no próprio storage (o do navegador exige o this)', async () => {
@@ -854,6 +930,182 @@ describe('fila de gravação: garantias', () => {
     await q.flush();
     expect(saved).toEqual([1, 2, 3]);
     expect(q.pending()).toBe(0);
+  });
+
+  // --- pendentes à mostra (exportação de emergência) ---
+
+  it('pendingItems devolve cópias dos pendentes, na ordem de chegada; mexer no resultado não mexe na fila', async () => {
+    let down = true;
+    const saved: number[] = [];
+    const timers: Array<() => void> = [];
+    const q = createSaveQueue(async (s) => {
+      if (down) throw new Error('banco fora');
+      saved.push(s.ms);
+      return stored(s);
+    }, { schedule: (fn) => { timers.push(fn); return () => {}; } });
+    expect(q.pendingItems()).toEqual([]);
+
+    await q.enqueue(ns(1));
+    await q.enqueue(ns(2));
+    await q.enqueue(ns(3));
+    const items = q.pendingItems();
+    expect(items).toEqual([ns(1), ns(2), ns(3)]);
+    expect(items).toHaveLength(q.pending());
+
+    items[0].ms = 999; // mexe num item
+    items.reverse(); // reordena
+    items.pop(); // e tira da lista
+    expect(q.pendingItems()).toEqual([ns(1), ns(2), ns(3)]);
+    expect(q.pending()).toBe(3);
+    expect(q.pendingItems()[0]).not.toBe(q.pendingItems()[0]); // cada chamada traz cópias novas
+
+    down = false;
+    timers.at(-1)!();
+    await q.flush();
+    expect(saved).toEqual([1, 2, 3]); // o que grava é o original, na ordem
+    expect(q.pendingItems()).toEqual([]);
+  });
+
+  it('pendingItems inclui o solve que está sendo gravado (só sai quando o save responde) e esvazia depois', async () => {
+    let release: () => void = () => {};
+    const q = createSaveQueue(async (s) => {
+      await new Promise<void>((resolve) => { release = resolve; });
+      return stored(s);
+    });
+    const first = q.enqueue(ns(1));
+    await tick();
+    expect(q.pendingItems()).toEqual([ns(1)]);
+    release();
+    await first;
+    expect(q.pendingItems()).toEqual([]);
+  });
+
+  it('mexer no objeto depois de enfileirar não muda o que a fila guarda nem o que ela grava', async () => {
+    let down = true;
+    const saved: NewSolve[] = [];
+    const timers: Array<() => void> = [];
+    const q = createSaveQueue(async (s) => {
+      if (down) throw new Error('banco fora');
+      saved.push(s);
+      return stored(s);
+    }, { schedule: (fn) => { timers.push(fn); return () => {}; } });
+    const mine = ns(1);
+    await q.enqueue(mine); // falha: fica pendente
+    mine.ms = 999; // quem enfileirou mexe no objeto dele
+    expect(q.pendingItems()).toEqual([ns(1)]);
+    down = false;
+    timers.at(-1)!();
+    await q.flush();
+    expect(saved).toEqual([ns(1)]);
+  });
+
+  // --- a causa da falha de gravação ---
+
+  it('onSaveError recebe o erro de cada tentativa que falha, antes do aviso e da nova tentativa agendada', async () => {
+    const events: string[] = [];
+    const received: unknown[] = [];
+    const causes = [new Error('cota cheia'), new Error('banco bloqueado')];
+    const q = createSaveQueue(async () => { throw causes.shift() ?? new Error('outra'); }, {
+      onSaveError: (err) => { received.push(err); events.push(`erro:${(err as Error).message}`); },
+      onChange: (n) => events.push(`pendentes:${n}`),
+      schedule: () => { events.push('agendou'); return () => {}; },
+    });
+    await q.enqueue(ns(1));
+    expect(events).toEqual(['erro:cota cheia', 'pendentes:1', 'agendou']);
+    await q.enqueue(ns(2)); // nova tentativa, outra causa
+    expect(events.slice(3)).toEqual(['erro:banco bloqueado', 'pendentes:2', 'agendou']);
+    expect(received[0]).toBeInstanceOf(Error); // o próprio erro que o save lançou, não uma cópia ou texto
+    expect((received[0] as Error).message).toBe('cota cheia');
+  });
+
+  it('onSaveError recebe o valor lançado como veio, mesmo que não seja um Error', async () => {
+    const received: unknown[] = [];
+    const quota = { name: 'QuotaExceededError' };
+    const q = createSaveQueue(() => Promise.reject(quota), { onSaveError: (err) => received.push(err), schedule: () => () => {} });
+    await q.enqueue(ns(1));
+    expect(received).toEqual([quota]);
+    expect(received[0]).toBe(quota);
+  });
+
+  it('onSaveError não é chamado quando grava, nem quando a nova tentativa dá certo', async () => {
+    let down = true;
+    const timers: Array<() => void> = [];
+    const causes: unknown[] = [];
+    const q = createSaveQueue(async (s) => {
+      if (down) throw new Error('banco fora');
+      return stored(s);
+    }, { onSaveError: (err) => causes.push(err), schedule: (fn) => { timers.push(fn); return () => {}; } });
+    await q.enqueue(ns(1));
+    expect(causes).toHaveLength(1);
+    down = false;
+    timers[0]();
+    await q.flush();
+    await q.enqueue(ns(2));
+    expect(causes).toHaveLength(1); // só a falha; as gravações que deram certo não chamam
+  });
+
+  it('onSaveError que lança vai para onError: o aviso sai, a nova tentativa fica agendada e a fila grava quando o banco volta', async () => {
+    let down = true;
+    const errors: unknown[] = [];
+    const changes: number[] = [];
+    const saved: number[] = [];
+    const timers: Array<() => void> = [];
+    const q = createSaveQueue(async (s) => {
+      if (down) throw new Error('banco fora');
+      saved.push(s.ms);
+      return stored(s);
+    }, {
+      onSaveError: () => { throw new Error('ouvinte quebrado'); },
+      onError: (err) => errors.push(err),
+      onChange: (n) => changes.push(n),
+      schedule: (fn) => { timers.push(fn); return () => {}; },
+    });
+    expect(await q.enqueue(ns(1))).toBeNull();
+    expect(errors).toEqual([new Error('ouvinte quebrado')]);
+    expect(changes).toEqual([1]); // o aviso fixo saiu mesmo com o ouvinte quebrado
+    expect(timers).toHaveLength(1); // e a nova tentativa ficou agendada
+    down = false;
+    timers[0]();
+    await q.flush();
+    expect(saved).toEqual([1]);
+    expect(q.pending()).toBe(0);
+  });
+
+  // --- schedule também é isolado ---
+
+  it('schedule que lança: o aviso sai, o solve fica pendente, o erro vai para onError e a fila não trava', async () => {
+    let down = true;
+    const errors: unknown[] = [];
+    const changes: number[] = [];
+    const saved: number[] = [];
+    const q = createSaveQueue(async (s) => {
+      if (down) throw new Error('banco fora');
+      saved.push(s.ms);
+      return stored(s);
+    }, {
+      onChange: (n) => changes.push(n),
+      onError: (err) => errors.push(err),
+      schedule: () => { throw new Error('sem relógio'); },
+    });
+    expect(await q.enqueue(ns(1))).toBeNull(); // sem erro não tratado: o enqueue resolve
+    expect(changes).toEqual([1]); // o aviso fixo aparece, mesmo sem relógio
+    expect(q.pending()).toBe(1); // e o solve continua na fila
+    expect(q.pendingItems()).toEqual([ns(1)]);
+    expect(errors).toEqual([new Error('sem relógio')]);
+    down = false;
+    expect(await q.enqueue(ns(2))).toMatchObject({ ms: 2 }); // a próxima enqueue ainda drena: grava o 1 e o 2
+    expect(saved).toEqual([1, 2]);
+    expect(changes).toEqual([1, 0]);
+  });
+
+  it('o aviso (onChange) sai antes de a nova tentativa ser agendada', async () => {
+    const events: string[] = [];
+    const q = createSaveQueue(async () => { throw new Error('banco fora'); }, {
+      onChange: (n) => events.push(`pendentes:${n}`),
+      schedule: () => { events.push('agendou'); return () => {}; },
+    });
+    await q.enqueue(ns(1));
+    expect(events).toEqual(['pendentes:1', 'agendou']);
   });
 
   it('com o repositório de verdade: banco indisponível segura o solve; quando volta, grava uma vez só', async () => {

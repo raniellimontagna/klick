@@ -142,8 +142,9 @@ export async function decodeSnapshot(r: Snapshot): Promise<KlickExport> {
 
 // Exporta tudo (a lixeira inclusa), codifica, grava, poda e só então zera o contador: se qualquer passo falha, rejeita e o
 // contador fica, e a próxima rodada tenta de novo. solveCount é o que a pessoa vê (solves ativos): restaurar a cópia devolve esse
-// tanto ao histórico.
-export async function createBackup(repo: Repository, reason: BackupRecord['reason'], now: number): Promise<BackupRecord> {
+// tanto ao histórico. A poda tira a mais antiga das outras e poupa a cópia que acabou de gravar e a keepId (a que está sendo
+// restaurada).
+export async function createBackup(repo: Repository, reason: BackupRecord['reason'], now: number, keepId?: string): Promise<BackupRecord> {
   const data = await repo.exportAll();
   const { encoding, payload } = await encodeSnapshot(data);
   const record: BackupRecord = {
@@ -155,21 +156,26 @@ export async function createBackup(repo: Repository, reason: BackupRecord['reaso
     payload,
   };
   await repo.saveBackup(record);
-  // A cópia nova fica sempre: com o relógio atrasado ela seria a "mais antiga" e sumiria logo depois de gravada.
+  // A cópia nova fica sempre: com o relógio atrasado ela seria a "mais antiga" e sumiria logo depois de gravada. A keepId também,
+  // e ela ocupa uma das vagas: sobram BACKUP_KEEP - 1 - (1 se ela está na lista) para as outras.
   const others = (await repo.listBackups()).filter((r) => r.id !== record.id);
-  for (const old of others.slice(BACKUP_KEEP - 1)) await repo.deleteBackup(old.id);
+  const held = others.filter((r) => r.id === keepId);
+  const prunable = others.filter((r) => r.id !== keepId);
+  for (const old of prunable.slice(BACKUP_KEEP - 1 - held.length)) await repo.deleteBackup(old.id);
   await repo.saveMeta({ solvesSinceBackup: 0, lastBackupAt: now, lastBackupDay: dayKey(now) });
   return record;
 }
 
-// Guarda o estado de agora numa cópia 'pre-restore' e só então troca tudo pelo da cópia escolhida, numa transação (replaceAll):
-// se a decodificação ou a troca falha, a falha chega a quem chamou e os dados continuam como estavam.
+// Troca tudo pelo da cópia escolhida, numa transação (replaceAll). Antes de escrever qualquer coisa, a cópia é lida e decodificada:
+// uma que não abre é recusada sem efeito nenhum (nenhuma pre-restore gasta a vaga de uma cópia boa, e o Meta não muda). Só então o
+// estado de agora vai para uma cópia 'pre-restore', cuja poda poupa a escolhida (restaurar a mais antiga de uma lista cheia não a
+// perde, nem se a troca falhar). Qualquer falha chega a quem chamou e os dados continuam como estavam.
 export async function restoreBackup(repo: Repository, id: string, now: number): Promise<void> {
-  // Lida antes: a cópia pre-restore poda a lista, e a escolhida (a mais antiga, por exemplo) sumiria do banco no meio do caminho.
   const record = await repo.getBackup(id);
   if (!record) throw new Error(`Cópia não encontrada: ${id}`);
-  await createBackup(repo, 'pre-restore', now);
-  await repo.replaceAll(await decodeSnapshot(record));
+  const data = await decodeSnapshot(record);
+  await createBackup(repo, 'pre-restore', now, id);
+  await repo.replaceAll(data);
 }
 
 // --- Armazenamento persistente ---
@@ -190,12 +196,21 @@ export async function requestPersistence(storage: StorageLike | null = defaultSt
   return (await storage.persist()) ? 'granted' : 'denied';
 }
 
+// Cada leitura vale por si: a que rejeita (ou lança na hora) vira null e não leva a outra junto.
+async function readOrNull<T>(read: () => Promise<T> | null): Promise<T | null> {
+  try {
+    return await read();
+  } catch {
+    return null;
+  }
+}
+
 export async function storageStatus(
   storage: StorageLike | null = defaultStorage(),
 ): Promise<{ persisted: boolean | null; usage: number | null; quota: number | null }> {
   const [persisted, estimate] = await Promise.all([
-    storage && typeof storage.persisted === 'function' ? storage.persisted() : null,
-    storage && typeof storage.estimate === 'function' ? storage.estimate() : null,
+    readOrNull(() => (storage && typeof storage.persisted === 'function' ? storage.persisted() : null)),
+    readOrNull(() => (storage && typeof storage.estimate === 'function' ? storage.estimate() : null)),
   ]);
   return { persisted, usage: estimate?.usage ?? null, quota: estimate?.quota ?? null };
 }
@@ -205,6 +220,7 @@ export async function storageStatus(
 export interface SaveQueue {
   enqueue(s: NewSolve): Promise<Solve | null>; // o solve gravado; null se ficou na fila (a gravação falhou)
   pending(): number; // solves que o save ainda não confirmou
+  pendingItems(): NewSolve[]; // cópias desses solves, na ordem de chegada (para uma exportação de emergência); mexer nelas não mexe na fila
   flush(): Promise<void>; // espera a gravação em andamento terminar
 }
 
@@ -223,21 +239,25 @@ const defaultSchedule = (fn: () => void, ms: number): (() => void) => {
 // Guarda os solves em memória, na ordem de chegada, e os grava um de cada vez. Quando o save falha (cota cheia, banco bloqueado),
 // a gravação para no primeiro que falhou, o aviso sai por onChange(n) e uma nova tentativa fica agendada para daqui a retryMs;
 // os solves seguintes esperam atrás dele, para continuarem na ordem. Um solve só sai da lista depois que o save respondeu por ele.
-// Só uma gravação roda por vez: enqueue com uma em andamento só põe o solve na fila, e a que está rodando chega até ele.
+// Só uma gravação roda por vez: enqueue com uma em andamento só põe o solve na fila, e a que está rodando chega até ele. A fila
+// guarda uma cópia do que recebe, e pendingItems devolve cópias dela: o que seria exportado é o que seria gravado.
 export function createSaveQueue(
   save: (s: NewSolve) => Promise<Solve>,
   {
     retryMs = 3000,
     onChange,
     onSaved,
+    onSaveError,
     schedule = defaultSchedule,
     onError = rethrowLater,
   }: {
     retryMs?: number;
     onChange?: (pending: number) => void; // só depois de uma falha (n > 0) e quando a fila esvazia depois disso (0)
     onSaved?: (s: Solve) => void; // cada solve gravado, inclusive os que ficaram na fila e gravaram depois
+    onSaveError?: (err: unknown) => void; // o erro de cada tentativa de gravar que falhou (cota cheia, conexão fechada...), antes do aviso e da nova tentativa
     schedule?: (fn: () => void, ms: number) => () => void; // devolve o cancelamento
-    // Erro de onChange ou onSaved (o solve já foi gravado, ou continua na fila). Se ele mesmo lançar, os dois erros saem por relançar-depois.
+    // Erro de onChange, onSaved, onSaveError ou schedule (o solve já foi gravado, ou continua na fila). Se ele mesmo lançar, os dois
+    // erros saem por relançar-depois.
     onError?: (err: unknown) => void;
   } = {},
 ): SaveQueue {
@@ -269,15 +289,20 @@ export function createSaveQueue(
     }
   }
 
-  function fail(): void {
+  function fail(err: unknown): void {
     for (const entry of queue) entry.settle(null); // quem espera o enqueue recebe null: o solve ficou na fila
-    cancelRetry = schedule(() => {
-      cancelRetry = null;
-      void drain();
-    }, retryMs);
     warned = true;
     const count = queue.length;
+    tell(() => onSaveError?.(err)); // a causa antes do aviso: quem mostra o aviso já a tem
     tell(() => onChange?.(count));
+    try {
+      cancelRetry = schedule(() => {
+        cancelRetry = null;
+        void drain();
+      }, retryMs);
+    } catch (failure) {
+      report(failure); // sem relógio: o solve segue na fila e a próxima enqueue tenta de novo
+    }
   }
 
   async function run(): Promise<void> {
@@ -293,8 +318,8 @@ export function createSaveQueue(
         let saved: Solve;
         try {
           saved = await save(entry.solve);
-        } catch {
-          fail();
+        } catch (err) {
+          fail(err);
           return;
         }
         queue.shift();
@@ -321,11 +346,12 @@ export function createSaveQueue(
   return {
     enqueue(solve) {
       return new Promise<Solve | null>((settle) => {
-        queue.push({ solve, settle });
+        queue.push({ solve: { ...solve }, settle });
         void drain();
       });
     },
     pending: () => queue.length,
+    pendingItems: () => queue.map((entry) => ({ ...entry.solve })),
     flush: () => (running ? current : Promise.resolve()),
   };
 }
