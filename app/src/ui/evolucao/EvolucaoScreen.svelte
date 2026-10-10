@@ -47,6 +47,18 @@
 
   let { app }: { app: AppState } = $props();
 
+  // O relógio da tela: a hora de montagem, atualizada a cada minuto enquanto a tela existe. Sem ele, "Quando" e a janela do
+  // período ficariam presos no último momento em que algo mudou (as derivadas não se refazem sozinhas com o tempo).
+  const CLOCK_MS = 60000;
+  let now = $state(Date.now());
+
+  $effect(() => {
+    const clock: ReturnType<typeof setInterval> = setInterval(() => {
+      now = Date.now();
+    }, CLOCK_MS);
+    return () => clearInterval(clock);
+  });
+
   // A escolha de evento e de sessão; o evento segue a sessão atual enquanto a pessoa não escolhe um.
   let eventPick = $state<EventId | null>(null);
   let sessionPick = $state('all');
@@ -59,9 +71,12 @@
   // Uma sessão de outro evento não fica escolhida: o seletor volta para "Todas as sessões".
   const sessionId = $derived(eventSessions.some((s) => s.id === sessionPick) ? sessionPick : 'all');
 
+  // Trocar de evento volta a "Todas as sessões": a sessão escolhida num evento não fica valendo quando se volta a ele.
   function onEvent(select: HTMLSelectElement): void {
     const next = eventOf(select.value);
-    if (next) eventPick = next;
+    if (!next) return;
+    eventPick = next;
+    sessionPick = 'all';
   }
 
   function onSession(select: HTMLSelectElement): void {
@@ -73,7 +88,7 @@
 
   // O período parte o filtro: os solves antes dele são a comparação dos indicadores.
   const split = $derived.by(() => {
-    const start = period === 'all' ? -Infinity : Date.now() - Number(period) * DAY;
+    const start = period === 'all' ? -Infinity : now - Number(period) * DAY;
     const offset = pool.findIndex((x) => x.at >= start);
     const first = offset < 0 ? pool.length : offset;
     return { first, before: pool.slice(0, first), inPeriod: pool.slice(first) };
@@ -137,7 +152,6 @@
   const axisTo = $derived(bins.length ? formatMs(bins[bins.length - 1].to).slice(0, -3) : '');
 
   const rows = $derived.by((): Row[] => {
-    const now = Date.now();
     const out: Row[] = [];
     const lowest = Math.max(split.first, pool.length - TABLE_ROWS);
     for (let i = pool.length - 1; i >= lowest; i--) {
@@ -158,7 +172,7 @@
   });
 </script>
 
-<section class="screen" data-screen="evolucao" aria-label={T.tabs.evolucao} hidden={app.tab !== 'evolucao'}>
+<section class="screen" data-screen="evolucao" aria-label={T.tabs.evolucao}>
   <div class="page-h">
     <h1>{T.tabs.evolucao}</h1>
     <select class="pill" data-evo-event aria-label={T.evolucao.eventLabel} value={event} onchange={(e) => onEvent(e.currentTarget)}>

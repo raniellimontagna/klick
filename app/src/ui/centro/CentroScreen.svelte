@@ -81,7 +81,9 @@
         trail[i] = !trail[i];
         return app.updateProfile({ trail });
       })
-      .catch(() => app.showToast(T.data.saveFailed)); // a fila segue para o próximo toque, e a falha não passa em silêncio
+      // updateProfile não rejeita (AppState.write já mostra o aviso). Este catch só evita que uma rejeição inesperada deixe a
+      // fila rejeitada, o que faria todos os toques seguintes sumirem sem aviso.
+      .catch(() => app.showToast(T.data.saveFailed));
   }
 
   // Se a gravação falha, a caixa volta ao que está salvo (o aviso já saiu pela casca).

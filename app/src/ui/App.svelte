@@ -106,9 +106,12 @@
 
     <main id="main">
       <TimerScreen {app} />
-      <!-- A Evolução fica montada, porque os filtros sobrevivem à troca de aba; ela esconde a própria seção, como o Timer.
-           O Centro só é montado com a aba aberta: não tem estado a guardar, e fora da aba não deixa seção escondida na árvore. -->
-      <EvolucaoScreen {app} />
+      <!-- Evolução e Centro só são montadas com a aba aberta: o relógio da Evolução (a hora de "Quando" e a janela do período) só anda
+           enquanto a tela existe, e fora da aba não deixa seção escondida na árvore de acessibilidade. Os filtros da Evolução
+           voltam ao padrão ao trocar de aba. -->
+      {#if app.tab === 'evolucao'}
+        <EvolucaoScreen {app} />
+      {/if}
       {#if app.tab === 'companion'}
         <CentroScreen {app} />
       {/if}
