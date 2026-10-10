@@ -4,8 +4,13 @@
 // (tx.done). Qualquer falha aborta a transação e rejeita a promessa; a fila de gravação conta com isso para manter o solve
 // pendente, então nada é engolido. Os avisos (ouvintes locais e canal entre abas) saem só depois do commit.
 //
+// Invariante: solve ativo => sessão ativa. Um solve ativo sob uma sessão na lixeira continuaria entrando nas contas por evento,
+// mas nenhuma lista de sessões mostraria a sessão dele, e o purge a apagaria de vez. Os três caminhos que gravam um solve ativo
+// (restoreSolve, addSolve e importAll) devolvem o registro da sessão na mesma transação, e só ele: os outros solves excluídos da
+// sessão continuam na lixeira. replaceAll grava o arquivo como veio.
+//
 // Leitura: o que sai do IndexedDB já é cópia. Os padrões (perfil e meta) são montados novos a cada chamada, nunca compartilhados.
-import type { IDBPDatabase, IDBPTransaction, StoreNames } from 'idb';
+import type { IDBPDatabase, IDBPObjectStore, IDBPTransaction, StoreNames } from 'idb';
 import { defaultSettings } from '../core/types';
 import type { EventId, Meta, Penalty, Profile, Session, Settings, Solve } from '../core/types';
 import { T } from '../strings';
@@ -59,10 +64,10 @@ export interface Repository {
   deleteSession(id: string): Promise<void>; // marca a sessão e os solves dela
   restoreSession(id: string): Promise<void>; // restaura a sessão e os solves excluídos junto
   listSolves(f?: { sessionId?: string; event?: EventId; includeDeleted?: boolean }): Promise<Solve[]>; // ordem crescente de at
-  addSolve(s: NewSolve): Promise<Solve>;
+  addSolve(s: NewSolve): Promise<Solve>; // se a sessão está na lixeira (outra aba a excluiu), o registro dela volta na mesma transação: avisa solves e depois sessions
   updateSolve(id: string, patch: { penalty?: Penalty; note?: string }): Promise<Solve>;
   deleteSolve(id: string): Promise<void>;
-  restoreSolve(id: string): Promise<void>; // se a sessão do solve está na lixeira, ela volta junto (só a sessão; os outros solves dela ficam)
+  restoreSolve(id: string): Promise<void>; // devolve o solve; se a sessão dele está na lixeira, devolve também o registro dela (só ele: os outros solves excluídos da sessão continuam na lixeira)
   listTrash(): Promise<{ sessions: Session[]; solves: Solve[] }>; // o excluído mais recentemente primeiro, sessões e solves
   purgeTrash(olderThanMs: number): Promise<number>; // apaga de vez o excluído antes de now - olderThanMs (no limite exato ainda fica); devolve quantos itens (sessões e solves)
   getProfile(): Promise<Profile>; // padrão se ausente (e não grava o padrão)
@@ -76,8 +81,8 @@ export interface Repository {
   getBackup(id: string): Promise<BackupRecord | undefined>;
   deleteBackup(id: string): Promise<void>;
   exportAll(o?: { includeDeleted?: boolean }): Promise<KlickExport>; // includeDeleted padrão true
-  importAll(data: KlickExport): Promise<ImportReport>; // junta por id; fica o de updatedAt maior
-  replaceAll(data: KlickExport): Promise<void>; // limpa solves, sessões e perfil e grava os do arquivo
+  importAll(data: KlickExport): Promise<ImportReport>; // junta por id; fica o de updatedAt maior. Sessão da lixeira que recebe solve ativo do arquivo volta (sem entrar no relatório; avisa sessions)
+  replaceAll(data: KlickExport): Promise<void>; // limpa solves, sessões e perfil e grava os do arquivo, como vieram
   onChange(fn: (kind: ChangeKind) => void): () => void; // mudanças locais e de outras abas
 }
 
@@ -171,6 +176,20 @@ async function each<V>(items: readonly V[], request: (item: V) => Promise<unknow
   await Promise.all(pending);
 }
 
+// O que reviveSession usa da store de sessões, dentro de uma transação de escrita.
+type SessionStore = Pick<IDBPObjectStore<KlickDB, StoreNames<KlickDB>[], 'sessions', 'readwrite'>, 'get' | 'put'>;
+
+// Mantém o invariante (ver o topo do arquivo) quando a transação grava um solve ativo: se a sessão dele está na lixeira, devolve o
+// registro dela, e só ele. Diz se a sessão voltou. Um sessionId que não é string nem é consultado: uma chave inválida lança
+// DataError no IndexedDB e desfaria a gravação do próprio solve, que não pode se perder por isso.
+async function reviveSession(sessions: SessionStore, sessionId: unknown, at: number): Promise<boolean> {
+  if (typeof sessionId !== 'string') return false;
+  const session = await sessions.get(sessionId);
+  if (!session || session.deletedAt === null) return false;
+  await sessions.put({ ...session, deletedAt: null, updatedAt: at });
+  return true;
+}
+
 export function createRepository(
   db: IDBPDatabase<KlickDB>,
   {
@@ -187,7 +206,7 @@ export function createRepository(
 
   // O onError é de quem usa o repositório. Se ele mesmo lançar, o erro não pode rejeitar uma gravação já confirmada (a fila
   // gravaria de novo e duplicaria o solve): o erro que ele recebia e o que ele lançou saem juntos pelo relançar-depois.
-  function report(err: unknown): void {
+  function reportError(err: unknown): void {
     try {
       onError(err);
     } catch (failure) {
@@ -201,7 +220,7 @@ export function createRepository(
       try {
         entry.fn(kind);
       } catch (err) {
-        report(err);
+        reportError(err);
       }
     }
   }
@@ -213,7 +232,7 @@ export function createRepository(
       try {
         channel?.postMessage({ kind });
       } catch (err) {
-        report(err);
+        reportError(err);
       }
     }
   }
@@ -384,10 +403,13 @@ export function createRepository(
         updatedAt: stamp,
         deletedAt: null,
       };
-      await write(['solves'], async (tx) => {
+      const sessionBack = await write(['solves', 'sessions'], async (tx) => {
         await tx.objectStore('solves').add(solve);
+        // Uma aba que ainda mostra uma sessão que outra aba excluiu: o solve não se perde nem fica escondido, e a sessão volta.
+        return reviveSession(tx.objectStore('sessions'), solve.sessionId, stamp);
       });
       announce('solves');
+      if (sessionBack) announce('sessions');
       return solve;
     },
 
@@ -415,13 +437,9 @@ export function createRepository(
         if (solve.deletedAt === null) return null;
         const at = now();
         await solves.put({ ...solve, deletedAt: null, updatedAt: at });
-        // Solve ativo sob uma sessão na lixeira não aparece em lista nenhuma, e o purge apagaria a sessão de vez: ela volta
-        // junto, só o registro dela. Os outros solves excluídos da sessão continuam na lixeira, um a um.
-        const sessions = tx.objectStore('sessions');
-        const session = await sessions.get(solve.sessionId);
-        if (!session || session.deletedAt === null) return { session: false };
-        await sessions.put({ ...session, deletedAt: null, updatedAt: at });
-        return { session: true };
+        // Invariante: o solve volta ativo, então a sessão dele, se estiver na lixeira, volta junto: só o registro dela. Os outros
+        // solves excluídos da sessão continuam na lixeira e voltam um a um.
+        return { session: await reviveSession(tx.objectStore('sessions'), solve.sessionId, at) };
       });
       if (restored === null) return;
       announce('solves');
@@ -546,7 +564,7 @@ export function createRepository(
 
     async importAll(data) {
       const report: ImportReport = { sessionsAdded: 0, solvesAdded: 0, solvesUpdated: 0, skipped: 0 };
-      const profileAdded = await write(['sessions', 'solves', 'profile'], async (tx) => {
+      const outcome = await write(['sessions', 'solves', 'profile'], async (tx) => {
         const sessions = tx.objectStore('sessions');
         const solves = tx.objectStore('solves');
         const profile = tx.objectStore('profile');
@@ -579,14 +597,24 @@ export function createRepository(
         }
         await each(incoming, (s) => solves.put(s));
 
+        // Invariante: solve ativo que chegou do arquivo não pode ficar sob uma sessão na lixeira (a daqui, por exemplo, que foi
+        // excluída): ela volta, só o registro dela. Isso não entra no relatório.
+        const at = now();
+        let sessionBack = false;
+        for (const id of new Set(incoming.filter((s) => s.deletedAt === null).map((s) => s.sessionId))) {
+          if (await reviveSession(sessions, id, at)) sessionBack = true;
+        }
+
         // O perfil do arquivo só entra se este aparelho ainda não tem um.
+        let profileSaved = false;
         if (data.profile && !(await profile.get('current'))) {
           await profile.put(data.profile, 'current');
-          return true;
+          profileSaved = true;
         }
-        return false;
+        return { profileSaved, sessionBack };
       });
-      if (profileAdded || report.sessionsAdded + report.solvesAdded + report.solvesUpdated > 0) announce('all');
+      if (outcome.profileSaved || report.sessionsAdded + report.solvesAdded + report.solvesUpdated > 0) announce('all');
+      if (outcome.sessionBack) announce('sessions');
       return report;
     },
 

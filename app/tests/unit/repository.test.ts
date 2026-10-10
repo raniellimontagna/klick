@@ -866,6 +866,81 @@ describe('repositório: sessões, solves e lixeira', () => {
     expect(seen).toEqual(['solves', 'sessions']);
   });
 
+  it('solve gravado numa aba, numa sessão que outra aba excluiu, traz de volta a sessão e só ela; as duas abas ouvem solves e depois sessions', async () => {
+    const b = bus();
+    const name = dbName();
+    const tabA = createRepository(await openKlickDb(name), { now, channel: b.make() });
+    const tabB = createRepository(await openKlickDb(name), { now, channel: b.make() });
+    const s = await tabA.createSession({ event: '333' });
+    const old = await tabA.addSolve(ns(s.id, 60000, 1000));
+    t += 1000;
+    await tabA.deleteSession(s.id); // a aba A exclui a sessão; a aba B ainda a mostra
+    const onA: string[] = [];
+    const onB: string[] = [];
+    tabA.onChange((k) => onA.push(k));
+    tabB.onChange((k) => onB.push(k));
+
+    t += 1000;
+    const fresh = await tabB.addSolve(ns(s.id, 61000, 2000));
+    expect(onB).toEqual(['solves', 'sessions']);
+    expect(onA).toEqual(['solves', 'sessions']);
+    expect(await tabA.listSessions()).toMatchObject([{ id: s.id, deletedAt: null, updatedAt: t }]);
+    expect((await tabA.listSolves({ sessionId: s.id })).map((x) => x.id)).toEqual([fresh.id]);
+    const trash = await tabA.listTrash();
+    expect(trash.solves.map((x) => x.id)).toEqual([old.id]); // o solve excluído junto com a sessão continua na lixeira
+    expect(trash.sessions).toEqual([]);
+  });
+
+  it('gravar o solve e devolver a sessão é uma gravação só: uma transação strict, e se ela aborta nem o solve entra nem a sessão volta', async () => {
+    const name = dbName();
+    const spy = spyOn(await openKlickDb(name));
+    const spied = createRepository(spy.db, { now, channel: null });
+    const s = await spied.createSession({ event: '333' });
+    await spied.deleteSession(s.id);
+    const seen: string[] = [];
+    spied.onChange((k) => seen.push(k));
+
+    spy.abortWrites = true;
+    await expect(spied.addSolve(ns(s.id, 60000, 1000))).rejects.toMatchObject({ name: 'AbortError' });
+    const other = createRepository(await openKlickDb(name), { now, channel: null });
+    expect(await other.listSolves({ includeDeleted: true })).toEqual([]);
+    expect((await other.listTrash()).sessions.map((x) => x.id)).toEqual([s.id]);
+    expect(seen).toEqual([]);
+
+    spy.abortWrites = false;
+    spy.opened.length = 0;
+    const solve = await spied.addSolve(ns(s.id, 60000, 1000));
+    expect(spy.opened.filter((o) => o.mode === 'readwrite')).toEqual([{ mode: 'readwrite', durability: 'strict' }]);
+    expect(seen).toEqual(['solves', 'sessions']);
+    expect((await spied.listSolves({ sessionId: s.id })).map((x) => x.id)).toEqual([solve.id]);
+  });
+
+  it('gravar um solve numa sessão que não existe, ou com um sessionId que não é chave do IndexedDB, grava só o solve', async () => {
+    const seen: string[] = [];
+    repo.onChange((k) => seen.push(k));
+    const ghost = await repo.addSolve(ns('sessao-apagada', 60000, 1000));
+    const odd = await repo.addSolve({ ...ns('x', 61000, 2000), sessionId: null as never }); // um solve não se perde por causa disso
+    expect(seen).toEqual(['solves', 'solves']);
+    expect((await repo.listSolves()).map((x) => x.id)).toEqual([ghost.id, odd.id]);
+    expect(await repo.listSessions({ includeDeleted: true })).toEqual([]);
+  });
+
+  it('restaurar um solve cujo sessionId não é uma chave válida do IndexedDB devolve o solve, sem procurar a sessão', async () => {
+    const s = await repo.createSession({ event: '333' });
+    const base = await repo.addSolve(ns(s.id, 60000, 1000));
+    const odd: unknown[] = [null, undefined, true, {}];
+    const solves = odd.map((sessionId, i) => ({ ...base, id: `estranho-${i}`, sessionId: sessionId as never, deletedAt: t, updatedAt: t }));
+    await repo.replaceAll({ format: 'klick', version: 1, exportedAt: t, sessions: [s], solves, profile: null });
+    expect((await repo.listTrash()).solves).toHaveLength(odd.length);
+    const seen: string[] = [];
+    repo.onChange((k) => seen.push(k));
+
+    for (const solve of solves) await repo.restoreSolve(solve.id); // sem DataError
+    expect((await repo.listSolves()).map((x) => x.id)).toEqual(solves.map((x) => x.id));
+    expect((await repo.listTrash()).solves).toEqual([]);
+    expect(seen).toEqual(odd.map(() => 'solves')); // nenhuma sessão envolvida, nenhum aviso de sessions
+  });
+
   it('updateSolve aceita penalty null para limpar a penalidade e nota vazia para limpar a nota', async () => {
     const s = await repo.createSession({ event: '333' });
     const a = await repo.addSolve(ns(s.id, 60000, 1000));
@@ -1098,5 +1173,129 @@ describe('repositório: exportar e importar', () => {
     expect((await repo.listSolves({ includeDeleted: true })).map((x) => x.id)).toEqual([a.id]);
     expect((await repo.exportAll()).profile).toBeNull();
     expect(seen).toEqual([]);
+  });
+
+  describe('solve ativo do arquivo numa sessão que está na lixeira daqui', () => {
+    // A sessão e o solve `old` vão para a lixeira; o que o arquivo traz é montado por cada teste.
+    async function trashedSession() {
+      const s = await repo.createSession({ event: '333' });
+      const old = await repo.addSolve(ns(s.id, 60000, 1000));
+      t += 1000;
+      await repo.deleteSession(s.id);
+      t += 1000;
+      return { s, old };
+    }
+    const fileOf = (solves: KlickExport['solves'], extra: Partial<KlickExport> = {}): KlickExport => ({
+      format: 'klick',
+      version: 1,
+      exportedAt: t,
+      sessions: [],
+      solves,
+      profile: null,
+      ...extra,
+    });
+
+    it('um solve novo e ativo traz a sessão de volta, sem contá-la no relatório, e só ela', async () => {
+      const { s, old } = await trashedSession();
+      const seen: string[] = [];
+      repo.onChange((k) => seen.push(k));
+
+      const file = fileOf([{ ...old, id: 'solve-de-fora', ms: 59000, deletedAt: null, createdAt: t, updatedAt: t }]);
+      expect(await repo.importAll(file)).toEqual({ sessionsAdded: 0, solvesAdded: 1, solvesUpdated: 0, skipped: 0 });
+      expect(await repo.listSessions()).toMatchObject([{ id: s.id, deletedAt: null, updatedAt: t }]);
+      expect((await repo.listSolves({ sessionId: s.id })).map((x) => x.id)).toEqual(['solve-de-fora']);
+      expect((await repo.listTrash()).solves.map((x) => x.id)).toEqual([old.id]); // o que estava na lixeira continua lá
+      expect(seen).toEqual(['all', 'sessions']);
+    });
+
+    it('a versão mais nova e ativa de um solve que aqui está na lixeira também traz a sessão de volta', async () => {
+      const { s, old } = await trashedSession();
+      const file = fileOf([{ ...old, deletedAt: null, updatedAt: t }]);
+      expect(await repo.importAll(file)).toEqual({ sessionsAdded: 0, solvesAdded: 0, solvesUpdated: 1, skipped: 0 });
+      expect((await repo.listSessions()).map((x) => x.id)).toEqual([s.id]);
+      expect((await repo.listSolves({ sessionId: s.id })).map((x) => x.id)).toEqual([old.id]);
+      expect(await repo.listTrash()).toEqual({ sessions: [], solves: [] });
+    });
+
+    it('solves que chegam todos excluídos deixam a sessão na lixeira', async () => {
+      const { s, old } = await trashedSession();
+      const seen: string[] = [];
+      repo.onChange((k) => seen.push(k));
+
+      const file = fileOf([
+        { ...old, id: 'x1', deletedAt: t, updatedAt: t },
+        { ...old, id: 'x2', deletedAt: t, updatedAt: t },
+      ]);
+      expect(await repo.importAll(file)).toEqual({ sessionsAdded: 0, solvesAdded: 2, solvesUpdated: 0, skipped: 0 });
+      expect(await repo.listSessions()).toEqual([]);
+      const trash = await repo.listTrash();
+      expect(trash.sessions.map((x) => x.id)).toEqual([s.id]);
+      expect(trash.solves).toHaveLength(3);
+      expect(seen).toEqual(['all']);
+    });
+
+    it('uma cópia de antes da exclusão, reimportada, não traz a sessão de volta: a exclusão é a mais nova', async () => {
+      const s = await repo.createSession({ event: '333' });
+      await repo.addSolve(ns(s.id, 60000, 1000));
+      const before = await repo.exportAll();
+      t += 1000;
+      await repo.deleteSession(s.id);
+      const seen: string[] = [];
+      repo.onChange((k) => seen.push(k));
+
+      expect(await repo.importAll(before)).toEqual({ sessionsAdded: 0, solvesAdded: 0, solvesUpdated: 0, skipped: 1 });
+      expect(await repo.listSessions()).toEqual([]);
+      expect(seen).toEqual([]);
+    });
+
+    it('uma sessão do próprio arquivo que veio excluída, mas com solve ativo, entra ativa', async () => {
+      const source = await fresh();
+      const s = await source.createSession({ event: '333' });
+      const a = await source.addSolve(ns(s.id, 60000, 1000));
+      const file = await source.exportAll();
+      file.sessions[0] = { ...file.sessions[0], deletedAt: t, updatedAt: t }; // só a sessão excluída; o solve segue ativo
+
+      expect(await repo.importAll(file)).toEqual({ sessionsAdded: 1, solvesAdded: 1, solvesUpdated: 0, skipped: 0 });
+      expect((await repo.listSessions()).map((x) => x.id)).toEqual([s.id]);
+      expect((await repo.listSolves({ sessionId: s.id })).map((x) => x.id)).toEqual([a.id]);
+    });
+
+    it('é a mesma transação da importação: uma só, strict', async () => {
+      const spy = spyOn(await openKlickDb(dbName()));
+      const spied = createRepository(spy.db, { now, channel: null });
+      const s = await spied.createSession({ event: '333' });
+      const old = await spied.addSolve(ns(s.id, 60000, 1000));
+      t += 1000;
+      await spied.deleteSession(s.id);
+      t += 1000;
+
+      spy.opened.length = 0;
+      await spied.importAll(fileOf([{ ...old, id: 'solve-de-fora', deletedAt: null }]));
+      expect(spy.opened.filter((o) => o.mode === 'readwrite')).toEqual([{ mode: 'readwrite', durability: 'strict' }]);
+      expect((await spied.listSessions()).map((x) => x.id)).toEqual([s.id]);
+    });
+
+    it('é a mesma transação da importação: se ela falha depois, a sessão continua na lixeira e o solve não entra', async () => {
+      const { s, old } = await trashedSession();
+      const seen: string[] = [];
+      repo.onChange((k) => seen.push(k));
+
+      const file = fileOf([{ ...old, id: 'solve-de-fora', deletedAt: null }], { profile: { ...(await repo.getProfile()), finish: (() => 1) as never } });
+      await expect(repo.importAll(file)).rejects.toMatchObject({ name: 'DataCloneError' });
+      expect(await repo.listSessions()).toEqual([]);
+      expect(await repo.listSolves({ sessionId: s.id })).toEqual([]);
+      expect(seen).toEqual([]);
+    });
+
+    it('solve com sessionId que não é chave do IndexedDB entra sem derrubar a importação', async () => {
+      const { old } = await trashedSession();
+      const file = fileOf([
+        { ...old, id: 'estranho-1', sessionId: null as never, deletedAt: null },
+        { ...old, id: 'estranho-2', sessionId: undefined as never, deletedAt: null },
+      ]);
+      expect(await repo.importAll(file)).toEqual({ sessionsAdded: 0, solvesAdded: 2, solvesUpdated: 0, skipped: 0 });
+      expect((await repo.listSolves()).map((x) => x.id)).toEqual(['estranho-1', 'estranho-2']);
+      expect(await repo.listSessions()).toEqual([]); // a sessão da lixeira continua lá: esses solves não são dela
+    });
   });
 });
