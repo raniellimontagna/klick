@@ -1,0 +1,38 @@
+{
+  "name": "app",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/build-cubing.mjs && vite",
+    "build": "node scripts/build-cubing.mjs && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.64.0",
+    "@sveltejs/vite-plugin-svelte": "^7.3.0",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/svelte": "5.4.2",
+    "@tsconfig/svelte": "^5.0.8",
+    "@types/node": "^24.13.3",
+    "cubing": "0.65.1",
+    "esbuild": "~0.25.12",
+    "fake-indexeddb": "6.2.5",
+    "jsdom": "^30.1.2",
+    "svelte": "^5.57.0",
+    "svelte-check": "^4.7.6",
+    "typescript": "~6.0.2",
+    "vite": "^8.3.0",
+    "vite-plugin-pwa": "2.0.0",
+    "vitest": "^5.0.3"
+  },
+  "dependencies": {
+    "@fontsource/geist-mono": "5.3.0",
+    "@fontsource/geist-sans": "5.3.0",
+    "idb": "8.0.4"
+  }
+}

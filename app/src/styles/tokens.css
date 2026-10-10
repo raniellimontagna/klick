@@ -1,0 +1,93 @@
+/* Tokens semânticos (spec 5.1). Tema "sistema" por padrão; data-theme="light" | "dark" força.
+   Ajustes de contraste AA no claro (spec 10): muted, dec, insp-8, insp-12 e pb ficaram mais escuros. */
+:root {
+  color-scheme: light;
+  --bg: #f3f0e9;
+  --surface: #fbfaf7;
+  --surface-2: #e8e3d9;
+  --line: #e2dcd0;
+  --ink: #17171a;
+  --ink-2: #3a3832;
+  --muted: #6f6a60;
+  --dec: #8a857b;
+  --arm: #d93d42;
+  --go: #23915a;
+  --insp-8: #b7770b;
+  --insp-12: #c2561a;
+  --pb: #a67908;
+  --pb-bg: #f4e7c3;
+  --pb-ink: #7a5a06;
+  --heat-0: #e9e4da;
+  --heat-1: #cfe7d7;
+  --heat-2: #94cda9;
+  --heat-3: #2f9e5f;
+  --trail: #3e63dd;
+  --arm-ink: #b8292f;
+  --go-ink: #1b744a;
+  --inner: none;
+  --font: 'Geist Sans', 'Geist', 'Inter', system-ui, -apple-system, sans-serif;
+  --mono: 'Geist Mono', ui-monospace, monospace;
+  --r-key: 6px;
+  --r-btn: 10px;
+  --r-tile: 14px;
+  --r-card: 16px;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --t-micro: 120ms;
+  --t-state: 200ms;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --bg: #121110;
+    --surface: #1a1917;
+    --surface-2: #23211e;
+    --line: #2a2724;
+    --ink: #f3f1ec;
+    --ink-2: #d6d2c9;
+    --muted: #8e8a82;
+    --dec: #66625b;
+    --arm: #ff5a5f;
+    --go: #3dd68c;
+    --insp-8: #ffb224;
+    --insp-12: #ff8a3d;
+    --pb: #f0b84c;
+    --pb-bg: #3a2e14;
+    --pb-ink: #f0c46a;
+    --heat-0: #22201d;
+    --heat-1: #1e4a33;
+    --heat-2: #2b7a50;
+    --heat-3: #3dd68c;
+    --trail: #4c6fe8;
+    --arm-ink: #ff5a5f;
+    --go-ink: #3dd68c;
+    --inner: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #121110;
+  --surface: #1a1917;
+  --surface-2: #23211e;
+  --line: #2a2724;
+  --ink: #f3f1ec;
+  --ink-2: #d6d2c9;
+  --muted: #8e8a82;
+  --dec: #66625b;
+  --arm: #ff5a5f;
+  --go: #3dd68c;
+  --insp-8: #ffb224;
+  --insp-12: #ff8a3d;
+  --pb: #f0b84c;
+  --pb-bg: #3a2e14;
+  --pb-ink: #f0c46a;
+  --heat-0: #22201d;
+  --heat-1: #1e4a33;
+  --heat-2: #2b7a50;
+  --heat-3: #3dd68c;
+  --trail: #4c6fe8;
+  --arm-ink: #ff5a5f;
+  --go-ink: #3dd68c;
+  --inner: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
