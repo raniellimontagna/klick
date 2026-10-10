@@ -5,6 +5,7 @@
   import { dateLabel } from './format';
   import type { AppState, Tab } from './state/app.svelte';
   import { boot } from './state/boot';
+  import TimerScreen from './timer/TimerScreen.svelte';
 
   // Quanto o boot pode demorar antes de a casca desistir e mostrar o aviso de banco indisponível.
   const BOOT_DEADLINE_MS = 8000;
@@ -102,9 +103,7 @@
     </header>
 
     <main id="main">
-      <section class="screen" data-screen="timer" aria-label={T.tabs.timer} hidden={app.tab !== 'timer'}>
-        <h2 class="label">{T.tabs.timer}</h2>
-      </section>
+      <TimerScreen {app} />
       <section class="screen" data-screen="evolucao" aria-label={T.tabs.evolucao} hidden={app.tab !== 'evolucao'}>
         <h2 class="label">{T.tabs.evolucao}</h2>
       </section>

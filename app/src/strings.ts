@@ -115,10 +115,43 @@ export const T = Object.freeze({
   data: {
     dbUnavailable: 'O navegador bloqueou o armazenamento do Klick. Sem ele, os solves não ficam salvos neste aparelho. Libere o armazenamento para este site e recarregue a página.',
     saveFailed: 'Não consegui salvar. Exporte seus dados agora.',
+    exportNow: 'Exportar agora',
     readFailed: 'Não consegui ler seus dados. Recarregue a página.',
     saved: 'Tudo salvo.',
     restoreBlocked: 'Ainda há solves sem salvar. Exporte antes de restaurar.',
     restoreTimeout: 'A restauração está demorando. Seus solves novos estão guardados na memória; exporte antes de recarregar.',
   },
+  // Tela do Timer (ui/timer/*): embaralhamento, ações do solve, nota, tiles, constância e zonas de toque.
+  timer: {
+    hints: 'espaço armar · qualquer tecla para · N novo embaralhamento · ? atalhos',
+    side: 'Coach e constância',
+    coachLabel: 'Coach',
+    scramble: 'Embaralhamento',
+    generating: 'gerando…',
+    scrambleFailed: 'Não consegui gerar o embaralhamento.',
+    scrambleRetry: 'Aperte N para tentar de novo.',
+    scrambleReload: 'Se continuar assim, recarregue a página.',
+    newRecord: 'Novo recorde',
+  },
+  actions: { plus2: '+2', dnf: 'DNF', note: 'Nota', delete: 'Excluir' },
+  note: {
+    label: 'Nota sobre este solve',
+    save: 'Salvar',
+    button: (text: string) => `Nota: ${text}`,
+  },
+  tiles: {
+    avg: (n: number) => `Média de ${n}`,
+    avg12: 'Média de 12',
+    record: 'Recorde',
+    today: 'Hoje',
+    todaySub: (goal: number) => `solves · meta ${goal}`,
+  },
+  heat: {
+    label: (month: string) => `Constância · ${month}`,
+    streak: (n: number) => (n === 1 ? '1 dia seguido' : `${n} dias seguidos`),
+    day: (day: number, count: number, pb: boolean, today: boolean) =>
+      `Dia ${day}: ${count} ${count === 1 ? 'solve' : 'solves'}${pb ? ' · recorde' : ''}${today ? ' · hoje' : ''}`,
+  },
+  zones: { two: 'polegar', one: 'toque e segure' },
   season: (done: number, finish: string) => `Temporada 1 · ${done} de 9 marcos · acabamento ${finish}`,
 });
