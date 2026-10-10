@@ -272,6 +272,20 @@ describe('timer rodando', () => {
     expect(s.timer.state).toBe('done');
   });
 
+  it('rodando com um campo de texto focado, qualquer tecla para mesmo assim (ordem do protótipo)', () => {
+    const s = setup();
+    key('keydown', 'Space', ' ');
+    s.setT(400); s.timer.tick();
+    key('keyup', 'Space', ' ');
+    expect(s.timer.state).toBe('running');
+    const input = document.querySelector('[data-note]') as HTMLInputElement;
+    input.focus();
+    expect(document.activeElement).toBe(input);
+    const ev = key('keydown', 'KeyA', 'a', { target: input });
+    expect(s.timer.state).toBe('done');
+    expect(ev.defaultPrevented).toBe(true);
+  });
+
   it('auto-repeat do espaço segurado de antes não para o solve', () => {
     const s = setup();
     key('keydown', 'Space', ' ');
@@ -345,13 +359,25 @@ describe('abandono e ciclo de vida', () => {
     expect(s.timer.state).toBe('ready');
   });
 
-  it('detach tira todos os ouvintes', () => {
-    const s = setup();
+  it('detach tira todos os ouvintes: teclado, zonas, tela e janela', () => {
+    const s = setup({ coarse: true, mode: 'one' });
+    pe('pointerdown', document.querySelector('[data-time]')!, 1); // um toque arma na tela inteira
+    s.setT(400); s.timer.tick();
+    expect(s.timer.state).toBe('ready');
     s.detach();
-    key('keydown', 'KeyP', 'p');
+    pe('pointerup', window, 1); // o soltar na janela não pode mais largar
+    expect(s.timer.state).toBe('ready');
+    window.dispatchEvent(new Event('blur')); // nem o blur abandona
+    expect(s.timer.state).toBe('ready');
+    pe('pointerdown', s.right, 2); // nem a zona marca (a esquerda ainda tem o dedo do armar)
+    expect(s.right.classList.contains('down')).toBe(false);
+    key('keydown', 'KeyP', 'p'); // nem o teclado atua
     expect(s.actions).toEqual([]);
-    key('keydown', 'Space', ' ');
-    expect(s.timer.state).toBe('idle');
+
+    const s2 = setup({ coarse: true, mode: 'one' }); // a tela também não arma, mesmo com o toque na área do timer
+    s2.detach();
+    pe('pointerdown', document.querySelector('[data-time]')!, 3);
+    expect(s2.timer.state).toBe('idle');
   });
 
   it('todo evento de entrada avisa a tela para acordar (onWake)', () => {

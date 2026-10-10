@@ -40,16 +40,21 @@ export interface TimeLoop {
 // Laço de quadros só enquanto houver estado ativo. paint() devolve true enquanto o timer estiver armando, pronto, em
 // inspeção ou rodando; quando devolve false, o laço para sozinho no repouso, e o próximo kick() o religa.
 export function createTimeLoop(paint: () => boolean, frames: Frames = browserFrames): TimeLoop {
-  let id: number | null = null;
+  let id: number | null = null; // quadro agendado, se houver
+  let live = false; // kick liga, stop desliga; paint pode chamar qualquer um dos dois no meio do quadro
   const frame = () => {
     id = null;
-    if (paint()) id = frames.request(frame);
+    if (!live) return;
+    // Só reagenda se nenhum quadro ficou pendente: um kick() feito dentro de paint() já agendou o próximo.
+    if (paint() && live && id === null) id = frames.request(frame);
   };
   return {
     kick() {
+      live = true;
       if (id === null) id = frames.request(frame);
     },
     stop() {
+      live = false;
       if (id !== null) {
         frames.cancel(id);
         id = null;

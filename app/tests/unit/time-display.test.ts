@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createTimeLoop, paintTime, type Frames } from '../../src/ui/timer/TimeDisplay';
+import { createTimeLoop, paintTime, type Frames, type TimeLoop } from '../../src/ui/timer/TimeDisplay';
 
 function timeEl(html = '0:00<span class="dec">.00</span>') {
   const el = document.createElement('div');
@@ -42,9 +42,12 @@ describe('pintura do tempo', () => {
 function fakeFrames() {
   const queue = new Map<number, () => void>();
   let next = 1;
+  let requested = 0;
+  let ran = 0;
   const cancelled: number[] = [];
   const frames: Frames = {
     request: (cb) => {
+      requested++;
       const id = next++;
       queue.set(id, cb);
       return id;
@@ -59,10 +62,11 @@ function fakeFrames() {
     const entry = [...queue.entries()][0];
     if (!entry) return false;
     queue.delete(entry[0]);
+    ran++;
     entry[1]();
     return true;
   };
-  return { frames, pending: () => queue.size, runFrame, cancelled };
+  return { frames, pending: () => queue.size, requested: () => requested, ran: () => ran, runFrame, cancelled };
 }
 
 describe('laço do tempo', () => {
@@ -92,6 +96,41 @@ describe('laço do tempo', () => {
     loop.kick();
     loop.kick();
     expect(f.pending()).toBe(1);
+  });
+
+  it('kick() dentro de paint() deixa um único quadro pendente, sem cadeia dupla', () => {
+    const f = fakeFrames();
+    let loop!: TimeLoop;
+    let n = 0;
+    loop = createTimeLoop(() => {
+      if (n === 0) loop.kick(); // re-entrante no primeiro quadro: o timer dispara 'state' e a tela chama kick
+      return ++n < 3;
+    }, f.frames);
+    loop.kick();
+    // pendentes = pedidos - cancelados - quadros que já rodaram
+    f.runFrame(); // quadro 1: paint chama kick() no meio
+    expect(f.pending()).toBe(1);
+    expect(f.requested() - f.cancelled.length - f.ran()).toBe(1);
+    f.runFrame(); // quadro 2
+    expect(f.pending()).toBe(1);
+    expect(f.requested() - f.cancelled.length - f.ran()).toBe(1);
+    f.runFrame(); // quadro 3: paint devolve false e o laço para
+    expect(f.pending()).toBe(0);
+    expect(loop.running).toBe(false);
+  });
+
+  it('stop() chamado dentro de paint() impede o reagendamento', () => {
+    const f = fakeFrames();
+    let loop!: TimeLoop;
+    loop = createTimeLoop(() => {
+      loop.stop();
+      return true; // mesmo pedindo continuar, o laço já foi parado no meio do quadro
+    }, f.frames);
+    loop.kick();
+    f.runFrame();
+    expect(loop.running).toBe(false);
+    expect(f.pending()).toBe(0);
+    expect(f.runFrame()).toBe(false);
   });
 
   it('depois de parar sozinho, um novo kick volta a rodar', () => {

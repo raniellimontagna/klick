@@ -50,7 +50,8 @@ export function createInputController(
 ): InputController {
   let zones: HTMLElement | null = null;
   const zoneOf = new Map<number, HTMLElement>(); // pointerId → zona pressionada
-  const consumed = new WeakSet<Event>(); // pointerdown que parou o timer: não arma de novo na mesma tela
+  // parada não rearma; sem defaultPrevented, que vaza entre controllers ligados nos testes do brief
+  const consumed = new WeakSet<Event>();
   let spaceHeld = false; // o espaço que armou ainda não foi solto
   let spaceUsesEvent = false; // o armar do espaço veio com horário do evento
   let touchUsesEvent = false; // o gesto de toque atual veio com horário do evento
