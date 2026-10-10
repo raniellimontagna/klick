@@ -71,6 +71,15 @@ export const T = Object.freeze({
     best: (text: string) => `melhor ${text}`,
     count: (n: number, total: number) => `${n}/${total}`,
   },
+  // Nome de uma sessão criada sem nome (data/repository.ts). Ele vai gravado junto com a sessão.
+  session: {
+    defaultName: (n: number) => `Sessão ${n}`,
+    // O N de um nome no formato acima; null para qualquer outro nome.
+    defaultNameNumber: (name: string): number | null => {
+      const m = /^Sessão (\d+)$/.exec(name);
+      return m ? Number(m[1]) : null;
+    },
+  },
   // Datas e tempo relativo (ui/format.ts).
   date: {
     weekdaysShort: Object.freeze(['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb']),
