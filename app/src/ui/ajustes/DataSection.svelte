@@ -2,7 +2,7 @@
   // "Seus dados" (Ajustes): armazenamento, cópias automáticas, lixeira, exportar, importar, pasta das cópias e instalação. Porte do
   // markup da tela (linhas .setting, botões .btn). Os diálogos que a seção abre (exportar, importar, cópias e lixeira) ficam montados
   // aqui. O guia de instalação é montado pelo App: este botão só pede a abertura (app.dialog = 'install').
-  import { onDestroy, onMount, tick } from 'svelte';
+  import { onDestroy, onMount, tick, untrack } from 'svelte';
   import type { EventId } from '../../core/types';
   import { folderSupported } from '../../data/folder';
   import type { KlickExport } from '../../data/repository';
@@ -105,6 +105,18 @@
   // Ao montar e sempre que um diálogo fecha: uma cópia nova ou a lixeira podem ter mudado.
   $effect(() => {
     if (app.dialog === null) void refreshCounts();
+  });
+
+  // Um pedido de fora desta tela (o tour da primeira vez): o seletor de arquivo do csTimer, ou a importação da versão anterior. A seção
+  // consome o pedido ao montar ou quando ele chega, e zera antes de agir, para não repetir.
+  $effect(() => {
+    const action = app.dataAction;
+    if (action === null) return;
+    untrack(() => {
+      app.dataAction = null;
+    });
+    if (action === 'importFile') fileInput?.click();
+    else void importV1();
   });
 
   // Desmontar a seção com um dos seus diálogos aberto (a aba mudou, por exemplo) solta o estado: senão, na volta, o diálogo reabriria

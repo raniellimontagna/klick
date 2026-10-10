@@ -19,6 +19,8 @@ vi.mock('../../src/ui/state/boot', async () => {
     boot: async () => {
       if (hooks.boot) return hooks.boot();
       const repo = createRepository(await openKlickDb('shell'), { channel: null });
+      // Perfil já apresentado: o tour da primeira vez não abre por cima destes testes (eles não tratam dele).
+      await repo.saveProfile({ onboarded: true });
       const app = new AppState({ repo, queue: createScrambleQueue({ generate: async () => "R U R'" }), storage: null, storageManager: null });
       await app.init();
       return app;
@@ -42,6 +44,7 @@ describe('casca do app', () => {
 let dbn = 0;
 async function makeApp({ failSave = false }: { failSave?: boolean } = {}): Promise<AppState> {
   const repo = createRepository(await openKlickDb(`shell-${++dbn}`), { channel: null });
+  await repo.saveProfile({ onboarded: true });
   const app = new AppState({ repo, queue: createScrambleQueue({ generate: async () => "R U R'" }), storage: null, storageManager: null });
   await app.init();
   if (failSave) repo.addSolve = async () => { throw new Error('quota'); };

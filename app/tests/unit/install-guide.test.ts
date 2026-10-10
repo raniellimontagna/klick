@@ -1,10 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
-import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openKlickDb } from '../../src/data/db';
 import { createRepository } from '../../src/data/repository';
 import { createScrambleQueue } from '../../src/scramble/queue';
 import { AppState } from '../../src/ui/state/app.svelte';
+import type { InstallPromptEvent } from '../../src/ui/platform';
 import InstallGuide from '../../src/ui/dialogs/InstallGuide.svelte';
 
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
@@ -34,15 +34,22 @@ describe('Guia de instalação', () => {
     expect(screen.queryByRole('button', { name: 'Instalar o app' })).toBeNull();
   });
 
-  it('fora do iPhone, o botão Instalar usa o evento beforeinstallprompt quando ele chega', async () => {
+  it('fora do iPhone, o botão Instalar usa o evento beforeinstallprompt que a casca guardou', async () => {
     const { a } = await app();
-    render(InstallGuide, { app: a, open: true });
-    await tick(); // o ouvinte do evento é ligado ao montar
     const prompt = vi.fn(async () => {});
-    const ev = Object.assign(new Event('beforeinstallprompt', { cancelable: true }), { prompt });
-    window.dispatchEvent(ev);
+    const ev = Object.assign(new Event('beforeinstallprompt', { cancelable: true }), { prompt }) as InstallPromptEvent;
+    const onused = vi.fn();
+    render(InstallGuide, { app: a, open: true, installEvent: ev, onused });
     await fireEvent.click(await screen.findByRole('button', { name: 'Instalar o app' }));
     expect(prompt).toHaveBeenCalledTimes(1);
+    expect(onused).toHaveBeenCalledTimes(1);
+  });
+
+  it('sem o evento (o navegador ainda não ofereceu), mostra o caminho pelo menu', async () => {
+    const { a } = await app();
+    render(InstallGuide, { app: a, open: true, installEvent: null });
+    expect(await screen.findByText(/menu do navegador/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Instalar o app' })).toBeNull();
   });
 
   it('fechar grava installGuideDismissed e libera app.dialog', async () => {

@@ -1,6 +1,11 @@
 // Plataforma e contexto do navegador: iPhone e iPad, app instalado, iframe. Os padrões leem o navegador; as funções que recebem
 // os dados (ua, toque) são puras, para os testes.
 
+// O evento que o Chromium manda antes de oferecer a instalação. Não está no lib.dom do TypeScript. A casca o guarda desde o começo.
+export interface InstallPromptEvent extends Event {
+  prompt(): Promise<void>;
+}
+
 // iPhone, iPad e iPod, e o iPad que se apresenta como Mac (esse tem tela de toque).
 export function isIOS(ua: string = navigator.userAgent, maxTouchPoints: number = navigator.maxTouchPoints): boolean {
   if (/iPhone|iPad|iPod/.test(ua)) return true;

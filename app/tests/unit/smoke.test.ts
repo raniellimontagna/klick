@@ -10,6 +10,7 @@ vi.mock('../../src/ui/state/boot', async () => {
   return {
     boot: async () => {
       const repo = createRepository(await openKlickDb('smoke'), { channel: null });
+      await repo.saveProfile({ onboarded: true }); // o tour da primeira vez não abre por cima destes testes
       const app = new AppState({ repo, queue: createScrambleQueue({ generate: async () => "R U R'" }), storage: null, storageManager: null });
       await app.init();
       return app;

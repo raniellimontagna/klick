@@ -15,18 +15,20 @@
 </script>
 
 <dialog bind:this={dialogEl} class="sheet" aria-label={T.shortcuts.title} use:modal={{ open, onclose }}>
-  <h2>{T.shortcuts.title}</h2>
-  <table>
-    <tbody>
-      {#each T.shortcuts.rows as [key, text] (key)}
-        <tr>
-          <td><span class="key">{key}</span></td>
-          <td>{text}</td>
-        </tr>
-      {/each}
-    </tbody>
-  </table>
-  <div class="row">
-    <button type="button" class="btn" onclick={() => dialogEl?.close()}>{T.dialog.close}</button>
-  </div>
+  {#if open}
+    <h2>{T.shortcuts.title}</h2>
+    <table>
+      <tbody>
+        {#each T.shortcuts.rows as [key, text] (key)}
+          <tr>
+            <td><span class="key">{key}</span></td>
+            <td>{text}</td>
+          </tr>
+        {/each}
+      </tbody>
+    </table>
+    <div class="row">
+      <button type="button" class="btn" onclick={() => dialogEl?.close()}>{T.dialog.close}</button>
+    </div>
+  {/if}
 </dialog>

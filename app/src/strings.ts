@@ -367,5 +367,56 @@ export const T = Object.freeze({
     restored: 'Restaurado.',
     loadFailed: 'Não consegui ler a lixeira.',
   }),
+  // Sessões (ui/dialogs/SessionsDialog.svelte): as sessões por evento; criar, escolher, renomear e excluir (excluir vai para a lixeira).
+  sessions: Object.freeze({
+    title: 'Sessões',
+    intro: 'Cada sessão guarda os solves de um evento. Excluir manda a sessão e os solves dela para a lixeira.',
+    newEvent: 'Evento da nova sessão',
+    newName: 'Nome da nova sessão',
+    newNamePlaceholder: 'Nome (opcional)',
+    create: 'Criar',
+    count: (n: number): string => `${n} ${n === 1 ? 'solve' : 'solves'}`,
+    rename: 'Renomear',
+    renameAria: (name: string): string => `Renomear ${name}`,
+    renameLabel: (name: string): string => `Novo nome para ${name}`,
+    save: 'Salvar',
+    cancel: 'Cancelar',
+    remove: 'Excluir',
+    removeAria: (name: string): string => `Excluir ${name}`,
+  }),
+  // Primeira vez (ui/dialogs/OnboardingDialog.svelte): o tour do protótipo em três passos, e as opções do fim. Não há dados de exemplo.
+  onboarding: Object.freeze({
+    title: 'Apresentação do Klick',
+    stepOf: (n: number): string => `${n} de 3`,
+    steps: Object.freeze([
+      {
+        title: 'Esse é o Centro',
+        text: 'Ele acompanha seus solves e guarda a sua jornada no próprio corpo: os marcos na face de cima, a trilha na face do lado.',
+      },
+      {
+        title: 'Segure até ficar verde',
+        text: 'Segure espaço (ou o botão abaixo). O anel enche de vermelho; quando ficar verde, solte.',
+      },
+      {
+        title: 'Seu primeiro marco',
+        text: 'Pare com qualquer tecla. O primeiro solve já acende um adesivo dourado em cima do Centro.',
+      },
+    ] as const),
+    skip: 'Pular apresentação',
+    next: 'Continuar',
+    back: 'Voltar',
+    holdIdle: 'Segure aqui',
+    holdReady: 'Agora solte',
+    holdDone: 'É assim que larga.',
+    end: 'Você pode trazer solves de outro lugar ou começar do zero.',
+    importCsTimer: 'Importar do csTimer',
+    importV1: 'Importar da versão anterior',
+    fresh: 'Começar do zero',
+  }),
+  // Lembrete de exportar (ui/timer/TimerScreen.svelte): aviso discreto acima dos tiles, fora da inspeção e do solve.
+  reminder: Object.freeze({
+    text: 'Faz um tempo que você não exporta seus solves. Guarde uma cópia fora do navegador.',
+    later: 'Agora não',
+  }),
   season: (done: number, finish: string) => `Temporada 1 · ${done} de 9 marcos · acabamento ${finish}`,
 });

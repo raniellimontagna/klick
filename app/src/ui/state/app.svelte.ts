@@ -55,6 +55,9 @@ export interface AppDeps {
 }
 
 export type ExportFormat = 'klick' | 'cstimer';
+// Uma ação de "Seus dados" pedida de fora da tela Ajustes (o tour da primeira vez): a tela a executa ao montar. 'importFile' abre o
+// seletor de arquivo; 'importV1' faz a importação da versão anterior.
+export type DataAction = 'importFile' | 'importV1';
 // Uma exportação que o navegador não baixou: o texto vai para o ExportDialog, que a pessoa copia.
 export interface PendingExport {
   format: ExportFormat;
@@ -161,6 +164,7 @@ export class AppState {
   v1Available = $state(false); // há dados da v1 ainda não oferecidos
   exportReminder = $state(false); // mostrar o lembrete de exportar
   pendingExport = $state<PendingExport | null>(null); // texto de uma exportação que o navegador não baixou (ExportDialog)
+  dataAction = $state<DataAction | null>(null); // pedido de fora de Ajustes; a tela Seus dados consome e zera
 
   private repo: Repository; // troca quando a conexão é reaberta (useRepo)
   private readonly queue: ScrambleQueue;
@@ -557,8 +561,21 @@ export class AppState {
       await this.markExported();
       return;
     }
+    // O ExportDialog é da tela Ajustes (Seus dados): a exportação que não baixa leva para lá, de qualquer aba.
     this.pendingExport = { format, text };
+    this.tab = 'ajustes';
     this.dialog = 'export';
+  }
+
+  // Pede uma ação de "Seus dados" a partir de outra tela (o tour da primeira vez): leva para Ajustes; a seção executa e zera o pedido.
+  requestDataAction(action: DataAction): void {
+    this.tab = 'ajustes';
+    this.dataAction = action;
+  }
+
+  // Fim do tour (fechar por qualquer caminho, ou uma das opções): a primeira vez não se repete.
+  finishOnboarding(): Promise<void> {
+    return this.updateProfile({ onboarded: true });
   }
 
   // Depois de exportar (download ou cópia): zera o contador do lembrete e grava quando foi. Devolve se a gravação deu certo: quem

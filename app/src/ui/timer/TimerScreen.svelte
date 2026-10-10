@@ -84,6 +84,8 @@
   let screenEl = $state<HTMLElement>();
   let zonesEl = $state<HTMLElement>();
   let noteInput = $state<HTMLInputElement>();
+  // O estado do timer para a tela (o timer em si não é reativo). Espelha o evento de estado; o lembrete de exportar lê daqui.
+  let timerState = $state<TimerState>('idle');
   let timeEl: HTMLElement | undefined;
   let lastId = $state<string | null>(null); // o solve que a tela mostra; null = o último da sessão
   let showResult = $state(false); // o solve está gravado e a pessoa ainda pode agir sobre ele
@@ -399,8 +401,17 @@
     await app.setNote(id, text.trim());
   }
 
-  function exportNow(): void {
-    app.dialog = 'export';
+  // Exportar agora (o aviso de salvar e o lembrete): o mesmo caminho da seção Seus dados. Se o navegador baixa, o foco volta para a
+  // tela (o botão que o pediu pode ter sumido); se não baixa, o AppState leva para Ajustes, onde o ExportDialog mostra o texto.
+  async function exportNow(): Promise<void> {
+    await app.exportFile('klick');
+    if (app.dialog === null && app.tab === 'timer') screenEl?.focus({ preventScroll: true });
+  }
+
+  // "Agora não": tira o lembrete e devolve o foco para a tela (o botão some junto com o aviso).
+  async function exportLater(): Promise<void> {
+    await app.dismissExportReminder();
+    screenEl?.focus({ preventScroll: true });
   }
 
   function onAction(name: ActionName): void {
@@ -448,6 +459,7 @@
   // Ao armar ou abrir a inspeção, a reação, o coach e a nota da solve anterior saem da tela.
   function onState(next: TimerState): void {
     if (destroyed) return;
+    timerState = next;
     document.body.dataset.tstate = next;
     document.body.classList.toggle('solving', next === 'running');
     if (next === 'ready') sound.klick();
@@ -684,6 +696,17 @@
       onNoteSave={(text) => saveNote(text)}
       onNoteClose={closeNoteAndFocus}
     />
+    <!-- Lembrete de exportar: acima dos tiles. Só aparece parado (inativo ou com o solve pronto para a reação), nunca na inspeção, armado,
+         pronto ou rodando. -->
+    {#if app.exportReminder && (timerState === 'idle' || timerState === 'done')}
+      <div class="export-reminder" data-export-reminder>
+        <p>{T.reminder.text}</p>
+        <span class="data-actions">
+          <button type="button" class="btn" onclick={exportNow}>{T.data.exportNow}</button>
+          <button type="button" class="btn" onclick={exportLater}>{T.reminder.later}</button>
+        </span>
+      </div>
+    {/if}
   </div>
 
   <aside class="t-side" aria-label={T.timer.side}>
@@ -743,5 +766,32 @@
     background: var(--surface);
     color: var(--arm-ink);
     font-size: 14px;
+  }
+
+  /* O lembrete de exportar é discreto: a borda e a cor do texto, sem o destaque do aviso de salvar. Pelo celular os tiles somem, e o
+     lembrete vai para o fim da tela. */
+  .export-reminder {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px 12px;
+    margin-top: 12px;
+    padding: 10px 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-card);
+    background: var(--surface);
+    color: var(--ink-2);
+    font-size: 14px;
+  }
+
+  .export-reminder p {
+    margin: 0;
+  }
+
+  @media (max-width: 1023px) {
+    .export-reminder {
+      order: 9;
+    }
   }
 </style>

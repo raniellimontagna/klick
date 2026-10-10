@@ -3,15 +3,22 @@
   import { eventInfo } from '../core/events';
   import { T } from '../strings';
   import { dateLabel } from './format';
-  import type { AppState, Tab } from './state/app.svelte';
+  import { type InstallPromptEvent, isStandalone, shouldShowInstallGuide } from './platform';
+  import type { AppState, DialogId, Tab } from './state/app.svelte';
   import { boot } from './state/boot';
   import AjustesScreen from './ajustes/AjustesScreen.svelte';
   import CentroScreen from './centro/CentroScreen.svelte';
   import EvolucaoScreen from './evolucao/EvolucaoScreen.svelte';
+  import InstallGuide from './dialogs/InstallGuide.svelte';
+  import OnboardingDialog from './dialogs/OnboardingDialog.svelte';
+  import SessionsDialog from './dialogs/SessionsDialog.svelte';
+  import ShortcutsDialog from './dialogs/ShortcutsDialog.svelte';
   import TimerScreen from './timer/TimerScreen.svelte';
 
   // Quanto o boot pode demorar antes de a casca desistir e mostrar o aviso de banco indisponível.
   const BOOT_DEADLINE_MS = 8000;
+  // O guia de instalação aparece depois deste número de solves (no iPhone, fora do app instalado, uma vez).
+  const INSTALL_GUIDE_SOLVES = 5;
 
   const TABS: readonly { id: Tab; label: string }[] = [
     { id: 'timer', label: T.tabs.timer },
@@ -65,12 +72,54 @@
     return () => window.removeEventListener('beforeunload', confirmLeave);
   });
 
+  // O navegador manda beforeinstallprompt cedo, antes de qualquer diálogo: o ouvinte fica aqui desde a montagem, e o guia recebe o evento
+  // guardado. O evento vale uma vez (onused, do guia, o tira daqui).
+  let installEvent = $state.raw<InstallPromptEvent | null>(null); // raw: um Event do navegador não é um objeto para virar proxy
+  onMount(() => {
+    const keep = (e: Event): void => {
+      e.preventDefault(); // o aviso padrão do navegador sai de cena; o botão do guia assume
+      installEvent = e as InstallPromptEvent;
+    };
+    window.addEventListener('beforeinstallprompt', keep);
+    return () => window.removeEventListener('beforeinstallprompt', keep);
+  });
+
+  // As aberturas sozinhas valem uma vez por abertura do app. Dispensar o guia fica gravado (meta), então ele não volta nas próximas.
+  let tourOffered = false;
+  let installOffered = false;
+
+  // Primeira vez: o tour abre quando nenhum outro diálogo está aberto e o perfil ainda não foi marcado como visto.
+  $effect(() => {
+    if (!app || tourOffered || app.dialog !== null || app.profile.onboarded) return;
+    tourOffered = true;
+    app.dialog = 'onboarding';
+  });
+
+  // O guia de instalação: no iPhone, fora do app instalado, depois do 5º solve, uma vez. A regra de plataforma fica em shouldShowInstallGuide.
+  $effect(() => {
+    const meta = app?.meta;
+    if (!app || !meta || installOffered || app.dialog !== null || app.solves.length < INSTALL_GUIDE_SOLVES) return;
+    const offer = shouldShowInstallGuide({
+      ua: navigator.userAgent,
+      maxTouchPoints: navigator.maxTouchPoints,
+      standalone: isStandalone(),
+      dismissed: meta.installGuideDismissed,
+    });
+    if (!offer) return;
+    installOffered = true;
+    app.dialog = 'install';
+  });
+
   function go(tab: Tab): void {
     if (app) app.tab = tab;
   }
 
   function current(tab: Tab): 'page' | undefined {
     return app?.tab === tab ? 'page' : undefined;
+  }
+
+  function openDialog(id: DialogId): void {
+    if (app) app.dialog = id;
   }
 </script>
 
@@ -100,7 +149,7 @@
         {/each}
       </nav>
       <div class="meta">
-        <button type="button" class="pill" aria-haspopup="dialog">{T.session.pill(eventInfo(app.event).short, app.currentSession?.name ?? '')}</button>
+        <button type="button" class="pill" data-session-pill aria-haspopup="dialog" onclick={() => openDialog('sessions')}>{T.session.pill(eventInfo(app.event).short, app.currentSession?.name ?? '')}</button>
         <span data-date>{dateLabel(Date.now())}</span>
       </div>
     </header>
@@ -140,8 +189,14 @@
 
     <div class="sr-only" aria-live="polite" data-live>{app.live}</div>
 
-    <!-- Diálogos: montados aqui quando uma tela pedir um (app.dialog). Por enquanto a casca só reserva o lugar. -->
-    <div data-dialogs></div>
+    <!-- Diálogos da casca, sempre montados: cada um abre quando app.dialog é o seu id. Os de "Seus dados" (exportar, importar, cópias e
+         lixeira) ficam na seção Ajustes, que os monta e os desmonta com ela. -->
+    <div data-dialogs>
+      <SessionsDialog {app} open={app.dialog === 'sessions'} />
+      <ShortcutsDialog {app} open={app.dialog === 'shortcuts'} />
+      <OnboardingDialog {app} open={app.dialog === 'onboarding'} />
+      <InstallGuide {app} open={app.dialog === 'install'} {installEvent} onused={() => (installEvent = null)} />
+    </div>
   {:else if failed}
     <main class="screen">
       <p role="alert">{T.data.dbUnavailable}</p>
