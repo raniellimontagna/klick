@@ -144,6 +144,8 @@ export const T = Object.freeze({
   // Casca (ui/App.svelte): nomes das abas, rótulo das duas barras de navegação e o atalho para o conteúdo.
   tabs: { timer: 'Timer', evolucao: 'Evolução', companion: 'Centro', ajustes: 'Ajustes' },
   shell: { nav: 'Seções', skip: 'Pular para o conteúdo' },
+  // Aviso de nova versão (ui/dialogs/UpdatePrompt.svelte): o service worker já baixou a versão nova, e a página recarrega ao aceitar.
+  update: { ready: 'Nova versão disponível.', reload: 'Recarregar' },
   // Tela Ajustes (ui/ajustes/AjustesScreen.svelte). Os valores de cada grupo ficam aqui; o código só guarda os identificadores.
   ajustes: Object.freeze({
     timer: 'Timer',

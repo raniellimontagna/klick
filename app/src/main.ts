@@ -9,6 +9,15 @@ import './styles/base.css';
 import './styles/components.css';
 import './styles/screens.css';
 import { mount } from 'svelte';
+import { registerSW } from 'virtual:pwa-register';
 import App from './ui/App.svelte';
+import { offerUpdate } from './ui/state/update.svelte';
+
+// O service worker não troca a versão sozinho: a nova espera a pessoa aceitar o aviso (UpdatePrompt), que só aparece com o timer parado.
+const updateSW = registerSW({
+  onNeedRefresh() {
+    offerUpdate(() => updateSW(true));
+  },
+});
 
 mount(App, { target: document.getElementById('app')! });

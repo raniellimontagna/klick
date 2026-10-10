@@ -14,6 +14,7 @@
   import OnboardingDialog from './dialogs/OnboardingDialog.svelte';
   import SessionsDialog from './dialogs/SessionsDialog.svelte';
   import ShortcutsDialog from './dialogs/ShortcutsDialog.svelte';
+  import UpdatePrompt from './dialogs/UpdatePrompt.svelte';
   import TimerScreen from './timer/TimerScreen.svelte';
 
   // Quanto o boot pode demorar antes de a casca desistir e mostrar o aviso de banco indisponível.
@@ -204,6 +205,8 @@
     </div>
 
     <div class="sr-only" aria-live="polite" data-live>{app.live}</div>
+
+    <UpdatePrompt {app} />
 
     <!-- Diálogos da casca, sempre montados: cada um abre quando app.dialog é o seu id. Os de "Seus dados" (exportar, importar, cópias e
          lixeira) ficam na seção Ajustes, que os monta e os desmonta com ela. -->
