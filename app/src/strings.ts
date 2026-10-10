@@ -99,9 +99,42 @@ export const T = Object.freeze({
     empty: 'Sem solves no período',
     evolution: 'Evolução dos tempos',
   },
-  // Nome acessível do Centro quando a tela não dá um mais específico (ui/centro.ts).
+  // Nome acessível do Centro quando a tela não dá um mais específico (ui/centro.ts), e a tela do Centro (ui/centro/CentroScreen.svelte).
   centro: {
     label: 'Centro',
+    progressLabel: (done: number, trailDone: number) => `Centro: ${done} de 9 marcos, ${trailDone} de 9 etapas`,
+    finishes: 'Acabamentos',
+    preview: (finish: string) => ` · prévia: ${finish}`,
+    finishLocked: (label: string, unlock: string) => `${label} · ${unlock}`,
+    topFace: 'Face de cima · marcos',
+    sideFace: 'Face lateral · trilha',
+    know: 'já sei',
+    undo: 'desfazer',
+    trailAria: (name: string, marked: boolean) => `${name}: ${marked ? 'desfazer' : 'já sei'}`,
+    silentHint: 'Modo silencioso — o Centro continua reagindo, mas sem texto.',
+  },
+  // Tela da Evolução (ui/evolucao/EvolucaoScreen.svelte). Os nomes dos períodos e as colunas da tabela ficam aqui.
+  evolucao: {
+    eventLabel: 'Evento',
+    sessionLabel: 'Sessão',
+    allSessions: 'Todas as sessões',
+    periodLabel: 'Período',
+    periods: Object.freeze({ '7': '7 dias', '30': '30 dias', all: 'Tudo' }),
+    stdDev: 'Desvio',
+    stdDevPeriod: 'solves do período',
+    stdDevValue: (ms: number) => `±${(ms / 1000).toFixed(1)} s`,
+    noChange: 'sem mudança',
+    // Variação contra o período anterior, em segundos (a mesma truncagem dos tempos).
+    delta: (d: number) => `${d < 0 ? '▼' : '▲'} ${sec(Math.abs(d))} s no período`,
+    chartLabel: (n: number) => `Solves do período · média de ${n} · recordes`,
+    distribution: 'Distribuição',
+    highlight: (n: number, time: string) => `em destaque, sua média de ${n} (${time})`,
+    barsSummary: (count: number, from: string, to: string) =>
+      `Distribuição dos tempos do período: ${count} ${count === 1 ? 'solve' : 'solves'}, mais comuns entre ${from} e ${to}`,
+    barsEmpty: 'Distribuição dos tempos do período: sem solves',
+    empty: 'Sem solves neste período.',
+    columns: Object.freeze({ number: '#', time: 'Tempo', scramble: 'Embaralhamento', when: 'Quando' }),
+    pbTag: 'recorde',
   },
   // Mensagens de um arquivo que não pode ser lido (data/transfer.ts).
   transfer: {

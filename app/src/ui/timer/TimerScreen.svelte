@@ -542,6 +542,11 @@
     sound.setEnabled('klick', s.sound.klick);
     sound.setEnabled('insp', s.sound.insp);
     sound.setEnabled('pb', s.sound.pb);
+    // O modo silencioso (ligado no Centro) cala a mensagem que o coach está mostrando agora.
+    if (s.silent && coach) {
+      coach = null;
+      kick();
+    }
   });
 
   // Trocar de aba, de evento ou de sessão no meio do armar ou da inspeção abandona sem largar o timer. A primeira passada só

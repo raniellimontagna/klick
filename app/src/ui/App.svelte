@@ -5,6 +5,8 @@
   import { dateLabel } from './format';
   import type { AppState, Tab } from './state/app.svelte';
   import { boot } from './state/boot';
+  import CentroScreen from './centro/CentroScreen.svelte';
+  import EvolucaoScreen from './evolucao/EvolucaoScreen.svelte';
   import TimerScreen from './timer/TimerScreen.svelte';
 
   // Quanto o boot pode demorar antes de a casca desistir e mostrar o aviso de banco indisponível.
@@ -104,12 +106,12 @@
 
     <main id="main">
       <TimerScreen {app} />
-      <section class="screen" data-screen="evolucao" aria-label={T.tabs.evolucao} hidden={app.tab !== 'evolucao'}>
-        <h2 class="label">{T.tabs.evolucao}</h2>
-      </section>
-      <section class="screen" data-screen="companion" aria-label={T.tabs.companion} hidden={app.tab !== 'companion'}>
-        <h2 class="label">{T.tabs.companion}</h2>
-      </section>
+      <!-- A Evolução fica montada, porque os filtros sobrevivem à troca de aba; ela esconde a própria seção, como o Timer.
+           O Centro só é montado com a aba aberta: não tem estado a guardar, e fora da aba não deixa seção escondida na árvore. -->
+      <EvolucaoScreen {app} />
+      {#if app.tab === 'companion'}
+        <CentroScreen {app} />
+      {/if}
       <section class="screen" data-screen="ajustes" aria-label={T.tabs.ajustes} hidden={app.tab !== 'ajustes'}>
         <h2 class="label">{T.tabs.ajustes}</h2>
       </section>
