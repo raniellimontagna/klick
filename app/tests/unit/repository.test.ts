@@ -1329,14 +1329,27 @@ describe('repositório: id estável do solve', () => {
     expect(await repo.listSolves({ includeDeleted: true })).toHaveLength(1);
   });
 
-  it('o mesmo id com outro conteúdo grava o conteúdo novo, mantém o createdAt e põe o updatedAt agora', async () => {
+  it('o mesmo id com outro conteúdo não sobrescreve: o que já está gravado vale, e uma tentativa atrasada não desfaz a edição', async () => {
     const repo = await fresh();
     const s = await repo.createSession({ event: '333' });
-    const first = await repo.addSolve({ ...ns(s.id, 60000, 1000), id: 'solve-fixo' });
+    await repo.addSolve({ ...ns(s.id, 60000, 1000), id: 'solve-fixo' });
+    t += 5000;
+    const edited = await repo.updateSolve('solve-fixo', { penalty: '+2', note: 'cruz' });
     t += 5000;
     const again = await repo.addSolve({ ...ns(s.id, 61000, 1000), id: 'solve-fixo' });
-    expect(again).toMatchObject({ ms: 61000, createdAt: first.createdAt, updatedAt: t });
-    expect(await repo.listSolves()).toEqual([again]);
+    expect(again).toEqual(edited);
+    expect(again).toMatchObject({ ms: 60000, penalty: '+2', note: 'cruz', updatedAt: edited.updatedAt });
+    expect(await repo.listSolves()).toEqual([edited]);
+  });
+
+  it('close fecha a conexão e o canal: depois disso as leituras falham', async () => {
+    const closed = vi.fn();
+    const channel: ChannelLike = { onmessage: null, postMessage() {}, close: closed };
+    const repo = createRepository(await openKlickDb(dbName()), { now, channel });
+    repo.close();
+    expect(closed).toHaveBeenCalledTimes(1);
+    expect(channel.onmessage).toBeNull();
+    await expect(repo.listSolves()).rejects.toMatchObject({ name: 'InvalidStateError' });
   });
 
   it('repetir a gravação de um solve excluído não o devolve à lista', async () => {

@@ -85,6 +85,7 @@ export interface Repository {
   importAll(data: KlickExport): Promise<ImportReport>; // junta por id; fica o de updatedAt maior. Sessão da lixeira que recebe solve ativo do arquivo volta (sem entrar no relatório; avisa sessions)
   replaceAll(data: KlickExport): Promise<void>; // limpa solves, sessões e perfil e grava os do arquivo, como vieram
   onChange(fn: (kind: ChangeKind) => void): () => void; // mudanças locais e de outras abas
+  close(): void; // fecha a conexão do banco e o canal; depois disso o repositório não responde mais (usado ao trocar pela conexão reaberta)
 }
 
 const CHANNEL_NAME = 'klick-data';
@@ -176,15 +177,6 @@ async function each<V>(items: readonly V[], request: (item: V) => Promise<unknow
   }
   await Promise.all(pending);
 }
-
-// Os campos que vêm de quem grava (o que um solve é, sem o que o app acrescenta depois: nota, datas e exclusão).
-const sameSolve = (stored: Solve, s: NewSolve): boolean =>
-  stored.sessionId === s.sessionId &&
-  stored.event === s.event &&
-  stored.ms === s.ms &&
-  stored.penalty === s.penalty &&
-  stored.at === s.at &&
-  stored.scramble === s.scramble;
 
 // O que reviveSession usa da store de sessões, dentro de uma transação de escrita.
 type SessionStore = Pick<IDBPObjectStore<KlickDB, StoreNames<KlickDB>[], 'sessions', 'readwrite'>, 'get' | 'put'>;
@@ -403,17 +395,23 @@ export function createRepository(
       const id = s.id ?? newId(stamp);
       const { solve, sessionBack } = await write(['solves', 'sessions'], async (tx) => {
         const solves = tx.objectStore('solves');
+        // Um id já gravado é o mesmo solve: a repetição não escreve nada. Uma tentativa atrasada não pode desfazer uma edição
+        // feita depois (penalidade, nota). O que já está gravado vale.
         const stored = await solves.get(id);
-        // Repetir a gravação com o mesmo id (uma tentativa que pareceu falhar, mas gravou) não duplica nem falha. Se o conteúdo
-        // é o mesmo, nada muda. Se mudou, entra o conteúdo novo, e o createdAt, a nota e a exclusão do que já estava ficam.
-        const fields = { sessionId: s.sessionId, event: s.event, ms: s.ms, penalty: s.penalty, at: s.at, scramble: s.scramble };
-        const solve: Solve =
-          stored === undefined
-            ? { id, ...fields, note: '', createdAt: stamp, updatedAt: stamp, deletedAt: null }
-            : sameSolve(stored, s)
-              ? stored
-              : { ...stored, ...fields, updatedAt: stamp };
-        if (solve !== stored) await solves.put(solve);
+        const solve: Solve = stored ?? {
+          id,
+          sessionId: s.sessionId,
+          event: s.event,
+          ms: s.ms,
+          penalty: s.penalty,
+          at: s.at,
+          scramble: s.scramble,
+          note: '',
+          createdAt: stamp,
+          updatedAt: stamp,
+          deletedAt: null,
+        };
+        if (stored === undefined) await solves.put(solve);
         // Uma aba que ainda mostra uma sessão que outra aba excluiu: o solve não se perde nem fica escondido, e a sessão volta.
         // Só solve ativo pede a sessão ativa (o invariante do topo).
         const back = solve.deletedAt === null && (await reviveSession(tx.objectStore('sessions'), solve.sessionId, stamp));
@@ -649,6 +647,13 @@ export function createRepository(
       return () => {
         listeners.delete(entry);
       };
+    },
+
+    close() {
+      listeners.clear();
+      if (channel) channel.onmessage = null;
+      channel?.close?.();
+      db.close();
     },
   };
 }

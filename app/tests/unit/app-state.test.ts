@@ -449,10 +449,13 @@ describe('estado do app: robustez (brief 9b)', () => {
     const app = await appWith(repo, { reopen });
     const original = repo.addSolve.bind(repo);
     let release!: () => void;
-    repo.addSolve = (s) =>
-      new Promise<Solve>((resolve, reject) => {
-        release = () => void original(s).then(resolve, reject);
+    // A escrita começa já (como uma gravação travada, que já está dentro da transação): só a resposta é segurada.
+    repo.addSolve = (s) => {
+      const write = original(s);
+      return new Promise<Solve>((resolve, reject) => {
+        release = () => void write.then(resolve, reject);
       });
+    };
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
       void app.addSolve(newSolve(60000));
@@ -599,5 +602,188 @@ describe('estado do app: robustez (brief 9b)', () => {
     release();
     await vi.waitFor(async () => expect(await repo.listBackups()).toHaveLength(1));
     expect((await repo.listBackups())[0].reason).toBe('daily');
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Fix round 1 (brief 9b, revisão): fechar a conexão trocada, prazo de gravação, aviso por tentativa, restauração protegida e a
+// exportação que lê a fila depois da espera.
+
+describe('estado do app: fix round 1 (brief 9b)', () => {
+  beforeEach(() => { t = 1_791_500_000_000; });
+
+  // Item 2 (M-1): a conexão antiga é fechada depois da troca; a nova fica aberta.
+  it('depois de reabrir, o repositório antigo é fechado e o novo fica aberto', async () => {
+    const broken = await freshRepo();
+    const healthy = await freshRepo();
+    const realClose = broken.close.bind(broken);
+    const closeOld = vi.fn(() => realClose());
+    broken.close = closeOld;
+    const closeNew = vi.spyOn(healthy, 'close');
+    const app = await appWith(broken, { reopen: async () => healthy });
+    broken.addSolve = async () => { throw dbError('InvalidStateError'); };
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      expect(await app.addSolve(newSolve(60000))).toBeNull();
+      await vi.advanceTimersByTimeAsync(3000);
+      await vi.waitFor(() => expect(app.savePending).toBe(0));
+      expect(closeOld).toHaveBeenCalledTimes(1);
+      expect(closeNew).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Item 3 (I-1): uma gravação que não responde desiste em 8 s; a fila reabre e grava o mesmo id no repositório novo, junto
+  // com o solve que chegou depois da pausa.
+  it('gravação sem resposta: em 8 s a tentativa falha com TimeoutError, e a fila grava o mesmo id no repositório novo, junto com o solve seguinte', async () => {
+    const broken = await freshRepo();
+    // Os repositórios novos abrem antes dos timers falsos: abrir um banco com o relógio parado não termina.
+    const replacements = [await freshRepo(), await freshRepo()];
+    const opened: Repository[] = [];
+    const reopen = vi.fn(async () => {
+      const next = replacements[opened.length];
+      opened.push(next);
+      return next;
+    });
+    const app = await appWith(broken, { reopen });
+    const hung: string[] = [];
+    broken.addSolve = (s) => {
+      hung.push(s.id!);
+      return new Promise<Solve>(() => {});
+    };
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const first = app.addSolve(newSolve(60000));
+      await vi.advanceTimersByTimeAsync(5000); // a pausa: aviso e primeira reabertura
+      expect(app.saveStalled).toBe(true);
+      const second = app.addSolve(newSolve(61000, t + 1)); // entra na fila atrás da tentativa presa
+      await vi.advanceTimersByTimeAsync(3000); // 8 s: a tentativa desiste (TimeoutError) e a fila reabre de novo
+      await vi.waitFor(() => expect(opened).toHaveLength(2));
+      expect(await first).toBeNull();
+      expect(await second).toBeNull();
+      await vi.advanceTimersByTimeAsync(3000); // a nova tentativa grava os dois, no repositório atual
+      await vi.waitFor(() => expect(app.savePending).toBe(0));
+      await vi.waitFor(() => expect(app.solves).toHaveLength(2));
+      const saved = await opened[opened.length - 1].listSolves();
+      expect(saved.map((x) => x.id)).toContain(hung[0]);
+      expect(saved.map((x) => x.ms)).toEqual([60000, 61000]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Item 4 (M-4): só a tentativa mais recente mexe no aviso. Uma anterior que termina tarde não apaga o aviso de uma presa.
+  it('uma tentativa anterior que termina tarde não apaga o aviso de uma tentativa mais nova que está presa', async () => {
+    const repo = await freshRepo();
+    const app = await appWith(repo);
+    const lateAnswers: Array<() => void> = [];
+    repo.addSolve = (s) =>
+      new Promise<Solve>((resolve) => {
+        lateAnswers.push(() => resolve(s as unknown as Solve));
+      });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const first = app.addSolve(newSolve(60000));
+      await vi.advanceTimersByTimeAsync(5000); // a primeira tentativa está presa
+      expect(app.saveStalled).toBe(true);
+      await vi.advanceTimersByTimeAsync(3000); // 8 s: ela desiste
+      expect(await first).toBeNull();
+      await vi.advanceTimersByTimeAsync(3000); // 11 s: a nova tentativa começa
+      await vi.advanceTimersByTimeAsync(5000); // 16 s: a nova também está presa
+      expect(app.saveStalled).toBe(true);
+      lateAnswers[0](); // a primeira responde só agora
+      await vi.advanceTimersByTimeAsync(0);
+      expect(app.saveStalled).toBe(true);
+      expect(app.savePending).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Item 5 (I-3): uma escrita presa durante a restauração não trava a chamada: em 8 s ela recusa com o aviso.
+  it('uma escrita presa durante a restauração não trava a chamada: em 8 s ela recusa com o aviso', async () => {
+    const { app, repo } = await setup();
+    await app.addSolve(newSolve(60000));
+    const backup = await createBackup(repo, 'manual', t);
+    repo.addSolve = () => new Promise<Solve>(() => {});
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const adding = app.addSolve(newSolve(61000, t + 1));
+      await vi.advanceTimersByTimeAsync(0); // a escrita entra na fila antes da restauração
+      const restoring = app.restoreFromBackup(backup.id); // espera o flush: a escrita está presa
+      await vi.advanceTimersByTimeAsync(8000);
+      expect(await restoring).toBe(false);
+      expect(app.toast?.text).toBe(T.data.restoreBlocked);
+      expect(await adding).toBeNull();
+      expect(app.savePending).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Item 6 (I-4): uma gravação que chega durante a restauração cai depois do replaceAll, e sobrevive.
+  it('uma gravação que chega durante a restauração cai depois do replaceAll e sobrevive', async () => {
+    const { app, repo } = await setup();
+    await app.addSolve(newSolve(60000));
+    const backup = await createBackup(repo, 'manual', t);
+    let inside = false;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const replaceAll = repo.replaceAll.bind(repo);
+    repo.replaceAll = async (data) => {
+      inside = true;
+      await gate;
+      return replaceAll(data);
+    };
+    const restoring = app.restoreFromBackup(backup.id);
+    await vi.waitFor(() => expect(inside).toBe(true));
+    const adding = app.addSolve(newSolve(63000, t + 2)); // chega com a restauração no meio do replaceAll
+    await new Promise((resolve) => setTimeout(resolve, 20)); // tempo de sobra para a gravação já estar na fila (ou no banco)
+    release();
+    expect(await restoring).toBe(true);
+    expect(await adding).not.toBeNull();
+    expect((await repo.listSolves()).map((x) => x.ms)).toEqual([60000, 63000]);
+  });
+
+  // Item 7 (M-2): a fila é lida depois da espera do banco; um solve enfileirado enquanto ele responde sai no export.
+  it('exportData inclui o solve enfileirado enquanto o banco responde', async () => {
+    const { app, repo } = await setup();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const exportAll = repo.exportAll.bind(repo);
+    repo.exportAll = async () => {
+      await gate;
+      return exportAll();
+    };
+    const exporting = app.exportData();
+    repo.addSolve = async () => { throw new Error('quota'); };
+    expect(await app.addSolve(newSolve(62000, t + 1))).toBeNull();
+    release();
+    const data = await exporting;
+    expect(data.solves.map((x) => x.ms)).toEqual([62000]);
+  });
+
+  it('com o banco quebrado, exportData também inclui o solve enfileirado durante a espera', async () => {
+    const { app, repo } = await setup();
+    await app.addSolve(newSolve(61000));
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    repo.exportAll = async () => {
+      await gate;
+      throw new Error('banco quebrado');
+    };
+    const exporting = app.exportData();
+    repo.addSolve = async () => { throw new Error('quota'); };
+    expect(await app.addSolve(newSolve(62000, t + 1))).toBeNull();
+    release();
+    const data = await exporting;
+    expect(data.solves.map((x) => x.ms)).toEqual([61000, 62000]);
   });
 });

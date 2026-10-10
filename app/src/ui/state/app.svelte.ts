@@ -51,8 +51,11 @@ const LIVE_DELAY_MS = 50; // o leitor de tela só anuncia de novo se o texto mud
 const FIRST_SCRAMBLE_WAIT_MS = 150;
 // Uma gravação em voo por mais tempo que isto está presa (o IndexedDB não respondeu): a pessoa vê o aviso fixo e o banco é reaberto.
 const STALL_MS = 5000;
-// Erros que dizem que a conexão morreu (o iOS derruba a conexão com o app em segundo plano). Cota cheia não está nesta lista.
-const CONNECTION_ERRORS: readonly string[] = ['InvalidStateError', 'UnknownError', 'TransactionInactiveError'];
+// Passado este prazo, a tentativa desiste (TimeoutError) e a fila tenta de novo, com o mesmo id, no repositório atual.
+const SAVE_DEADLINE_MS = 8000;
+// Erros que dizem que a conexão morreu (o iOS derruba a conexão com o app em segundo plano), ou que a tentativa não teve resposta
+// no prazo. Cota cheia não está nesta lista.
+const CONNECTION_ERRORS: readonly string[] = ['InvalidStateError', 'UnknownError', 'TransactionInactiveError', 'TimeoutError'];
 
 const compareId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 // A ordem do repositório: o instante e, empatando, o id.
@@ -63,10 +66,11 @@ const isConnectionError = (err: unknown): boolean => {
   return typeof name === 'string' && CONNECTION_ERRORS.includes(name);
 };
 
-// Junta os solves gravados com os que a fila ainda segura, na ordem de tempo, sem repetir um id que já está.
+// Junta os solves gravados com os que a fila ainda segura, na ordem de tempo, sem repetir um id (o gravado vale).
 const withPending = (stored: Solve[], pending: Solve[]): Solve[] => {
-  const ids = new Set(stored.map((solve) => solve.id));
-  return [...stored, ...pending.filter((solve) => !ids.has(solve.id))].sort(bySolveTime);
+  const byId = new Map(stored.map((solve) => [solve.id, solve] as const));
+  for (const solve of pending) if (!byId.has(solve.id)) byId.set(solve.id, solve);
+  return [...byId.values()].sort(bySolveTime);
 };
 
 // Sem a API de mídia (fora do navegador), a resposta é "não".
@@ -130,6 +134,8 @@ export class AppState {
   private readonly reopenDb: (() => Promise<Repository>) | undefined;
   private unsubscribe: (() => void) | null = null;
   private reopening: Promise<void> | null = null; // a reabertura em andamento, reaproveitada por quem pede enquanto ela não termina
+  private restoring: Promise<void> | null = null; // uma restauração em curso: as gravações esperam ela acabar
+  private attempts = 0; // tentativas de gravação já começadas: só a mais recente mexe em saveStalled
   private readonly storage: Pick<Storage, 'getItem'> | null;
   private readonly storageManager: StorageLike | null;
   private readonly saves: SaveQueue;
@@ -361,8 +367,18 @@ export class AppState {
       this.showToast(T.data.restoreBlocked);
       return false;
     }
-    await restoreBackup(this.repo, id, this.now());
-    await this.reload();
+    // As gravações que chegarem agora esperam (saveWatched) até a troca acabar: caem depois do replaceAll, não no meio dele.
+    let done!: () => void;
+    this.restoring = new Promise<void>((resolve) => {
+      done = resolve;
+    });
+    try {
+      await restoreBackup(this.repo, id, this.now());
+      await this.reload();
+    } finally {
+      this.restoring = null;
+      done();
+    }
     await this.nextScramble(); // a cópia pode ter trazido outra sessão, de outro evento
     return true;
   }
@@ -370,7 +386,8 @@ export class AppState {
   // Exportação de emergência: o que está gravado no banco, mais o que a fila ainda segura (com os mesmos ids). Se o banco falha
   // ou não responde em STALL_MS (IndexedDB travado), o que está na memória é o que a pessoa viu por último.
   async exportData(): Promise<KlickExport> {
-    const pending = this.saves.pendingItems().map((s) => this.solveOf(s));
+    // A fila é lida no começo e de novo depois da espera: um solve que entrou enquanto o banco respondia também sai no export.
+    const before = this.pendingSolves();
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const stored = await Promise.race([
@@ -379,19 +396,23 @@ export class AppState {
           timer = setTimeout(() => reject(new Error('exportAll não respondeu a tempo')), STALL_MS);
         }),
       ]);
-      return { ...stored, solves: withPending(stored.solves, pending) };
+      return { ...stored, solves: withPending(stored.solves, [...before, ...this.pendingSolves()]) };
     } catch {
       return {
         format: 'klick',
         version: 1,
         exportedAt: this.now(),
         sessions: $state.snapshot(this.sessions),
-        solves: withPending($state.snapshot(this.solves), pending),
+        solves: withPending($state.snapshot(this.solves), [...before, ...this.pendingSolves()]),
         profile: $state.snapshot(this.profile),
       };
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  private pendingSolves(): Solve[] {
+    return this.saves.pendingItems().map((s) => this.solveOf(s));
   }
 
   async updateSettings(patch: Partial<Settings>): Promise<void> {
@@ -502,15 +523,25 @@ export class AppState {
     };
   }
 
-  // Uma gravação em voo. Passado STALL_MS sem resposta, o aviso fixo sai e o banco é reaberto; a gravação continua esperando, e o
-  // solve segue na fila até ela responder (nada se perde). Quando ela responde, o aviso sai.
+  // Uma tentativa de gravação. Antes dela, espera uma restauração em curso (a gravação cai depois do replaceAll, não no meio).
+  // Passado STALL_MS sem resposta, o aviso fixo sai e o banco é reaberto. Passado SAVE_DEADLINE_MS, a tentativa falha com
+  // TimeoutError: a fila a tenta de novo, com o mesmo id, no repositório atual. Nada se perde: o solve fica na fila até gravar.
   private async saveWatched(s: NewSolve): Promise<Solve> {
+    while (this.restoring) await this.restoring;
+    const attempt = ++this.attempts;
+    const repo = this.repo;
     const stall: ReturnType<typeof setTimeout> = setTimeout(() => this.stalled(), STALL_MS);
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<never>((_, reject) => {
+      deadline = setTimeout(() => reject(Object.assign(new Error(), { name: 'TimeoutError' })), SAVE_DEADLINE_MS);
+    });
     try {
-      return await this.repo.addSolve(s);
+      return await Promise.race([repo.addSolve(s), late]);
     } finally {
       clearTimeout(stall);
-      this.saveStalled = false;
+      clearTimeout(deadline);
+      // Só a tentativa mais recente mexe no aviso: uma anterior que termina tarde não apaga o aviso de uma tentativa presa.
+      if (attempt === this.attempts) this.saveStalled = false;
     }
   }
 
@@ -538,8 +569,11 @@ export class AppState {
 
   // Troca o repositório pela conexão nova. A leitura que vem depois traz o que outra aba gravou enquanto a conexão antiga estava morta.
   private useRepo(next: Repository): void {
+    if (next === this.repo) return; // a reabertura devolveu o mesmo repositório: nada a trocar nem a fechar
+    const replaced = this.repo;
     this.repo = next;
     this.subscribe();
+    replaced.close(); // a conexão antiga já não é usada por ninguém (as gravações pendentes usam a nova)
     void this.refresh();
   }
 
