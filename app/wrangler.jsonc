@@ -1,0 +1,9 @@
+// Publica o app (dist/) em beta.klick.ranimontagna.com. A raiz do domínio continua com o protótipo.
+{
+  "name": "klick-app-beta",
+  "account_id": "3a9dc0a9d9f05ff97021ce237e3ed92f",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": false,
+  "routes": [{ "pattern": "beta.klick.ranimontagna.com", "custom_domain": true }],
+  "assets": { "directory": "./dist", "not_found_handling": "single-page-application" }
+}

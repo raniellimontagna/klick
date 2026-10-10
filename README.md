@@ -6,3 +6,4 @@ Timer e scrambler de cubo mágico. Esta branch (`v2`) é a reconstrução do zer
 - Pesquisas: [`docs/research/`](docs/research/)
 - Telas do brainstorm: [`docs/design/brainstorm/`](docs/design/brainstorm/)
 - Protótipo interativo: [`prototype/`](prototype/) (como rodar em `prototype/README.md`)
+- App (sub-projeto 2): [`app/`](app/) — publicado em beta.klick.ranimontagna.com
