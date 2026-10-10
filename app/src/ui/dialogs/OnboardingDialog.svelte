@@ -3,13 +3,22 @@
   // Continuar só libera depois disso (skipPractice libera de cara, para os testes). Pular apresentação vai ao último passo, que oferece
   // importar (do csTimer ou da versão anterior) ou começar do zero. Não há dados de exemplo. Fechar por qualquer caminho grava que a
   // primeira vez já passou (profile.onboarded), e o tour não volta sozinho.
+  //
+  // "Importar do csTimer" pede o seletor de arquivo que a casca mantém montada (onpickfile): o clique no seletor precisa vir de dentro
+  // do toque (no iOS, fora dele o seletor não abre), então o pedido é a primeira coisa do toque, antes de fechar o tour.
   import { tick, untrack } from 'svelte';
   import { type CentroTheme, type Eyes, eyesFor, type Ring, renderCentro, ringFor, updateCentro } from '../centro';
   import { T } from '../../strings';
+  import { importV1Flow } from '../import-flow';
   import type { AppState } from '../state/app.svelte';
   import { modal } from './modal';
 
-  let { app, open, skipPractice = false }: { app: AppState; open: boolean; skipPractice?: boolean } = $props();
+  let {
+    app,
+    open,
+    skipPractice = false,
+    onpickfile,
+  }: { app: AppState; open: boolean; skipPractice?: boolean; onpickfile?: () => void } = $props();
 
   // O Centro de cada passo, como no protótipo: o anel e os olhos do passo, e os marcos acesos no último.
   const STEP_CENTRO: readonly { ring: Ring; eyes: Eyes; topLit: number }[] = [
@@ -79,7 +88,8 @@
     raf = requestAnimationFrame(frame);
   }
 
-  // Soltar: se chegou ao verde, o passo está praticado (e o reflexo de acerto sai no Centro); se não, volta ao repouso.
+  // Soltar: se chegou ao verde, o passo está praticado (e o reflexo de acerto sai no Centro); se não, volta ao repouso. Vale em
+  // qualquer lugar da janela (um soltar fora do botão também solta), por isso é ouvido no window.
   function holdUp(): void {
     if (!pressing) return;
     cancelAnimationFrame(raf);
@@ -91,6 +101,19 @@
     } else {
       paint('idle');
     }
+  }
+
+  // Abandona o segurar sem contar: sair da janela ou esconder a página não é um solte de verdade, e o passo não fica praticado.
+  function abandonHold(): void {
+    if (!pressing) return;
+    cancelAnimationFrame(raf);
+    pressing = false;
+    ready = false;
+    paint('idle');
+  }
+
+  function onHidden(): void {
+    if (document.visibilityState === 'hidden') abandonHold();
   }
 
   // Espaço segura no passo 2, fora dos outros botões (que continuam ativando com espaço). Fica no document: o foco pode cair no corpo.
@@ -124,7 +147,8 @@
     focusStep();
   }
 
-  // Cada abertura começa do passo 1, sem o que já foi praticado; os atalhos do document existem só enquanto o tour está aberto.
+  // Cada abertura começa do passo 1, sem o que já foi praticado. Os atalhos e as escutas da janela existem só enquanto o tour está
+  // aberto: o soltar e o abandono valem para o segurar em curso, de qualquer lugar.
   $effect(() => {
     if (!open) return;
     untrack(() => {
@@ -136,9 +160,17 @@
     void tick().then(focusStep);
     document.addEventListener('keydown', onKeyDown);
     document.addEventListener('keyup', onKeyUp);
+    document.addEventListener('visibilitychange', onHidden);
+    window.addEventListener('pointerup', holdUp);
+    window.addEventListener('pointercancel', holdUp);
+    window.addEventListener('blur', abandonHold);
     return () => {
       document.removeEventListener('keydown', onKeyDown);
       document.removeEventListener('keyup', onKeyUp);
+      document.removeEventListener('visibilitychange', onHidden);
+      window.removeEventListener('pointerup', holdUp);
+      window.removeEventListener('pointercancel', holdUp);
+      window.removeEventListener('blur', abandonHold);
       cancelAnimationFrame(raf);
     };
   });
@@ -154,14 +186,17 @@
     dialogEl?.close();
   }
 
+  // O seletor é pedido primeiro, dentro do toque; o tour fecha depois.
   function importCsTimer(): void {
+    onpickfile?.();
     close();
-    app.requestDataAction('importFile');
   }
 
+  // A importação da versão anterior mostra o resumo na seção Ajustes, então a tela vai para lá.
   function importV1(): void {
     close();
-    app.requestDataAction('importV1');
+    app.tab = 'ajustes';
+    void importV1Flow(app);
   }
 </script>
 
@@ -180,9 +215,7 @@
           onpointerdown={(e) => {
             e.preventDefault();
             holdDown();
-          }}
-          onpointerup={holdUp}
-          onpointercancel={holdUp}>{holdLabel}</button
+          }}>{holdLabel}</button
         >
       {/if}
       {#if step === 3}

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { openKlickDb } from '../../src/data/db';
 import { createRepository } from '../../src/data/repository';
 import { createBackup } from '../../src/data/safety';
@@ -24,9 +24,10 @@ describe('diálogos', () => {
     render(SessionsDialog, { app: a, open: true });
     await fireEvent.change(await screen.findByLabelText('Evento da nova sessão'), { target: { value: 'sq1' } });
     await fireEvent.click(screen.getByRole('button', { name: 'Criar' }));
-    await new Promise((r) => setTimeout(r, 30));
-    expect(a.event).toBe('sq1');
-    expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['3×3', 'Square-1']);
+    await vi.waitFor(() => {
+      expect(a.event).toBe('sq1');
+      expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['3×3', 'Square-1']);
+    }, { timeout: 3000 });
   });
 
   it('lixeira: restaura um solve excluído', async () => {
@@ -35,8 +36,7 @@ describe('diálogos', () => {
     await a.deleteSolve(s.id);
     render(TrashDialog, { app: a, open: true });
     await fireEvent.click(await screen.findByRole('button', { name: /Restaurar/ }));
-    await new Promise((r) => setTimeout(r, 30));
-    expect(a.solves.map((x) => x.id)).toEqual([s.id]);
+    await vi.waitFor(() => expect(a.solves.map((x) => x.id)).toEqual([s.id]), { timeout: 3000 });
   });
 
   it('cópias: restaurar pede dois cliques e volta o estado', async () => {
@@ -49,8 +49,7 @@ describe('diálogos', () => {
     await fireEvent.click(btn);
     expect(await screen.findByRole('button', { name: /Tem certeza/ })).toBeInTheDocument();
     await fireEvent.click(screen.getByRole('button', { name: /Tem certeza/ }));
-    await new Promise((r) => setTimeout(r, 50));
-    expect(a.solves.map((x) => x.ms)).toEqual([60000]);
+    await vi.waitFor(() => expect(a.solves.map((x) => x.ms)).toEqual([60000]), { timeout: 3000 });
   });
 
   it('primeira vez: o fim oferece importar ou começar do zero', async () => {
@@ -66,7 +65,6 @@ describe('diálogos', () => {
     expect(screen.getByRole('button', { name: 'Importar do csTimer' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Importar da versão anterior' })).toBeInTheDocument();
     await fireEvent.click(screen.getByRole('button', { name: 'Começar do zero' }));
-    await new Promise((r) => setTimeout(r, 30));
-    expect((await repo.getProfile()).onboarded).toBe(true);
+    await vi.waitFor(async () => expect((await repo.getProfile()).onboarded).toBe(true), { timeout: 3000 });
   });
 });

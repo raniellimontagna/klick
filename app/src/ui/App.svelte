@@ -3,6 +3,7 @@
   import { eventInfo } from '../core/events';
   import { T } from '../strings';
   import { dateLabel } from './format';
+  import { importFile } from './import-flow';
   import { type InstallPromptEvent, isStandalone, shouldShowInstallGuide } from './platform';
   import type { AppState, DialogId, Tab } from './state/app.svelte';
   import { boot } from './state/boot';
@@ -95,10 +96,11 @@
     app.dialog = 'onboarding';
   });
 
-  // O guia de instalação: no iPhone, fora do app instalado, depois do 5º solve, uma vez. A regra de plataforma fica em shouldShowInstallGuide.
+  // O guia de instalação: no iPhone, fora do app instalado, depois do 5º solve, uma vez, e só com o timer parado (o solve acabou). A regra
+  // de plataforma fica em shouldShowInstallGuide.
   $effect(() => {
     const meta = app?.meta;
-    if (!app || !meta || installOffered || app.dialog !== null || app.solves.length < INSTALL_GUIDE_SOLVES) return;
+    if (!app || !meta || installOffered || app.dialog !== null || app.timerBusy || app.solves.length < INSTALL_GUIDE_SOLVES) return;
     const offer = shouldShowInstallGuide({
       ua: navigator.userAgent,
       maxTouchPoints: navigator.maxTouchPoints,
@@ -120,6 +122,20 @@
 
   function openDialog(id: DialogId): void {
     if (app) app.dialog = id;
+  }
+
+  // O seletor do tour ("Importar do csTimer"). Fica montado com o app, fora das telas, para o toque abrir o seletor na hora (o iOS só
+  // abre o seletor dentro do toque). Escolher um arquivo usa o mesmo fluxo da seção Seus dados; se o resultado é um diálogo de importar,
+  // a tela vai para Ajustes, onde o ImportDialog está.
+  let importInput = $state<HTMLInputElement>();
+  async function onTourFile(e: Event): Promise<void> {
+    const input = e.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    const a = app;
+    if (!file || !a) return;
+    await importFile(a, file);
+    if (a.dialog === 'import') a.tab = 'ajustes';
   }
 </script>
 
@@ -191,10 +207,20 @@
 
     <!-- Diálogos da casca, sempre montados: cada um abre quando app.dialog é o seu id. Os de "Seus dados" (exportar, importar, cópias e
          lixeira) ficam na seção Ajustes, que os monta e os desmonta com ela. -->
+    <input
+      bind:this={importInput}
+      type="file"
+      accept=".json,.txt"
+      hidden
+      aria-label={T.dados.importFile}
+      data-import-input
+      onchange={onTourFile}
+    />
+
     <div data-dialogs>
       <SessionsDialog {app} open={app.dialog === 'sessions'} />
       <ShortcutsDialog {app} open={app.dialog === 'shortcuts'} />
-      <OnboardingDialog {app} open={app.dialog === 'onboarding'} />
+      <OnboardingDialog {app} open={app.dialog === 'onboarding'} onpickfile={() => importInput?.click()} />
       <InstallGuide {app} open={app.dialog === 'install'} {installEvent} onused={() => (installEvent = null)} />
     </div>
   {:else if failed}

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { openKlickDb } from '../../src/data/db';
 import { createRepository } from '../../src/data/repository';
 import { createScrambleQueue } from '../../src/scramble/queue';
@@ -39,8 +39,9 @@ describe('Ajustes', () => {
     const sw = (await screen.findByRole('checkbox', { name: /Imagem do embaralhamento/ })) as HTMLInputElement;
     sw.focus();
     await fireEvent.click(sw);
-    await new Promise((r) => setTimeout(r, 20));
-    expect((await repo.getProfile()).settings.scrambleImage).toBe(false);
-    expect((document.activeElement as HTMLElement | null)?.getAttribute('data-toggle')).toBe('scrambleImage');
+    await vi.waitFor(async () => {
+      expect((await repo.getProfile()).settings.scrambleImage).toBe(false);
+      expect((document.activeElement as HTMLElement | null)?.getAttribute('data-toggle')).toBe('scrambleImage');
+    });
   });
 });

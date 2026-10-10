@@ -55,9 +55,6 @@ export interface AppDeps {
 }
 
 export type ExportFormat = 'klick' | 'cstimer';
-// Uma ação de "Seus dados" pedida de fora da tela Ajustes (o tour da primeira vez): a tela a executa ao montar. 'importFile' abre o
-// seletor de arquivo; 'importV1' faz a importação da versão anterior.
-export type DataAction = 'importFile' | 'importV1';
 // Uma exportação que o navegador não baixou: o texto vai para o ExportDialog, que a pessoa copia.
 export interface PendingExport {
   format: ExportFormat;
@@ -164,7 +161,11 @@ export class AppState {
   v1Available = $state(false); // há dados da v1 ainda não oferecidos
   exportReminder = $state(false); // mostrar o lembrete de exportar
   pendingExport = $state<PendingExport | null>(null); // texto de uma exportação que o navegador não baixou (ExportDialog)
-  dataAction = $state<DataAction | null>(null); // pedido de fora de Ajustes; a tela Seus dados consome e zera
+  // A importação de arquivo (ui/import-flow.ts) é uma só, para os dois seletores: o estado vive aqui, e o ImportDialog o mostra.
+  importDraft = $state<CsTimerSession[] | null>(null); // sessões de um csTimer à espera de o evento ser escolhido
+  importSummary = $state<string[] | null>(null); // linhas do resumo da última importação
+  importBusy = $state(false); // uma importação (arquivo ou versão anterior) está gravando
+  timerBusy = $state(false); // o timer está na inspeção, armado, pronto ou rodando (a tela atualiza): o guia de instalação e o lembrete esperam
 
   private repo: Repository; // troca quando a conexão é reaberta (useRepo)
   private readonly queue: ScrambleQueue;
@@ -565,12 +566,6 @@ export class AppState {
     this.pendingExport = { format, text };
     this.tab = 'ajustes';
     this.dialog = 'export';
-  }
-
-  // Pede uma ação de "Seus dados" a partir de outra tela (o tour da primeira vez): leva para Ajustes; a seção executa e zera o pedido.
-  requestDataAction(action: DataAction): void {
-    this.tab = 'ajustes';
-    this.dataAction = action;
   }
 
   // Fim do tour (fechar por qualquer caminho, ou uma das opções): a primeira vez não se repete.

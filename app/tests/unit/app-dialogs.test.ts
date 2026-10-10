@@ -1,4 +1,7 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openKlickDb } from '../../src/data/db';
@@ -18,6 +21,7 @@ import App from '../../src/ui/App.svelte';
 
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
 const ANDROID = 'Mozilla/5.0 (Linux; Android 15; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0 Mobile Safari/537.36';
+const CSTIMER = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../fixtures', 'cstimer-export.txt'), 'utf8');
 
 let dbn = 0;
 // Perfil marcado por padrão: o tour não abre sozinho nos testes que não tratam da primeira vez.
@@ -29,7 +33,7 @@ async function makeApp({ onboarded = true }: { onboarded?: boolean } = {}): Prom
   return { a, repo };
 }
 
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+const solve = (a: AppState, i: number) => a.addSolve({ ms: 60000 + i, penalty: null, at: Date.now() + i });
 
 afterEach(() => {
   hooks.boot = null;
@@ -66,12 +70,13 @@ describe('ligação dos diálogos na casca', () => {
     expect(a.dialog).toBe('onboarding');
   });
 
-  it('com o perfil já marcado, o tour não abre', async () => {
+  it('com o perfil já marcado, o tour não abre (controle: o perfil foi lido como visto)', async () => {
     const { a } = await makeApp();
     hooks.boot = async () => a;
     render(App);
     await screen.findByRole('button', { name: 'Timer' });
-    await sleep(20);
+    await tick();
+    expect(a.profile.onboarded).toBe(true);
     expect(a.dialog).toBeNull();
   });
 
@@ -87,6 +92,27 @@ describe('ligação dos diálogos na casca', () => {
     await fireEvent.click(await screen.findByRole('button', { name: 'Instalar o app' }));
     expect(prompt).toHaveBeenCalledTimes(1);
   });
+
+  it('tocar em Importar do csTimer chama o seletor dentro do toque; o arquivo escolhido cai no mesmo diálogo de importar', async () => {
+    const { a, repo } = await makeApp({ onboarded: false });
+    hooks.boot = async () => a;
+    render(App);
+    await screen.findByRole('heading', { name: 'Esse é o Centro' });
+    await fireEvent.click(screen.getByRole('button', { name: 'Pular apresentação' }));
+    const clique = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {});
+    const tocar = fireEvent.click(await screen.findByRole('button', { name: 'Importar do csTimer' }));
+    // Sem await antes da asserção: o seletor é pedido dentro do próprio toque.
+    expect(clique).toHaveBeenCalledTimes(1);
+    await tocar;
+
+    const seletor = document.querySelector('[data-import-input]') as HTMLInputElement;
+    expect(seletor).not.toBeNull();
+    await fireEvent.change(seletor, { target: { files: [new File([CSTIMER], 'cstimer.txt', { type: 'text/plain' })] } });
+    await vi.waitFor(() => expect(a.tab).toBe('ajustes'), { timeout: 3000 });
+    await fireEvent.change(await screen.findByLabelText(/Evento de ZBLL/), { target: { value: '333' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Importar solves' }));
+    await vi.waitFor(async () => expect((await repo.listSolves()).length).toBe(5), { timeout: 3000 });
+  });
 });
 
 describe('guia de instalação automático', () => {
@@ -97,29 +123,49 @@ describe('guia de instalação automático', () => {
     hooks.boot = async () => a;
     const { unmount } = render(App);
     await screen.findByRole('button', { name: 'Timer' });
-    for (let i = 0; i < 4; i++) await a.addSolve({ ms: 60000 + i, penalty: null, at: Date.now() + i });
-    await sleep(30);
+    for (let i = 0; i < 4; i++) await solve(a, i);
+    await tick();
+    expect(a.solves.length).toBe(4); // controle: abaixo do limiar, sem abrir
     expect(a.dialog).toBeNull();
 
-    await a.addSolve({ ms: 60010, penalty: null, at: Date.now() + 10 });
+    await solve(a, 4);
     expect(await screen.findByRole('heading', { name: T.install.title })).toBeInTheDocument();
     expect(a.dialog).toBe('install');
 
     await fireEvent.click(screen.getByRole('button', { name: 'Fechar' }));
-    await vi.waitFor(async () => expect((await repo.getMeta()).installGuideDismissed).toBe(true));
+    await vi.waitFor(async () => expect((await repo.getMeta()).installGuideDismissed).toBe(true), { timeout: 3000 });
     expect(a.dialog).toBeNull();
 
-    await a.addSolve({ ms: 60020, penalty: null, at: Date.now() + 20 });
-    await sleep(30);
+    await solve(a, 5);
+    await tick();
+    expect(a.solves.length).toBe(6);
     expect(a.dialog).toBeNull();
 
     // Uma casca nova (outra abertura do app) também não reabre: a marca de dispensado está gravada.
     unmount();
     render(App);
     await screen.findByRole('button', { name: 'Timer' });
-    await a.addSolve({ ms: 60030, penalty: null, at: Date.now() + 30 });
-    await sleep(30);
+    await solve(a, 6);
+    await tick();
+    expect(a.solves.length).toBe(7);
     expect(a.dialog).toBeNull();
+  });
+
+  it('no iPhone, com o timer armado ou rodando, o guia espera; abre quando o timer para', async () => {
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(IPHONE);
+    Object.defineProperty(navigator, 'maxTouchPoints', { value: 5, configurable: true });
+    const { a } = await makeApp();
+    hooks.boot = async () => a;
+    render(App);
+    await screen.findByRole('button', { name: 'Timer' });
+    a.timerBusy = true;
+    for (let i = 0; i < 5; i++) await solve(a, i);
+    await tick();
+    expect(a.solves.length).toBe(5); // controle: o limiar foi alcançado
+    expect(a.dialog).toBeNull();
+
+    a.timerBusy = false;
+    expect(await screen.findByRole('heading', { name: T.install.title })).toBeInTheDocument();
   });
 
   it('fora do iPhone (Android), não abre sozinho mesmo com 5 solves', async () => {
@@ -128,8 +174,9 @@ describe('guia de instalação automático', () => {
     hooks.boot = async () => a;
     render(App);
     await screen.findByRole('button', { name: 'Timer' });
-    for (let i = 0; i < 5; i++) await a.addSolve({ ms: 60000 + i, penalty: null, at: Date.now() + i });
-    await sleep(30);
+    for (let i = 0; i < 5; i++) await solve(a, i);
+    await tick();
+    expect(a.solves.length).toBe(5); // controle: o limiar foi alcançado
     expect(a.dialog).toBeNull();
   });
 });

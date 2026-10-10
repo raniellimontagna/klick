@@ -1,19 +1,18 @@
 <script lang="ts">
   // "Seus dados" (Ajustes): armazenamento, cópias automáticas, lixeira, exportar, importar, pasta das cópias e instalação. Porte do
   // markup da tela (linhas .setting, botões .btn). Os diálogos que a seção abre (exportar, importar, cópias e lixeira) ficam montados
-  // aqui. O guia de instalação é montado pelo App: este botão só pede a abertura (app.dialog = 'install').
-  import { onDestroy, onMount, tick, untrack } from 'svelte';
-  import type { EventId } from '../../core/types';
+  // aqui. O guia de instalação é montado pelo App: este botão só pede a abertura (app.dialog = 'install'). A importação de arquivo é a
+  // mesma do tour (ui/import-flow.ts): o estado do ImportDialog vive no AppState.
+  import { onDestroy, onMount, tick } from 'svelte';
   import { folderSupported } from '../../data/folder';
-  import type { KlickExport } from '../../data/repository';
-  import { type CsTimerSession, parseCsTimer, parseKlickJson } from '../../data/transfer';
   import { T } from '../../strings';
   import { daysAgoLabel } from '../format';
+  import { confirmCsTimerImport, importFile, importV1Flow } from '../import-flow';
   import BackupsDialog from '../dialogs/BackupsDialog.svelte';
   import ExportDialog from '../dialogs/ExportDialog.svelte';
   import ImportDialog from '../dialogs/ImportDialog.svelte';
   import TrashDialog from '../dialogs/TrashDialog.svelte';
-  import type { AppState, DialogId, ImportSummary } from '../state/app.svelte';
+  import type { AppState, DialogId } from '../state/app.svelte';
 
   let { app }: { app: AppState } = $props();
 
@@ -30,9 +29,6 @@
   let backupCount = $state<number | null>(null);
   let trashCount = $state<number | null>(null);
   let folderChosen = $state<boolean | null>(null);
-  let importDraft = $state<CsTimerSession[] | null>(null); // sessões de um csTimer à espera de confirmação
-  let importSummary = $state<string[] | null>(null); // resumo da última importação
-  let importing = $state(false);
   let fileInput = $state<HTMLInputElement>();
   let statusEl = $state<HTMLElement>();
 
@@ -64,25 +60,6 @@
     return since > 0 ? `${when} ${T.dados.sinceExport(since)}` : when;
   });
 
-  const messageOf = (err: unknown): string => (err instanceof Error ? err.message : T.dados.fileUnreadable);
-
-  // Linhas do resumo de uma importação (os textos ficam em strings.ts).
-  function summaryLines(s: ImportSummary): string[] {
-    // Sem nenhum solve novo nem existente, e só com registros ilegíveis, a linha de contagem não diz nada: fica só o aviso.
-    const nothingRead = s.solves === 0 && s.existing === 0 && s.unreadable > 0;
-    const lines = nothingRead ? [] : [T.importDialog.result(s.solves, s.existing)];
-    if (s.skippedSessions > 0) lines.push(T.importDialog.skippedSessions(s.skippedSessions));
-    if (s.unreadable > 0) lines.push(T.importDialog.unreadable(s.unreadable));
-    if (s.offerNotMarked) lines.push(T.importDialog.offerNotMarked);
-    return lines;
-  }
-
-  function showSummary(s: ImportSummary): void {
-    importDraft = null;
-    importSummary = summaryLines(s);
-    app.dialog = 'import';
-  }
-
   async function refreshStorage(): Promise<void> {
     storage = await app.storageInfo();
   }
@@ -107,18 +84,6 @@
     if (app.dialog === null) void refreshCounts();
   });
 
-  // Um pedido de fora desta tela (o tour da primeira vez): o seletor de arquivo do csTimer, ou a importação da versão anterior. A seção
-  // consome o pedido ao montar ou quando ele chega, e zera antes de agir, para não repetir.
-  $effect(() => {
-    const action = app.dataAction;
-    if (action === null) return;
-    untrack(() => {
-      app.dataAction = null;
-    });
-    if (action === 'importFile') fileInput?.click();
-    else void importV1();
-  });
-
   // Desmontar a seção com um dos seus diálogos aberto (a aba mudou, por exemplo) solta o estado: senão, na volta, o diálogo reabriria
   // sozinho. O destroy do modal não faz isso.
   onDestroy(() => {
@@ -137,79 +102,13 @@
     else if (result === 'unsupported') app.showToast(T.dados.persistUnsupported);
   }
 
-  // Lê o arquivo escolhido. O mesmo arquivo pode ser escolhido de novo, então o campo esvazia.
+  // O seletor desta seção. O mesmo arquivo pode ser escolhido de novo, então o campo esvazia.
   async function onFile(e: Event): Promise<void> {
     const input = e.currentTarget as HTMLInputElement;
     const file = input.files?.[0];
     input.value = '';
     if (!file) return;
-    let text: string;
-    try {
-      text = await file.text();
-    } catch {
-      app.showToast(T.dados.fileUnreadable);
-      return;
-    }
-    await readImport(text, file.name);
-  }
-
-  // Primeiro como Klick (importa na hora); depois como csTimer (abre o diálogo com as sessões). Se os dois falham, o aviso traz a
-  // mensagem do leitor do tipo que o nome sugere: .json é Klick; o resto, csTimer.
-  async function readImport(text: string, name: string): Promise<void> {
-    let klick: KlickExport | null = null;
-    let klickError: unknown = null;
-    try {
-      klick = parseKlickJson(text);
-    } catch (err) {
-      klickError = err;
-    }
-    if (klick) {
-      importing = true;
-      let summary: ImportSummary | null;
-      try {
-        summary = await app.importKlick(klick);
-      } finally {
-        importing = false;
-      }
-      if (summary) showSummary(summary);
-      return;
-    }
-    let sessions: CsTimerSession[];
-    try {
-      sessions = parseCsTimer(text);
-    } catch (err) {
-      app.showToast(messageOf(/\.json$/i.test(name) ? klickError : err));
-      return;
-    }
-    importDraft = sessions;
-    importSummary = null;
-    app.dialog = 'import';
-  }
-
-  // O botão de confirmar do csTimer: o mapeamento vem do ImportDialog (só as sessões com evento escolhido).
-  async function confirmCsTimer(mapping: Record<string, EventId | undefined>): Promise<void> {
-    const draft = importDraft;
-    if (!draft || importing) return;
-    importing = true;
-    let summary: ImportSummary | null;
-    try {
-      summary = await app.importCsTimer(draft, mapping);
-    } finally {
-      importing = false;
-    }
-    if (summary) showSummary(summary);
-  }
-
-  async function importV1(): Promise<void> {
-    if (importing) return;
-    importing = true;
-    let summary: ImportSummary | null;
-    try {
-      summary = await app.importV1();
-    } finally {
-      importing = false;
-    }
-    if (summary) showSummary(summary);
+    await importFile(app, file);
   }
 
   // Escolher a pasta é um gesto só: o seletor do navegador sai daqui, direto do clique.
@@ -256,13 +155,13 @@
 
   <div class="setting">
     {@render caption(T.dados.import, T.dados.importHint)}
-    <button type="button" class="btn" disabled={importing} onclick={() => fileInput?.click()}>{T.dados.importFile}</button>
+    <button type="button" class="btn" disabled={app.importBusy} onclick={() => fileInput?.click()}>{T.dados.importFile}</button>
   </div>
 
   {#if app.v1Available}
     <div class="setting">
       {@render caption(T.dados.importV1, T.dados.importV1Hint)}
-      <button type="button" class="btn" disabled={importing} onclick={importV1}>{T.dados.importV1}</button>
+      <button type="button" class="btn" disabled={app.importBusy} onclick={() => importV1Flow(app)}>{T.dados.importV1}</button>
     </div>
   {/if}
 
@@ -292,9 +191,9 @@
 <ImportDialog
   {app}
   open={app.dialog === 'import'}
-  sessions={importDraft}
-  summary={importSummary}
-  onconfirm={confirmCsTimer}
+  sessions={app.importDraft}
+  summary={app.importSummary}
+  onconfirm={(mapping) => confirmCsTimerImport(app, mapping)}
 />
 <BackupsDialog {app} open={app.dialog === 'backups'} />
 <TrashDialog {app} open={app.dialog === 'trash'} />

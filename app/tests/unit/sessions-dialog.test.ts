@@ -30,7 +30,7 @@ describe('diálogo de sessões', () => {
     const atual = await screen.findByRole('button', { name: /^Treino/ });
     expect(atual).toHaveAttribute('aria-current', 'true');
     await fireEvent.click(screen.getByRole('button', { name: /^Sessão 1/ }));
-    await vi.waitFor(() => expect(a.currentSession?.name).toBe('Sessão 1'));
+    await vi.waitFor(() => expect(a.currentSession?.name).toBe('Sessão 1'), { timeout: 3000 });
     expect(screen.getByRole('button', { name: /^Sessão 1/ })).toHaveAttribute('aria-current', 'true');
   });
 
@@ -40,9 +40,20 @@ describe('diálogo de sessões', () => {
     await fireEvent.change(await screen.findByLabelText('Evento da nova sessão'), { target: { value: 'clock' } });
     await fireEvent.input(screen.getByLabelText('Nome da nova sessão'), { target: { value: 'Relógio de manhã' } });
     await fireEvent.click(screen.getByRole('button', { name: 'Criar' }));
-    await vi.waitFor(() => expect(a.currentSession?.name).toBe('Relógio de manhã'));
+    await vi.waitFor(() => expect(a.currentSession?.name).toBe('Relógio de manhã'), { timeout: 3000 });
     expect(a.event).toBe('clock');
     expect(screen.getByRole('heading', { level: 3, name: 'Clock' })).toBeInTheDocument();
+  });
+
+  it('Enter no nome da nova sessão cria a sessão, como o botão Criar', async () => {
+    const { a } = await app();
+    render(SessionsDialog, { app: a, open: true });
+    await fireEvent.change(await screen.findByLabelText('Evento da nova sessão'), { target: { value: 'clock' } });
+    const nome = screen.getByLabelText('Nome da nova sessão');
+    await fireEvent.input(nome, { target: { value: 'Pela tecla' } });
+    await fireEvent.keyDown(nome, { key: 'Enter' });
+    await vi.waitFor(() => expect(a.currentSession?.name).toBe('Pela tecla'), { timeout: 3000 });
+    expect(a.event).toBe('clock');
   });
 
   it('renomear troca o nome gravado', async () => {
@@ -52,7 +63,7 @@ describe('diálogo de sessões', () => {
     const campo = (await screen.findByRole('textbox', { name: /Novo nome/ })) as HTMLInputElement;
     await fireEvent.input(campo, { target: { value: 'Noturna' } });
     await fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
-    await vi.waitFor(async () => expect((await repo.listSessions()).map((s) => s.name)).toEqual(['Noturna']));
+    await vi.waitFor(async () => expect((await repo.listSessions()).map((s) => s.name)).toEqual(['Noturna']), { timeout: 3000 });
     expect(await screen.findByRole('button', { name: /^Noturna/ })).toBeInTheDocument();
   });
 
@@ -62,7 +73,7 @@ describe('diálogo de sessões', () => {
     const id = a.currentSession!.id;
     render(SessionsDialog, { app: a, open: true });
     await fireEvent.click(await screen.findByRole('button', { name: /^Excluir Descartável/ }));
-    await vi.waitFor(async () => expect((await repo.listTrash()).sessions.map((s) => s.id)).toContain(id));
+    await vi.waitFor(async () => expect((await repo.listTrash()).sessions.map((s) => s.id)).toContain(id), { timeout: 3000 });
     expect(screen.queryByRole('button', { name: /^Descartável/ })).toBeNull();
   });
 

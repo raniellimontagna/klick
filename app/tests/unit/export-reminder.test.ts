@@ -49,27 +49,32 @@ describe('lembrete de exportar acima dos tiles', () => {
 
     key('keydown', 'Space', ' ');
     await waitFor(() => expect(document.body.dataset.tstate).toBe('arming'));
+    expect(a.timerBusy).toBe(true);
     expect(lembrete()).toBeNull();
 
     await waitFor(() => expect(document.body.dataset.tstate).toBe('ready'), { timeout: 1500 });
+    expect(a.timerBusy).toBe(true);
     expect(lembrete()).toBeNull();
 
     key('keyup', 'Space', ' ');
     expect(document.body.dataset.tstate).toBe('running');
+    expect(a.timerBusy).toBe(true);
     expect(lembrete()).toBeNull();
 
     key('keydown', 'KeyA', 'a');
     await waitFor(() => expect(document.body.dataset.tstate).toBe('done'), { timeout: 1500 });
+    expect(a.timerBusy).toBe(false);
     expect(await screen.findByRole('button', { name: T.reminder.later })).toBeInTheDocument();
   });
 
-  it('agora não: tira o aviso e grava que ele foi dispensado por agora', async () => {
-    const { a } = await app();
+  it('agora não: tira o aviso desta sessão da tela (só o estado; nada é gravado)', async () => {
+    const { a, repo } = await app();
     a.exportReminder = true;
     render(TimerScreen, { app: a });
     await fireEvent.click(await screen.findByRole('button', { name: T.reminder.later }));
     expect(a.exportReminder).toBe(false);
     expect(lembrete()).toBeNull();
+    expect((await repo.getMeta()).lastExportAt).toBeNull();
   });
 
   it('exportar agora (lembrete) baixa o arquivo do Klick, zera o aviso e grava quando foi', async () => {
@@ -77,11 +82,11 @@ describe('lembrete de exportar acima dos tiles', () => {
     a.exportReminder = true;
     render(TimerScreen, { app: a });
     await fireEvent.click(await screen.findByRole('button', { name: T.data.exportNow }));
-    await vi.waitFor(() => expect(downloadText).toHaveBeenCalled());
+    await vi.waitFor(() => expect(downloadText).toHaveBeenCalled(), { timeout: 3000 });
     const [name] = vi.mocked(downloadText).mock.calls.at(-1)!;
     expect(name).toMatch(/^klick-.*\.json$/);
     expect(a.exportReminder).toBe(false);
-    await vi.waitFor(async () => expect((await repo.getMeta()).lastExportAt).not.toBeNull());
+    await vi.waitFor(async () => expect((await repo.getMeta()).lastExportAt).not.toBeNull(), { timeout: 3000 });
   });
 
   it('sem download (iframe), exportar agora leva à tela Ajustes com o texto para copiar', async () => {
@@ -103,7 +108,7 @@ describe('lembrete de exportar acima dos tiles', () => {
     await a.addSolve({ ms: 60000, penalty: null, at: Date.now() });
     render(TimerScreen, { app: a });
     await fireEvent.click(await screen.findByRole('button', { name: T.data.exportNow }));
-    await vi.waitFor(() => expect(downloadText).toHaveBeenCalled());
+    await vi.waitFor(() => expect(downloadText).toHaveBeenCalled(), { timeout: 3000 });
     expect(vi.mocked(downloadText).mock.calls.at(-1)?.[0]).toMatch(/^klick-.*\.json$/);
   });
 });

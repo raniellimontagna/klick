@@ -84,8 +84,6 @@
   let screenEl = $state<HTMLElement>();
   let zonesEl = $state<HTMLElement>();
   let noteInput = $state<HTMLInputElement>();
-  // O estado do timer para a tela (o timer em si não é reativo). Espelha o evento de estado; o lembrete de exportar lê daqui.
-  let timerState = $state<TimerState>('idle');
   let timeEl: HTMLElement | undefined;
   let lastId = $state<string | null>(null); // o solve que a tela mostra; null = o último da sessão
   let showResult = $state(false); // o solve está gravado e a pessoa ainda pode agir sobre ele
@@ -459,7 +457,8 @@
   // Ao armar ou abrir a inspeção, a reação, o coach e a nota da solve anterior saem da tela.
   function onState(next: TimerState): void {
     if (destroyed) return;
-    timerState = next;
+    // O app sabe se o timer está ocupado (inspeção, armado, pronto ou rodando): o guia de instalação e o lembrete de exportar esperam.
+    app.timerBusy = next === 'inspect' || next === 'arming' || next === 'ready' || next === 'running';
     document.body.dataset.tstate = next;
     document.body.classList.toggle('solving', next === 'running');
     if (next === 'ready') sound.klick();
@@ -538,6 +537,7 @@
       const body = document.body;
       body.classList.remove('solving');
       for (const k of ['tstate', 'cview', 'result', 'insp']) delete body.dataset[k];
+      app.timerBusy = false; // sem a tela, o timer não está mais ocupado para ninguém
     };
   });
 
@@ -698,7 +698,7 @@
     />
     <!-- Lembrete de exportar: acima dos tiles. Só aparece parado (inativo ou com o solve pronto para a reação), nunca na inspeção, armado,
          pronto ou rodando. -->
-    {#if app.exportReminder && (timerState === 'idle' || timerState === 'done')}
+    {#if app.exportReminder && !app.timerBusy}
       <div class="export-reminder" data-export-reminder>
         <p>{T.reminder.text}</p>
         <span class="data-actions">

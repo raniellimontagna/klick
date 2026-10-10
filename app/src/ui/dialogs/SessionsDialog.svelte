@@ -176,7 +176,18 @@
           <option value={ev.id}>{ev.name}</option>
         {/each}
       </select>
-      <input type="text" bind:value={newName} aria-label={T.sessions.newName} placeholder={T.sessions.newNamePlaceholder} />
+      <input
+        type="text"
+        bind:value={newName}
+        aria-label={T.sessions.newName}
+        placeholder={T.sessions.newNamePlaceholder}
+        onkeydown={(e) => {
+          // Enter cria, como o botão (o campo não está num formulário, então o Enter não faria nada sozinho).
+          if (e.key !== 'Enter') return;
+          e.preventDefault();
+          void create();
+        }}
+      />
       <button type="button" class="btn primary" onclick={create}>{T.sessions.create}</button>
     </div>
 
