@@ -13,6 +13,7 @@
     formatMs,
     formatSolve,
     monthHeat,
+    type MilestoneId,
     officialAverage,
     officialAverageLabel,
     type ResultKind,
@@ -172,7 +173,25 @@
     };
   });
 
-  const topLit = $derived(achievedIds(milestoneSolves(app.solves), Date.now()).length);
+  // Os marcos conquistados percorrem o histórico inteiro: a conta é guardada por lista (a mesma lista não se conta duas vezes) e
+  // não roda no caminho do solve. A contagem do Centro é atualizada numa macrotarefa depois de cada mudança dos solves.
+  const achievedMemo = new WeakMap<Solve[], MilestoneId[]>();
+  const achievedOf = (list: Solve[]): MilestoneId[] => {
+    let ids = achievedMemo.get(list);
+    if (!ids) {
+      ids = achievedIds(milestoneSolves(list), Date.now());
+      achievedMemo.set(list, ids);
+    }
+    return ids;
+  };
+  let topLit = $state(0);
+  $effect(() => {
+    const list = app.solves;
+    const later = setTimeout(() => {
+      topLit = achievedOf(list).length;
+    }, 0);
+    return () => clearTimeout(later);
+  });
   const sideLit = $derived(app.profile.trail.filter(Boolean).length);
 
   // ----- Texto e pintura (a cada quadro, sem passar pelo Svelte) -----
@@ -270,7 +289,7 @@
     const eventList = app.eventSolves;
     const sessionList = app.sessionSolves;
     const prevAnyAt = app.solves.at(-1)?.at;
-    const milestonesBefore = achievedIds(milestoneSolves(app.solves), now);
+    const listBefore = app.solves; // os marcos de antes são contados depois, na lista que estava aqui (a gravação não espera por eles)
     saving = true;
     unstored = null;
     showResult = false;
@@ -303,8 +322,19 @@
       return;
     }
     showResult = true;
+    kick();
+    // O resultado e as ações já estão na tela. Os marcos e o coach vêm numa macrotarefa depois, para a conta não atrasar o quadro;
+    // se a pessoa armou de novo ou outro solve tomou a tela nesse intervalo, a reação não entra.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    if (destroyed || mine !== solveSeq) return;
+    if (timer.state !== 'done') {
+      app.announce(T.aria.final(formatSolve(solve)));
+      kick();
+      return;
+    }
     const milestone = eventInfo(solve.event).milestones;
-    const after = milestone ? achievedIds(milestoneSolves(app.solves), now) : [];
+    const milestonesBefore = milestone ? achievedOf(listBefore) : [];
+    const after = milestone ? achievedOf(app.solves) : [];
     const fresh = milestone ? after.filter((id) => !milestonesBefore.includes(id)) : [];
     const s = app.profile.settings;
     const msg = pickCoachMessage({

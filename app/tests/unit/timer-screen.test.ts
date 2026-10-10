@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openKlickDb } from '../../src/data/db';
 import { createRepository, type Repository } from '../../src/data/repository';
+import { achievedIds } from '../../src/core/stats';
 import { createScrambleQueue } from '../../src/scramble/queue';
 import { T } from '../../src/strings';
 import { AppState } from '../../src/ui/state/app.svelte';
@@ -302,6 +303,22 @@ describe('tela do Timer: espaço segurado antes da inspeção', () => {
     key('keyup', 'Space', ' ');
     await waitFor(() => expect(a.pendingInspect).toBe(false));
     expect(a.timerBusy).toBe(true);
+  });
+
+  it('o primeiro solve de 3×3 acende o primeiro marco no Centro do Timer, depois que o resultado já está na tela', async () => {
+    const { a } = await app();
+    await a.updateSettings({ inspection: false });
+    render(TimerScreen, { app: a });
+    // A face de cima do Centro (os marcos): o anel também acende na reação, então só essa face conta.
+    const litFaces = () => document.querySelectorAll('[data-centro-slot] svg.centro g[transform="matrix(1,0,0.3,-0.3,0,30)"] .lit').length;
+    expect(litFaces()).toBe(0);
+    await solveByKeys();
+    await waitFor(() => expect(a.solves).toHaveLength(1));
+    await waitFor(() => expect(document.querySelector('[data-actions]')).not.toHaveAttribute('hidden'));
+    // Um solve de menos de 1 s acende os marcos que ele cumpre (o primeiro, o sub-2, o sub-1:30 e o sub-1), contados pelo núcleo.
+    const expected = achievedIds(a.solves, Date.now()).length;
+    expect(expected).toBeGreaterThan(0);
+    await waitFor(() => expect(litFaces()).toBe(expected));
   });
 
   it('a sessão que outra aba excluiu recebe o solve, e a tela mostra o resultado (a troca de sessão não o esconde)', async () => {

@@ -209,7 +209,9 @@ export function monthHeat(solves: Solve[], nowTs: number): HeatDay[] {
 
 // Marcos da temporada 1, com o momento em que cada um foi conquistado e o progresso dos que faltam.
 // Quem chama passa só os solves do 3×3: os marcos não valem para os outros eventos.
-export function milestoneProgress(solves: Solve[], nowTs: number): MilestoneStatus[] {
+// Quando cada marco foi conquistado (o instante do solve que o acendeu), sobre a lista inteira. Só as contas que os marcos pedem:
+// os textos de progresso ficam em milestoneProgress.
+function reachedAt(solves: Solve[]): Partial<Record<MilestoneId, number>> {
   const at: Partial<Record<MilestoneId, number>> = {};
   const r5 = rollingAverages(solves, 5);
   const r12 = rollingAverages(solves, 12);
@@ -242,6 +244,12 @@ export function milestoneProgress(solves: Solve[], nowTs: number): MilestoneStat
     hit('ao12sub1', ao12 !== null && ao12 < 60000);
     hit('n1000', count >= 1000);
   }
+  return at;
+}
+
+export function milestoneProgress(solves: Solve[], nowTs: number): MilestoneStatus[] {
+  const at = reachedAt(solves);
+  const best = bestSingle(solves);
   const n = solves.length;
   const progress: Record<MilestoneId, string | null> = {
     first: null,
@@ -257,8 +265,10 @@ export function milestoneProgress(solves: Solve[], nowTs: number): MilestoneStat
   return MILESTONES.map((id) => ({ id, achieved: at[id] !== undefined, at: at[id] ?? null, progress: at[id] !== undefined ? null : progress[id] }));
 }
 
-export function achievedIds(solves: Solve[], nowTs: number): MilestoneId[] {
-  return milestoneProgress(solves, nowTs).filter((m) => m.achieved).map((m) => m.id);
+// Só os marcos conquistados, sem os textos de progresso (a tela os calcula a cada solve; não precisam dos textos).
+export function achievedIds(solves: Solve[], _nowTs: number): MilestoneId[] {
+  const at = reachedAt(solves);
+  return MILESTONES.filter((id) => at[id] !== undefined);
 }
 
 // true onde o solve bateu o recorde que existia até ali (o primeiro solve não conta).
