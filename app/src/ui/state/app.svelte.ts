@@ -166,6 +166,7 @@ export class AppState {
   importSummary = $state<string[] | null>(null); // linhas do resumo da última importação
   importBusy = $state(false); // uma importação (arquivo ou versão anterior) está gravando
   timerBusy = $state(false); // o timer está na inspeção, armado, pronto ou rodando (a tela atualiza): o guia de instalação e o lembrete esperam
+  solvesInFlight = $state(0); // addSolve ainda não voltou (o solve não está gravado nem na fila): o unsaved espera por ele
 
   private repo: Repository; // troca quando a conexão é reaberta (useRepo)
   private readonly queue: ScrambleQueue;
@@ -220,9 +221,10 @@ export class AppState {
     });
   }
 
-  // Há solve que ainda não foi gravado (na fila) ou uma gravação presa: fechar a aba perderia o que está só na memória.
+  // Há solve que ainda não foi gravado (em voo, na fila) ou uma gravação presa: fechar a aba perderia o que está só na memória.
+  // Os três campos são $state, então quem lê o getter (o aviso de nova versão) acompanha as mudanças.
   get unsaved(): boolean {
-    return this.saves.pending() > 0 || this.saveStalled;
+    return this.solvesInFlight > 0 || this.savePending > 0 || this.saveStalled;
   }
 
   // Uma restauração em curso, ou com o portão ainda fechado (passou do prazo e a troca segue): não se começa outra.
@@ -323,21 +325,26 @@ export class AppState {
   // com um id de sessão novo: a fila tenta de novo, e o aviso fixo (savePending) fica na tela até gravar. Devolve null só quando
   // o solve ficou na fila; o próximo embaralhamento não segura a reação.
   async addSolve(r: { ms: number; penalty: Penalty; at: number }): Promise<Solve | null> {
-    this.closeUndo(); // um solve novo encerra o desfazer pendente
-    const session = await this.ensureSession().catch(() => null);
-    if (!session) this.showToast(T.data.saveFailed);
-    const solve = await this.saves.enqueue({
-      id: newId(this.now()), // o id é de quem grava: as tentativas seguintes usam este mesmo, e a gravação não duplica
-      sessionId: session?.id ?? this.currentSession?.id ?? this.profile.currentSessionId ?? newId(this.now()),
-      event: session?.event ?? this.event,
-      ms: r.ms,
-      penalty: r.penalty,
-      at: r.at,
-      scramble: this.scramble,
-    });
-    if (solve) await this.recordSaved(solve);
-    void this.nextScramble();
-    return solve;
+    this.solvesInFlight += 1; // conta até o solve estar gravado ou na fila (e o finally sempre desconta)
+    try {
+      this.closeUndo(); // um solve novo encerra o desfazer pendente
+      const session = await this.ensureSession().catch(() => null);
+      if (!session) this.showToast(T.data.saveFailed);
+      const solve = await this.saves.enqueue({
+        id: newId(this.now()), // o id é de quem grava: as tentativas seguintes usam este mesmo, e a gravação não duplica
+        sessionId: session?.id ?? this.currentSession?.id ?? this.profile.currentSessionId ?? newId(this.now()),
+        event: session?.event ?? this.event,
+        ms: r.ms,
+        penalty: r.penalty,
+        at: r.at,
+        scramble: this.scramble,
+      });
+      if (solve) await this.recordSaved(solve);
+      void this.nextScramble();
+      return solve;
+    } finally {
+      this.solvesInFlight -= 1;
+    }
   }
 
   async setPenalty(id: string, penalty: Penalty): Promise<void> {

@@ -1,10 +1,19 @@
 import { expect, type Page } from '@playwright/test';
+import { T } from '../../src/strings';
+
+// O embaralhamento está pronto quando o texto não é o de "gerando" nem o da falha. Um texto vazio nunca aparece: o bloco mostra um
+// dos três.
+export async function waitForScramble(page: Page) {
+  const scramble = page.locator('[data-scramble]');
+  await expect(scramble).not.toHaveText(T.timer.generating, { timeout: 20_000 });
+  await expect(scramble).not.toHaveText(T.timer.scrambleFailed);
+}
 
 export async function fresh(page: Page) {
   await page.goto('/');
   await page.getByRole('button', { name: 'Pular apresentação' }).click();
   await page.getByRole('button', { name: 'Começar do zero' }).click();
-  await expect(page.locator('[data-scramble]')).not.toHaveText('', { timeout: 20_000 });
+  await waitForScramble(page);
 }
 
 export async function quickSolve(page: Page) {

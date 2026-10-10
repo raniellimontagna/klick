@@ -1,7 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
 
-// A porta é fixa (strictPort) e pode ser trocada por KLICK_E2E_PORT: outros projetos da máquina usam a 4321.
-const PORT = Number(process.env.KLICK_E2E_PORT ?? 4329);
+// Porta do servidor de testes (strictPort). KLICK_E2E_PORT a troca, desde que seja um número de porta válido (1 a 65535).
+const DEFAULT_PORT = 4329;
+const envPort = process.env.KLICK_E2E_PORT ?? '';
+const PORT = /^\d{1,5}$/.test(envPort) && Number(envPort) >= 1 && Number(envPort) <= 65535 ? Number(envPort) : DEFAULT_PORT;
 const ORIGIN = `http://127.0.0.1:${PORT}`;
 
 export default defineConfig({

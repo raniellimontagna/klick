@@ -44,4 +44,25 @@ describe('Aviso de nova versão', () => {
     a.timerBusy = false;
     await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Recarregar' })).toBeInTheDocument());
   });
+
+  it('some enquanto um solve está em voo ou sem gravar (app.unsaved)', async () => {
+    const a = await app();
+    offerUpdate(async () => {});
+    render(UpdatePrompt, { app: a });
+    expect(screen.getByRole('button', { name: 'Recarregar' })).toBeInTheDocument();
+    a.solvesInFlight = 1;
+    await vi.waitFor(() => expect(screen.queryByRole('button', { name: 'Recarregar' })).toBeNull());
+    a.solvesInFlight = 0;
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Recarregar' })).toBeInTheDocument());
+  });
+
+  it('a região de status existe sempre, e o texto entra só quando há versão nova', async () => {
+    const a = await app();
+    render(UpdatePrompt, { app: a });
+    const region = screen.getByRole('status');
+    expect(region).toHaveTextContent('');
+    offerUpdate(async () => {});
+    await vi.waitFor(() => expect(region).toHaveTextContent('Nova versão disponível.'));
+    expect(screen.getByRole('status')).toBe(region);
+  });
 });

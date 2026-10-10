@@ -1,6 +1,7 @@
 <script lang="ts">
-  // O aviso de nova versão. Só aparece com o timer parado (app.timerBusy: inspeção, armado, pronto ou rodando): recarregar a página
-  // no meio de um solve perderia a reação. A função de atualizar vem do main.ts, por update.svelte.ts.
+  // O aviso de nova versão. A região de status fica montada sempre: o leitor de tela já a conhece quando o texto entra. Só aparece
+  // com o timer parado (app.timerBusy) e sem solve em voo ou na fila (app.unsaved): recarregar nesses momentos perderia a reação ou
+  // a gravação. A função de atualizar vem do main.ts, por update.svelte.ts.
   import { T } from '../../strings';
   import type { AppState } from '../state/app.svelte';
   import { pendingUpdate } from '../state/update.svelte';
@@ -8,28 +9,32 @@
   let { app }: { app: AppState } = $props();
 
   const apply = $derived(pendingUpdate());
-  const show = $derived(apply !== null && !app.timerBusy);
+  const show = $derived(apply !== null && !app.timerBusy && !app.unsaved);
 </script>
 
-{#if show}
-  <div class="update-prompt" role="status" data-update-prompt>
-    <p>{T.update.ready}</p>
+<div class="update-prompt" class:shown={show} data-update-prompt>
+  <p role="status" class="update-text">{show ? T.update.ready : ''}</p>
+  {#if show}
     <button type="button" class="btn primary" onclick={() => void apply?.()}>{T.update.reload}</button>
-  </div>
-{/if}
+  {/if}
+</div>
 
 <style>
+  /* Sem aviso, o contêiner não tem caixa nem texto: a região de status continua na árvore de acessibilidade, sem ocupar a tela. */
   .update-prompt {
     position: fixed;
     left: 50%;
     bottom: 24px;
     transform: translateX(-50%);
     z-index: 6;
+    width: max-content;
+    max-width: calc(100vw - 32px);
+  }
+
+  .update-prompt.shown {
     display: flex;
     align-items: center;
     gap: 12px;
-    width: max-content;
-    max-width: calc(100vw - 32px);
     padding: 10px 12px 10px 16px;
     border: 1px solid var(--line);
     border-radius: var(--r-card);
@@ -39,7 +44,7 @@
     box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
   }
 
-  .update-prompt p {
+  .update-text {
     margin: 0;
   }
 

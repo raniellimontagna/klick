@@ -1,11 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
+import { waitForScramble } from './helpers';
 
 async function start(page: Page) {
   await page.clock.install();
   await page.goto('/');
   await page.getByRole('button', { name: 'Pular apresentação' }).click();
   await page.getByRole('button', { name: 'Começar do zero' }).click();
-  await expect(page.locator('[data-scramble]')).not.toHaveText('');
+  await waitForScramble(page);
   // O relógio falso anda sozinho enquanto a página roda: o tempo real entre dois comandos (mais longo com a máquina cheia) entraria
   // no solve. Congelado aqui, só o runFor avança o tempo. Com ele congelado, a tela só repinta no runFor (o laço de quadros espera
   // o relógio), por isso os testes avançam um pouco depois de parar o timer.
@@ -25,6 +26,8 @@ test('solve no teclado é gravado antes da reação e sobrevive a recarregar', a
   await page.keyboard.press('a');
   await page.clock.runFor(100); // a tela repinta o resultado no próximo quadro
   await expect(page.locator('[data-time]')).toContainText('0:12.');
+  // As ações do solve só aparecem depois que ele está gravado: só então a página pode ser recarregada.
+  await expect(page.locator('[data-actions]')).toBeVisible();
   await page.reload();
   await page.getByRole('button', { name: 'Evolução' }).click();
   await expect(page.locator('.hist tbody tr')).toHaveCount(1);
@@ -41,7 +44,9 @@ test('inspeção: largar depois de 15 s dá +2', async ({ page, isMobile }) => {
   await page.clock.runFor(5_000);
   await page.keyboard.press('a');
   await page.clock.runFor(100); // a tela repinta o resultado no próximo quadro
-  await expect(page.locator('[data-time]')).toContainText('+');
+  await expect(page.locator('[data-actions]')).toBeVisible();
+  // 5,000 s de corrida mais 2 s de penalidade: a tela mostra 0:07.00 com o sinal de +2.
+  await expect(page.locator('[data-time]')).toContainText('0:07.00+');
 });
 
 test('celular: dois polegares armam e o primeiro que sai larga', async ({ page, isMobile }) => {
