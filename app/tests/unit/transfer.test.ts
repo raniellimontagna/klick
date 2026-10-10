@@ -1,0 +1,807 @@
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { describe, expect, it } from 'vitest';
+import {
+  csTimerToKlick, parseCsTimer, parseKlickJson, readV1, toCsTimerJson, toKlickJson, v1ToKlick, V1_KEY,
+} from '../../src/data/transfer';
+import type { CsTimerSession, CsTimerSolve } from '../../src/data/transfer';
+import { EVENT_IDS, eventInfo } from '../../src/core/events';
+import { defaultSettings } from '../../src/core/types';
+import type { EventId, Session, Solve } from '../../src/core/types';
+import type { KlickExport } from '../../src/data/repository';
+
+// Caminho relativo a este arquivo. Não usa `new URL(\`../fixtures/${name}\`, import.meta.url)`: no ambiente jsdom o Vite o
+// reescreve para resolver contra self.location e o fs recusa a URL (mesmo motivo do contrast.test.ts).
+const fixture = (name: string) => readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../fixtures', name), 'utf8');
+let seq = 0;
+const ctx = (existingSessions: Session[] = [], existingSolves: Solve[] = []) => ({
+  now: 1_791_500_000_000, newId: () => `id${String(++seq).padStart(15, '0')}`, existingSessions, existingSolves,
+});
+
+// --- Apoio dos testes acrescentados (os do plano ficam como vieram) ---
+
+const NOW = ctx().now;
+const KLICK_INVALID = 'Arquivo do Klick inválido.';
+const CSTIMER_INVALID = 'Arquivo do csTimer inválido.';
+const AT = 1_791_400_000_000; // um segundo inteiro, como o csTimer guarda
+
+const mkSession = (over: Partial<Session> = {}): Session => ({
+  id: 's1', name: 'Sessão 1', event: '333', order: 0, createdAt: 1_000, updatedAt: 1_000, deletedAt: null, ...over,
+});
+const mkSolve = (over: Partial<Solve> = {}): Solve => ({
+  id: 'v1', sessionId: 's1', event: '333', ms: 10_000, penalty: null, at: AT, scramble: "R U R'", note: '',
+  createdAt: 1_000, updatedAt: 1_000, deletedAt: null, ...over,
+});
+
+// Um arquivo do Klick com de tudo: sessão excluída, os três estados de penalidade, ms 0, solve excluído e perfil.
+const fullExport = (): KlickExport => ({
+  format: 'klick',
+  version: 1,
+  exportedAt: NOW,
+  sessions: [mkSession(), mkSession({ id: 's2', name: 'Pyra', event: 'pyram', order: 1, deletedAt: 9_000 })],
+  solves: [
+    mkSolve({ id: 'a' }),
+    mkSolve({ id: 'b', penalty: '+2', note: 'cruz', ms: 0 }),
+    mkSolve({ id: 'c', sessionId: 's2', event: 'pyram', penalty: 'DNF', at: AT + 1_500, deletedAt: 9_000 }),
+  ],
+  profile: { settings: defaultSettings(), trail: Array<boolean>(9).fill(false), finish: 'gelo', onboarded: true, currentSessionId: 's1' },
+});
+
+type Loose = Record<string, unknown>;
+// O arquivo completo, alterado por `change`, já em texto. Valor undefined some do JSON, como um campo que não veio.
+const broken = (change: (d: Loose) => void): string => {
+  const d: Loose = { ...fullExport() };
+  change(d);
+  return JSON.stringify(d);
+};
+// O último registro da lista: um defeito no fim não pode passar só porque o primeiro está certo.
+const lastRecord = (d: Loose, key: 'sessions' | 'solves'): Loose => (d[key] as Loose[]).at(-1)!;
+
+// Congela por inteiro: quem tentar alterar um dado recebido lança TypeError (módulos ESM rodam em modo estrito).
+function deepFreeze<T>(value: T): T {
+  if (typeof value === 'object' && value !== null && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const inner of Object.values(value)) deepFreeze(inner);
+  }
+  return value;
+}
+
+describe('formato Klick', () => {
+  it('ida e volta sem perda', () => {
+    const data: KlickExport = { format: 'klick', version: 1, exportedAt: 1, sessions: [], solves: [], profile: null };
+    expect(parseKlickJson(toKlickJson(data))).toEqual(data);
+  });
+  it('arquivo errado dá erro claro', () => {
+    expect(() => parseKlickJson('{"format":"outro"}')).toThrow('Arquivo do Klick inválido.');
+    expect(() => parseKlickJson('não é json')).toThrow('Arquivo do Klick inválido.');
+  });
+
+  it('o JSON sai com 2 espaços', () => {
+    const data = fullExport();
+    expect(toKlickJson(data)).toBe(JSON.stringify(data, null, 2));
+    expect(toKlickJson(data)).toContain('\n  "format": "klick"');
+  });
+  it('ida e volta com sessões, solves (inclusive os excluídos) e perfil', () => {
+    const data = fullExport();
+    expect(parseKlickJson(toKlickJson(data))).toEqual(data);
+  });
+  it('campos que o Klick ainda não conhece passam intactos', () => {
+    const data = fullExport();
+    const extra = { ...data, device: 'abc', solves: data.solves.map((s) => ({ ...s, tag: 'x' })) };
+    expect(parseKlickJson(JSON.stringify(extra))).toEqual(extra);
+  });
+  it('o arquivo do csTimer não passa por arquivo do Klick (a tela tenta um e depois o outro)', () => {
+    expect(() => parseKlickJson(fixture('cstimer-export.txt'))).toThrow(KLICK_INVALID);
+  });
+
+  describe('rejeita o arquivo inteiro se alguma coisa não bate', () => {
+    const ENVELOPE: Array<[string, (d: Loose) => void]> = [
+      ['outro formato', (d) => { d.format = 'outro'; }],
+      ['sem formato', (d) => { delete d.format; }],
+      ['versão 2', (d) => { d.version = 2; }],
+      ['versão como texto', (d) => { d.version = '1'; }],
+      ['sem versão', (d) => { delete d.version; }],
+      ['sem exportedAt', (d) => { delete d.exportedAt; }],
+      ['exportedAt como texto', (d) => { d.exportedAt = 'ontem'; }],
+      ['sem sessions', (d) => { delete d.sessions; }],
+      ['sessions que não é lista', (d) => { d.sessions = {}; }],
+      ['sem solves', (d) => { delete d.solves; }],
+      ['solves que não é lista', (d) => { d.solves = 'nenhum'; }],
+      ['sem profile', (d) => { delete d.profile; }],
+      ['profile como texto', (d) => { d.profile = 'eu'; }],
+      ['profile como lista', (d) => { d.profile = []; }],
+      ['sessão que é null', (d) => { d.sessions = [null]; }],
+      ['sessão que é número', (d) => { d.sessions = [5]; }],
+      ['sessão que é lista', (d) => { d.sessions = [[]]; }],
+      ['solve que é null', (d) => { d.solves = [null]; }],
+      ['solve que é texto', (d) => { d.solves = ['x']; }],
+      ['solve que é lista', (d) => { d.solves = [[]]; }],
+    ];
+    it.each(ENVELOPE)('%s', (_label, change) => {
+      expect(() => parseKlickJson(broken(change))).toThrow(KLICK_INVALID);
+    });
+
+    it.each(['[]', 'null', '5', '"klick"', 'true', ''])('raiz %j', (text) => {
+      expect(() => parseKlickJson(text)).toThrow(KLICK_INVALID);
+    });
+
+    // [campo, valor ruim]; undefined é o campo ausente. Mexe sempre no último registro da lista.
+    const BAD_SESSION: Array<[string, unknown]> = [
+      ['id', undefined], ['id', 5], ['name', undefined], ['name', 5],
+      ['event', undefined], ['event', '3x3'], ['event', 'xyz'],
+      ['order', undefined], ['order', '0'], ['order', null],
+      ['createdAt', undefined], ['createdAt', null], ['updatedAt', undefined], ['updatedAt', '1'],
+      ['deletedAt', undefined], ['deletedAt', '1'],
+    ];
+    it.each(BAD_SESSION)('sessão com %s = %j', (field, value) => {
+      expect(() => parseKlickJson(broken((d) => { lastRecord(d, 'sessions')[field] = value; }))).toThrow(KLICK_INVALID);
+    });
+
+    const BAD_SOLVE: Array<[string, unknown]> = [
+      ['id', undefined], ['id', 5], ['sessionId', undefined], ['sessionId', 5],
+      ['event', undefined], ['event', 'xyz'], ['event', '3x3'],
+      ['ms', undefined], ['ms', null], ['ms', '1000'], ['ms', -1],
+      ['penalty', undefined], ['penalty', '+4'], ['penalty', 'NONE'], ['penalty', 2000],
+      ['at', undefined], ['at', null], ['at', '1'],
+      ['scramble', undefined], ['scramble', 5], ['note', undefined], ['note', 5],
+      ['createdAt', undefined], ['createdAt', '1'], ['updatedAt', undefined], ['updatedAt', null],
+      ['deletedAt', undefined], ['deletedAt', '1'],
+    ];
+    it.each(BAD_SOLVE)('solve com %s = %j', (field, value) => {
+      expect(() => parseKlickJson(broken((d) => { lastRecord(d, 'solves')[field] = value; }))).toThrow(KLICK_INVALID);
+    });
+
+    it('número fora da faixa (1e999 vira Infinity no JSON.parse) não vale', () => {
+      const text = toKlickJson(fullExport());
+      const swap = (from: string, to: string): string => {
+        expect(text).toContain(from); // sem isso, uma troca que não achou o alvo passaria por "não lançou"
+        return text.replace(from, to);
+      };
+      expect(JSON.parse(swap('"ms": 0,', '"ms": 1e999,')).solves[1].ms).toBe(Infinity);
+      expect(() => parseKlickJson(swap('"ms": 0,', '"ms": 1e999,'))).toThrow(KLICK_INVALID);
+      expect(() => parseKlickJson(swap(`"at": ${AT + 1_500},`, '"at": 1e999,'))).toThrow(KLICK_INVALID);
+      expect(() => parseKlickJson(swap(`"exportedAt": ${NOW},`, '"exportedAt": 1e999,'))).toThrow(KLICK_INVALID);
+      expect(() => parseKlickJson(swap('"order": 1,', '"order": 1e999,'))).toThrow(KLICK_INVALID);
+    });
+
+    it('um defeito só, em qualquer posição da lista, derruba tudo', () => {
+      const data = fullExport();
+      for (let i = 0; i < data.solves.length; i++) {
+        const solves = data.solves.map((s, j) => (j === i ? { ...s, event: 'xyz' } : s));
+        expect(() => parseKlickJson(JSON.stringify({ ...data, solves }))).toThrow(KLICK_INVALID);
+      }
+      for (let i = 0; i < data.sessions.length; i++) {
+        const sessions = data.sessions.map((s, j) => (j === i ? { ...s, event: 'xyz' } : s));
+        expect(() => parseKlickJson(JSON.stringify({ ...data, sessions }))).toThrow(KLICK_INVALID);
+      }
+    });
+  });
+});
+
+describe('csTimer', () => {
+  it('lê sessões, eventos, penalidades, notas e datas', () => {
+    const s = parseCsTimer(fixture('cstimer-export.txt'));
+    expect(s.map((x) => [x.key, x.name, x.event])).toEqual([
+      ['session1', 'Main', '333'], ['session2', '2x2', '222'], ['session3', 'ZBLL', null],
+    ]);
+    expect(s[0].solves).toEqual([
+      { ms: 61234, penalty: null, scramble: "R U R' U'", note: '', at: 1791400000000 },
+      { ms: 58000, penalty: '+2', scramble: 'F R U', note: 'cruz', at: 1791400100000 },
+      { ms: 70000, penalty: 'DNF', scramble: 'L D', note: '', at: 1791400200000 },
+    ]);
+  });
+  it('arquivo errado dá erro claro', () => {
+    expect(() => parseCsTimer('{}')).toThrow('Arquivo do csTimer inválido.');
+  });
+  it('converte com o mapeamento; sessão sem evento e sem mapeamento fica de fora', () => {
+    const parsed = parseCsTimer(fixture('cstimer-export.txt'));
+    const r = csTimerToKlick(parsed, {}, ctx());
+    expect(r.sessions.map((x) => [x.name, x.event])).toEqual([['Main', '333'], ['2x2', '222']]);
+    expect(r.solves).toHaveLength(4);
+    expect(r.skippedSessions).toBe(1);
+    const mapped = csTimerToKlick(parsed, { session3: '333' }, ctx());
+    expect(mapped.sessions).toHaveLength(3);
+    expect(mapped.skippedSessions).toBe(0);
+  });
+  it('importar o mesmo arquivo duas vezes não duplica', () => {
+    const parsed = parseCsTimer(fixture('cstimer-export.txt'));
+    const first = csTimerToKlick(parsed, {}, ctx());
+    const second = csTimerToKlick(parsed, {}, ctx(first.sessions, first.solves));
+    expect(second.solves).toHaveLength(0);
+    expect(second.duplicates).toBe(4);
+  });
+  it('exporta no formato do csTimer e lê de volta', () => {
+    const parsed = parseCsTimer(fixture('cstimer-export.txt'));
+    const r = csTimerToKlick(parsed, { session3: '333' }, ctx());
+    const again = parseCsTimer(toCsTimerJson(r.sessions, r.solves));
+    expect(again.map((x) => [x.name, x.event])).toEqual([['Main', '333'], ['2x2', '222'], ['ZBLL', '333']]);
+    expect(again[0].solves).toEqual(parsed[0].solves);
+  });
+
+  describe('leitura do arquivo', () => {
+    const csText = (body: Loose): string => JSON.stringify(body);
+    // Um solve como o csTimer grava: [[penalidade, ms], embaralhamento, comentário, segundos].
+    const csRow = (ms = 10_000, seconds = AT / 1000, code = 0): unknown[] => [[code, ms], 'R U', '', seconds];
+
+    it('sessionData pode vir como objeto; sem dados da sessão o nome é "Sessão N" e o evento é o 3×3', () => {
+      const text = csText({
+        session1: [csRow()], session2: [csRow()], session3: [csRow()],
+        properties: { sessionData: { 1: { name: 'Um', opt: { scrType: '444wca' } }, 2: {} } },
+      });
+      expect(parseCsTimer(text).map((s) => [s.name, s.scrType, s.event])).toEqual([
+        ['Um', '444wca', '444'], ['Sessão 2', undefined, '333'], ['Sessão 3', undefined, '333'],
+      ]);
+    });
+    it('sem properties também lê (nome padrão, 3×3)', () => {
+      const [s] = parseCsTimer(csText({ session4: [csRow(8_000)] }));
+      expect(s).toEqual({
+        key: 'session4', name: 'Sessão 4', scrType: undefined, event: '333',
+        solves: [{ ms: 8_000, penalty: null, scramble: 'R U', note: '', at: AT }],
+      });
+    });
+    it('nome em número (o padrão do csTimer) ou em branco vira "Sessão N"; espaços sobrando saem', () => {
+      const sessionData = JSON.stringify({ 1: { name: 1 }, 2: { name: '   ' }, 3: { name: '  Treino  ' } });
+      const text = csText({ session1: [], session2: [], session3: [], properties: { sessionData } });
+      expect(parseCsTimer(text).map((s) => s.name)).toEqual(['Sessão 1', 'Sessão 2', 'Treino']);
+    });
+    it('as sessões saem em ordem numérica (session10 depois de session2), cada uma com os dados do próprio número', () => {
+      const sessionData = JSON.stringify({ 1: { name: 'A' }, 2: { name: 'B', opt: { scrType: '222so' } }, 10: { name: 'J' } });
+      const text = csText({ session10: [], session2: [], session1: [], properties: { sessionData } });
+      expect(parseCsTimer(text).map((s) => [s.key, s.name, s.event])).toEqual([
+        ['session1', 'A', '333'], ['session2', 'B', '222'], ['session10', 'J', '333'],
+      ]);
+    });
+    it('só chaves sessionN contam', () => {
+      const text = csText({
+        sessions: [csRow()], session: [csRow()], sessionA: [csRow()], session1x: [csRow()], xsession1: [csRow()], Session1: [csRow()],
+        session1: [csRow()], properties: {},
+      });
+      expect(parseCsTimer(text).map((s) => s.key)).toEqual(['session1']);
+    });
+    it('sessão sem solves lê vazia', () => {
+      expect(parseCsTimer(csText({ session1: [] }))[0].solves).toEqual([]);
+    });
+    it('tempos de fases e campos a mais no item são ignorados', () => {
+      const text = csText({ session1: [[[0, 5_000, 2_000, 3_000], 'R', 'ok', 1_791_400_000, 'extra', 9]] });
+      expect(parseCsTimer(text)[0].solves).toEqual([{ ms: 5_000, penalty: null, scramble: 'R', note: 'ok', at: AT }]);
+    });
+    it('comentário que não é texto vira nota vazia', () => {
+      const text = csText({ session1: [[[0, 5_000], 'R', null, 1_791_400_000], [[0, 6_000], 'R', 7, 1_791_400_001]] });
+      expect(parseCsTimer(text)[0].solves.map((s) => s.note)).toEqual(['', '']);
+    });
+    it('os três códigos de penalidade do csTimer', () => {
+      const text = csText({ session1: [csRow(1, 1, 0), csRow(2, 2, 2000), csRow(3, 3, -1)] });
+      expect(parseCsTimer(text)[0].solves.map((s) => s.penalty)).toEqual([null, '+2', 'DNF']);
+    });
+    it('segundos fracionários viram milissegundos', () => {
+      expect(parseCsTimer(csText({ session1: [csRow(1_000, 1_791_400_000.5)] }))[0].solves[0].at).toBe(AT + 500);
+    });
+
+    it.each<[string, EventId | null]>([
+      ['333', '333'], ['222so', '222'], ['444wca', '444'], ['555wca', '555'], ['666wca', '666'], ['777wca', '777'],
+      ['333oh', '333oh'], ['333ni', '333bf'], ['mgmp', 'minx'], ['pyrso', 'pyram'], ['skbso', 'skewb'], ['sqrs', 'sq1'], ['clkwca', 'clock'],
+      ['', '333'], ['zbll', null], ['333fm', null], ['333mbf', null],
+    ])('scrType %j é o evento %j', (scrType, event) => {
+      const text = csText({ session1: [csRow()], properties: { sessionData: JSON.stringify({ 1: { opt: { scrType } } }) } });
+      const [s] = parseCsTimer(text);
+      expect(s.scrType).toBe(scrType);
+      expect(s.event).toBe(event);
+    });
+
+    // Cada caso tem o defeito na 2ª posição: o 1º solve (ou a 1ª sessão) está certo e não pode mascará-lo.
+    const bad = (row: unknown): string => csText({ session1: [csRow(), row] });
+    const withProps = (properties: unknown): string => csText({ session1: [csRow()], properties });
+    const INVALID: Array<[string, string]> = [
+      ['texto que não é JSON', 'sessão 1'],
+      ['vazio', ''],
+      ['lista', '[]'],
+      ['null', 'null'],
+      ['número', '5'],
+      ['sem nenhuma sessionN', csText({ properties: {} })],
+      ['"sessions" no plural não é sessionN', csText({ sessions: [csRow()] })],
+      ['arquivo do Klick', toKlickJson(fullExport())],
+      ['sessão que não é lista', csText({ session1: {} })],
+      ['sessão que é null', csText({ session1: null })],
+      ['segunda sessão que não é lista', csText({ session1: [csRow()], session2: 'x' })],
+      ['item que é null', bad(null)],
+      ['item que é texto', bad('x')],
+      ['item que é número', bad(5)],
+      ['item que é objeto', bad({})],
+      ['tempo que não é lista', bad([5, 'R', '', 1_791_400_000])],
+      ['tempo vazio', bad([[], 'R', '', 1_791_400_000])],
+      ['tempo sem ms', bad([[0], 'R', '', 1_791_400_000])],
+      ['ms como texto', bad([[0, '1000'], 'R', '', 1_791_400_000])],
+      ['ms null', bad([[0, null], 'R', '', 1_791_400_000])],
+      ['ms negativo', bad([[0, -1], 'R', '', 1_791_400_000])],
+      ['ms infinito', '{"session1":[[[0,1000],"R","",1791400000],[[0,1e999],"R","",1791400000]]}'],
+      ['penalidade 1000', bad([[1000, 1000], 'R', '', 1_791_400_000])],
+      ['penalidade 4000', bad([[4000, 1000], 'R', '', 1_791_400_000])],
+      ['penalidade -2', bad([[-2, 1000], 'R', '', 1_791_400_000])],
+      ['penalidade como texto', bad([['0', 1000], 'R', '', 1_791_400_000])],
+      ['penalidade null', bad([[null, 1000], 'R', '', 1_791_400_000])],
+      ['sem segundos', bad([[0, 1000], 'R', ''])],
+      ['segundos como texto', bad([[0, 1000], 'R', '', '1791400000'])],
+      ['segundos null', bad([[0, 1000], 'R', '', null])],
+      ['segundos infinitos', '{"session1":[[[0,1000],"R","",1791400000],[[0,1000],"R","",1e999]]}'],
+      ['segundos que estouram ao virar milissegundos', '{"session1":[[[0,1000],"R","",1791400000],[[0,1000],"R","",1e306]]}'],
+      ['embaralhamento que não é texto', bad([[0, 1000], 5, '', 1_791_400_000])],
+      ['sessionData que não abre', withProps({ sessionData: '{x' })],
+      ['sessionData que é lista', withProps({ sessionData: '[]' })],
+      ['sessionData que é "null"', withProps({ sessionData: 'null' })],
+      ['sessionData que é número', withProps({ sessionData: 5 })],
+      ['sessionData que é lista (já aberta)', withProps({ sessionData: [] })],
+      ['properties que é número', withProps(5)],
+      ['properties que é lista', withProps([])],
+      ['properties null', withProps(null)],
+      ['sessionData null', withProps({ sessionData: null })],
+      ['dados da sessão que não são objeto', withProps({ sessionData: { 1: 5 } })],
+      ['dados da sessão null', withProps({ sessionData: { 1: null } })],
+      ['opt que não é objeto', withProps({ sessionData: { 1: { opt: 'x' } } })],
+      ['opt null', withProps({ sessionData: { 1: { opt: null } } })],
+      ['scrType que não é texto', withProps({ sessionData: { 1: { opt: { scrType: 5 } } } })],
+      ['scrType null', withProps({ sessionData: { 1: { opt: { scrType: null } } } })],
+    ];
+    it.each(INVALID)('%s dá erro claro', (_label, text) => {
+      expect(() => parseCsTimer(text)).toThrow(CSTIMER_INVALID);
+    });
+  });
+
+  describe('importação', () => {
+    const csSolve = (ms: number, at: number, over: Partial<CsTimerSolve> = {}): CsTimerSolve => ({ ms, penalty: null, scramble: 'R U', note: '', at, ...over });
+    const csSession = (key: string, solves: CsTimerSolve[], over: Partial<CsTimerSession> = {}): CsTimerSession =>
+      ({ key, name: `Sessão ${key.slice(7)}`, scrType: undefined, event: '333', solves, ...over });
+
+    it('exportar para o csTimer e importar de volta não duplica nada, mesmo com o instante em milissegundos', () => {
+      const sessions = [mkSession({ id: 's1', name: 'Main', order: 0 }), mkSession({ id: 's2', name: '2x2', event: '222', order: 1 })];
+      const solves = [
+        mkSolve({ id: 'a', ms: 11_340, at: AT + 123 }),
+        mkSolve({ id: 'b', ms: 12_990, penalty: '+2', at: AT + 60_999, note: 'cruz' }),
+        mkSolve({ id: 'c', sessionId: 's2', event: '222', ms: 4_560, penalty: 'DNF', at: AT + 120_001 }),
+        mkSolve({ id: 'd', ms: 9_870, at: AT + 180_500 }),
+      ];
+      const parsed = parseCsTimer(toCsTimerJson(sessions, solves));
+      const r = csTimerToKlick(parsed, {}, ctx(sessions, solves));
+      expect(r.solves).toHaveLength(0);
+      expect(r.sessions).toHaveLength(0);
+      expect(r.duplicates).toBe(4);
+      expect(r.skippedSessions).toBe(0);
+    });
+
+    it('mesmo tempo em outro segundo, ou mesmo segundo com outro tempo, é solve novo; o limite é o segundo', () => {
+      const existing = [mkSolve({ ms: 9_000, at: AT + 999 })];
+      const parsed = [csSession('session1', [
+        csSolve(9_000, AT), // mesmo ms, mesmo segundo (AT e AT + 999): duplicado
+        csSolve(9_000, AT + 1_000), // mesmo ms, no segundo seguinte: novo
+        csSolve(9_010, AT), // mesmo segundo, outro ms: novo
+        csSolve(9_000, AT - 1_000), // mesmo ms, no segundo anterior: novo
+      ])];
+      const r = csTimerToKlick(parsed, {}, ctx([mkSession()], existing));
+      expect(r.duplicates).toBe(1);
+      expect(r.solves.map((s) => [s.ms, s.at])).toEqual([[9_000, AT + 1_000], [9_010, AT], [9_000, AT - 1_000]]);
+    });
+
+    it('dois itens iguais no mesmo arquivo contam uma vez; o segundo é duplicado', () => {
+      const parsed = [csSession('session1', [csSolve(7_000, AT), csSolve(7_000, AT), csSolve(7_000, AT + 400)])];
+      const r = csTimerToKlick(parsed, {}, ctx());
+      expect(r.solves).toHaveLength(1);
+      expect(r.duplicates).toBe(2);
+    });
+
+    it('o repetido entre duas sessões do mesmo arquivo também conta uma vez, e a sessão sem nada novo não nasce', () => {
+      const parsed = [
+        csSession('session1', [csSolve(7_000, AT)]),
+        csSession('session2', [csSolve(7_000, AT)]),
+        csSession('session3', [csSolve(7_000, AT), csSolve(8_000, AT)]),
+      ];
+      const r = csTimerToKlick(parsed, {}, ctx());
+      expect(r.sessions.map((s) => s.name)).toEqual(['Sessão 1', 'Sessão 3']);
+      expect(r.solves.map((s) => s.ms)).toEqual([7_000, 8_000]);
+      expect(r.duplicates).toBe(2);
+    });
+
+    it('solve que já existe e foi excluído também conta como duplicado', () => {
+      const existing = [mkSolve({ ms: 6_500, at: AT, deletedAt: 5 })];
+      const r = csTimerToKlick([csSession('session1', [csSolve(6_500, AT)])], {}, ctx([mkSession()], existing));
+      expect(r.solves).toHaveLength(0);
+      expect(r.duplicates).toBe(1);
+    });
+
+    it('o duplicado vale em qualquer sessão ou evento', () => {
+      const existing = [mkSolve({ sessionId: 'outra', event: '444', ms: 6_500, at: AT })];
+      const r = csTimerToKlick([csSession('session1', [csSolve(6_500, AT)])], {}, ctx([], existing));
+      expect(r.solves).toHaveLength(0);
+      expect(r.duplicates).toBe(1);
+    });
+
+    it('sessão de fora (sem evento) não avalia duplicados; com mapeamento, avalia', () => {
+      const existing = [mkSolve({ ms: 7_000, at: AT })];
+      const parsed = [csSession('session1', [csSolve(7_000, AT)], { event: null })];
+      const out = csTimerToKlick(parsed, {}, ctx([], existing));
+      expect(out).toEqual({ sessions: [], solves: [], duplicates: 0, skippedSessions: 1 });
+      const mapped = csTimerToKlick(parsed, { session1: '333' }, ctx([], existing));
+      expect(mapped).toEqual({ sessions: [], solves: [], duplicates: 1, skippedSessions: 0 });
+    });
+
+    it('sessão com solves novos e antigos entra só com os novos', () => {
+      const existing = [mkSolve({ ms: 1_000, at: AT })];
+      const parsed = [csSession('session1', [csSolve(1_000, AT), csSolve(2_000, AT + 1_000), csSolve(3_000, AT + 2_000)])];
+      const r = csTimerToKlick(parsed, {}, ctx([], existing));
+      expect(r.sessions).toHaveLength(1);
+      expect(r.solves.map((s) => s.ms)).toEqual([2_000, 3_000]);
+      expect(r.duplicates).toBe(1);
+    });
+
+    it('sessões e solves novos saem completos, com ids próprios e a ordem depois da maior que existe (excluída inclusive)', () => {
+      const parsed = parseCsTimer(fixture('cstimer-export.txt'));
+      const r = csTimerToKlick(parsed, {}, ctx([mkSession({ order: 3 }), mkSession({ id: 'velha', order: 7, deletedAt: 5 })]));
+      expect(r.sessions).toEqual([
+        { id: expect.any(String), name: 'Main', event: '333', order: 8, createdAt: NOW, updatedAt: NOW, deletedAt: null },
+        { id: expect.any(String), name: '2x2', event: '222', order: 9, createdAt: NOW, updatedAt: NOW, deletedAt: null },
+      ]);
+      const [main, pocket] = r.sessions;
+      expect(r.solves).toEqual([
+        { id: expect.any(String), sessionId: main.id, event: '333', ms: 61234, penalty: null, at: 1791400000000, scramble: "R U R' U'", note: '', createdAt: NOW, updatedAt: NOW, deletedAt: null },
+        { id: expect.any(String), sessionId: main.id, event: '333', ms: 58000, penalty: '+2', at: 1791400100000, scramble: 'F R U', note: 'cruz', createdAt: NOW, updatedAt: NOW, deletedAt: null },
+        { id: expect.any(String), sessionId: main.id, event: '333', ms: 70000, penalty: 'DNF', at: 1791400200000, scramble: 'L D', note: '', createdAt: NOW, updatedAt: NOW, deletedAt: null },
+        { id: expect.any(String), sessionId: pocket.id, event: '222', ms: 8123, penalty: null, at: 1791400300000, scramble: "R U2 R'", note: '', createdAt: NOW, updatedAt: NOW, deletedAt: null },
+      ]);
+      const ids = [...r.sessions.map((s) => s.id), ...r.solves.map((s) => s.id)];
+      expect(new Set(ids).size).toBe(6);
+      expect(main.id < r.solves[0].id).toBe(true); // a sessão ganha o id antes dos solves dela
+    });
+
+    it('sem sessões que existam, a ordem parte de 0', () => {
+      const r = csTimerToKlick(parseCsTimer(fixture('cstimer-export.txt')), { session3: '333' }, ctx());
+      expect(r.sessions.map((s) => s.order)).toEqual([0, 1, 2]);
+    });
+
+    it('o evento do arquivo vale mais que o mapeamento; mapeamento sem evento de verdade não vale', () => {
+      const parsed = [
+        csSession('session1', [csSolve(1_000, AT)], { event: '222' }),
+        csSession('session2', [csSolve(2_000, AT)], { event: null }),
+        csSession('session3', [csSolve(3_000, AT)], { event: null }),
+        csSession('session4', [csSolve(4_000, AT)], { event: null }),
+      ];
+      const mapping = { session1: '444', session2: 'xyz' as unknown as EventId, session3: undefined, session4: '666' } as const;
+      const r = csTimerToKlick(parsed, mapping, ctx());
+      expect(r.sessions.map((s) => [s.name, s.event])).toEqual([['Sessão 1', '222'], ['Sessão 4', '666']]);
+      expect(r.solves.map((s) => s.event)).toEqual(['222', '666']);
+      expect(r.skippedSessions).toBe(2);
+    });
+
+    it('não altera o que recebe', () => {
+      const parsed = deepFreeze(parseCsTimer(fixture('cstimer-export.txt')));
+      const existing = deepFreeze({ sessions: [mkSession()], solves: [mkSolve({ ms: 61_234, at: 1_791_400_000_000 })] });
+      const mapping = deepFreeze({ session3: '333' as const });
+      const r = csTimerToKlick(parsed, mapping, ctx(existing.sessions, existing.solves));
+      expect(r.solves).toHaveLength(4); // 5 no arquivo, menos o que já existia
+      expect(r.duplicates).toBe(1);
+    });
+
+    it('sem nada para importar, nada acontece', () => {
+      expect(csTimerToKlick([], {}, ctx())).toEqual({ sessions: [], solves: [], duplicates: 0, skippedSessions: 0 });
+    });
+  });
+
+  describe('exportação', () => {
+    type CsFile = Loose & { properties: { sessionData: string; sessionN: number } };
+    const out = (sessions: Session[], solves: Solve[]): CsFile => JSON.parse(toCsTimerJson(sessions, solves)) as CsFile;
+
+    it('escreve sessionN em ordem, os tempos em [[pen, ms], embaralhamento, nota, segundos] e as propriedades', () => {
+      const sessions = [
+        mkSession({ id: 's2', name: 'Pyra', event: 'pyram', order: 1 }), // fora de ordem de propósito
+        mkSession({ id: 's1', name: 'Main', order: 0 }),
+      ];
+      const solves = [
+        mkSolve({ id: 'b', ms: 58_000, penalty: '+2', note: 'cruz', at: AT + 100_999, scramble: 'F R U' }),
+        mkSolve({ id: 'a', ms: 61_234, at: AT, scramble: "R U R' U'" }),
+        mkSolve({ id: 'c', ms: 70_000, penalty: 'DNF', at: AT + 200_000, scramble: 'L D' }),
+        mkSolve({ id: 'd', sessionId: 's2', event: 'pyram', ms: 8_123, at: AT + 300_000, scramble: "R U2 R'" }),
+      ];
+      const file = out(sessions, solves);
+      expect(Object.keys(file)).toEqual(['session1', 'session2', 'properties']);
+      expect(file.session1).toEqual([
+        [[0, 61234], "R U R' U'", '', 1791400000],
+        [[2000, 58000], 'F R U', 'cruz', 1791400100],
+        [[-1, 70000], 'L D', '', 1791400200],
+      ]);
+      expect(file.session2).toEqual([[[0, 8123], "R U2 R'", '', 1791400300]]);
+      expect(typeof file.properties.sessionData).toBe('string');
+      expect(JSON.parse(file.properties.sessionData)).toEqual({
+        1: { name: 'Main', opt: { scrType: '333' }, rank: 1 },
+        2: { name: 'Pyra', opt: { scrType: 'pyrso' }, rank: 2 },
+      });
+      expect(file.properties.sessionN).toBe(2);
+    });
+
+    it('só o que não foi excluído, com os números seguidos; sessão sem solves sai vazia', () => {
+      const sessions = [
+        mkSession({ id: 'a', name: 'A', order: 0 }),
+        mkSession({ id: 'b', name: 'B', order: 1, deletedAt: 5 }),
+        mkSession({ id: 'c', name: 'C', order: 2 }),
+      ];
+      const solves = [
+        mkSolve({ id: '1', sessionId: 'a', ms: 1_000 }),
+        mkSolve({ id: '2', sessionId: 'a', ms: 2_000, deletedAt: 5, at: AT + 1_000 }),
+        mkSolve({ id: '3', sessionId: 'b', ms: 3_000, deletedAt: 5, at: AT + 2_000 }), // excluído junto com a sessão
+      ];
+      const file = out(sessions, solves);
+      expect(Object.keys(file)).toEqual(['session1', 'session2', 'properties']);
+      expect(file.session1).toEqual([[[0, 1000], "R U R'", '', 1791400000]]);
+      expect(file.session2).toEqual([]);
+      expect(file.properties.sessionN).toBe(2);
+      expect(Object.values(JSON.parse(file.properties.sessionData) as Record<string, { name: string; rank: number }>).map((d) => [d.name, d.rank]))
+        .toEqual([['A', 1], ['C', 2]]);
+    });
+
+    it('sai em uma linha só, sem espaços sobrando', () => {
+      const text = toCsTimerJson([mkSession()], [mkSolve()]);
+      expect(text).not.toContain('\n');
+      expect(text).toBe(JSON.stringify(JSON.parse(text)));
+    });
+
+    it('os 13 eventos fazem a viagem de ida e volta, com o tipo de embaralhamento de cada um', () => {
+      const sessions = EVENT_IDS.map((event, i) => mkSession({ id: `s${i}`, name: `S ${event}`, event, order: i }));
+      const parsed = parseCsTimer(toCsTimerJson(sessions, []));
+      expect(parsed.map((s) => s.event)).toEqual([...EVENT_IDS]);
+      expect(parsed.map((s) => s.scrType)).toEqual(EVENT_IDS.map((id) => eventInfo(id).csTimer));
+    });
+
+    it('nomes com aspas, barra e acentos e notas com quebra de linha fazem a viagem', () => {
+      const name = 'Treino "OLL" \\ ação';
+      const note = 'linha 1\nlinha 2\t"aspas"';
+      const parsed = parseCsTimer(toCsTimerJson([mkSession({ name })], [mkSolve({ note, scramble: "R U\nF'" })]));
+      expect(parsed[0].name).toBe(name);
+      expect(parsed[0].solves[0].note).toBe(note);
+      expect(parsed[0].solves[0].scramble).toBe("R U\nF'");
+    });
+
+    it('não altera o que recebe', () => {
+      const sessions = deepFreeze([mkSession({ id: 'b', order: 1 }), mkSession({ id: 'a', order: 0 })]);
+      const solves = deepFreeze([mkSolve({ id: 'y', sessionId: 'a', at: AT + 5_000 }), mkSolve({ id: 'x', sessionId: 'a', at: AT })]);
+      expect(out(sessions, solves).session1).toHaveLength(2);
+    });
+  });
+});
+
+describe('migração da v1', () => {
+  const storage = (value: string | null) => ({ getItem: (k: string) => (k === V1_KEY ? value : null) });
+
+  it('lê as sessões da v1', () => {
+    const v1 = readV1(storage(fixture('v1-klick-sessions.json')));
+    expect(v1?.map((s) => [s.name, s.puzzleType, s.solves.length])).toEqual([['Sessão 1', '3x3', 3], ['Pyra', 'pyraminx', 1]]);
+  });
+  it('ausente, inválido ou vazio devolve null', () => {
+    expect(readV1(storage(null))).toBeNull();
+    expect(readV1(storage('{oops'))).toBeNull();
+    expect(readV1(storage('{"state":{"sessions":[]}}'))).toBeNull();
+    expect(readV1(null)).toBeNull();
+  });
+  it('converte eventos, penalidades e datas, mantendo os ids', () => {
+    const v1 = readV1(storage(fixture('v1-klick-sessions.json')))!;
+    const r = v1ToKlick(v1, ctx());
+    expect(r.sessions.map((s) => [s.id, s.name, s.event])).toEqual([
+      ['3f2a1c4e-8b7d-4e6f-9a1b-2c3d4e5f6a7b', 'Sessão 1', '333'],
+      ['4a5b6c7d-8e9f-4a0b-1c2d-3e4f5a6b7c8d', 'Pyra', 'pyram'],
+    ]);
+    expect(r.solves.map((s) => [s.ms, s.penalty, s.at])).toEqual([
+      [45210, null, Date.parse('2026-03-10T14:00:00.000Z')],
+      [50000, '+2', Date.parse('2026-03-10T14:05:00.000Z')],
+      [61000, 'DNF', Date.parse('2026-03-11T09:00:00.000Z')],
+      [9800, null, Date.parse('2026-03-12T20:00:00.000Z')],
+    ]);
+    expect(r.solves[1].updatedAt).toBe(Date.parse('2026-03-10T14:06:00.000Z'));
+  });
+  it('migrar duas vezes não duplica', () => {
+    const v1 = readV1(storage(fixture('v1-klick-sessions.json')))!;
+    const first = v1ToKlick(v1, ctx());
+    const second = v1ToKlick(v1, ctx(first.sessions, first.solves));
+    expect(second.solves).toHaveLength(0);
+    expect(second.sessions).toHaveLength(0);
+    expect(second.duplicates).toBe(4);
+  });
+
+  // --- Acrescentados ---
+
+  const v1Json = (sessions: unknown[]): string => JSON.stringify({ state: { sessions, activeSessionId: 'x' }, version: 0 });
+  const v1Solve = (over: Loose = {}): Loose => ({
+    id: 'x1', timeMs: 10_000, penalty: 'NONE', effectiveMs: 10_000, scramble: 'R U', createdAt: '2026-03-10T14:00:00.000Z', ...over,
+  });
+  const v1Session = (over: Loose = {}): Loose => ({ id: 'p1', name: 'Sessão 1', puzzleType: '3x3', solves: [v1Solve()], ...over });
+  const readSessions = (sessions: unknown[]) => readV1(storage(v1Json(sessions)))!;
+  const T10 = Date.parse('2026-03-10T14:00:00.000Z');
+
+  describe('leitura', () => {
+    it('um getItem que lança (armazenamento bloqueado) devolve null', () => {
+      expect(readV1({ getItem: () => { throw new Error('bloqueado'); } })).toBeNull();
+    });
+    it('um valor que não é texto devolve null', () => {
+      expect(readV1({ getItem: () => 5 as unknown as string })).toBeNull();
+    });
+    it('consulta a chave klick-sessions', () => {
+      expect(V1_KEY).toBe('klick-sessions');
+      const asked: string[] = [];
+      readV1({ getItem: (k) => { asked.push(k); return null; } });
+      expect(asked).toEqual(['klick-sessions']);
+    });
+    it.each(['[]', 'null', '5', '"x"', '{}', '{"state":null}', '{"state":{}}', '{"state":{"sessions":{}}}', '{"state":{"sessions":null}}'])(
+      'formato que não é o do zustand (%s) devolve null',
+      (text) => {
+        expect(readV1(storage(text))).toBeNull();
+      },
+    );
+    it('só sessões vazias devolve null', () => {
+      expect(readV1(storage(v1Json([v1Session({ solves: [] })])))).toBeNull();
+    });
+    it('sessão vazia ao lado de outra com solves é mantida', () => {
+      const v1 = readSessions([v1Session({ id: 'vazia', solves: [] }), v1Session({ id: 'cheia' })]);
+      expect(v1.map((s) => [s.id, s.solves.length])).toEqual([['vazia', 0], ['cheia', 1]]);
+    });
+    it('campos que a v1 antiga não tinha são opcionais: puzzleType (era 3×3), createdAt da sessão e updatedAt do solve', () => {
+      const v1 = readSessions([
+        v1Session({ puzzleType: undefined, createdAt: undefined, solves: [v1Solve({ updatedAt: undefined })] }),
+        v1Session({ id: 'p2', puzzleType: null, createdAt: null, solves: [v1Solve({ updatedAt: null })] }),
+      ]);
+      expect(v1.map((s) => s.puzzleType)).toEqual(['3x3', '3x3']);
+    });
+    it('campos a mais (effectiveMs, activeSessionId) não atrapalham', () => {
+      const v1 = readSessions([v1Session({ extra: true, solves: [v1Solve({ effectiveMs: null, extra: 1 })] })]);
+      expect(v1).toHaveLength(1);
+    });
+
+    // O defeito vai na 2ª sessão (ou no último solve): a 1ª está certa e não pode mascará-lo.
+    const BAD: Array<[string, unknown]> = [
+      ['sessão null', null],
+      ['sessão número', 5],
+      ['sessão lista', []],
+      ['sem id', v1Session({ id: undefined })],
+      ['id numérico', v1Session({ id: 5 })],
+      ['sem nome', v1Session({ name: undefined })],
+      ['nome numérico', v1Session({ name: 5 })],
+      ['sem lista de solves', v1Session({ solves: undefined })],
+      ['solves que não é lista', v1Session({ solves: {} })],
+      ['puzzleType numérico', v1Session({ puzzleType: 3 })],
+      ['createdAt da sessão que não é data', v1Session({ createdAt: 'ontem' })],
+      ['createdAt da sessão numérico', v1Session({ createdAt: 5 })],
+      ['solve null', v1Session({ solves: [v1Solve(), null] })],
+      ['solve sem id', v1Session({ solves: [v1Solve(), v1Solve({ id: undefined })] })],
+      ['solve com id numérico', v1Session({ solves: [v1Solve(), v1Solve({ id: 5 })] })],
+      ['solve sem timeMs', v1Session({ solves: [v1Solve(), v1Solve({ timeMs: undefined })] })],
+      ['timeMs negativo', v1Session({ solves: [v1Solve(), v1Solve({ timeMs: -1 })] })],
+      ['timeMs como texto', v1Session({ solves: [v1Solve(), v1Solve({ timeMs: '10' })] })],
+      ['timeMs null', v1Session({ solves: [v1Solve(), v1Solve({ timeMs: null })] })],
+      ['sem penalidade', v1Session({ solves: [v1Solve(), v1Solve({ penalty: undefined })] })],
+      ['penalidade desconhecida', v1Session({ solves: [v1Solve(), v1Solve({ penalty: 'X' })] })],
+      ['penalidade null (é do formato novo)', v1Session({ solves: [v1Solve(), v1Solve({ penalty: null })] })],
+      ['sem embaralhamento', v1Session({ solves: [v1Solve(), v1Solve({ scramble: undefined })] })],
+      ['embaralhamento numérico', v1Session({ solves: [v1Solve(), v1Solve({ scramble: 5 })] })],
+      ['solve sem createdAt', v1Session({ solves: [v1Solve(), v1Solve({ createdAt: undefined })] })],
+      ['createdAt do solve que não é data', v1Session({ solves: [v1Solve(), v1Solve({ createdAt: 'ontem' })] })],
+      ['createdAt do solve numérico', v1Session({ solves: [v1Solve(), v1Solve({ createdAt: 5 })] })],
+      ['updatedAt do solve que não é data', v1Session({ solves: [v1Solve(), v1Solve({ updatedAt: 'ontem' })] })],
+      ['updatedAt do solve numérico', v1Session({ solves: [v1Solve(), v1Solve({ updatedAt: 5 })] })],
+    ];
+    it.each(BAD)('registro inválido (%s) devolve null', (_label, bad) => {
+      expect(readV1(storage(v1Json([v1Session({ id: 'ok' }), bad])))).toBeNull();
+    });
+  });
+
+  describe('conversão', () => {
+    it.each([
+      ['3x3', '333'], ['2x2', '222'], ['4x4', '444'], ['5x5', '555'], ['pyraminx', 'pyram'], ['megaminx', 'minx'], ['skewb', 'skewb'], ['square1', 'sq1'],
+    ] as Array<[string, EventId]>)('%s vira o evento %s', (puzzleType, event) => {
+      const r = v1ToKlick(readSessions([v1Session({ puzzleType })]), ctx());
+      expect(r.sessions.map((s) => s.event)).toEqual([event]);
+      expect(r.solves.map((s) => s.event)).toEqual([event]);
+    });
+
+    it('sessão sem puzzleType (v1 antiga) vira 3×3, como a própria v1 a tratava', () => {
+      const r = v1ToKlick(readSessions([v1Session({ puzzleType: undefined })]), ctx());
+      expect(r.sessions.map((s) => s.event)).toEqual(['333']);
+      expect(r.skippedSessions).toBe(0);
+    });
+
+    it.each(['clock', '6x6', '', 'constructor', '__proto__', 'toString'])('puzzleType %j fora do mapa fica de fora e conta', (puzzleType) => {
+      const v1 = readSessions([v1Session({ id: 'p1', puzzleType }), v1Session({ id: 'p2', solves: [v1Solve({ id: 'x2' })] })]);
+      const r = v1ToKlick(v1, ctx());
+      expect(r.skippedSessions).toBe(1);
+      expect(r.sessions.map((s) => s.id)).toEqual(['p2']);
+      expect(r.solves.map((s) => s.id)).toEqual(['x2']);
+      expect(r.duplicates).toBe(0);
+    });
+
+    it('sessão nova: nome, evento, ordem depois da maior que existe e datas (da v1, ou de agora se não tiver)', () => {
+      const v1 = readSessions([
+        v1Session({ id: 'p1', name: 'Com data', createdAt: '2026-03-10T13:00:00.000Z' }),
+        v1Session({ id: 'p2', name: 'Sem data', puzzleType: 'skewb', solves: [v1Solve({ id: 'x2' })] }),
+      ]);
+      const r = v1ToKlick(v1, ctx([mkSession({ order: 3 }), mkSession({ id: 'velha', order: 4, deletedAt: 5 })]));
+      const created = Date.parse('2026-03-10T13:00:00.000Z');
+      expect(r.sessions).toEqual([
+        { id: 'p1', name: 'Com data', event: '333', order: 5, createdAt: created, updatedAt: created, deletedAt: null },
+        { id: 'p2', name: 'Sem data', event: 'skewb', order: 6, createdAt: NOW, updatedAt: NOW, deletedAt: null },
+      ]);
+    });
+
+    it('sem sessões que existam, a ordem parte de 0', () => {
+      const r = v1ToKlick(readV1(storage(fixture('v1-klick-sessions.json')))!, ctx());
+      expect(r.sessions.map((s) => s.order)).toEqual([0, 1]);
+    });
+
+    it('nome em branco vira o padrão (posição da sessão); espaços sobrando saem', () => {
+      const v1 = readSessions([v1Session({ id: 'p1', name: '   ' }), v1Session({ id: 'p2', name: '  Pyra  ', solves: [v1Solve({ id: 'x2' })] })]);
+      expect(v1ToKlick(v1, ctx()).sessions.map((s) => s.name)).toEqual(['Sessão 1', 'Pyra']);
+    });
+
+    it('solve novo: todos os campos; sem updatedAt na v1, vale o createdAt', () => {
+      const v1 = readSessions([v1Session({ solves: [
+        v1Solve({ id: 'x1', timeMs: 4_321, penalty: '+2', scramble: "F' B" }),
+        v1Solve({ id: 'x2', timeMs: 5_000, penalty: 'DNF', createdAt: '2026-03-10T14:05:00.000Z', updatedAt: '2026-03-12T08:00:00.000Z' }),
+      ] })]);
+      expect(v1ToKlick(v1, ctx()).solves).toEqual([
+        { id: 'x1', sessionId: 'p1', event: '333', ms: 4_321, penalty: '+2', at: T10, scramble: "F' B", note: '', createdAt: T10, updatedAt: T10, deletedAt: null },
+        {
+          id: 'x2', sessionId: 'p1', event: '333', ms: 5_000, penalty: 'DNF', at: Date.parse('2026-03-10T14:05:00.000Z'), scramble: 'R U', note: '',
+          createdAt: Date.parse('2026-03-10T14:05:00.000Z'), updatedAt: Date.parse('2026-03-12T08:00:00.000Z'), deletedAt: null,
+        },
+      ]);
+    });
+
+    it('a sessão vazia da v1 também é criada, para a pessoa reencontrá-la', () => {
+      const v1 = readSessions([v1Session({ id: 'vazia', name: 'Vazia', solves: [] }), v1Session({ id: 'cheia' })]);
+      const r = v1ToKlick(v1, ctx());
+      expect(r.sessions.map((s) => s.id)).toEqual(['vazia', 'cheia']);
+      expect(r.solves).toHaveLength(1);
+    });
+
+    it('sessão que já existe (pelo id, até excluída) não é recriada, mas os solves novos entram nela, no evento dela', () => {
+      const v1 = readSessions([v1Session({ id: 'p1', solves: [v1Solve({ id: 'velho' }), v1Solve({ id: 'novo', createdAt: '2026-03-10T14:10:00.000Z' })] })]);
+      const existing = mkSession({ id: 'p1', event: '444', deletedAt: 7 });
+      const r = v1ToKlick(v1, ctx([existing], [mkSolve({ id: 'velho', sessionId: 'p1', event: '444' })]));
+      expect(r.sessions).toHaveLength(0);
+      expect(r.duplicates).toBe(1);
+      expect(r.solves.map((s) => [s.id, s.sessionId, s.event])).toEqual([['novo', 'p1', '444']]);
+    });
+
+    it('solve que já existe, mesmo excluído, conta como duplicado pelo id (e em qualquer sessão)', () => {
+      const v1 = readSessions([v1Session({ solves: [v1Solve({ id: 'a' }), v1Solve({ id: 'b' }), v1Solve({ id: 'c' })] })]);
+      const existing = [mkSolve({ id: 'a', deletedAt: 5 }), mkSolve({ id: 'b', sessionId: 'outra', event: '222' })];
+      const r = v1ToKlick(v1, ctx([], existing));
+      expect(r.duplicates).toBe(2);
+      expect(r.solves.map((s) => s.id)).toEqual(['c']);
+    });
+
+    it('o mesmo id de solve duas vezes na v1 conta uma só', () => {
+      const v1 = readSessions([
+        v1Session({ id: 'p1', solves: [v1Solve({ id: 'a' }), v1Solve({ id: 'a' })] }),
+        v1Session({ id: 'p2', solves: [v1Solve({ id: 'a' })] }),
+      ]);
+      const r = v1ToKlick(v1, ctx());
+      expect(r.solves.map((s) => [s.id, s.sessionId])).toEqual([['a', 'p1']]);
+      expect(r.duplicates).toBe(2);
+    });
+
+    it('o mesmo id de sessão duas vezes na v1 cria uma só, com os solves das duas', () => {
+      const v1 = readSessions([
+        v1Session({ id: 'p1', solves: [v1Solve({ id: 'a' })] }),
+        v1Session({ id: 'p1', solves: [v1Solve({ id: 'b' })] }),
+      ]);
+      const r = v1ToKlick(v1, ctx());
+      expect(r.sessions.map((s) => s.id)).toEqual(['p1']);
+      expect(r.solves.map((s) => [s.id, s.sessionId])).toEqual([['a', 'p1'], ['b', 'p1']]);
+    });
+
+    it('a ordem dos solves da v1 se mantém', () => {
+      const v1 = readSessions([v1Session({ solves: ['d', 'a', 'c', 'b'].map((id) => v1Solve({ id })) })]);
+      expect(v1ToKlick(v1, ctx()).solves.map((s) => s.id)).toEqual(['d', 'a', 'c', 'b']);
+    });
+
+    it('não altera o que recebe', () => {
+      const v1 = deepFreeze(readV1(storage(fixture('v1-klick-sessions.json')))!);
+      const existing = deepFreeze({ sessions: [mkSession()], solves: [mkSolve()] });
+      const r = v1ToKlick(v1, ctx(existing.sessions, existing.solves));
+      expect(r.solves).toHaveLength(4);
+    });
+  });
+});
