@@ -99,8 +99,9 @@
   }
 
   // Enter salva e Esc cancela; o Esc não chega ao diálogo (que fecharia com o rascunho).
+  // Com composição de texto em andamento (IME), o Enter só confirma a letra: não salva nem cria.
   function onRenameKey(e: KeyboardEvent, s: Session): void {
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' && !e.isComposing) {
       e.preventDefault();
       void saveRename(s);
     } else if (e.key === 'Escape') {
@@ -182,8 +183,9 @@
         aria-label={T.sessions.newName}
         placeholder={T.sessions.newNamePlaceholder}
         onkeydown={(e) => {
-          // Enter cria, como o botão (o campo não está num formulário, então o Enter não faria nada sozinho).
-          if (e.key !== 'Enter') return;
+          // Enter cria, como o botão (o campo não está num formulário, então o Enter não faria nada sozinho). Com composição em
+          // andamento (IME), o Enter só confirma a letra.
+          if (e.key !== 'Enter' || e.isComposing) return;
           e.preventDefault();
           void create();
         }}

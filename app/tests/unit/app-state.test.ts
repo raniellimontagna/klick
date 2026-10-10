@@ -1213,3 +1213,46 @@ describe('estado do app: sessão de outra aba, pasta e textos de falha', () => {
     expect(app.toast?.text).toBe(T.data.folderCopyFailed);
   });
 });
+
+// Armazenamento persistente: o pedido automático olha o que o navegador diz (storage.persisted), não só a marca gravada, e
+// tenta de novo quando o app é instalado ou abre instalado.
+describe('estado do app: proteção dos dados (pedido automático)', () => {
+  beforeEach(() => { t = 1_791_500_000_000; });
+
+  it('com a proteção já concedida pelo navegador, o pedido automático não sai', async () => {
+    const repo = createRepository(await openKlickDb(`app-${++n}`), { now, channel: null });
+    const persist = vi.fn(async () => true);
+    const app = new AppState({ repo, queue: fakeQueue(), now, storage: null, storageManager: { persisted: async () => true, persist } });
+    await app.init();
+    await app.addSolve({ ms: 60000, penalty: null, at: t });
+    expect(persist).not.toHaveBeenCalled();
+  });
+
+  it('uma recusa não encerra o assunto: ao ser instalado, o pedido sai de novo', async () => {
+    const repo = createRepository(await openKlickDb(`app-${++n}`), { now, channel: null });
+    const persist = vi.fn(async () => false);
+    const app = new AppState({ repo, queue: fakeQueue(), now, storage: null, storageManager: { persisted: async () => false, persist } });
+    await app.init();
+    await app.addSolve({ ms: 60000, penalty: null, at: t });
+    await vi.waitFor(() => expect(persist).toHaveBeenCalledTimes(1));
+    await app.retryPersistence();
+    expect(persist).toHaveBeenCalledTimes(2);
+  });
+
+  it('aberto instalado (display-mode standalone), pede a proteção na abertura se o navegador ainda não a deu', async () => {
+    const original = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query === '(display-mode: standalone)', media: query, onchange: null,
+      addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia;
+    try {
+      const repo = createRepository(await openKlickDb(`app-${++n}`), { now, channel: null });
+      const persist = vi.fn(async () => true);
+      const app = new AppState({ repo, queue: fakeQueue(), now, storage: null, storageManager: { persisted: async () => false, persist } });
+      await app.init();
+      await vi.waitFor(() => expect(persist).toHaveBeenCalledTimes(1));
+    } finally {
+      window.matchMedia = original;
+    }
+  });
+});

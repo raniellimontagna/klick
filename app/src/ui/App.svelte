@@ -74,6 +74,15 @@
     return () => window.removeEventListener('beforeunload', confirmLeave);
   });
 
+  // Instalado, o navegador costuma liberar a proteção dos dados: o pedido de proteção sai de novo (o AppState decide se cabe).
+  onMount(() => {
+    const installed = (): void => {
+      void app?.retryPersistence();
+    };
+    window.addEventListener('appinstalled', installed);
+    return () => window.removeEventListener('appinstalled', installed);
+  });
+
   // O navegador manda beforeinstallprompt cedo, antes de qualquer diálogo: o ouvinte fica aqui desde a montagem, e o guia recebe o evento
   // guardado. O evento vale uma vez (onused, do guia, o tira daqui).
   let installEvent = $state.raw<InstallPromptEvent | null>(null); // raw: um Event do navegador não é um objeto para virar proxy
@@ -215,7 +224,7 @@
       type="file"
       accept=".json,.txt"
       hidden
-      aria-label={T.dados.importFile}
+      aria-label={T.onboarding.importFileTour}
       data-import-input
       onchange={onTourFile}
     />

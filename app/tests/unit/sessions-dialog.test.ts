@@ -56,6 +56,18 @@ describe('diálogo de sessões', () => {
     expect(a.event).toBe('clock');
   });
 
+  it('o Enter que confirma uma composição de texto (IME) não cria a sessão; o Enter seguinte cria', async () => {
+    const { a } = await app();
+    render(SessionsDialog, { app: a, open: true });
+    const nome = screen.getByLabelText('Nome da nova sessão');
+    await fireEvent.input(nome, { target: { value: 'Acentuação' } });
+    await fireEvent.keyDown(nome, { key: 'Enter', isComposing: true });
+    await sleep(30);
+    expect(a.sessions.map((x) => x.name)).not.toContain('Acentuação');
+    await fireEvent.keyDown(nome, { key: 'Enter' });
+    await vi.waitFor(() => expect(a.sessions.map((x) => x.name)).toContain('Acentuação'), { timeout: 3000 });
+  });
+
   it('renomear troca o nome gravado', async () => {
     const { a, repo } = await app();
     render(SessionsDialog, { app: a, open: true });

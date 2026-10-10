@@ -107,3 +107,26 @@ describe('Centro: modo silencioso e o coach', () => {
     expect(a.profile.settings.silent).toBe(true);
   });
 });
+
+describe('Centro: relógio da tela', () => {
+  it('a sequência de dias muda com o relógio andando, sem solve novo (o Centro não fica preso no dia em que abriu)', async () => {
+    const { a } = await app();
+    const day = 86_400_000;
+    const noon = new Date();
+    noon.setHours(12, 0, 0, 0);
+    // Solves em três dias seguidos, terminando ontem: a sequência é 3 hoje, e zera quando o dia vira sem solve novo.
+    for (let i = 1; i <= 3; i++) await a.addSolve({ ms: 120_000, penalty: null, at: noon.getTime() - i * day });
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'], now: noon.getTime() + 2 * 3_600_000 });
+    try {
+      render(CentroScreen, { app: a });
+      expect(screen.getByText('3/7')).toBeInTheDocument();
+      vi.setSystemTime(noon.getTime() + day + 2 * 3_600_000);
+      vi.advanceTimersByTime(60_000);
+      await tick();
+      expect(screen.getByText('0/7')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+

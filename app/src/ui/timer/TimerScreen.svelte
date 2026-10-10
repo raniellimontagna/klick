@@ -337,7 +337,7 @@
   // Ações sobre o último solve. Só valem enquanto o solve está gravado e o timer parado no resultado.
   async function penalize(p: '+2' | 'DNF'): Promise<void> {
     const solve = last;
-    if (!solve || timer.state !== 'done' || !showResult) return;
+    if (!solve || timer.state !== 'done' || !showResult || deleting) return;
     coach = null;
     kick();
     await app.setPenalty(solve.id, solve.penalty === p ? null : p);
@@ -362,15 +362,18 @@
       kick();
       return;
     }
-    showResult = false;
-    lastId = null;
-    if (hadFocus) screenEl?.focus({ preventScroll: true });
+    // As ações saem só se ainda são as do solve excluído: um solve mais novo que tomou a tela durante a exclusão continua com elas.
+    if (lastId === solve.id) {
+      showResult = false;
+      lastId = null;
+      if (hadFocus) screenEl?.focus({ preventScroll: true });
+    }
     kick();
   }
 
   async function openNote(): Promise<void> {
     const solve = last;
-    if (!solve || timer.state !== 'done' || !showResult) return;
+    if (!solve || timer.state !== 'done' || !showResult || deleting) return;
     noteId = solve.id;
     noteValue = solve.note;
     noteOpen = true;

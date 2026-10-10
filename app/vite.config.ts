@@ -31,6 +31,8 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         cleanupOutdatedCaches: true,
         navigateFallback: 'index.html',
+        // Parâmetros que não mudam o arquivo: a nova tentativa de carregar o cubing.js (cubing.js?r=N) acha o pré-cache offline.
+        ignoreURLParametersMatching: [/^r$/, /^utm_/, /^fbclid$/],
       },
     }),
   ],

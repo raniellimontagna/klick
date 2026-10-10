@@ -19,6 +19,8 @@ pnpm test:e2e    # ponta a ponta (Playwright; rode `pnpm exec playwright install
 pnpm check       # svelte-check e tsc
 ```
 
+O caminho do `timeStamp` do evento (a hora do toque ou da tecla pelo navegador) é coberto só pelos testes unitários: o e2e usa o relógio de reserva, porque o relógio falso do Playwright recusa o `timeStamp` real.
+
 ## Build
 
 ```bash

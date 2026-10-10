@@ -138,4 +138,22 @@ describe('casca do app: robustez (brief 9b)', () => {
     unmount();
     expect(leave().defaultPrevented).toBe(false);
   });
+
+  it('ao ser instalado (appinstalled), a casca pede a proteção dos dados de novo', async () => {
+    const app = await makeApp();
+    const retry = vi.spyOn(app, 'retryPersistence');
+    hooks.boot = async () => app;
+    render(App);
+    await screen.findByRole('button', { name: 'Timer' });
+    window.dispatchEvent(new Event('appinstalled'));
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  it('o seletor do tour e o de Seus dados têm rótulos distintos (leitor de tela)', async () => {
+    render(App);
+    await screen.findByRole('button', { name: 'Timer' });
+    const tour = document.querySelector('[data-import-input]');
+    expect(tour?.getAttribute('aria-label')).toBe(T.onboarding.importFileTour);
+    expect(T.onboarding.importFileTour).not.toBe(T.dados.importFile);
+  });
 });

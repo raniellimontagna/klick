@@ -37,6 +37,7 @@ import {
 import type { ScrambleQueue } from '../../scramble/queue';
 import { T, TRAIL } from '../../strings';
 import { downloadText } from '../download';
+import { isStandalone } from '../platform';
 
 export type Tab = 'timer' | 'evolucao' | 'companion' | 'ajustes';
 export type DialogId = 'sessions' | 'shortcuts' | 'onboarding' | 'export' | 'import' | 'backups' | 'trash' | 'install';
@@ -267,6 +268,8 @@ export class AppState {
     // Assina antes do primeiro embaralhamento: a espera pelo cubing pode ser longa, e uma mudança de outra aba nesse tempo não
     // pode ficar de fora. As leituras que as próprias escritas disparam entram na fila; a última espera por elas no fim.
     this.subscribe();
+    // Aberto instalado: pede a proteção, se o navegador ainda não a deu (uma vez por sessão).
+    if (isStandalone()) void this.askPersistence();
     await this.ensureSession();
     const meta = this.meta ?? (await this.repo.getMeta());
     const folder = await this.folderConfigured();
@@ -954,15 +957,28 @@ export class AppState {
     return done;
   }
 
-  // Depois do primeiro solve gravado, pede o armazenamento persistente em silêncio (spec 6.2: nunca ao abrir o app). Sai uma vez por
-  // sessão: os solves gravados antes da resposta não pedem de novo. Uma resposta marca o pedido feito; uma rejeição fica para a
-  // próxima sessão.
-  private askPersistence(): void {
-    if (this.persistAsked) return;
+  // Pede o armazenamento persistente em silêncio (spec 6.2). Sai uma vez por sessão: o primeiro solve gravado, ou a abertura já
+  // instalada. `force` pede de novo (o app acabou de ser instalado). Quem já tem a proteção não pede.
+  private askPersistence(force = false): Promise<void> {
+    if (this.persistAsked && !force) return Promise.resolve();
     this.persistAsked = true;
-    void requestPersistence(this.storageManager)
-      .then(() => this.updateMeta({ persistRequested: true }))
-      .catch(() => undefined);
+    return this.requestProtectionSilently();
+  }
+
+  private async requestProtectionSilently(): Promise<void> {
+    try {
+      // A marca gravada não decide sozinha: vale o que o navegador diz agora.
+      if ((await readStorage(this.storageManager)).persisted === true) return;
+      await requestPersistence(this.storageManager);
+      await this.updateMeta({ persistRequested: true });
+    } catch {
+      // um pedido em silêncio: sem aviso. Seus dados mostra o estado e oferece o botão.
+    }
+  }
+
+  // Ao ser instalado (App.svelte), o navegador costuma liberar a proteção: o pedido sai de novo, mesmo já tendo saído nesta sessão.
+  retryPersistence(): Promise<void> {
+    return this.askPersistence(true);
   }
 
   // As contas de um solve gravado: entra na lista, soma nos contadores e roda o que o plano pede. Não rejeita: cada falha vira aviso.
@@ -972,7 +988,7 @@ export class AppState {
       const counted = countSolveSaved(this.meta ?? (await this.repo.getMeta()));
       this.meta = counted; // antes de gravar: se a gravação falhar, a contagem em memória continua certa
       this.meta = await this.repo.saveMeta(counters(counted));
-      if (!counted.persistRequested) this.askPersistence();
+      void this.askPersistence();
       const plan = planAfterSolve(counted, await this.folderConfigured());
       if (plan.backup) await this.backup(plan.backup);
       if (plan.remindExport) this.exportReminder = true;

@@ -21,6 +21,16 @@
 
   let { app }: { app: AppState } = $props();
 
+  // O relógio da tela, renovado a cada minuto (como a Evolução): a sequência de dias e os marcos não ficam presos no dia em que a tela abriu.
+  const CLOCK_MS = 60000;
+  let clock = $state(Date.now());
+  $effect(() => {
+    const tick: ReturnType<typeof setInterval> = setInterval(() => {
+      clock = Date.now();
+    }, CLOCK_MS);
+    return () => clearInterval(tick);
+  });
+
   let darkMq = $state(false);
   let preview = $state<FinishKey | null>(null); // a prévia de um acabamento bloqueado, por PREVIEW_MS
   let previewGen = 0; // só o temporizador da prévia mais recente apaga a prévia
@@ -32,7 +42,7 @@
   const unlocked = (f: FinishKey, done: number): boolean => f === 'fosco' || (f === 'brilho' && done === MILESTONES.length);
 
   // Os marcos saem só dos solves de 3×3.
-  const milestones = $derived(milestoneProgress(app.solves.filter((s) => s.event === '333'), Date.now()));
+  const milestones = $derived(milestoneProgress(app.solves.filter((s) => s.event === '333'), clock));
   const done = $derived(milestones.filter((m) => m.achieved).length);
   const trailDone = $derived(app.profile.trail.filter(Boolean).length);
   const nextMilestone = $derived(milestones.findIndex((m) => !m.achieved));

@@ -423,6 +423,7 @@ export const T = Object.freeze({
     holdDone: 'É assim que larga.',
     end: 'Você pode trazer solves de outro lugar ou começar do zero.',
     importCsTimer: 'Importar do csTimer',
+    importFileTour: 'Importar arquivo do csTimer', // o rótulo do seletor escondido do tour (o de Seus dados tem o seu)
     importV1: 'Importar da versão anterior',
     fresh: 'Começar do zero',
   }),

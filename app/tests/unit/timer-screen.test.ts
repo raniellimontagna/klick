@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openKlickDb } from '../../src/data/db';
-import { createRepository } from '../../src/data/repository';
+import { createRepository, type Repository } from '../../src/data/repository';
 import { createScrambleQueue } from '../../src/scramble/queue';
 import { T } from '../../src/strings';
 import { AppState } from '../../src/ui/state/app.svelte';
@@ -315,5 +315,59 @@ describe('tela do Timer: espaço segurado antes da inspeção', () => {
     await waitFor(() => expect(a.solves).toHaveLength(1));
     expect(a.solves[0].sessionId).toBe(current.id);
     await waitFor(() => expect(document.querySelector('[data-actions]')).not.toHaveAttribute('hidden'));
+  });
+});
+
+describe('tela do Timer: enquanto um solve é excluído', () => {
+  // Segura a exclusão até `release()`: a janela em que a tela ainda mostra o solve e as ações.
+  function holdDeletes(repo: Repository): () => void {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const deleteSolve = repo.deleteSolve.bind(repo);
+    repo.deleteSolve = async (id: string) => {
+      await held;
+      return deleteSolve(id);
+    };
+    return release;
+  }
+
+  it('+2 e Nota não respondem enquanto a exclusão do solve não termina', async () => {
+    const { a, repo } = await app();
+    await a.updateSettings({ inspection: false });
+    render(TimerScreen, { app: a });
+    await solveByKeys();
+    await waitFor(() => expect(document.querySelector('[data-actions]')).not.toHaveAttribute('hidden'));
+    const release = holdDeletes(repo);
+    const setPenalty = vi.spyOn(a, 'setPenalty');
+    key('keydown', 'Backspace', 'Backspace');
+    await sleep(20);
+    document.querySelector<HTMLButtonElement>('[data-act="plus2"]')!.click();
+    document.querySelector<HTMLButtonElement>('[data-act="note"]')!.click();
+    await sleep(20);
+    expect(setPenalty).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-noteform]')).toHaveAttribute('hidden');
+    release();
+    await waitFor(() => expect(a.solves).toHaveLength(0));
+  });
+
+  it('a exclusão que termina depois não esconde as ações de um solve mais novo que já tomou a tela', async () => {
+    const { a, repo } = await app();
+    await a.updateSettings({ inspection: false });
+    render(TimerScreen, { app: a });
+    await solveByKeys();
+    await waitFor(() => expect(a.solves).toHaveLength(1));
+    await waitFor(() => expect(document.querySelector('[data-actions]')).not.toHaveAttribute('hidden'));
+    const release = holdDeletes(repo);
+    key('keydown', 'Backspace', 'Backspace');
+    await sleep(20);
+    await solveByKeys(); // um solve mais novo, enquanto a exclusão ainda espera
+    await waitFor(() => expect(a.solves).toHaveLength(2));
+    await waitFor(() => expect(document.querySelector('[data-actions]')).not.toHaveAttribute('hidden'));
+    release();
+    await waitFor(() => expect(a.solves).toHaveLength(1));
+    await sleep(30);
+    expect(document.querySelector('[data-actions]')).not.toHaveAttribute('hidden');
   });
 });
