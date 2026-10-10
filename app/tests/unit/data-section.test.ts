@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { openKlickDb } from '../../src/data/db';
 import { createRepository } from '../../src/data/repository';
 import { createScrambleQueue } from '../../src/scramble/queue';
+import { T } from '../../src/strings';
 import { AppState } from '../../src/ui/state/app.svelte';
 import DataSection from '../../src/ui/ajustes/DataSection.svelte';
 
@@ -59,5 +60,22 @@ describe('Seus dados', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Importar solves' }));
     expect(await screen.findByText(/já existiam/)).toBeInTheDocument();
     expect((await repo.listSolves()).length).toBe(5);
+  });
+});
+
+describe('Seus dados: permissão da pasta vencida', () => {
+  it('mostra "Permissão da pasta expirou" e um botão que pede a permissão de novo, num clique', async () => {
+    Object.defineProperty(globalThis, 'showDirectoryPicker', { value: async () => null, configurable: true, writable: true });
+    try {
+      const { a } = await app();
+      a.folderNeedsPermission = true;
+      const reauthorize = vi.spyOn(a, 'reauthorizeFolder').mockResolvedValue(true);
+      render(DataSection, { app: a });
+      expect(await screen.findByText(T.dados.folderPermissionLost)).toBeInTheDocument();
+      await fireEvent.click(screen.getByRole('button', { name: T.dados.folderAllowAgain }));
+      expect(reauthorize).toHaveBeenCalledTimes(1);
+    } finally {
+      delete (globalThis as { showDirectoryPicker?: unknown }).showDirectoryPicker;
+    }
   });
 });

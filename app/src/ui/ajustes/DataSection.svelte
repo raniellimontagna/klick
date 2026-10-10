@@ -167,8 +167,13 @@
 
   {#if folderOk}
     <div class="setting">
-      {@render caption(T.dados.folder, folderChosen ? T.dados.folderChosen : T.dados.folderHint)}
-      <button type="button" class="btn" onclick={chooseFolder}>{folderChosen ? T.dados.folderChange : T.dados.folderChoose}</button>
+      {@render caption(T.dados.folder, app.folderNeedsPermission ? T.dados.folderPermissionLost : folderChosen ? T.dados.folderChosen : T.dados.folderHint)}
+      <span class="data-actions">
+        {#if app.folderNeedsPermission}
+          <button type="button" class="btn" onclick={() => app.reauthorizeFolder()}>{T.dados.folderAllowAgain}</button>
+        {/if}
+        <button type="button" class="btn" onclick={chooseFolder}>{folderChosen ? T.dados.folderChange : T.dados.folderChoose}</button>
+      </span>
     </div>
   {/if}
 

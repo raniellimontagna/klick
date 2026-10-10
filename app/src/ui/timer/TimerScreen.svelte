@@ -266,7 +266,7 @@
   async function finishSolve({ ms, penalty }: TimerResult): Promise<void> {
     const mine = ++solveSeq;
     const now = Date.now();
-    const sessionAtStart = app.currentSession?.id ?? null;
+    const sessionAtStart = app.activeSession?.id ?? null;
     const eventList = app.eventSolves;
     const sessionList = app.sessionSolves;
     const prevAnyAt = app.solves.at(-1)?.at;
@@ -284,7 +284,7 @@
       if (mine === solveSeq) saving = false;
     });
     // Um solve mais novo já tomou a tela, ou ela fechou, ou a sessão mudou: nada disso é mais deste solve.
-    if (destroyed || mine !== solveSeq || app.currentSession?.id !== sessionAtStart) {
+    if (destroyed || mine !== solveSeq || app.activeSession?.id !== sessionAtStart) {
       kick();
       return;
     }
@@ -538,11 +538,20 @@
       body.classList.remove('solving');
       for (const k of ['tstate', 'cview', 'result', 'insp']) delete body.dataset[k];
       app.timerBusy = false; // sem a tela, o timer não está mais ocupado para ninguém
+      app.pendingInspect = false;
     };
   });
 
   $effect(() => {
-    const offs = [timer.on('state', onState), timer.on('warn', () => sound.tick()), timer.on('done', onDone)];
+    const offs = [
+      timer.on('state', onState),
+      timer.on('warn', () => sound.tick()),
+      timer.on('done', onDone),
+      // O espaço segurado antes da inspeção: o timer ainda parece parado, mas já está ocupado (o aviso de nova versão espera).
+      timer.on('pending', (held) => {
+        app.pendingInspect = held;
+      }),
+    ];
     return () => offs.forEach((off) => off());
   });
 
@@ -567,7 +576,7 @@
   $effect(() => {
     const tab = app.tab;
     const event = app.event;
-    const session = app.currentSession?.id ?? null;
+    const session = app.activeSession?.id ?? null;
     untrack(() => {
       const prev = seen;
       seen = { tab, event, session };

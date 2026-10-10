@@ -217,6 +217,10 @@ export const T = Object.freeze({
     saved: 'Tudo salvo.',
     restoreBlocked: 'Ainda há solves sem salvar. Exporte antes de restaurar.',
     restoreTimeout: 'A restauração está demorando. Seus solves novos estão guardados na memória; exporte antes de recarregar.',
+    settingFailed: 'Não consegui guardar este ajuste. Tente de novo.',
+    backupFailed: 'Não consegui fazer a cópia automática. Ela será tentada de novo.',
+    folderCopyFailed: 'Não consegui gravar a cópia nessa pasta. Ela será tentada de novo.',
+    folderPermissionDenied: 'O navegador não liberou a pasta. Tente de novo ou escolha outra pasta.',
   },
   // Tela do Timer (ui/timer/*): embaralhamento, ações do solve, nota, tiles, constância e zonas de toque.
   timer: {
@@ -298,6 +302,8 @@ export const T = Object.freeze({
     folderChosen: 'Guardando uma cópia a cada 100 solves nessa pasta.',
     folderChoose: 'Escolher pasta',
     folderChange: 'Trocar pasta',
+    folderPermissionLost: 'Permissão da pasta expirou.',
+    folderAllowAgain: 'Permitir de novo',
     install: 'Instalação',
     installHint: 'Instalado na Tela de Início, o Klick protege seus dados no iPhone.',
     installButton: 'Como instalar',

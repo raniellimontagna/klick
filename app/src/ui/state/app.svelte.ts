@@ -7,7 +7,7 @@ import { dayKey } from '../../core/stats';
 import { defaultSettings } from '../../core/types';
 import type { EventId, Meta, Penalty, Profile, Session, Solve } from '../../core/types';
 import type { BackupRecord } from '../../data/db';
-import { backupFileName, type DirHandleLike, pickFolder, saveToFolder } from '../../data/folder';
+import { backupFileName, type DirHandleLike, folderGranted, pickFolder, saveToFolder } from '../../data/folder';
 import { newId } from '../../data/ids';
 import type { KlickExport, NewSolve, ProfilePatch, Repository } from '../../data/repository';
 import {
@@ -167,12 +167,17 @@ export class AppState {
   importSummary = $state<string[] | null>(null); // linhas do resumo da última importação
   importBusy = $state(false); // uma importação (arquivo ou versão anterior) está gravando
   timerBusy = $state(false); // o timer está na inspeção, armado, pronto ou rodando (a tela atualiza): o guia de instalação e o lembrete esperam
+  pendingInspect = $state(false); // o espaço segurado antes da inspeção (o timer ainda parado): conta como ocupado, como o timerBusy
+  folderNeedsPermission = $state(false); // a pasta de cópias perdeu a permissão de gravar: Ajustes pede de novo, num clique
   solvesInFlight = $state(0); // addSolve ainda não voltou (o solve não está gravado nem na fila): o unsaved espera por ele
 
   private repo: Repository; // troca quando a conexão é reaberta (useRepo)
   private readonly queue: ScrambleQueue;
   private readonly now: () => number;
   private readonly reopenDb: (() => Promise<Repository>) | undefined;
+  // A sessão atual que outra aba excluiu: segue apontada no perfil, na lixeira. O próximo solve vai para ela (o repositório a revive).
+  private parked = $state.raw<Session | null>(null);
+  private scrambleEvent: EventId | null = null; // o evento do embaralhamento que a tela pediu (null: nenhum, ou zerado)
   private unsubscribe: (() => void) | null = null;
   private reopening: Promise<void> | null = null; // a reabertura em andamento, reaproveitada por quem pede enquanto ela não termina
   private restoring: Promise<void> | null = null; // o portão: fechado enquanto a troca não acaba (mesmo depois do prazo); as gravações esperam
@@ -238,12 +243,17 @@ export class AppState {
     return this.sessions.find((s) => s.id === id) ?? null;
   }
 
+  // A sessão que recebe o próximo solve: a atual viva, ou a que outra aba excluiu (o solve a revive). Ela é a que a tela mostra.
+  get activeSession(): Session | null {
+    return this.currentSession ?? this.parked;
+  }
+
   get event(): EventId {
-    return this.currentSession?.event ?? DEFAULT_EVENT;
+    return this.activeSession?.event ?? DEFAULT_EVENT;
   }
 
   get sessionSolves(): Solve[] {
-    const id = this.currentSession?.id;
+    const id = this.activeSession?.id;
     return this.solves.filter((s) => s.sessionId === id);
   }
 
@@ -282,6 +292,7 @@ export class AppState {
     // As cópias do dia e da pasta vêm depois do primeiro embaralhamento e rodam em segundo plano: uma cópia grande não segura a
     // casca. backup() e copyToFolder() já tratam as próprias falhas (com aviso); o catch só evita uma rejeição sem dono.
     void this.openingCopies(plan).catch(() => undefined);
+    void this.checkFolderPermission();
   }
 
   private async openingCopies(plan: SafetyPlan): Promise<void> {
@@ -292,17 +303,20 @@ export class AppState {
   // Relê sessões, solves, perfil e meta do banco. Na mesma fila que as contas, então nunca fica por cima de um solve novo.
   reload(): Promise<void> {
     return this.serial(async () => {
-      const [sessions, solves, profile, meta] = await Promise.all([
-        this.repo.listSessions(),
+      const [all, solves, profile, meta] = await Promise.all([
+        this.repo.listSessions({ includeDeleted: true }),
         this.repo.listSolves(),
         this.repo.getProfile(),
         this.repo.getMeta(),
       ]);
-      this.sessions = sessions;
+      this.sessions = all.filter((s) => s.deletedAt === null);
+      this.parked = all.find((s) => s.deletedAt !== null && s.id === profile.currentSessionId) ?? null;
       this.solves = solves;
       this.profile = profile;
       this.meta = meta;
       this.applyPrefs();
+      // O embaralhamento da tela é de outro evento (outra aba trocou de sessão, ou a atual foi excluída): pede o do evento certo.
+      if (this.scrambleEvent !== null && this.scrambleEvent !== this.event) void this.nextScramble();
     });
   }
 
@@ -408,7 +422,7 @@ export class AppState {
     if (wasCurrent) this.clearScramble(); // antes da gravação, como em createSession e switchSession
     const ok = await this.write(() => this.repo.deleteSession(id));
     await this.refresh();
-    const replaced = ok && !this.currentSession && (await this.write(() => this.ensureSession()));
+    const replaced = ok && !this.currentSession && (await this.write(() => this.replaceCurrent()));
     if (wasCurrent || replaced) await this.nextScramble();
   }
 
@@ -723,7 +737,7 @@ export class AppState {
   async updateSettings(patch: NonNullable<ProfilePatch['settings']>): Promise<void> {
     const ok = await this.write(async () => {
       this.profile = await this.repo.saveProfile({ settings: patch });
-    });
+    }, T.data.settingFailed);
     if (ok) this.applyPrefs();
     await this.refresh();
   }
@@ -749,11 +763,13 @@ export class AppState {
     this.scrambleRequest++;
     this.scramble = '';
     this.scrambleError = false;
+    this.scrambleEvent = null;
   }
 
   async nextScramble(): Promise<void> {
     const event = this.event;
     this.clearScramble();
+    this.scrambleEvent = event;
     const request = this.scrambleRequest;
     try {
       const next = await this.queue.next(event);
@@ -796,13 +812,14 @@ export class AppState {
     this.exportReminder = false;
   }
 
-  // Uma escrita pedida pela pessoa: se falha, o aviso aparece e a operação não é dada como feita. Nada some em silêncio.
-  private async write(action: () => Promise<unknown>): Promise<boolean> {
+  // Uma escrita pedida pela pessoa: se falha, o aviso aparece e a operação não é dada como feita. Nada some em silêncio. O aviso
+  // de salvar (o de exportar) fica para solves; cada outra escrita diz o que falhou.
+  private async write(action: () => Promise<unknown>, failure: string = T.data.saveFailed): Promise<boolean> {
     try {
       await action();
       return true;
     } catch {
-      this.showToast(T.data.saveFailed);
+      this.showToast(failure);
       return false;
     }
   }
@@ -911,10 +928,17 @@ export class AppState {
     });
   }
 
-  // Sem sessão atual (a gravada sumiu, ou o banco estava vazio): escolhe a primeira, ou cria uma de 3×3, e grava a escolha.
+  // A sessão que recebe o próximo solve. A atual, se está viva; se outra aba a excluiu, ela mesma (o repositório a revive na mesma
+  // transação do solve). Escolher outra aqui levaria o solve, e o embaralhamento, para outro evento.
   private async ensureSession(): Promise<Session> {
     const current = this.currentSession;
     if (current) return current;
+    if (this.parked) return this.parked;
+    return this.replaceCurrent();
+  }
+
+  // Sem sessão atual viva: a primeira que sobrou assume (ou uma de 3×3, se não sobrou nenhuma), e a escolha é gravada.
+  private async replaceCurrent(): Promise<Session> {
     const session = this.sessions[0] ?? (await this.repo.createSession({ event: DEFAULT_EVENT }));
     await this.repo.saveProfile({ currentSessionId: session.id });
     await this.reload();
@@ -969,7 +993,7 @@ export class AppState {
       await createBackup(this.repo, reason, this.now());
       this.meta = await this.repo.getMeta();
     } catch {
-      this.showToast(T.data.saveFailed); // a contagem não zera: a próxima tentativa insiste
+      this.showToast(T.data.backupFailed); // a contagem não zera: a próxima tentativa insiste
     }
   }
 
@@ -977,13 +1001,46 @@ export class AppState {
     try {
       const handle = (await this.repo.getFolderHandle()) as DirHandleLike | null;
       if (!handle) return;
-      const now = this.now();
-      const text = toKlickJson(await this.repo.exportAll({ includeDeleted: false }));
-      // Sem permissão a pasta fica como está: a cópia continua devida e a próxima tentativa a faz.
-      if (!(await saveToFolder(handle, backupFileName(now), text, { ask: false }))) return;
-      this.meta = await this.repo.saveMeta({ solvesSinceFolderSave: 0, lastFolderSaveAt: now, lastFolderSaveDay: dayKey(now) });
+      // Sem permissão a cópia continua devida, e Ajustes mostra que a permissão expirou (com o botão de pedir de novo).
+      this.folderNeedsPermission = !(await this.writeFolderCopy(handle, false));
     } catch {
-      this.showToast(T.data.saveFailed);
+      this.showToast(T.data.folderCopyFailed);
+    }
+  }
+
+  // "Permitir de novo" (Ajustes). O clique é o gesto que o navegador pede para abrir a janela de permissão. Se a pasta volta a
+  // aceitar, grava a cópia devida e tira o aviso. Devolve se gravou.
+  async reauthorizeFolder(): Promise<boolean> {
+    try {
+      const handle = (await this.repo.getFolderHandle()) as DirHandleLike | null;
+      if (!handle) return false;
+      const saved = await this.writeFolderCopy(handle, true);
+      this.folderNeedsPermission = !saved;
+      if (!saved) this.showToast(T.data.folderPermissionDenied);
+      return saved;
+    } catch {
+      this.showToast(T.data.folderCopyFailed);
+      return false;
+    }
+  }
+
+  // Grava a cópia na pasta. false: sem permissão (quem chama decide o que mostrar). Uma falha de gravação rejeita.
+  private async writeFolderCopy(handle: DirHandleLike, ask: boolean): Promise<boolean> {
+    const now = this.now();
+    const text = toKlickJson(await this.repo.exportAll({ includeDeleted: false }));
+    if (!(await saveToFolder(handle, backupFileName(now), text, { ask }))) return false;
+    this.meta = await this.repo.saveMeta({ solvesSinceFolderSave: 0, lastFolderSaveAt: now, lastFolderSaveDay: dayKey(now) });
+    return true;
+  }
+
+  // Ao abrir: uma pasta que já perdeu a permissão (o navegador a esquece entre visitas) aparece em Ajustes sem esperar a próxima
+  // cópia. Não pede nada à pessoa.
+  private async checkFolderPermission(): Promise<void> {
+    try {
+      const handle = (await this.repo.getFolderHandle()) as DirHandleLike | null;
+      this.folderNeedsPermission = handle !== null && !(await folderGranted(handle));
+    } catch {
+      // sem como saber agora: a próxima cópia na pasta diz
     }
   }
 

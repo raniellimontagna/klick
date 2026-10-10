@@ -166,7 +166,7 @@
         {/each}
       </nav>
       <div class="meta">
-        <button type="button" class="pill" data-session-pill aria-haspopup="dialog" onclick={() => openDialog('sessions')}>{T.session.pill(eventInfo(app.event).short, app.currentSession?.name ?? '')}</button>
+        <button type="button" class="pill" data-session-pill aria-haspopup="dialog" onclick={() => openDialog('sessions')}>{T.session.pill(eventInfo(app.event).short, app.activeSession?.name ?? '')}</button>
         <span data-date>{dateLabel(Date.now())}</span>
       </div>
     </header>

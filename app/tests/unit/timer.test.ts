@@ -459,3 +459,36 @@ describe('eventos do timer', () => {
     }
   });
 });
+
+// O espaço segurado antes da inspeção (o timer ainda parado): avisa 'pending' ao começar e ao acabar, para a tela saber que o timer
+// está ocupado mesmo sem mudar de estado.
+describe('timer: espaço segurado antes da inspeção', () => {
+  it('um press parado com inspeção avisa pending true; soltar (que começa a inspeção) avisa false', () => {
+    const { timer, setTime } = rig({ inspection: true });
+    const seen: boolean[] = [];
+    timer.on('pending', (held) => seen.push(held));
+    timer.press();
+    expect(timer.state).toBe(STATES.IDLE);
+    expect(seen).toEqual([true]);
+    setTime(400);
+    timer.release(400);
+    expect(timer.state).toBe(STATES.INSPECT);
+    expect(seen).toEqual([true, false]);
+  });
+
+  it('cancel e reset também soltam o pending, e sem inspeção não há aviso', () => {
+    const { timer } = rig({ inspection: true });
+    const seen: boolean[] = [];
+    timer.on('pending', (held) => seen.push(held));
+    timer.press();
+    timer.cancel();
+    timer.press();
+    timer.reset();
+    expect(seen).toEqual([true, false, true, false]);
+    const plain = rig({ inspection: false });
+    const more: boolean[] = [];
+    plain.timer.on('pending', (held) => more.push(held));
+    plain.timer.press();
+    expect(more).toEqual([]);
+  });
+});

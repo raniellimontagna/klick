@@ -11,12 +11,17 @@ import './styles/screens.css';
 import { mount } from 'svelte';
 import { registerSW } from 'virtual:pwa-register';
 import App from './ui/App.svelte';
-import { offerUpdate } from './ui/state/update.svelte';
+import { askReload, offerUpdate } from './ui/state/update.svelte';
 
 // O service worker não troca a versão sozinho: a nova espera a pessoa aceitar o aviso (UpdatePrompt), que só aparece com o timer parado.
 const updateSW = registerSW({
   onNeedRefresh() {
     offerUpdate(() => updateSW(true));
+  },
+  // Outra aba aceitou a versão nova: o padrão recarregaria esta aba já, no meio de um solve. Aqui só se pede; o UpdatePrompt
+  // recarrega quando a tela estiver livre.
+  onNeedReload() {
+    askReload();
   },
 });
 

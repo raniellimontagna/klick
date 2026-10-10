@@ -7,7 +7,8 @@
 //
 // Um ouvinte que lança não derruba a máquina nem os outros ouvintes: o erro vai para onError. É no 'done' que o solve é
 // gravado, e ele sai mesmo que um ouvinte de 'state' quebre. O onError padrão relança o erro numa microtask, para ele
-// continuar visível no navegador.
+// continuar visível no navegador. O espaço segurado antes da inspeção (o estado ainda é 'idle') sai pelo evento 'pending', para
+// quem precisa saber que o timer está ocupado mesmo sem mudança de estado.
 import type { Penalty } from './types';
 
 export const STATES = Object.freeze({
@@ -36,6 +37,7 @@ export interface Timer {
   on(ev: 'state', fn: (next: TimerState, prev: TimerState) => void): () => void;
   on(ev: 'warn', fn: (ms: number) => void): () => void;
   on(ev: 'done', fn: (r: TimerResult) => void): () => void;
+  on(ev: 'pending', fn: (held: boolean) => void): () => void; // o espaço segurado antes da inspeção começou (true) ou acabou (false)
   readonly state: TimerState;
   readonly armProgress: number; // 0 a 1, para o anel de armar
   readonly inspectElapsed: number;
@@ -48,6 +50,7 @@ interface TimerEvents {
   state: [next: TimerState, prev: TimerState];
   warn: [ms: number];
   done: [result: TimerResult];
+  pending: [held: boolean];
 }
 
 const PLUS2_AFTER = 15000;
@@ -86,6 +89,7 @@ export function createTimer(
     state: new Set(),
     warn: new Set(),
     done: new Set(),
+    pending: new Set(),
   };
 
   const emit = <E extends keyof TimerEvents>(ev: E, ...args: TimerEvents[E]) => {
@@ -103,6 +107,11 @@ export function createTimer(
     state = next;
     emit('state', next, prev);
   };
+  const setPending = (held: boolean) => {
+    if (held === pendingInspect) return;
+    pendingInspect = held;
+    emit('pending', held);
+  };
   const inInspection = () => state === STATES.INSPECT || ((state === STATES.ARMING || state === STATES.READY) && base === STATES.INSPECT);
 
   function press(at?: number): void {
@@ -115,7 +124,7 @@ export function createTimer(
     }
     if (state === STATES.IDLE || state === STATES.DONE) {
       if (inspection) {
-        pendingInspect = true;
+        setPending(true);
         return;
       }
       base = STATES.IDLE;
@@ -136,7 +145,7 @@ export function createTimer(
     const t = at ?? now();
     tick(t); // reavalia o tempo: soltar depois do tempo de armar sempre larga
     if (pendingInspect) {
-      pendingInspect = false;
+      setPending(false);
       inspStart = t;
       warned = new Set();
       base = STATES.INSPECT;
@@ -206,7 +215,7 @@ export function createTimer(
       if (o.inspection !== undefined) inspection = o.inspection;
     },
     reset() {
-      pendingInspect = false;
+      setPending(false);
       base = STATES.IDLE;
       result = null;
       penalty = null;
@@ -214,7 +223,7 @@ export function createTimer(
     },
     // Abandona um segurar (ou o toque que iniciaria a inspeção) sem largar o timer.
     cancel() {
-      pendingInspect = false;
+      setPending(false);
       if (state === STATES.ARMING || state === STATES.READY) set(base);
     },
     on,

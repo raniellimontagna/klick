@@ -1,15 +1,21 @@
 <script lang="ts">
   // O aviso de nova versão. A região de status fica montada sempre: o leitor de tela já a conhece quando o texto entra. Só aparece
-  // com o timer parado (app.timerBusy) e sem solve em voo ou na fila (app.unsaved): recarregar nesses momentos perderia a reação ou
-  // a gravação. A função de atualizar vem do main.ts, por update.svelte.ts.
+  // com o timer parado (app.timerBusy), sem espaço segurado antes da inspeção (app.pendingInspect) e sem solve em voo ou na fila
+  // (app.unsaved): recarregar nesses momentos perderia a reação ou a gravação. A função de atualizar vem do main.ts, por
+  // update.svelte.ts, que também recarrega esta aba quando outra aceita a versão e esta fica livre.
   import { T } from '../../strings';
   import type { AppState } from '../state/app.svelte';
-  import { pendingUpdate } from '../state/update.svelte';
+  import { pendingUpdate, reloadIfFree } from '../state/update.svelte';
 
   let { app }: { app: AppState } = $props();
 
   const apply = $derived(pendingUpdate());
-  const show = $derived(apply !== null && !app.timerBusy && !app.unsaved);
+  const show = $derived(apply !== null && !app.timerBusy && !app.unsaved && !app.pendingInspect);
+
+  // Outra aba aceitou a versão nova: esta recarrega quando a tela ficar livre (o pedido e a regra estão em update.svelte.ts).
+  $effect(() => {
+    reloadIfFree({ timerBusy: app.timerBusy, pendingInspect: app.pendingInspect, unsaved: app.unsaved });
+  });
 </script>
 
 <div class="update-prompt" class:shown={show} data-update-prompt>

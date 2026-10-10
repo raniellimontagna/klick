@@ -291,3 +291,29 @@ describe('tela do Timer: falhas, foco e ações', () => {
     expect(a.solves).toHaveLength(1);
   });
 });
+
+describe('tela do Timer: espaço segurado antes da inspeção', () => {
+  it('segurar espaço antes da inspeção deixa app.pendingInspect true até soltar, e a inspeção deixa o timer ocupado', async () => {
+    const { a } = await app();
+    await a.updateSettings({ inspection: true });
+    render(TimerScreen, { app: a });
+    key('keydown', 'Space', ' ');
+    await waitFor(() => expect(a.pendingInspect).toBe(true));
+    key('keyup', 'Space', ' ');
+    await waitFor(() => expect(a.pendingInspect).toBe(false));
+    expect(a.timerBusy).toBe(true);
+  });
+
+  it('a sessão que outra aba excluiu recebe o solve, e a tela mostra o resultado (a troca de sessão não o esconde)', async () => {
+    const { a, repo } = await app();
+    await a.updateSettings({ inspection: false });
+    const current = a.currentSession!;
+    await repo.deleteSession(current.id); // outra aba
+    await a.reload();
+    render(TimerScreen, { app: a });
+    await solveByKeys();
+    await waitFor(() => expect(a.solves).toHaveLength(1));
+    expect(a.solves[0].sessionId).toBe(current.id);
+    await waitFor(() => expect(document.querySelector('[data-actions]')).not.toHaveAttribute('hidden'));
+  });
+});

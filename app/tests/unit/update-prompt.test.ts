@@ -4,7 +4,7 @@ import { openKlickDb } from '../../src/data/db';
 import { createRepository } from '../../src/data/repository';
 import { createScrambleQueue } from '../../src/scramble/queue';
 import { AppState } from '../../src/ui/state/app.svelte';
-import { offerUpdate } from '../../src/ui/state/update.svelte';
+import { askReload, canReloadNow, offerUpdate, reloadIfFree } from '../../src/ui/state/update.svelte';
 import UpdatePrompt from '../../src/ui/dialogs/UpdatePrompt.svelte';
 
 let n = 0;
@@ -64,5 +64,58 @@ describe('Aviso de nova versão', () => {
     offerUpdate(async () => {});
     await vi.waitFor(() => expect(region).toHaveTextContent('Nova versão disponível.'));
     expect(screen.getByRole('status')).toBe(region);
+  });
+});
+
+// Outra aba aceitou a versão nova: esta só recarrega com a tela livre (timer parado, sem espaço segurado, sem solve por gravar).
+describe('Recarregar só com a tela livre', () => {
+  const free = { timerBusy: false, pendingInspect: false, unsaved: false };
+  afterEach(() => {
+    reloadIfFree(free, () => {}); // zera um pedido que o teste deixou
+  });
+
+  it('a regra só deixa recarregar com as três condições falsas', () => {
+    expect(canReloadNow(free)).toBe(true);
+    expect(canReloadNow({ ...free, timerBusy: true })).toBe(false);
+    expect(canReloadNow({ ...free, pendingInspect: true })).toBe(false);
+    expect(canReloadNow({ ...free, unsaved: true })).toBe(false);
+  });
+
+  it('sem pedido, não recarrega', () => {
+    const reload = vi.fn();
+    expect(reloadIfFree(free, reload)).toBe(false);
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['o timer está ocupado', { ...free, timerBusy: true }],
+    ['há espaço segurado antes da inspeção', { ...free, pendingInspect: true }],
+    ['um solve está em voo ou sem gravar', { ...free, unsaved: true }],
+  ])('com pedido e %s, adia: não recarrega, e recarrega quando a tela fica livre', (_label, busy) => {
+    askReload();
+    const reload = vi.fn();
+    expect(reloadIfFree(busy, reload)).toBe(false);
+    expect(reload).not.toHaveBeenCalled();
+    expect(reloadIfFree(free, reload)).toBe(true);
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('recarrega uma vez só: o pedido sai junto com o recarregamento', () => {
+    askReload();
+    const reload = vi.fn();
+    expect(reloadIfFree(free, reload)).toBe(true);
+    expect(reloadIfFree(free, reload)).toBe(false);
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('o aviso some enquanto o espaço segura antes da inspeção (app.pendingInspect), como com o timer ocupado', async () => {
+    const a = await app();
+    offerUpdate(async () => {});
+    render(UpdatePrompt, { app: a });
+    expect(screen.getByRole('button', { name: 'Recarregar' })).toBeInTheDocument();
+    a.pendingInspect = true;
+    await vi.waitFor(() => expect(screen.queryByRole('button', { name: 'Recarregar' })).toBeNull());
+    a.pendingInspect = false;
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Recarregar' })).toBeInTheDocument());
   });
 });

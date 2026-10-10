@@ -1083,3 +1083,133 @@ describe('estado do app: importação sem perda', () => {
     expect(await app.importV1()).toMatchObject({ solves: 2, missed: 1 });
   });
 });
+
+// Sessão que outra aba exclui, evento que muda depois de um reload, pasta com permissão vencida e textos próprios de falha
+// (final review, Minor 2, I2 e Minor 8).
+describe('estado do app: sessão de outra aba, pasta e textos de falha', () => {
+  beforeEach(() => { t = 1_791_500_000_000; });
+
+  it('a sessão atual que outra aba excluiu recebe o próximo solve (é revivida), e não a primeira de outro evento', async () => {
+    const { app, repo } = await setup();
+    await app.createSession('sq1');
+    const sq1 = app.currentSession!;
+    await repo.deleteSession(sq1.id); // outra aba
+    await app.reload();
+    const solve = (await app.addSolve({ ms: 60000, penalty: null, at: t }))!;
+    expect(solve).toMatchObject({ sessionId: sq1.id, event: 'sq1' });
+    expect((await repo.listSessions()).map((s) => s.id)).toContain(sq1.id);
+  });
+
+  it('depois de um reload que troca o evento (outra aba mudou a sessão), o embaralhamento passa a ser do evento novo', async () => {
+    const { app, repo } = await setup();
+    const first = app.currentSession!;
+    await app.createSession('sq1');
+    expect(app.event).toBe('sq1');
+    await repo.saveProfile({ currentSessionId: first.id }); // outra aba voltou para a 3×3
+    await app.reload();
+    expect(app.event).toBe('333');
+    await vi.waitFor(() => expect(app.scramble).toMatch(/^333-/));
+  });
+
+  // Uma pasta de teste: a permissão que o navegador informa e a que ele concede quando pedido; os arquivos gravados ficam em `files`.
+  type Perm = 'granted' | 'denied' | 'prompt';
+  function fakeFolder(permission: Perm, granted: Perm = 'granted') {
+    const files = new Map<string, string>();
+    const state = { permission };
+    const handle = {
+      queryPermission: vi.fn(async () => state.permission),
+      requestPermission: vi.fn(async () => {
+        state.permission = granted;
+        return granted;
+      }),
+      getFileHandle: async (name: string) => ({
+        createWritable: async () => {
+          let text = '';
+          return {
+            write: async (d: string) => {
+              text = d;
+            },
+            close: async () => {
+              files.set(name, text);
+            },
+          };
+        },
+      }),
+    };
+    return { handle, files };
+  }
+  // Um handle de pasta não se guarda no IndexedDB (tem funções, e o clone estrutural recusa): o repositório devolve o de teste.
+  function holdFolder(repo: Repository, handle: unknown): void {
+    repo.getFolderHandle = async () => handle as never;
+    repo.saveFolderHandle = async () => {};
+  }
+  // Escolhe a pasta pelo seletor (o do navegador, simulado) e grava a primeira cópia nela.
+  async function chooseFolder(app: AppState, repo: Repository, handle: unknown): Promise<boolean> {
+    holdFolder(repo, handle);
+    Object.defineProperty(globalThis, 'showDirectoryPicker', { value: async () => handle, configurable: true, writable: true });
+    try {
+      return await app.chooseBackupFolder();
+    } finally {
+      delete (globalThis as { showDirectoryPicker?: unknown }).showDirectoryPicker;
+    }
+  }
+
+  it('uma cópia na pasta que o navegador não deixa gravar marca a permissão vencida, em vez de pular em silêncio', async () => {
+    const { app, repo } = await setup();
+    const { handle, files } = fakeFolder('prompt');
+    await chooseFolder(app, repo, handle);
+    expect(app.folderNeedsPermission).toBe(true);
+    expect(files.size).toBe(0);
+  });
+
+  it('"Permitir de novo", num clique, grava a cópia devida e tira o aviso', async () => {
+    const { app, repo } = await setup();
+    const { handle, files } = fakeFolder('prompt', 'granted');
+    await chooseFolder(app, repo, handle);
+    expect(await app.reauthorizeFolder()).toBe(true);
+    expect(handle.requestPermission).toHaveBeenCalledTimes(1);
+    expect(files.size).toBe(1);
+    expect(app.folderNeedsPermission).toBe(false);
+    expect((await repo.getMeta()).lastFolderSaveAt).not.toBeNull();
+  });
+
+  it('se o navegador nega de novo, o aviso fica e a pessoa vê que nada mudou', async () => {
+    const { app, repo } = await setup();
+    const { handle, files } = fakeFolder('prompt', 'denied');
+    await chooseFolder(app, repo, handle);
+    expect(await app.reauthorizeFolder()).toBe(false);
+    expect(files.size).toBe(0);
+    expect(app.folderNeedsPermission).toBe(true);
+    expect(app.toast?.text).toBe(T.data.folderPermissionDenied);
+  });
+
+  it('ao abrir o app, uma pasta sem permissão já aparece como permissão vencida', async () => {
+    const { repo } = await setup();
+    const { handle } = fakeFolder('prompt');
+    holdFolder(repo, handle);
+    const again = new AppState({ repo, queue: fakeQueue(), now, storage: null, storageManager: null });
+    await again.init();
+    await vi.waitFor(() => expect(again.folderNeedsPermission).toBe(true));
+  });
+
+  it('um ajuste que não grava mostra o aviso próprio de ajuste, não o de salvar solves', async () => {
+    const { app, repo } = await setup();
+    repo.saveProfile = async () => { throw new Error('io'); };
+    await app.updateSettings({ theme: 'dark' });
+    expect(app.toast?.text).toBe(T.data.settingFailed);
+  });
+
+  it('uma cópia automática que falha mostra o aviso próprio de cópia', async () => {
+    const { app, repo } = await setup();
+    repo.saveBackup = async () => { throw new Error('quota'); };
+    for (let i = 0; i < 50; i++) await app.addSolve({ ms: 60000 + i, penalty: null, at: t + i });
+    expect(app.toast?.text).toBe(T.data.backupFailed);
+  });
+
+  it('uma cópia na pasta que falha ao gravar mostra o aviso próprio de cópia na pasta', async () => {
+    const { app, repo } = await setup();
+    const handle = { getFileHandle: async () => { throw new Error('disco cheio'); } };
+    await chooseFolder(app, repo, handle);
+    expect(app.toast?.text).toBe(T.data.folderCopyFailed);
+  });
+});

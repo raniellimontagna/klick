@@ -48,6 +48,15 @@ export async function saveToFolder(handle: DirHandleLike, name: string, text: st
   return true;
 }
 
+// A pasta ainda deixa gravar, sem pedir nada à pessoa (nada de janela). Sem como saber, não alarma: a próxima cópia diz.
+export async function folderGranted(handle: DirHandleLike): Promise<boolean> {
+  try {
+    return await canWrite(handle, false);
+  } catch {
+    return true;
+  }
+}
+
 // 'klick-AAAA-MM-DD-HHmm.json' no horário local.
 export function backupFileName(now: number): string {
   const d = new Date(now);
