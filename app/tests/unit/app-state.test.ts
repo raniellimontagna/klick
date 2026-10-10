@@ -103,13 +103,30 @@ describe('estado do app', () => {
     expect(app.savePending).toBe(0);
   });
 
-  it('sem sessão atual e sem poder gravar uma, o aviso sai e addSolve devolve null', async () => {
+  // Um solve nunca se perde: sem sessão e sem poder criar uma, ele vai para a fila, com o aviso, e sai no export.
+  it('sem sessão e sem poder criar uma, o solve fica na fila com o aviso e sai no export', async () => {
     const { app, repo } = await setup();
+    app.sessions = [];
     app.profile = { ...app.profile, currentSessionId: null };
+    repo.createSession = async () => { throw new Error('quota'); };
     repo.saveProfile = async () => { throw new Error('quota'); };
+    repo.addSolve = async () => { throw new Error('quota'); };
     expect(await app.addSolve({ ms: 60000, penalty: null, at: t })).toBeNull();
     expect(app.toast?.text).toBe(T.data.saveFailed);
-    expect(app.savePending).toBe(0);
+    expect(app.savePending).toBe(1);
+    expect((await app.exportData()).solves.map((x) => x.ms)).toEqual([60000]);
+  });
+
+  // O próximo embaralhamento não segura o solve: o gerador pode ficar pendurado sem travar a reação.
+  it('addSolve não espera o próximo embaralhamento', async () => {
+    const repo = createRepository(await openKlickDb(`app-${++n}`), { now, channel: null });
+    const queue = createScrambleQueue({ generate: () => new Promise<string>(() => {}) });
+    const app = new AppState({ repo, queue, now, storage: null, storageManager: null });
+    await app.init();
+    const solve = await app.addSolve({ ms: 60000, penalty: null, at: t });
+    expect(solve).not.toBeNull();
+    expect(app.solves).toHaveLength(1);
+    expect(app.scramble).toBe('');
   });
 
   it('uma gravação que falha e sai na nova tentativa conta uma vez e aparece uma vez', async () => {

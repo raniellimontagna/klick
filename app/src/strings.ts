@@ -132,6 +132,12 @@ export const T = Object.freeze({
     scrambleRetry: 'Aperte N para tentar de novo.',
     scrambleReload: 'Se continuar assim, recarregue a página.',
     newRecord: 'Novo recorde',
+    // Textos do tempo e das penalidades na tela (o zero, o traço sem média, DNF, +2 e o sufixo "+" de um tempo com +2).
+    zero: '0:00.00',
+    none: '—',
+    dnf: 'DNF',
+    plus2: '+2',
+    plus2Suffix: '+',
   },
   actions: { plus2: '+2', dnf: 'DNF', note: 'Nota', delete: 'Excluir' },
   note: {

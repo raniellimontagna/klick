@@ -88,7 +88,7 @@
   let lastId = $state<string | null>(null); // o solve que a tela mostra; null = o último da sessão
   let showResult = $state(false); // o solve está gravado e a pessoa ainda pode agir sobre ele
   let saving = $state(false); // gravação em voo: o tempo mostra o resultado do timer e os chips somem
-  let unstored = $state(false); // a gravação falhou e o solve ficou na fila: o tempo segue o timer até a fila gravar
+  let unstored = $state<number | null>(null); // a gravação falhou: o instante (at) do solve que ficou na fila; o tempo segue o timer até ele entrar nos dados
   let deleting = $state(false);
   let noteOpen = $state(false);
   let noteValue = $state('');
@@ -128,8 +128,8 @@
   const pbTag = $derived(showResult && kind === 'pb');
   const actionsShown = $derived(showResult && last !== null);
 
-  // Enquanto a fila segura o solve, a tela mostra o tempo do timer, sem chips (o solve não está nos dados ainda).
-  const holding = $derived(unstored && app.savePending > 0);
+  // Enquanto a fila segura o solve, a tela mostra o tempo do timer e não mostra os chips (o solve não está nos dados ainda).
+  const holding = $derived(unstored !== null);
 
   const chips = $derived.by((): Chip[] => {
     const d = deltas;
@@ -150,7 +150,7 @@
     return [
       { label: T.tiles.avg(officialAverageLabel(ev).n), value: formatMs(officialAverage(app.sessionSolves, ev)), sub: '' },
       { label: T.tiles.avg12, value: formatMs(averageOf(app.sessionSolves, 12)), sub: '' },
-      { label: T.tiles.record, value: best ? formatMs(effectiveMs(best)) : '—', sub: best ? daysAgoLabel(best.at, now) : '' },
+      { label: T.tiles.record, value: best ? formatMs(effectiveMs(best)) : T.timer.none, sub: best ? daysAgoLabel(best.at, now) : '' },
       { label: T.tiles.today, value: String(solvesOnDay(app.solves, now).length), sub: T.tiles.todaySub(app.profile.settings.dailyGoal) },
     ];
   });
@@ -204,19 +204,19 @@
 
   // O resultado que o timer acabou de dar, antes de o solve entrar na lista (+2 soma os 2 s).
   function resultText(r: TimerResult): string {
-    if (r.penalty === 'DNF') return 'DNF';
-    return formatMs(r.ms + (r.penalty === '+2' ? 2000 : 0)) + (r.penalty === '+2' ? '+' : '');
+    if (r.penalty === 'DNF') return T.timer.dnf;
+    return formatMs(r.ms + (r.penalty === '+2' ? 2000 : 0)) + (r.penalty === '+2' ? T.timer.plus2Suffix : '');
   }
 
   function timeText(): string {
     const e = timer.inspectElapsed;
     if (timer.state === 'running') return formatMs(timer.elapsed);
     if (e > 0 && (timer.state === 'inspect' || timer.state === 'arming' || timer.state === 'ready')) {
-      return e > 17000 ? 'DNF' : e > 15000 ? '+2' : String(Math.ceil((15000 - e) / 1000));
+      return e > 17000 ? T.timer.dnf : e > 15000 ? T.timer.plus2 : String(Math.ceil((15000 - e) / 1000));
     }
-    if (timer.state === 'arming' || timer.state === 'ready') return '0:00.00';
+    if (timer.state === 'arming' || timer.state === 'ready') return T.timer.zero;
     if ((saving || holding) && timer.result) return resultText(timer.result);
-    return last ? formatSolve(last) : '0:00.00';
+    return last ? formatSolve(last) : T.timer.zero;
   }
 
   function paintCentro(view: Vista): void {
@@ -272,7 +272,7 @@
     const prevAnyAt = app.solves.at(-1)?.at;
     const milestonesBefore = achievedIds(milestoneSolves(app.solves), now);
     saving = true;
-    unstored = false;
+    unstored = null;
     showResult = false;
     lastId = null;
     reaction = null;
@@ -288,15 +288,17 @@
       kick();
       return;
     }
-    // A gravação falhou: o solve ficou na fila e o aviso fixo aparece. O tempo fica na tela até a fila gravar.
+    // A gravação falhou: o solve ficou na fila e o aviso fixo aparece. O tempo fica na tela até o solve entrar nos dados.
     if (!solve) {
-      unstored = true;
+      unstored = now;
       kick();
       return;
     }
     lastId = solve.id;
-    // A pessoa já armou de novo: o solve está gravado (e aparece nos dados), mas a reação não entra por cima.
+    // A pessoa já armou de novo: o solve está gravado (e aparece nos dados), mas a reação não entra por cima. O tempo final
+    // ainda é anunciado.
     if (timer.state !== 'done') {
+      app.announce(T.aria.final(formatSolve(solve)));
       kick();
       return;
     }
@@ -328,6 +330,8 @@
     }
     app.announce(`${T.aria.final(formatSolve(solve))}${msg ? ` ${msg.text}` : ''}`);
     kick();
+    await tick();
+    popToday();
   }
 
   // Ações sobre o último solve. Só valem enquanto o solve está gravado e o timer parado no resultado.
@@ -343,19 +347,23 @@
 
   async function removeLast(): Promise<void> {
     const solve = last;
-    if (!solve || timer.state !== 'done' || !showResult) return;
-    // O botão some junto com as ações: se o foco estava nelas, ele volta para a tela do Timer.
-    const hadFocus = screenEl?.querySelector('[data-actions]')?.contains(document.activeElement) ?? false;
+    if (!solve || timer.state !== 'done' || !showResult || deleting) return;
+    const hadFocus = focusInside(); // as ações vão sumir: se o foco estava nelas, ele volta para a tela do Timer
     deleting = true;
-    showResult = false;
     reaction = null;
     coach = null;
     closeNote();
-    lastId = null;
     kick();
+    // O solve e as ações ficam até a exclusão terminar: se ela falhar, o solve segue na lista e as ações continuam na tela.
     await app.deleteSolve(solve.id).finally(() => {
       deleting = false;
     });
+    if (app.solves.some((x) => x.id === solve.id)) {
+      kick();
+      return;
+    }
+    showResult = false;
+    lastId = null;
     if (hadFocus) screenEl?.focus({ preventScroll: true });
     kick();
   }
@@ -375,10 +383,12 @@
     noteId = null;
   }
 
-  // Fechar a nota (Esc ou depois de salvar) devolve o foco à tela, porque o campo some.
+  // Fechar a nota (cancelada ou salva) devolve o foco ao botão Nota: quem usa teclado continua de onde estava.
   function closeNoteAndFocus(): void {
     closeNote();
-    screenEl?.focus({ preventScroll: true });
+    const nota = screenEl?.querySelector<HTMLElement>('[data-act="note"]');
+    if (nota && !nota.closest('[hidden]')) nota.focus({ preventScroll: true });
+    else screenEl?.focus({ preventScroll: true });
   }
 
   // Só grava se o solve ainda existe: se ele sumiu (outra aba, lixeira), a nota não tem a quem ir.
@@ -442,10 +452,12 @@
     document.body.classList.toggle('solving', next === 'running');
     if (next === 'ready') sound.klick();
     if (next === 'inspect' || next === 'arming') {
+      // As ações somem agora: se o foco estava nelas (ou na nota), ele vai para a tela, e não se perde no corpo do documento.
+      if (focusInside()) screenEl?.focus({ preventScroll: true });
       reaction = null;
       coach = null;
       showResult = false;
-      unstored = false;
+      unstored = null;
       closeNote();
     }
     kick();
@@ -461,7 +473,7 @@
   function resetForSession(): void {
     lastId = null;
     showResult = false;
-    unstored = false;
+    unstored = null;
     closeNote();
     reaction = null;
     coach = null;
@@ -469,7 +481,36 @@
     kick();
   }
 
+  // O foco está numa ação ou no campo da nota (o que some quando a tela arma de novo ou exclui).
+  function focusInside(): boolean {
+    const ativo = document.activeElement;
+    return ativo !== null && screenEl !== undefined && screenEl.contains(ativo) && ativo.closest('[data-actions], [data-noteform]') !== null;
+  }
+
+  // Como o protótipo: o quadrado de hoje pulsa depois de cada solve. A classe pop vem de components.css.
+  function popToday(): void {
+    const hoje = screenEl?.querySelector<HTMLElement>('[data-heat] .today');
+    if (!hoje) return;
+    hoje.classList.remove('pop');
+    void hoje.offsetWidth; // o reflow reinicia a animação
+    hoje.classList.add('pop');
+  }
+
   // ----- Efeitos: cada um limpa o que liga (ouvintes, laço, timers, bloqueio de tela) -----
+
+  // Um solve que ficou na fila entra nos dados quando a fila grava: aí a tela o assume e as ações voltam.
+  $effect(() => {
+    const at = unstored;
+    if (at === null || app.savePending > 0) return;
+    const entrou = app.solves.find((x) => x.at === at);
+    if (!entrou) return;
+    untrack(() => {
+      lastId = entrou.id;
+      unstored = null;
+      showResult = timer.state === 'done';
+      kick();
+    });
+  });
 
   // Estado inicial do body e a limpeza na saída: o CSS da tela lê estes atributos.
   $effect(() => {
@@ -653,7 +694,7 @@
         <span class="label">{heat.label}</span>
         <span class="muted num">{heat.streak}</span>
       </div>
-      <div class="heat" role="group" aria-label={heat.label}>
+      <div class="heat" data-heat role="group" aria-label={heat.label}>
         {#each heat.cells as c (c.day)}
           <i role="img" class={c.cls} title={c.text} aria-label={c.text}></i>
         {/each}
@@ -679,9 +720,10 @@
 </section>
 
 <style>
-  /* A tela recebe o foco depois de uma ação (o botão some); o contorno não é de um controle, então fica de fora. */
-  .timer:focus {
-    outline: none;
+  /* A tela recebe o foco quando uma ação some: ele continua visível, com o contorno dos controles. */
+  .timer:focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 4px;
   }
 
   .save-warn {

@@ -277,27 +277,24 @@ export class AppState {
     return run;
   }
 
+  // Um solve nunca se perde. Se não há sessão para atribuí-lo (ensureSession falhou), ele vai para a fila com a sessão atual ou
+  // com um id de sessão novo: a fila tenta de novo, e o aviso fixo (savePending) fica na tela até gravar. Devolve null só quando
+  // o solve ficou na fila; o próximo embaralhamento não segura a reação.
   async addSolve(r: { ms: number; penalty: Penalty; at: number }): Promise<Solve | null> {
     this.closeUndo(); // um solve novo encerra o desfazer pendente
-    let session: Session;
-    try {
-      session = await this.ensureSession();
-    } catch {
-      // Sem sessão e sem poder gravar uma: o solve não entra na fila (não há a quem atribuí-lo), e a pessoa fica sabendo.
-      this.showToast(T.data.saveFailed);
-      return null;
-    }
+    const session = await this.ensureSession().catch(() => null);
+    if (!session) this.showToast(T.data.saveFailed);
     const solve = await this.saves.enqueue({
       id: newId(this.now()), // o id é de quem grava: as tentativas seguintes usam este mesmo, e a gravação não duplica
-      sessionId: session.id,
-      event: session.event,
+      sessionId: session?.id ?? this.currentSession?.id ?? this.profile.currentSessionId ?? newId(this.now()),
+      event: session?.event ?? this.event,
       ms: r.ms,
       penalty: r.penalty,
       at: r.at,
       scramble: this.scramble,
     });
     if (solve) await this.recordSaved(solve);
-    await this.nextScramble();
+    void this.nextScramble();
     return solve;
   }
 

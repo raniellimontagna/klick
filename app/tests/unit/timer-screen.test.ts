@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openKlickDb } from '../../src/data/db';
 import { createRepository } from '../../src/data/repository';
 import { createScrambleQueue } from '../../src/scramble/queue';
@@ -149,5 +149,145 @@ describe('tela do Timer: solve, reação e nota', () => {
     fireEvent.keyDown(campo, { key: 'Escape', code: 'Escape' });
     expect(form).toHaveAttribute('hidden');
     expect(campo).not.toHaveFocus();
+  });
+});
+
+// Tempo controlado: o timer lê performance.now(), então a duração de cada solve é a que o teste manda, sem esperas reais.
+let relogio = 0;
+function relogioControlado(): void {
+  relogio = 0;
+  vi.spyOn(performance, 'now').mockImplementation(() => relogio);
+}
+
+// Um solve de `corrida` ms: arma, segura 400 ms (o timer passa a correr ao soltar) e para com outra tecla.
+function solveComTempo(corrida: number): void {
+  key('keydown', 'Space', ' ');
+  relogio += 400;
+  key('keyup', 'Space', ' ');
+  relogio += corrida;
+  key('keydown', 'KeyA', 'a');
+}
+
+// Dois quadros: o tempo do timer e o estado do body são pintados no laço de quadros, depois da mudança.
+const doisQuadros = () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+
+describe('tela do Timer: falhas, foco e ações', () => {
+  beforeEach(relogioControlado);
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('se a gravação de um solve falha, o tempo na tela é o dele, não o do solve anterior', async () => {
+    const { a, repo } = await app();
+    await a.updateSettings({ inspection: false });
+    render(TimerScreen, { app: a });
+    solveComTempo(1200);
+    await waitFor(() => expect(document.querySelector('[data-actions]')).not.toHaveAttribute('hidden'));
+    repo.addSolve = async () => { throw new Error('quota'); };
+    solveComTempo(2345);
+    expect(await screen.findByText(T.data.saveFailed)).toBeInTheDocument();
+    await doisQuadros();
+    expect(document.querySelector('[data-time]')?.textContent).toBe('0:02.34');
+  });
+
+  it('se a pessoa arma de novo antes da gravação terminar, o tempo final ainda é anunciado', async () => {
+    const { a, repo } = await app();
+    await a.updateSettings({ inspection: false });
+    // A gravação só termina quando o teste manda: a pessoa já pode ter armado de novo.
+    const gravar = repo.addSolve.bind(repo);
+    const quando: { concluir?: () => void } = {};
+    repo.addSolve = (s) =>
+      new Promise((resolve, reject) => {
+        quando.concluir = () => {
+          gravar(s).then(resolve, reject);
+        };
+      });
+    const anuncio = vi.spyOn(a, 'announce');
+    render(TimerScreen, { app: a });
+    solveComTempo(1000);
+    await vi.waitFor(() => expect(quando.concluir).toBeTypeOf('function'));
+    key('keydown', 'Space', ' ');
+    expect(document.body.dataset.tstate).toBe('arming');
+    quando.concluir?.();
+    await vi.waitFor(() => expect(anuncio).toHaveBeenCalledWith(expect.stringContaining('Tempo final: 0:01.00')));
+    expect(document.body.dataset.cview).not.toBe('reaction');
+  });
+
+  it('depois de salvar ou cancelar a nota, o foco volta ao botão Nota', async () => {
+    const { a } = await app();
+    await a.updateSettings({ inspection: false });
+    render(TimerScreen, { app: a });
+    solveComTempo(1000);
+    await waitFor(() => expect(document.querySelector('[data-actions]')).not.toHaveAttribute('hidden'));
+    const nota = document.querySelector('[data-act="note"]') as HTMLElement;
+    key('keydown', 'KeyM', 'm');
+    const campo = screen.getByLabelText('Nota sobre este solve');
+    await waitFor(() => expect(campo).toHaveFocus());
+    fireEvent.keyDown(campo, { key: 'Escape', code: 'Escape' });
+    expect(nota).toHaveFocus();
+    key('keydown', 'KeyM', 'm');
+    await waitFor(() => expect(campo).toHaveFocus());
+    fireEvent.input(campo, { target: { value: 'nota nova' } });
+    fireEvent.submit(campo.closest('form') as HTMLFormElement);
+    expect(nota).toHaveFocus();
+    await waitFor(() => expect(nota).toHaveAttribute('aria-label', 'Nota: nota nova'));
+  });
+
+  it('se o foco estava numa ação e a tela arma de novo, o foco vai para a tela do Timer', async () => {
+    const { a } = await app();
+    await a.updateSettings({ inspection: false });
+    render(TimerScreen, { app: a });
+    solveComTempo(1000);
+    await waitFor(() => expect(document.querySelector('[data-actions]')).not.toHaveAttribute('hidden'));
+    (document.querySelector('[data-act="note"]') as HTMLElement).focus();
+    key('keydown', 'Space', ' ');
+    expect(document.querySelector('[data-screen="timer"]')).toHaveFocus();
+    await waitFor(() => expect(document.querySelector('[data-actions]')).toHaveAttribute('hidden'));
+  });
+
+  it('depois de cada solve, o quadrado de hoje ganha a classe pop', async () => {
+    const { a } = await app();
+    await a.updateSettings({ inspection: false });
+    render(TimerScreen, { app: a });
+    expect(document.querySelector('[data-heat] .today')).not.toHaveClass('pop');
+    solveComTempo(1000);
+    await waitFor(() => expect(document.querySelector('[data-heat] .today')).toHaveClass('pop'));
+  });
+
+  it('um solve que ficou na fila ganha as ações quando a fila grava', async () => {
+    const { a, repo } = await app();
+    await a.updateSettings({ inspection: false });
+    const gravar = repo.addSolve.bind(repo);
+    let falhas = 1;
+    repo.addSolve = async (s) => {
+      if (falhas > 0) {
+        falhas -= 1;
+        throw new Error('quota');
+      }
+      return gravar(s);
+    };
+    render(TimerScreen, { app: a });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    solveComTempo(1000);
+    await vi.waitFor(() => expect(a.savePending).toBe(1));
+    await vi.waitFor(() => expect(document.querySelector('[data-actions]')).toHaveAttribute('hidden'));
+    await vi.advanceTimersByTimeAsync(3100); // a fila tenta de novo (3 s depois da falha)
+    await vi.waitFor(() => expect(a.savePending).toBe(0));
+    await vi.waitFor(() => expect(document.querySelector('[data-actions]')).not.toHaveAttribute('hidden'));
+    expect(a.solves).toHaveLength(1);
+  });
+
+  it('se excluir falha, as ações continuam na tela', async () => {
+    const { a, repo } = await app();
+    await a.updateSettings({ inspection: false });
+    render(TimerScreen, { app: a });
+    solveComTempo(1000);
+    await waitFor(() => expect(document.querySelector('[data-actions]')).not.toHaveAttribute('hidden'));
+    repo.deleteSolve = async () => { throw new Error('io'); };
+    key('keydown', 'Backspace', 'Backspace');
+    await waitFor(() => expect(a.toast?.text).toBe(T.data.saveFailed));
+    expect(document.querySelector('[data-actions]')).not.toHaveAttribute('hidden');
+    expect(a.solves).toHaveLength(1);
   });
 });
