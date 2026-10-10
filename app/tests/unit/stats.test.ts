@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  achievedIds, averageOf, bestAverage, bestSingle, currentStreak, dayKey, effectiveMs, formatMs, formatSolve,
+  achievedIds, averageOf, bestAverage, bestMean, bestSingle, currentStreak, dayKey, effectiveMs, formatMs, formatSolve,
   meanOf, milestoneProgress, monthHeat, officialAverage, officialAverageLabel, pbFlags, resultKind,
   rollingAverages, solveDeltas, stdDevMs, trimCount,
 } from '../../src/core/stats';
@@ -286,5 +286,53 @@ describe('chip e anel pela média oficial do evento', () => {
     expect(T.chips.vsAvg(-50000, 3)).toBe('▼ 50.00 s vs média de 3');
     expect(T.chips.vsAvg(81670, 3)).toBe('▲ 81.67 s vs média de 3');
     expect(T.chips.vsAvg(-429, 5)).toBe('▼ 0.42 s vs média de 5');
+  });
+});
+
+// Ao5 e Ao12 descartam; o Mo3 não. Por isso o melhor Mo3 não sai de bestAverage(s, 3), que daria a mediana de cada janela.
+describe('bestMean: melhor média simples entre as janelas de n solves', () => {
+  it('é a menor média entre todas as janelas seguidas', () => {
+    // Janelas de 3: 100,00 s / 110,00 s / 103,33 s / 95,00 s.
+    const xs = [90000, 100000, 110000, 120000, 80000, 85000].map((ms) => mk(ms));
+    expect(bestMean(xs, 3)).toBe(95000);
+    expect(bestMean(xs.slice(0, 4), 3)).toBe(100000);
+  });
+
+  it('com menos de n solves é null', () => {
+    expect(bestMean([mk(90000), mk(100000)], 3)).toBeNull();
+    expect(bestMean([], 3)).toBeNull();
+  });
+
+  it('janela com DNF vale Infinity e nunca é a melhor', () => {
+    const dnf = mk(1, 'DNF');
+    // Só a última janela é válida: as duas primeiras têm o DNF.
+    expect(bestMean([mk(90000), dnf, mk(100000), mk(100000), mk(100000)], 3)).toBe(100000);
+  });
+
+  it('sem nenhuma janela válida é null, como bestAverage', () => {
+    const dnf = () => mk(1, 'DNF');
+    expect(bestMean([mk(90000), dnf(), mk(100000)], 3)).toBeNull();
+    expect(bestMean([dnf(), dnf(), dnf(), dnf()], 3)).toBeNull();
+    expect(bestAverage([dnf(), dnf(), dnf(), dnf(), dnf()], 5)).toBeNull();
+  });
+
+  it('conta o +2 e arredonda ao centésimo como meanOf', () => {
+    expect(bestMean([mk(90000), mk(98000, '+2'), mk(100000)], 3)).toBe(96670); // 290000 / 3 = 96666,67
+    expect(bestMean([mk(60001), mk(60002), mk(60004)], 3)).toBe(60000); // 60002,33 vai para baixo
+    expect(bestMean([mk(60007), mk(60008), mk(60009)], 3)).toBe(60010); // 60008 vai para cima
+  });
+
+  it('é média simples: a mediana aparada de bestAverage(s, 3) daria outro valor', () => {
+    // Janelas de 3: médias 235,00 s / 268,33 s / 300,00 s; medianas 105,00 s / 200,00 s / 200,00 s.
+    const xs = [100000, 105000, 500000, 200000, 200000].map((ms) => mk(ms));
+    expect(bestMean(xs, 3)).toBe(235000);
+    expect(bestAverage(xs, 3)).toBe(105000);
+  });
+
+  it('serve a qualquer n e concorda com meanOf na última janela', () => {
+    const xs = [70000, 60000, 65000, 62000, 61000, 90000].map((ms) => mk(ms));
+    expect(bestMean(xs, 5)).toBe(Math.min(meanOf(xs.slice(0, 5), 5)!, meanOf(xs, 5)!));
+    expect(bestMean(xs, 6)).toBe(meanOf(xs, 6));
+    expect(bestMean(xs, 7)).toBeNull();
   });
 });

@@ -145,6 +145,17 @@ export function meanOf(solves: Solve[], n: number): number | null {
   return toCentisecond(eff.reduce((a, b) => a + b, 0) / n);
 }
 
+// Melhor Mo n: a menor média simples entre as janelas de n solves seguidos (o equivalente de bestAverage para o Mo3).
+// Como em bestAverage, janela com DNF não conta; sem nenhuma janela válida (menos de n solves, ou todas com DNF), null.
+export function bestMean(solves: Solve[], n: number): number | null {
+  let best: number | null = null;
+  for (let end = n; end <= solves.length; end++) {
+    const v = meanOf(solves.slice(end - n, end), n);
+    if (v !== null && v !== Infinity && (best === null || v < best)) best = v;
+  }
+  return best;
+}
+
 // Média oficial do evento: Mo3 no 6×6 e no 7×7, Ao5 nos demais (o catálogo diz qual).
 export function officialAverageLabel(event: EventId): { n: number; kind: 'ao' | 'mo' } {
   return eventInfo(event).average === 'mo3' ? { n: 3, kind: 'mo' } : { n: 5, kind: 'ao' };
