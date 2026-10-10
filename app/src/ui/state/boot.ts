@@ -9,7 +9,8 @@ import { AppState } from './app.svelte';
 export async function boot(): Promise<AppState> {
   const repo = createRepository(await openKlickDb());
   const queue = createScrambleQueue({ generate: (event) => generateScramble(event) });
-  const app = new AppState({ repo, queue });
+  // A conexão nova para quando o iOS derruba a antiga (o AppState chama isto ao receber um erro de conexão).
+  const app = new AppState({ repo, queue, reopen: async () => createRepository(await openKlickDb()) });
   await app.init();
   return app;
 }

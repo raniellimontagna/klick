@@ -1299,3 +1299,68 @@ describe('repositório: exportar e importar', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Brief 9b, regra 1: o id do solve é de quem grava (a fila de gravação o põe antes da primeira tentativa), e repetir a
+// gravação com o mesmo id não duplica nem lança ConstraintError.
+
+describe('repositório: id estável do solve', () => {
+  beforeEach(() => {
+    t = 1_791_500_000_000;
+  });
+
+  it('usa o id que vier no NewSolve', async () => {
+    const repo = await fresh();
+    const s = await repo.createSession({ event: '333' });
+    const solve = await repo.addSolve({ ...ns(s.id, 60000, 1000), id: 'solve-fixo' });
+    expect(solve.id).toBe('solve-fixo');
+    expect((await repo.listSolves()).map((x) => x.id)).toEqual(['solve-fixo']);
+  });
+
+  it('addSolve duas vezes com o mesmo id: um registro só, sem erro, e o createdAt do primeiro', async () => {
+    const repo = await fresh();
+    const s = await repo.createSession({ event: '333' });
+    const first = await repo.addSolve({ ...ns(s.id, 60000, 1000), id: 'solve-fixo' });
+    t += 5000;
+    const again = await repo.addSolve({ ...ns(s.id, 60000, 1000), id: 'solve-fixo' });
+    expect(again).toEqual(first);
+    expect(again.createdAt).toBe(first.createdAt);
+    expect(again.updatedAt).toBe(first.updatedAt);
+    expect(await repo.listSolves({ includeDeleted: true })).toHaveLength(1);
+  });
+
+  it('o mesmo id com outro conteúdo grava o conteúdo novo, mantém o createdAt e põe o updatedAt agora', async () => {
+    const repo = await fresh();
+    const s = await repo.createSession({ event: '333' });
+    const first = await repo.addSolve({ ...ns(s.id, 60000, 1000), id: 'solve-fixo' });
+    t += 5000;
+    const again = await repo.addSolve({ ...ns(s.id, 61000, 1000), id: 'solve-fixo' });
+    expect(again).toMatchObject({ ms: 61000, createdAt: first.createdAt, updatedAt: t });
+    expect(await repo.listSolves()).toEqual([again]);
+  });
+
+  it('repetir a gravação de um solve excluído não o devolve à lista', async () => {
+    const repo = await fresh();
+    const s = await repo.createSession({ event: '333' });
+    const first = await repo.addSolve({ ...ns(s.id, 60000, 1000), id: 'solve-fixo' });
+    await repo.deleteSolve(first.id);
+    const again = await repo.addSolve({ ...ns(s.id, 60000, 1000), id: 'solve-fixo' });
+    expect(again.deletedAt).not.toBeNull();
+    expect(await repo.listSolves()).toEqual([]);
+    expect((await repo.listTrash()).solves.map((x) => x.id)).toEqual(['solve-fixo']);
+  });
+
+  it('a repetição avisa a outra aba, para ela não ficar sem o solve', async () => {
+    const b = bus();
+    const name = `klick-test-${++dbn}`;
+    const tabA = createRepository(await openKlickDb(name), { now, channel: b.make() });
+    const tabB = createRepository(await openKlickDb(name), { now, channel: b.make() });
+    const s = await tabA.createSession({ event: '333' });
+    await tabA.addSolve({ ...ns(s.id, 60000, 1000), id: 'solve-fixo' });
+    const seen: string[] = [];
+    tabB.onChange((k) => seen.push(k));
+    await tabA.addSolve({ ...ns(s.id, 60000, 1000), id: 'solve-fixo' });
+    expect(seen).toEqual(['solves']);
+    expect((await tabB.listSolves()).map((x) => x.id)).toEqual(['solve-fixo']);
+  });
+});

@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { openKlickDb } from '../../src/data/db';
 import { createRepository, type Repository } from '../../src/data/repository';
+import { createBackup } from '../../src/data/safety';
+import type { Solve } from '../../src/core/types';
 import { createScrambleQueue } from '../../src/scramble/queue';
 import { T } from '../../src/strings';
-import { AppState } from '../../src/ui/state/app.svelte';
+import { AppState, type AppDeps } from '../../src/ui/state/app.svelte';
 
 let n = 0;
 let t = 1_791_500_000_000;
@@ -180,7 +182,7 @@ describe('estado do app', () => {
     release();
     await booting;
     expect(app.sessions.map((s) => s.event)).toEqual(['333', 'sq1']);
-    expect(app.scramble).toBe('333-1');
+    await vi.waitFor(() => expect(app.scramble).toBe('333-1'));
   });
 
   it('init não espera o primeiro embaralhamento: a casca aparece em branco e ele chega depois', async () => {
@@ -285,5 +287,317 @@ describe('estado do app', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Brief 9b: robustez do estado (regras 1 a 3, 6, 7 e 9). Cada caso usa o próprio banco e o próprio relógio falso.
+
+const freshRepo = async (): Promise<Repository> => createRepository(await openKlickDb(`app-${++n}`), { now, channel: null });
+const appWith = async (repo: Repository, extra: Partial<AppDeps> = {}): Promise<AppState> => {
+  const app = new AppState({ repo, queue: fakeQueue(), now, storage: null, storageManager: null, ...extra });
+  await app.init();
+  return app;
+};
+const dbError = (name: string): Error => Object.assign(new Error(name), { name });
+const newSolve = (ms: number, at = t) => ({ ms, penalty: null, at });
+
+describe('estado do app: robustez (brief 9b)', () => {
+  beforeEach(() => { t = 1_791_500_000_000; });
+
+  // Regra 1: o id é de quem grava, e a nova tentativa grava com ele.
+  it('falha depois de gravar: a nova tentativa usa o mesmo id e o solve fica uma vez em listSolves() e em app.solves', async () => {
+    const repo = await freshRepo();
+    const app = await appWith(repo);
+    const original = repo.addSolve.bind(repo);
+    let firstTry = true;
+    repo.addSolve = async (s) => {
+      const saved = await original(s);
+      if (firstTry) {
+        firstTry = false;
+        throw new Error('resposta perdida');
+      }
+      return saved;
+    };
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      expect(await app.addSolve(newSolve(60000))).toBeNull();
+      expect(app.savePending).toBe(1);
+      await vi.advanceTimersByTimeAsync(3000);
+      await vi.waitFor(() => expect(app.savePending).toBe(0));
+      await vi.waitFor(() => expect(app.solves).toHaveLength(1));
+      expect(await repo.listSolves()).toHaveLength(1);
+      expect(app.meta?.solvesSinceBackup).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Regra 2: reabrir o banco quando a conexão morreu.
+  it('InvalidStateError: reabre uma vez, troca o repositório e a fila grava no novo', async () => {
+    const broken = await freshRepo();
+    const healthy = await freshRepo();
+    const reopen = vi.fn(async () => healthy);
+    const app = await appWith(broken, { reopen });
+    broken.addSolve = async () => { throw dbError('InvalidStateError'); };
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      expect(await app.addSolve(newSolve(60000))).toBeNull();
+      await vi.waitFor(() => expect(reopen).toHaveBeenCalledTimes(1));
+      await vi.advanceTimersByTimeAsync(3000);
+      await vi.waitFor(() => expect(app.savePending).toBe(0));
+      await vi.waitFor(() => expect(app.solves).toHaveLength(1));
+      expect(await healthy.listSolves()).toHaveLength(1);
+      expect(reopen).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('UnknownError e TransactionInactiveError também reabrem o banco', async () => {
+    for (const name of ['UnknownError', 'TransactionInactiveError']) {
+      const broken = await freshRepo();
+      const reopen = vi.fn(async () => broken);
+      const app = await appWith(broken, { reopen });
+      broken.addSolve = async () => { throw dbError(name); };
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        expect(await app.addSolve(newSolve(60000))).toBeNull();
+        await vi.waitFor(() => expect(reopen).toHaveBeenCalledTimes(1));
+      } finally {
+        vi.useRealTimers();
+      }
+    }
+  });
+
+  it('reopen que falha: o repositório antigo segue, a fila tenta de novo nele e o aviso continua até gravar', async () => {
+    const repo = await freshRepo();
+    const reopen = vi.fn(async () => { throw new Error('sem banco'); });
+    const app = await appWith(repo, { reopen });
+    const original = repo.addSolve.bind(repo);
+    let failOnce = true;
+    repo.addSolve = async (s) => {
+      if (failOnce) {
+        failOnce = false;
+        throw dbError('UnknownError');
+      }
+      return original(s);
+    };
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      expect(await app.addSolve(newSolve(60000))).toBeNull();
+      await vi.waitFor(() => expect(reopen).toHaveBeenCalledTimes(1));
+      expect(app.savePending).toBe(1);
+      await vi.advanceTimersByTimeAsync(3000);
+      await vi.waitFor(() => expect(app.savePending).toBe(0));
+      await vi.waitFor(() => expect(app.solves).toHaveLength(1));
+      expect(await repo.listSolves()).toHaveLength(1);
+      expect(reopen).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('uma reabertura em andamento é reaproveitada: a segunda falha não abre outra conexão', async () => {
+    const broken = await freshRepo();
+    const healthy = await freshRepo();
+    let finishOpen!: () => void;
+    const gate = new Promise<void>((resolve) => { finishOpen = resolve; });
+    const reopen = vi.fn(async () => {
+      await gate;
+      return healthy;
+    });
+    const app = await appWith(broken, { reopen });
+    broken.addSolve = async () => { throw dbError('InvalidStateError'); };
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      expect(await app.addSolve(newSolve(60000))).toBeNull();
+      await vi.waitFor(() => expect(reopen).toHaveBeenCalledTimes(1));
+      await vi.advanceTimersByTimeAsync(3000); // a nova tentativa falha de novo, enquanto a reabertura ainda não terminou
+      expect(app.savePending).toBe(1);
+      expect(reopen).toHaveBeenCalledTimes(1);
+      finishOpen();
+      await vi.advanceTimersByTimeAsync(3000);
+      await vi.waitFor(() => expect(app.savePending).toBe(0));
+      await vi.waitFor(() => expect(app.solves).toHaveLength(1));
+      expect(await healthy.listSolves()).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('erro que não é de conexão (cota cheia) não reabre o banco', async () => {
+    const repo = await freshRepo();
+    const reopen = vi.fn(async () => repo);
+    const app = await appWith(repo, { reopen });
+    repo.addSolve = async () => { throw dbError('QuotaExceededError'); };
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      expect(await app.addSolve(newSolve(60000))).toBeNull();
+      expect(app.savePending).toBe(1);
+      expect(reopen).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Regra 3: vigia de gravação em voo.
+  it('uma gravação presa por mais de 5 s liga saveStalled, anuncia o aviso e pede a reabertura; ao gravar, volta a false', async () => {
+    const repo = await freshRepo();
+    const healthy = await freshRepo();
+    const reopen = vi.fn(async () => healthy);
+    const app = await appWith(repo, { reopen });
+    const original = repo.addSolve.bind(repo);
+    let release!: () => void;
+    repo.addSolve = (s) =>
+      new Promise<Solve>((resolve, reject) => {
+        release = () => void original(s).then(resolve, reject);
+      });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      void app.addSolve(newSolve(60000));
+      await vi.advanceTimersByTimeAsync(4999);
+      expect(app.saveStalled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(app.saveStalled).toBe(true);
+      expect(reopen).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(50);
+      expect(app.live).toBe(T.data.saveFailed);
+      release();
+      await vi.waitFor(() => expect(app.saveStalled).toBe(false));
+      expect(app.savePending).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Regra 6: exportação de emergência.
+  it('exportData inclui o solve que ainda não foi gravado, com o id que ele receberia', async () => {
+    const { app, repo } = await setup();
+    repo.addSolve = async () => { throw new Error('quota'); };
+    expect(await app.addSolve(newSolve(60000))).toBeNull();
+    const data = await app.exportData();
+    expect(data).toMatchObject({ format: 'klick', version: 1 });
+    expect(data.solves).toHaveLength(1);
+    expect(data.solves[0]).toMatchObject({ ms: 60000, scramble: '333-1', event: '333', note: '', createdAt: t, updatedAt: t, deletedAt: null });
+    expect(data.solves[0].id).toMatch(/^[0-9a-z]{17}$/);
+  });
+
+  it('exportData não duplica o solve que o banco já tem, quando a gravação só pareceu falhar', async () => {
+    const { app, repo } = await setup();
+    const original = repo.addSolve.bind(repo);
+    repo.addSolve = async (s) => {
+      await original(s);
+      throw new Error('resposta perdida');
+    };
+    expect(await app.addSolve(newSolve(60000))).toBeNull();
+    const data = await app.exportData();
+    expect(data.solves.map((x) => x.ms)).toEqual([60000]);
+    expect((await repo.listSolves()).map((x) => x.id)).toEqual([data.solves[0].id]);
+  });
+
+  it('com o banco quebrado em exportAll, exportData devolve os solves da memória, o pendente e o perfil da memória', async () => {
+    const { app, repo } = await setup();
+    await app.addSolve(newSolve(61000));
+    repo.addSolve = async () => { throw new Error('quota'); };
+    await app.addSolve(newSolve(62000, t + 1));
+    repo.exportAll = async () => { throw new Error('banco quebrado'); };
+    const data = await app.exportData();
+    expect(data.solves.map((x) => x.ms)).toEqual([61000, 62000]);
+    expect(data.sessions.map((x) => x.id)).toEqual(app.sessions.map((x) => x.id));
+    expect(data.profile).toEqual(app.profile);
+  });
+
+  it('com o banco travado (exportAll não responde), exportData desiste em 5 s e devolve o da memória', async () => {
+    const { app, repo } = await setup();
+    await app.addSolve(newSolve(61000));
+    repo.addSolve = async () => { throw new Error('quota'); };
+    await app.addSolve(newSolve(62000, t + 1));
+    repo.exportAll = () => new Promise<never>(() => {});
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const exporting = app.exportData();
+      await vi.advanceTimersByTimeAsync(4999);
+      let done = false;
+      void exporting.then(() => { done = true; });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(done).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      const data = await exporting;
+      expect(data.solves.map((x) => x.ms)).toEqual([61000, 62000]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Regra 7: restaurar cópia pelo estado.
+  it('restoreFromBackup com solve que não foi gravado recusa com aviso, devolve false e não mexe no banco', async () => {
+    const { app, repo } = await setup();
+    await app.addSolve(newSolve(61000));
+    const backup = await createBackup(repo, 'manual', t);
+    repo.addSolve = async () => { throw new Error('quota'); };
+    await app.addSolve(newSolve(62000, t + 1));
+    expect(app.savePending).toBe(1);
+    expect(await app.restoreFromBackup(backup.id)).toBe(false);
+    expect(app.toast?.text).toBe(T.data.restoreBlocked);
+    expect((await repo.listSolves()).map((x) => x.ms)).toEqual([61000]);
+    expect(app.savePending).toBe(1);
+  });
+
+  it('restoreFromBackup sem pendentes restaura a cópia, recarrega o estado e devolve true', async () => {
+    const { app, repo } = await setup();
+    await app.addSolve(newSolve(60000));
+    const backup = await createBackup(repo, 'manual', t);
+    await app.addSolve(newSolve(61000, t + 1));
+    expect(app.solves).toHaveLength(2);
+    expect(await app.restoreFromBackup(backup.id)).toBe(true);
+    expect(app.solves.map((x) => x.ms)).toEqual([60000]);
+    expect((await repo.listSolves()).map((x) => x.ms)).toEqual([60000]);
+  });
+
+  it('restoreFromBackup propaga o erro de restoreBackup (cópia que não existe)', async () => {
+    const { app } = await setup();
+    await expect(app.restoreFromBackup('nao-existe')).rejects.toThrow('Cópia não encontrada');
+  });
+
+  // Regra 9: sobras da revisão da 9a.
+  it('apagar a sessão atual zera o embaralhamento antes de gravar, como trocar de sessão', async () => {
+    const { app } = await setup();
+    expect(app.scramble).toBe('333-1');
+    const deleting = app.deleteSession(app.currentSession!.id);
+    expect(app.scramble).toBe('');
+    await deleting;
+    expect(app.scramble).toMatch(/^333-\d+$/);
+  });
+
+  it('apagar uma sessão que não é a atual não mexe no embaralhamento', async () => {
+    const { app } = await setup();
+    await app.createSession('sq1');
+    expect(app.scramble).toMatch(/^sq1-\d+$/);
+    const other = app.sessions.find((s) => s.event === '333')!;
+    await app.deleteSession(other.id);
+    expect(app.scramble).toMatch(/^sq1-\d+$/);
+  });
+
+  it('a cópia do dia roda em segundo plano: uma cópia lenta não segura o fim do init', async () => {
+    const repo = await freshRepo();
+    const first = await appWith(repo);
+    await first.addSolve(newSolve(60000)); // solvesSinceBackup = 1 e nenhuma cópia hoje: o próximo init pede a cópia do dia
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const saveBackup = repo.saveBackup.bind(repo);
+    let started = 0;
+    repo.saveBackup = async (record) => {
+      started++;
+      await gate;
+      return saveBackup(record);
+    };
+    const second = await appWith(repo); // se o init esperasse a cópia, este await não voltaria
+    expect(second.scramble).toBe('333-1');
+    await vi.waitFor(() => expect(started).toBe(1));
+    expect(await repo.listBackups()).toEqual([]);
+    release();
+    await vi.waitFor(async () => expect(await repo.listBackups()).toHaveLength(1));
+    expect((await repo.listBackups())[0].reason).toBe('daily');
   });
 });

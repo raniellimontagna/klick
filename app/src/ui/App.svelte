@@ -6,6 +6,9 @@
   import type { AppState, Tab } from './state/app.svelte';
   import { boot } from './state/boot';
 
+  // Quanto o boot pode demorar antes de a casca desistir e mostrar o aviso de banco indisponível.
+  const BOOT_DEADLINE_MS = 8000;
+
   const TABS: readonly { id: Tab; label: string }[] = [
     { id: 'timer', label: T.tabs.timer },
     { id: 'evolucao', label: T.tabs.evolucao },
@@ -30,13 +33,32 @@
     return () => query?.removeEventListener('change', sync);
   });
 
-  // Enquanto boot() não termina, só o fundo aparece. Se ele falha (o navegador bloqueou o IndexedDB), a mensagem sai no lugar.
-  onMount(async () => {
-    try {
-      app = await boot();
-    } catch {
-      failed = true;
-    }
+  // Enquanto boot() não termina, só o fundo aparece. Se ele falha (o navegador bloqueou o IndexedDB), ou não termina no prazo,
+  // a mensagem sai no lugar. Se ele termina depois do prazo, a casca aparece no lugar da mensagem.
+  onMount(() => {
+    const deadline: ReturnType<typeof setTimeout> = setTimeout(() => {
+      if (!app) failed = true;
+    }, BOOT_DEADLINE_MS);
+    boot()
+      .then((ready) => {
+        app = ready;
+      })
+      .catch(() => {
+        failed = true;
+      })
+      .finally(() => clearTimeout(deadline));
+    return () => clearTimeout(deadline);
+  });
+
+  // Fechar a aba com solve que não foi gravado: o navegador pede confirmação. Sem nada pendente, fecha sem perguntar.
+  onMount(() => {
+    const confirmLeave = (e: BeforeUnloadEvent): void => {
+      if (!app?.unsaved) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', confirmLeave);
+    return () => window.removeEventListener('beforeunload', confirmLeave);
   });
 
   function go(tab: Tab): void {
@@ -103,7 +125,7 @@
       {/each}
     </nav>
 
-    <div class="toast" role="status" hidden={!app.toast}>
+    <div class="toast" hidden={!app.toast}>
       <span>{app.toast?.text ?? ''}</span>
       {#if app.toast?.action}
         <button type="button" onclick={() => app?.toast?.onAction?.()}>{app.toast.action}</button>

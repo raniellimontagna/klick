@@ -7,7 +7,8 @@ import { dayKey } from '../../core/stats';
 import { defaultSettings } from '../../core/types';
 import type { EventId, Meta, Penalty, Profile, Session, Settings, Solve } from '../../core/types';
 import { backupFileName, type DirHandleLike, saveToFolder } from '../../data/folder';
-import type { Repository } from '../../data/repository';
+import { newId } from '../../data/ids';
+import type { KlickExport, NewSolve, Repository } from '../../data/repository';
 import {
   countSolveSaved,
   createBackup,
@@ -15,6 +16,8 @@ import {
   planAfterSolve,
   planOnOpen,
   requestPersistence,
+  restoreBackup,
+  type SafetyPlan,
   type SaveQueue,
   type StorageLike,
   TRASH_MS,
@@ -36,6 +39,7 @@ export interface AppDeps {
   now?: () => number;
   storage?: Pick<Storage, 'getItem'> | null; // para achar dados da v1 (padrão: localStorage, ou null)
   storageManager?: StorageLike | null; // armazenamento persistente (padrão: navigator.storage)
+  reopen?: () => Promise<Repository>; // abre uma conexão nova com o banco; sem ela, uma conexão morta não é trocada
 }
 
 const DEFAULT_EVENT: EventId = '333';
@@ -45,10 +49,25 @@ const LIVE_DELAY_MS = 50; // o leitor de tela só anuncia de novo se o texto mud
 // Quanto a abertura espera pelo primeiro embaralhamento. Se o cubing demora mais, a casca aparece em branco e o embaralhamento
 // chega depois, pela reatividade.
 const FIRST_SCRAMBLE_WAIT_MS = 150;
+// Uma gravação em voo por mais tempo que isto está presa (o IndexedDB não respondeu): a pessoa vê o aviso fixo e o banco é reaberto.
+const STALL_MS = 5000;
+// Erros que dizem que a conexão morreu (o iOS derruba a conexão com o app em segundo plano). Cota cheia não está nesta lista.
+const CONNECTION_ERRORS: readonly string[] = ['InvalidStateError', 'UnknownError', 'TransactionInactiveError'];
 
 const compareId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 // A ordem do repositório: o instante e, empatando, o id.
 const bySolveTime = (a: Solve, b: Solve): number => a.at - b.at || compareId(a.id, b.id);
+
+const isConnectionError = (err: unknown): boolean => {
+  const name = typeof err === 'object' && err !== null ? (err as { name?: unknown }).name : undefined;
+  return typeof name === 'string' && CONNECTION_ERRORS.includes(name);
+};
+
+// Junta os solves gravados com os que a fila ainda segura, na ordem de tempo, sem repetir um id que já está.
+const withPending = (stored: Solve[], pending: Solve[]): Solve[] => {
+  const ids = new Set(stored.map((solve) => solve.id));
+  return [...stored, ...pending.filter((solve) => !ids.has(solve.id))].sort(bySolveTime);
+};
 
 // Sem a API de mídia (fora do navegador), a resposta é "não".
 const mediaMatches = (query: string): boolean => typeof matchMedia === 'function' && matchMedia(query).matches;
@@ -98,15 +117,19 @@ export class AppState {
   scramble = $state(''); // embaralhamento atual do evento da sessão; '' enquanto gera
   scrambleError = $state(false); // true se o gerador falhou
   savePending = $state(0); // solves esperando gravação
+  saveStalled = $state(false); // uma gravação está presa há mais de STALL_MS (a tela mostra o aviso fixo junto com savePending)
   toast = $state<Toast | null>(null);
   live = $state(''); // texto da região aria-live
   dialog = $state<DialogId | null>(null);
   v1Available = $state(false); // há dados da v1 ainda não oferecidos
   exportReminder = $state(false); // mostrar o lembrete de exportar
 
-  private readonly repo: Repository;
+  private repo: Repository; // troca quando a conexão é reaberta (useRepo)
   private readonly queue: ScrambleQueue;
   private readonly now: () => number;
+  private readonly reopenDb: (() => Promise<Repository>) | undefined;
+  private unsubscribe: (() => void) | null = null;
+  private reopening: Promise<void> | null = null; // a reabertura em andamento, reaproveitada por quem pede enquanto ela não termina
   private readonly storage: Pick<Storage, 'getItem'> | null;
   private readonly storageManager: StorageLike | null;
   private readonly saves: SaveQueue;
@@ -123,10 +146,11 @@ export class AppState {
     this.repo = deps.repo;
     this.queue = deps.queue;
     this.now = deps.now ?? (() => Date.now());
+    this.reopenDb = deps.reopen;
     this.storage = deps.storage === undefined ? defaultStorage() : deps.storage;
     this.storageManager = deps.storageManager === undefined ? defaultStorageManager() : deps.storageManager;
-    // A arrow function: a fila grava pelo addSolve atual do repositório, não pelo que existia quando ela foi criada.
-    this.saves = createSaveQueue((s) => this.repo.addSolve(s), {
+    // A arrow function: a fila grava pelo repositório atual, não pelo que existia quando ela foi criada.
+    this.saves = createSaveQueue((s) => this.saveWatched(s), {
       // A fila só avisa numa falha (n > 0) e quando esvazia depois dela (0). Nos dois casos o número é o que ela tem agora.
       onChange: (pending) => {
         const before = this.savePending;
@@ -141,7 +165,16 @@ export class AppState {
         this.savePending = this.saves.pending();
         void this.recordSaved(s);
       },
+      // Conexão morta: reabre o banco antes da nova tentativa da fila, que já grava pelo repositório que estiver em uso.
+      onSaveError: (err) => {
+        if (isConnectionError(err)) void this.reopenRepo();
+      },
     });
+  }
+
+  // Há solve que ainda não foi gravado (na fila) ou uma gravação presa: fechar a aba perderia o que está só na memória.
+  get unsaved(): boolean {
+    return this.saves.pending() > 0 || this.saveStalled;
   }
 
   get currentSession(): Session | null {
@@ -169,15 +202,11 @@ export class AppState {
     await this.reload();
     // Assina antes do primeiro embaralhamento: a espera pelo cubing pode ser longa, e uma mudança de outra aba nesse tempo não
     // pode ficar de fora. As leituras que as próprias escritas disparam entram na fila; a última espera por elas no fim.
-    this.repo.onChange(() => {
-      void this.refresh();
-    });
+    this.subscribe();
     await this.ensureSession();
     const meta = this.meta ?? (await this.repo.getMeta());
     const folder = await this.folderConfigured();
     const plan = planOnOpen(meta, this.now(), folder);
-    if (plan.backup) await this.backup(plan.backup);
-    if (plan.folderSave) await this.copyToFolder();
     try {
       await this.repo.purgeTrash(TRASH_MS);
     } catch {
@@ -196,6 +225,14 @@ export class AppState {
     }
     this.queue.prefetch(this.event);
     await this.reload();
+    // As cópias do dia e da pasta vêm depois do primeiro embaralhamento e rodam em segundo plano: uma cópia grande não segura a
+    // casca. backup() e copyToFolder() já tratam as próprias falhas (com aviso); o catch só evita uma rejeição sem dono.
+    void this.openingCopies(plan).catch(() => undefined);
+  }
+
+  private async openingCopies(plan: SafetyPlan): Promise<void> {
+    if (plan.backup) await this.backup(plan.backup);
+    if (plan.folderSave) await this.copyToFolder();
   }
 
   // Relê sessões, solves, perfil e meta do banco. Na mesma fila que as contas, então nunca fica por cima de um solve novo.
@@ -239,6 +276,7 @@ export class AppState {
       return null;
     }
     const solve = await this.saves.enqueue({
+      id: newId(this.now()), // o id é de quem grava: as tentativas seguintes usam este mesmo, e a gravação não duplica
       sessionId: session.id,
       event: session.event,
       ms: r.ms,
@@ -307,10 +345,53 @@ export class AppState {
 
   // Se a sessão apagada era a atual, a primeira que sobrou assume (ou uma de 3×3 nova, se não sobrou nenhuma).
   async deleteSession(id: string): Promise<void> {
+    const wasCurrent = id === this.profile.currentSessionId;
+    if (wasCurrent) this.clearScramble(); // antes da gravação, como em createSession e switchSession
     const ok = await this.write(() => this.repo.deleteSession(id));
     await this.refresh();
-    if (!ok || this.currentSession) return;
-    if (await this.write(() => this.ensureSession())) await this.nextScramble();
+    const replaced = ok && !this.currentSession && (await this.write(() => this.ensureSession()));
+    if (wasCurrent || replaced) await this.nextScramble();
+  }
+
+  // Troca tudo pela cópia escolhida. Antes, a fila precisa estar vazia: um solve que ainda não foi gravado ficaria de fora da troca,
+  // e uma gravação presa nunca termina, então com ela a troca é recusada direto.
+  async restoreFromBackup(id: string): Promise<boolean> {
+    if (!this.saveStalled) await this.saves.flush();
+    if (this.saveStalled || this.saves.pending() > 0) {
+      this.showToast(T.data.restoreBlocked);
+      return false;
+    }
+    await restoreBackup(this.repo, id, this.now());
+    await this.reload();
+    await this.nextScramble(); // a cópia pode ter trazido outra sessão, de outro evento
+    return true;
+  }
+
+  // Exportação de emergência: o que está gravado no banco, mais o que a fila ainda segura (com os mesmos ids). Se o banco falha
+  // ou não responde em STALL_MS (IndexedDB travado), o que está na memória é o que a pessoa viu por último.
+  async exportData(): Promise<KlickExport> {
+    const pending = this.saves.pendingItems().map((s) => this.solveOf(s));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const stored = await Promise.race([
+        this.repo.exportAll(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('exportAll não respondeu a tempo')), STALL_MS);
+        }),
+      ]);
+      return { ...stored, solves: withPending(stored.solves, pending) };
+    } catch {
+      return {
+        format: 'klick',
+        version: 1,
+        exportedAt: this.now(),
+        sessions: $state.snapshot(this.sessions),
+        solves: withPending($state.snapshot(this.solves), pending),
+        profile: $state.snapshot(this.profile),
+      };
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async updateSettings(patch: Partial<Settings>): Promise<void> {
@@ -403,6 +484,73 @@ export class AppState {
     if (action && this.toast?.onAction === action) this.toast = null;
   }
 
+  // Um solve da fila como ele seria gravado (exportação de emergência): as datas são o instante do solve.
+  private solveOf(s: NewSolve): Solve {
+    const at = Number.isFinite(s.at) ? s.at : this.now();
+    return {
+      id: s.id ?? newId(this.now()),
+      sessionId: s.sessionId,
+      event: s.event,
+      ms: s.ms,
+      penalty: s.penalty,
+      at,
+      scramble: s.scramble,
+      note: '',
+      createdAt: at,
+      updatedAt: at,
+      deletedAt: null,
+    };
+  }
+
+  // Uma gravação em voo. Passado STALL_MS sem resposta, o aviso fixo sai e o banco é reaberto; a gravação continua esperando, e o
+  // solve segue na fila até ela responder (nada se perde). Quando ela responde, o aviso sai.
+  private async saveWatched(s: NewSolve): Promise<Solve> {
+    const stall: ReturnType<typeof setTimeout> = setTimeout(() => this.stalled(), STALL_MS);
+    try {
+      return await this.repo.addSolve(s);
+    } finally {
+      clearTimeout(stall);
+      this.saveStalled = false;
+    }
+  }
+
+  private stalled(): void {
+    this.saveStalled = true;
+    this.announce(T.data.saveFailed);
+    void this.reopenRepo();
+  }
+
+  // Uma reabertura por vez: quem pede enquanto ela não termina recebe a mesma. Se falha, o repositório antigo segue.
+  private reopenRepo(): Promise<void> {
+    const open = this.reopenDb;
+    if (!open) return Promise.resolve();
+    if (!this.reopening) {
+      this.reopening = Promise.resolve()
+        .then(open)
+        .then((next) => this.useRepo(next))
+        .catch(() => undefined) // sem conexão nova, a fila tenta de novo com o repositório que tem e o aviso fixo continua
+        .finally(() => {
+          this.reopening = null;
+        });
+    }
+    return this.reopening;
+  }
+
+  // Troca o repositório pela conexão nova. A leitura que vem depois traz o que outra aba gravou enquanto a conexão antiga estava morta.
+  private useRepo(next: Repository): void {
+    this.repo = next;
+    this.subscribe();
+    void this.refresh();
+  }
+
+  // Um só ouvinte de mudanças, do repositório atual: trocar o repositório tira o ouvinte do antigo.
+  private subscribe(): void {
+    this.unsubscribe?.();
+    this.unsubscribe = this.repo.onChange(() => {
+      void this.refresh();
+    });
+  }
+
   // Sem sessão atual (a gravada sumiu, ou o banco estava vazio): escolhe a primeira, ou cria uma de 3×3, e grava a escolha.
   private async ensureSession(): Promise<Session> {
     const current = this.currentSession;
@@ -440,7 +588,7 @@ export class AppState {
 
   // Um solve que já está na lista não entra de novo (a leitura pode tê-lo trazido antes).
   private upsertSolve(solve: Solve): void {
-    if (this.solves.some((s) => s.id === solve.id)) return;
+    if (solve.deletedAt !== null || this.solves.some((s) => s.id === solve.id)) return;
     this.solves = [...this.solves, solve].sort(bySolveTime);
   }
 

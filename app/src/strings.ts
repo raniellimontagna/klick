@@ -117,6 +117,7 @@ export const T = Object.freeze({
     saveFailed: 'Não consegui salvar. Exporte seus dados agora.',
     readFailed: 'Não consegui ler seus dados. Recarregue a página.',
     saved: 'Tudo salvo.',
+    restoreBlocked: 'Ainda há solves sem salvar. Exporte antes de restaurar.',
   },
   season: (done: number, finish: string) => `Temporada 1 · ${done} de 9 marcos · acabamento ${finish}`,
 });
