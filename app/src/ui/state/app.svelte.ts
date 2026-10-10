@@ -6,7 +6,8 @@
 import { dayKey } from '../../core/stats';
 import { defaultSettings } from '../../core/types';
 import type { EventId, Meta, Penalty, Profile, Session, Solve } from '../../core/types';
-import { backupFileName, type DirHandleLike, saveToFolder } from '../../data/folder';
+import type { BackupRecord } from '../../data/db';
+import { backupFileName, type DirHandleLike, pickFolder, saveToFolder } from '../../data/folder';
 import { newId } from '../../data/ids';
 import type { KlickExport, NewSolve, ProfilePatch, Repository } from '../../data/repository';
 import {
@@ -15,16 +16,27 @@ import {
   createSaveQueue,
   planAfterSolve,
   planOnOpen,
+  type PersistResult,
   requestPersistence,
   restoreBackup,
   type SafetyPlan,
   type SaveQueue,
   type StorageLike,
+  storageStatus as readStorage,
   TRASH_MS,
 } from '../../data/safety';
-import { readV1, toKlickJson } from '../../data/transfer';
+import {
+  type CsTimerSession,
+  csTimerToKlick,
+  readV1,
+  readV1Invalid,
+  toCsTimerJson,
+  toKlickJson,
+  v1ToKlick,
+} from '../../data/transfer';
 import type { ScrambleQueue } from '../../scramble/queue';
 import { T, TRAIL } from '../../strings';
+import { downloadText } from '../download';
 
 export type Tab = 'timer' | 'evolucao' | 'companion' | 'ajustes';
 export type DialogId = 'sessions' | 'shortcuts' | 'onboarding' | 'export' | 'import' | 'backups' | 'trash' | 'install';
@@ -40,6 +52,20 @@ export interface AppDeps {
   storage?: Pick<Storage, 'getItem'> | null; // para achar dados da v1 (padrão: localStorage, ou null)
   storageManager?: StorageLike | null; // armazenamento persistente (padrão: navigator.storage)
   reopen?: () => Promise<Repository>; // abre uma conexão nova com o banco; sem ela, uma conexão morta não é trocada
+}
+
+export type ExportFormat = 'klick' | 'cstimer';
+// Uma exportação que o navegador não baixou: o texto vai para o ExportDialog, que a pessoa copia.
+export interface PendingExport {
+  format: ExportFormat;
+  text: string;
+}
+// O que uma importação trouxe, para o resumo: solves gravados, os que já existiam e o que ficou de fora.
+export interface ImportSummary {
+  solves: number;
+  existing: number;
+  skippedSessions: number; // sessões sem evento (csTimer) ou de um puzzle que o Klick não tem (versão anterior)
+  unreadable: number; // registros da versão anterior que não puderam ser lidos
 }
 
 const DEFAULT_EVENT: EventId = '333';
@@ -132,6 +158,7 @@ export class AppState {
   dialog = $state<DialogId | null>(null);
   v1Available = $state(false); // há dados da v1 ainda não oferecidos
   exportReminder = $state(false); // mostrar o lembrete de exportar
+  pendingExport = $state<PendingExport | null>(null); // texto de uma exportação que o navegador não baixou (ExportDialog)
 
   private repo: Repository; // troca quando a conexão é reaberta (useRepo)
   private readonly queue: ScrambleQueue;
@@ -209,8 +236,6 @@ export class AppState {
   }
 
   async init(): Promise<void> {
-    // Pedir o armazenamento persistente não espera a resposta: o navegador pode perguntar e a pergunta não segura o app.
-    void requestPersistence(this.storageManager).catch(() => undefined);
     await this.reload();
     // Assina antes do primeiro embaralhamento: a espera pelo cubing pode ser longa, e uma mudança de outra aba nesse tempo não
     // pode ficar de fora. As leituras que as próprias escritas disparam entram na fila; a última espera por elas no fim.
@@ -271,9 +296,12 @@ export class AppState {
     });
   }
 
-  private serial(job: () => Promise<void>): Promise<void> {
+  private serial<R>(job: () => Promise<R>): Promise<R> {
     const run = this.chain.then(job);
-    this.chain = run.catch(() => undefined);
+    this.chain = run.then(
+      () => undefined,
+      () => undefined,
+    );
     return run;
   }
 
@@ -468,6 +496,161 @@ export class AppState {
 
   private pendingSolves(): Solve[] {
     return this.saves.pendingItems().map((s) => this.solveOf(s));
+  }
+
+  // --- Seus dados: armazenamento, cópias, lixeira, exportar e importar. A tela chama só estes métodos. ---
+
+  // Armazenamento: protegido ou não, e o espaço em uso. Não rejeita: sem a API, persisted vem null.
+  storageInfo() {
+    return readStorage(this.storageManager);
+  }
+
+  // "Proteger meus dados": pede ao navegador e grava o pedido. Se o navegador lança, vira aviso e a resposta é null.
+  async requestProtection(): Promise<PersistResult | null> {
+    let result: PersistResult;
+    try {
+      result = await requestPersistence(this.storageManager);
+    } catch {
+      this.showToast(T.dados.persistFailed);
+      return null;
+    }
+    await this.updateMeta({ persistRequested: true });
+    return result;
+  }
+
+  listBackups(): Promise<BackupRecord[]> {
+    return this.repo.listBackups();
+  }
+
+  listTrash(): Promise<{ sessions: Session[]; solves: Solve[] }> {
+    return this.repo.listTrash();
+  }
+
+  // Devolve um item da lixeira. Uma sessão traz de volta os solves excluídos dela (o repositório faz isso na mesma transação).
+  async restoreFromTrash(item: { kind: 'solve' | 'session'; id: string }): Promise<boolean> {
+    const ok = await this.write(() => (item.kind === 'solve' ? this.repo.restoreSolve(item.id) : this.repo.restoreSession(item.id)));
+    await this.refresh();
+    return ok;
+  }
+
+  // Exporta para um arquivo. Se o navegador baixa, a exportação conta (zera o lembrete). Se não baixa (iframe, ou o download falhou),
+  // o texto vai para o ExportDialog, e a exportação só conta quando a pessoa copia o texto.
+  async exportFile(format: ExportFormat): Promise<void> {
+    const data = await this.exportData();
+    const stamp = backupFileName(this.now()).replace(/^klick-|\.json$/g, ''); // AAAA-MM-DD-HHmm, o mesmo carimbo das cópias da pasta
+    const klick = format === 'klick';
+    const text = klick ? toKlickJson(data) : toCsTimerJson(data.sessions, data.solves);
+    const name = klick ? `klick-${stamp}.json` : `klick-csTimer-${stamp}.txt`;
+    if (downloadText(name, text, klick ? 'application/json' : 'text/plain')) {
+      await this.markExported();
+      return;
+    }
+    this.pendingExport = { format, text };
+    this.dialog = 'export';
+  }
+
+  // Depois de exportar (download ou cópia): zera o contador do lembrete, grava quando foi e tira o aviso.
+  async markExported(): Promise<void> {
+    this.exportReminder = false;
+    await this.updateMeta({ solvesSinceExport: 0, lastExportAt: this.now() });
+  }
+
+  // Se já há uma pasta escolhida para as cópias automáticas.
+  hasBackupFolder(): Promise<boolean> {
+    return this.folderConfigured();
+  }
+
+  // Escolhe a pasta (o seletor é do navegador, então vem de um clique) e grava a primeira cópia nela. Cancelar não muda nada.
+  async chooseBackupFolder(): Promise<boolean> {
+    let handle: DirHandleLike | null;
+    try {
+      handle = await pickFolder();
+    } catch {
+      this.showToast(T.dados.folderFailed);
+      return false;
+    }
+    if (!handle) return false;
+    const chosen = handle;
+    if (!(await this.write(() => this.repo.saveFolderHandle(chosen)))) return false;
+    await this.copyToFolder();
+    await this.refresh();
+    return true;
+  }
+
+  // Uma importação por vez, na fila das leituras: dois cliques no mesmo botão não gravam os mesmos solves duas vezes (os ids são
+  // novos). A importação é uma transação (importAll): se falha, nada entrou e o aviso sai; devolve null nesse caso.
+  private async importJob(job: () => Promise<ImportSummary>): Promise<ImportSummary | null> {
+    const summary = await this.serial(async () => {
+      try {
+        return await job();
+      } catch {
+        this.showToast(T.dados.importFailed);
+        return null;
+      }
+    });
+    await this.refresh();
+    return summary;
+  }
+
+  // Um arquivo do Klick: junta por id. Nada é apagado; o que já existe e não é mais novo fica como está.
+  importKlick(data: KlickExport): Promise<ImportSummary | null> {
+    return this.importJob(async () => {
+      const report = await this.repo.importAll(data);
+      return { solves: report.solvesAdded + report.solvesUpdated, existing: report.skipped, skippedSessions: 0, unreadable: 0 };
+    });
+  }
+
+  // Sessões de um arquivo do csTimer. `mapping` traz o evento escolhido para cada sessão sem evento (pela chave dela no arquivo);
+  // as que ficam sem evento não entram. Os solves viram registros novos; os que já existem (até os da lixeira) não entram de novo.
+  importCsTimer(sessions: CsTimerSession[], mapping: Record<string, EventId | undefined>): Promise<ImportSummary | null> {
+    return this.importJob(async () => {
+      const [existingSessions, existingSolves] = await Promise.all([
+        this.repo.listSessions({ includeDeleted: true }),
+        this.repo.listSolves({ includeDeleted: true }),
+      ]);
+      const now = this.now();
+      const plan = csTimerToKlick(sessions, mapping, { now, newId: () => newId(now), existingSessions, existingSolves });
+      const report = await this.repo.importAll({
+        format: 'klick',
+        version: 1,
+        exportedAt: now,
+        sessions: plan.sessions,
+        solves: plan.solves,
+        profile: null,
+      });
+      return { solves: report.solvesAdded, existing: plan.duplicates, skippedSessions: plan.skippedSessions, unreadable: 0 };
+    });
+  }
+
+  // Dados da versão anterior (a chave do localStorage antigo). Só o que bate é importado; o que não bate é contado em unreadable.
+  async importV1(): Promise<ImportSummary | null> {
+    const v1 = readV1(this.storage);
+    if (!v1) {
+      this.v1Available = false;
+      this.showToast(T.dados.nothingV1);
+      return null;
+    }
+    const unreadable = readV1Invalid(this.storage);
+    return this.importJob(async () => {
+      const [existingSessions, existingSolves] = await Promise.all([
+        this.repo.listSessions({ includeDeleted: true }),
+        this.repo.listSolves({ includeDeleted: true }),
+      ]);
+      const now = this.now();
+      const plan = v1ToKlick(v1, { now, existingSessions, existingSolves });
+      const report = await this.repo.importAll({
+        format: 'klick',
+        version: 1,
+        exportedAt: now,
+        sessions: plan.sessions,
+        solves: plan.solves,
+        profile: null,
+      });
+      // A marca vai por último: se esta gravação falha, a importação pode ser refeita sem duplicar (os ids são os mesmos).
+      await this.repo.saveMeta({ v1ImportOffered: true });
+      this.v1Available = false;
+      return { solves: report.solvesAdded, existing: plan.duplicates, skippedSessions: plan.skippedSessions, unreadable };
+    });
   }
 
   // Os ajustes podem vir parciais, inclusive o grupo de sons (um só som): o repositório junta com o que está gravado.
@@ -681,6 +864,14 @@ export class AppState {
     return done;
   }
 
+  // Depois do primeiro solve gravado, pede o armazenamento persistente em silêncio (spec 6.2: nunca ao abrir o app). Se o navegador
+  // não responde (rejeita), a próxima gravação pede de novo. Uma resposta, seja qual for, marca o pedido feito.
+  private askPersistence(): void {
+    void requestPersistence(this.storageManager)
+      .then(() => this.updateMeta({ persistRequested: true }))
+      .catch(() => undefined);
+  }
+
   // As contas de um solve gravado: entra na lista, soma nos contadores e roda o que o plano pede. Não rejeita: cada falha vira aviso.
   private async afterSave(solve: Solve): Promise<void> {
     this.upsertSolve(solve);
@@ -688,6 +879,7 @@ export class AppState {
       const counted = countSolveSaved(this.meta ?? (await this.repo.getMeta()));
       this.meta = counted; // antes de gravar: se a gravação falhar, a contagem em memória continua certa
       this.meta = await this.repo.saveMeta(counters(counted));
+      if (!counted.persistRequested) this.askPersistence();
       const plan = planAfterSolve(counted, await this.folderConfigured());
       if (plan.backup) await this.backup(plan.backup);
       if (plan.remindExport) this.exportReminder = true;

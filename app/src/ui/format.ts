@@ -12,6 +12,12 @@ export const dateLabel = (ts: number): string => {
 
 export const monthLabel = (ts: number): string => T.date.months[new Date(ts).getMonth()];
 
+// Hora e minuto (HH:MM) no horário local.
+export const timeOfDay = (ts: number): string => {
+  const d = new Date(ts);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
+
 // Dias de calendário entre dois instantes. Compara ao meio-dia para a virada do horário de verão (23 h ou 25 h) não contar um dia a mais ou a menos.
 function calendarDays(a: number, b: number): number {
   const x = new Date(a);

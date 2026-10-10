@@ -4,6 +4,7 @@
   import type { ProfilePatch } from '../../data/repository';
   import { T } from '../../strings';
   import type { AppState } from '../state/app.svelte';
+  import DataSection from './DataSection.svelte';
 
   type Patch = NonNullable<ProfilePatch['settings']>;
 
@@ -157,7 +158,6 @@
       </div>
     </fieldset>
 
-    <!-- Ponto de montagem da seção "Seus dados" (DataSection, Task 12b). Ainda não existe nesta etapa: não há nada aqui. -->
-    <div data-slot="seus-dados"></div>
+    <DataSection {app} />
   </div>
 </section>
