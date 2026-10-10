@@ -56,4 +56,22 @@ describe('imagem do embaralhamento', () => {
     expect(twisties).toHaveLength(1);
     expect((twisties[0] as HTMLElement & { config: Record<string, unknown> }).config).toMatchObject({ experimentalSetupAlg: "F' L" });
   });
+
+  it('se o carregamento falha, o div fica vazio e o componente não lança', async () => {
+    const espiao = vi.spyOn(loader, 'loadCubing').mockImplementationOnce(() => Promise.reject(new Error('rede')));
+    const { container } = render(ScrambleImage, { event: '333', scramble: 'R U', visible: true });
+    await vi.waitFor(() => expect(espiao).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(container.querySelector('.scr-img')).not.toBeNull();
+    expect(container.querySelector('.scr-img')?.childElementCount).toBe(0);
+    expect(container.querySelector('fake-twisty')).toBeNull();
+  });
+
+  it('ao esconder (visible vai a false), o desenho sai do div', async () => {
+    const { container, rerender } = render(ScrambleImage, { event: '333', scramble: 'R U', visible: true });
+    await vi.waitFor(() => expect(container.querySelector('fake-twisty')).not.toBeNull());
+    await rerender({ visible: false });
+    expect(container.querySelector('fake-twisty')).toBeNull();
+    expect(container.querySelector('.scr-img')?.childElementCount).toBe(0);
+  });
 });
