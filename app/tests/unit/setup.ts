@@ -1,4 +1,7 @@
 import '@testing-library/jest-dom/vitest';
+// Com globals desligado no Vitest, a limpeza automática do testing-library/svelte não se registra sozinha:
+// este import registra o beforeEach/afterEach que desmonta cada render, para um teste não enxergar o DOM do anterior.
+import '@testing-library/svelte/vitest';
 import 'fake-indexeddb/auto';
 
 if (!window.matchMedia) {

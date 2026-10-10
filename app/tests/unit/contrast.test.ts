@@ -3,11 +3,14 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-// Caminho relativo a este arquivo. Não usa `new URL(...)` porque, no ambiente jsdom, a classe URL global é a do jsdom e o fs a recusa.
+// Caminho relativo a este arquivo. Não usa `new URL('<literal>', import.meta.url)`: no ambiente jsdom o Vite e o Vitest
+// reescrevem esse padrão para resolver contra self.location (http://localhost:3000/...), e o fs recusa a URL (não é file:).
 const css = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/styles/tokens.css'), 'utf8');
 
 function block(selectorStart: string): Record<string, string> {
   const at = css.indexOf(selectorStart);
+  // Sem esta guarda, um seletor que sumiu daria indexOf = -1 e o teste leria o primeiro bloco do arquivo (o claro).
+  expect(at, `seletor ${selectorStart} não encontrado em tokens.css`).toBeGreaterThanOrEqual(0);
   const open = css.indexOf('{', at);
   const close = css.indexOf('}', open);
   return Object.fromEntries([...css.slice(open + 1, close).matchAll(/--([\w-]+):\s*(#[0-9a-f]{6})/gi)].map((m) => [m[1], m[2]]));
