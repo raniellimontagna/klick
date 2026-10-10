@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-  csTimerToKlick, parseCsTimer, parseKlickJson, readV1, toCsTimerJson, toKlickJson, v1ToKlick, V1_KEY,
+  csTimerToKlick, parseCsTimer, parseKlickJson, readV1, readV1Invalid, toCsTimerJson, toKlickJson, v1ToKlick, V1_KEY,
 } from '../../src/data/transfer';
 import type { CsTimerSession, CsTimerSolve } from '../../src/data/transfer';
 import { EVENT_IDS, eventInfo } from '../../src/core/events';
@@ -650,8 +650,9 @@ describe('migração da v1', () => {
       expect(v1).toHaveLength(1);
     });
 
-    // O defeito vai na 2ª sessão (ou no último solve): a 1ª está certa e não pode mascará-lo.
-    const BAD: Array<[string, unknown]> = [
+    // Um registro torto não cancela a migração: o que é bom volta, e readV1Invalid conta o que ficou de fora.
+    // Sessão de formato torto sai inteira, com os solves dela: conta 1.
+    const BAD_SESSION: Array<[string, unknown]> = [
       ['sessão null', null],
       ['sessão número', 5],
       ['sessão lista', []],
@@ -664,26 +665,67 @@ describe('migração da v1', () => {
       ['puzzleType numérico', v1Session({ puzzleType: 3 })],
       ['createdAt da sessão que não é data', v1Session({ createdAt: 'ontem' })],
       ['createdAt da sessão numérico', v1Session({ createdAt: 5 })],
-      ['solve null', v1Session({ solves: [v1Solve(), null] })],
-      ['solve sem id', v1Session({ solves: [v1Solve(), v1Solve({ id: undefined })] })],
-      ['solve com id numérico', v1Session({ solves: [v1Solve(), v1Solve({ id: 5 })] })],
-      ['solve sem timeMs', v1Session({ solves: [v1Solve(), v1Solve({ timeMs: undefined })] })],
-      ['timeMs negativo', v1Session({ solves: [v1Solve(), v1Solve({ timeMs: -1 })] })],
-      ['timeMs como texto', v1Session({ solves: [v1Solve(), v1Solve({ timeMs: '10' })] })],
-      ['timeMs null', v1Session({ solves: [v1Solve(), v1Solve({ timeMs: null })] })],
-      ['sem penalidade', v1Session({ solves: [v1Solve(), v1Solve({ penalty: undefined })] })],
-      ['penalidade desconhecida', v1Session({ solves: [v1Solve(), v1Solve({ penalty: 'X' })] })],
-      ['penalidade null (é do formato novo)', v1Session({ solves: [v1Solve(), v1Solve({ penalty: null })] })],
-      ['sem embaralhamento', v1Session({ solves: [v1Solve(), v1Solve({ scramble: undefined })] })],
-      ['embaralhamento numérico', v1Session({ solves: [v1Solve(), v1Solve({ scramble: 5 })] })],
-      ['solve sem createdAt', v1Session({ solves: [v1Solve(), v1Solve({ createdAt: undefined })] })],
-      ['createdAt do solve que não é data', v1Session({ solves: [v1Solve(), v1Solve({ createdAt: 'ontem' })] })],
-      ['createdAt do solve numérico', v1Session({ solves: [v1Solve(), v1Solve({ createdAt: 5 })] })],
-      ['updatedAt do solve que não é data', v1Session({ solves: [v1Solve(), v1Solve({ updatedAt: 'ontem' })] })],
-      ['updatedAt do solve numérico', v1Session({ solves: [v1Solve(), v1Solve({ updatedAt: 5 })] })],
     ];
-    it.each(BAD)('registro inválido (%s) devolve null', (_label, bad) => {
-      expect(readV1(storage(v1Json([v1Session({ id: 'ok' }), bad])))).toBeNull();
+    it.each(BAD_SESSION)('sessão inválida (%s) fica de fora: a boa volta, e conta 1', (_label, bad) => {
+      const text = v1Json([v1Session({ id: 'ok' }), bad]);
+      expect(readV1(storage(text))?.map((s) => s.id)).toEqual(['ok']);
+      expect(readV1Invalid(storage(text))).toBe(1);
+    });
+
+    // Solve de formato torto sai sozinho: conta 1. A sessão dele fica com os solves que batem.
+    const BAD_SOLVE: Array<[string, unknown]> = [
+      ['solve null', null],
+      ['solve sem id', v1Solve({ id: undefined })],
+      ['solve com id numérico', v1Solve({ id: 5 })],
+      ['solve sem timeMs', v1Solve({ timeMs: undefined })],
+      ['timeMs negativo', v1Solve({ timeMs: -1 })],
+      ['timeMs como texto', v1Solve({ timeMs: '10' })],
+      ['timeMs null', v1Solve({ timeMs: null })],
+      ['sem penalidade', v1Solve({ penalty: undefined })],
+      ['penalidade desconhecida', v1Solve({ penalty: 'X' })],
+      ['penalidade null (é do formato novo)', v1Solve({ penalty: null })],
+      ['sem embaralhamento', v1Solve({ scramble: undefined })],
+      ['embaralhamento numérico', v1Solve({ scramble: 5 })],
+      ['solve sem createdAt', v1Solve({ createdAt: undefined })],
+      ['createdAt do solve que não é data', v1Solve({ createdAt: 'ontem' })],
+      ['createdAt do solve numérico', v1Solve({ createdAt: 5 })],
+      ['updatedAt do solve que não é data', v1Solve({ updatedAt: 'ontem' })],
+      ['updatedAt do solve numérico', v1Solve({ updatedAt: 5 })],
+    ];
+    it.each(BAD_SOLVE)('solve inválido (%s) sai sozinho: os bons voltam, e conta 1', (_label, bad) => {
+      const text = v1Json([v1Session({ id: 'ok' }), v1Session({ id: 'p1', solves: [v1Solve({ id: 'bom' }), bad] })]);
+      expect(readV1(storage(text))?.map((s) => [s.id, s.solves.map((x) => x.id)])).toEqual([['ok', ['x1']], ['p1', ['bom']]]);
+      expect(readV1Invalid(storage(text))).toBe(1);
+    });
+    it('um solve torto entre bons: os bons voltam, na ordem, e conta 1', () => {
+      const text = v1Json([v1Session({ id: 'p1', solves: [v1Solve({ id: 'a' }), v1Solve({ id: 'b', timeMs: -1 }), v1Solve({ id: 'c' })] })]);
+      expect(readV1(storage(text))?.[0].solves.map((s) => s.id)).toEqual(['a', 'c']);
+      expect(readV1Invalid(storage(text))).toBe(1);
+    });
+    it('uma sessão torta entre boas: as outras voltam, inteiras, e conta 1', () => {
+      const text = v1Json([
+        v1Session({ id: 'ok1' }),
+        v1Session({ id: 'torta', name: 5, solves: [v1Solve({ id: 'perdido' })] }),
+        v1Session({ id: 'ok2', solves: [v1Solve({ id: 'z' })] }),
+      ]);
+      expect(readV1(storage(text))?.map((s) => [s.id, s.solves.map((x) => x.id)])).toEqual([['ok1', ['x1']], ['ok2', ['z']]]);
+      expect(readV1Invalid(storage(text))).toBe(1);
+    });
+    it('todos tortos: readV1 devolve null, e readV1Invalid conta cada registro', () => {
+      // null e 'x' são duas sessões tortas; em p1 o formato é bom, mas os dois solves não batem. Total: 4.
+      const text = v1Json([null, v1Session({ id: 'p1', solves: [v1Solve({ timeMs: -1 }), v1Solve({ penalty: 'X' })] }), 'x']);
+      expect(readV1(storage(text))).toBeNull();
+      expect(readV1Invalid(storage(text))).toBe(4);
+    });
+    it('readV1Invalid é 0 quando não há nada a ler, e também para a v1 inteira', () => {
+      expect(readV1Invalid(null)).toBe(0);
+      expect(readV1Invalid(storage(null))).toBe(0);
+      expect(readV1Invalid(storage('{oops'))).toBe(0);
+      expect(readV1Invalid(storage('[]'))).toBe(0);
+      expect(readV1Invalid(storage('{"state":{"sessions":[]}}'))).toBe(0);
+      expect(readV1Invalid({ getItem: () => { throw new Error('bloqueado'); } })).toBe(0);
+      expect(readV1Invalid(storage(v1Json([v1Session({ solves: [] })])))).toBe(0);
+      expect(readV1Invalid(storage(fixture('v1-klick-sessions.json')))).toBe(0);
     });
   });
 

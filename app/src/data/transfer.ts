@@ -1,15 +1,13 @@
 // Entrada e saída de dados: o JSON do Klick, o export do csTimer (ida e volta) e a migração da v1. Só texto e objetos puros, sem
 // banco nem tela: quem chama (Ajustes, AppState) lê o arquivo e grava o resultado pelo repositório.
 //
-// Nada some em silêncio. Um arquivo (ou um registro dele) que não bate com o formato é recusado por inteiro, com um erro claro,
-// em vez de ter os itens ruins pulados; o que fica de fora por falta de dados (sessão sem evento) volta contado no resultado.
+// Nada some em silêncio. Um arquivo do Klick ou do csTimer (ou um registro dele) que não bate com o formato é recusado por inteiro,
+// com um erro claro. A migração da v1 não recusa: lê o que bate e conta o que ficou de fora (readV1Invalid), para a pessoa saber.
+// O que fica de fora por falta de dados (sessão sem evento) também volta contado no resultado.
 import { EVENT_IDS, eventFromCsTimer, eventInfo } from '../core/events';
 import type { EventId, Penalty, Session, Solve } from '../core/types';
 import { T } from '../strings';
 import type { KlickExport } from './repository';
-
-const KLICK_INVALID = 'Arquivo do Klick inválido.';
-const CSTIMER_INVALID = 'Arquivo do csTimer inválido.';
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 // Finito: o JSON.parse devolve Infinity para um número como 1e999.
@@ -72,7 +70,7 @@ export function toKlickJson(data: KlickExport): string {
 
 export function parseKlickJson(text: string): KlickExport {
   const data = tryParse(text);
-  if (!isKlickExport(data)) throw new Error(KLICK_INVALID);
+  if (!isKlickExport(data)) throw new Error(T.transfer.klickInvalid);
   return data;
 }
 
@@ -104,7 +102,7 @@ const sessionNumber = (key: string): number => Number(key.slice('session'.length
 // Ausente vale objeto vazio; presente e que não é objeto recusa o arquivo.
 function optionalRecord(v: unknown): Record<string, unknown> {
   if (v === undefined) return {};
-  if (!isRecord(v)) throw new Error(CSTIMER_INVALID);
+  if (!isRecord(v)) throw new Error(T.transfer.csTimerInvalid);
   return v;
 }
 
@@ -113,35 +111,35 @@ function readSessionData(properties: unknown): Record<string, unknown> {
   const raw = optionalRecord(properties).sessionData;
   if (typeof raw !== 'string') return optionalRecord(raw);
   const data = tryParse(raw);
-  if (!isRecord(data)) throw new Error(CSTIMER_INVALID);
+  if (!isRecord(data)) throw new Error(T.transfer.csTimerInvalid);
   return data;
 }
 
 // [[penalidade, ms, ...tempos das fases], embaralhamento, comentário, segundos]. Item torto recusa o arquivo.
 function csSolve(item: unknown): CsTimerSolve {
-  if (!Array.isArray(item) || !Array.isArray(item[0])) throw new Error(CSTIMER_INVALID);
+  if (!Array.isArray(item) || !Array.isArray(item[0])) throw new Error(T.transfer.csTimerInvalid);
   const [[code, ms], scramble, comment, seconds] = item as [unknown[], unknown, unknown, unknown];
   const penalty = typeof code === 'number' ? PENALTY_FROM_CS.get(code) : undefined;
   const at = typeof seconds === 'number' ? seconds * 1000 : Number.NaN;
   if (penalty === undefined || !isNum(ms) || ms < 0 || typeof scramble !== 'string' || !Number.isFinite(at)) {
-    throw new Error(CSTIMER_INVALID);
+    throw new Error(T.transfer.csTimerInvalid);
   }
   return { ms, penalty, scramble, note: typeof comment === 'string' ? comment : '', at };
 }
 
 export function parseCsTimer(text: string): CsTimerSession[] {
   const data = tryParse(text);
-  if (!isRecord(data)) throw new Error(CSTIMER_INVALID);
+  if (!isRecord(data)) throw new Error(T.transfer.csTimerInvalid);
   const keys = Object.keys(data).filter((k) => SESSION_KEY.test(k)).sort((a, b) => sessionNumber(a) - sessionNumber(b));
-  if (keys.length === 0) throw new Error(CSTIMER_INVALID);
+  if (keys.length === 0) throw new Error(T.transfer.csTimerInvalid);
   const sessionData = readSessionData(data.properties);
   return keys.map((key) => {
     const solves = data[key];
-    if (!Array.isArray(solves)) throw new Error(CSTIMER_INVALID);
+    if (!Array.isArray(solves)) throw new Error(T.transfer.csTimerInvalid);
     const n = sessionNumber(key);
     const entry = optionalRecord(sessionData[n]);
     const scrType = optionalRecord(entry.opt).scrType;
-    if (scrType !== undefined && typeof scrType !== 'string') throw new Error(CSTIMER_INVALID);
+    if (scrType !== undefined && typeof scrType !== 'string') throw new Error(T.transfer.csTimerInvalid);
     // O csTimer dá a uma sessão sem nome o número dela como nome (um número, não um texto): vale o nome padrão.
     const name = typeof entry.name === 'string' ? entry.name.trim() : '';
     return { key, name: name || T.session.defaultName(n), scrType, event: eventFromCsTimer(scrType), solves: solves.map(csSolve) };
@@ -250,19 +248,20 @@ function isV1Solve(v: unknown): v is V1Solve {
 }
 
 // A v1 antiga não gravava puzzleType nem createdAt na sessão, e a própria v1 tratava a sessão sem puzzleType como 3x3.
-function toV1Session(v: unknown): V1Session | null {
-  if (!isRecord(v) || typeof v.id !== 'string' || typeof v.name !== 'string' || !Array.isArray(v.solves) || !v.solves.every(isV1Solve)) {
-    return null;
-  }
+// Sessão de formato torto dá null, e sai inteira. Dos solves só entram os que batem; os outros são contados em skippedSolves.
+function toV1Session(v: unknown): { session: V1Session; skippedSolves: number } | null {
+  if (!isRecord(v) || typeof v.id !== 'string' || typeof v.name !== 'string' || !Array.isArray(v.solves)) return null;
   const puzzleType = v.puzzleType ?? '3x3';
   const createdAt = v.createdAt ?? undefined;
   if (typeof puzzleType !== 'string' || (createdAt !== undefined && !isDate(createdAt))) return null;
-  return { id: v.id, name: v.name, puzzleType, solves: v.solves, createdAt };
+  const solves = v.solves.filter(isV1Solve);
+  return { session: { id: v.id, name: v.name, puzzleType, solves, createdAt }, skippedSolves: v.solves.length - solves.length };
 }
 
-// null: não há dados da v1 (chave ausente, armazenamento bloqueado, formato que não é o dela ou nenhum solve). Um registro torto
-// também dá null, em vez de seguir sem ele.
-export function readV1(storage: Pick<Storage, 'getItem'> | null): V1Session[] | null {
+// A leitura é registro por registro: o que não bate fica de fora e é contado, sem derrubar os outros. `skipped` soma as sessões e os
+// solves deixados de fora. null quando não há o que ler: chave ausente, armazenamento bloqueado, JSON que não abre, ou um formato
+// que não é o da v1.
+function readV1Parts(storage: Pick<Storage, 'getItem'> | null): { sessions: V1Session[]; skipped: number } | null {
   let raw: unknown;
   try {
     raw = storage?.getItem(V1_KEY);
@@ -274,12 +273,30 @@ export function readV1(storage: Pick<Storage, 'getItem'> | null): V1Session[] | 
   const list = isRecord(data) && isRecord(data.state) ? data.state.sessions : undefined;
   if (!Array.isArray(list)) return null;
   const sessions: V1Session[] = [];
+  let skipped = 0;
   for (const item of list) {
-    const session = toV1Session(item);
-    if (!session) return null;
-    sessions.push(session);
+    const read = toV1Session(item);
+    if (!read) {
+      skipped++; // a sessão inteira fica de fora, com os solves dela
+      continue;
+    }
+    sessions.push(read.session);
+    skipped += read.skippedSolves;
   }
-  return sessions.some((s) => s.solves.length > 0) ? sessions : null;
+  return { sessions, skipped };
+}
+
+// null quando não há dados da v1 para migrar: chave ausente, armazenamento bloqueado, JSON que não abre, formato que não é o dela,
+// ou nenhum solve que bata. Um registro torto não derruba a leitura; readV1Invalid diz quantos ficaram de fora.
+export function readV1(storage: Pick<Storage, 'getItem'> | null): V1Session[] | null {
+  const read = readV1Parts(storage);
+  if (!read || !read.sessions.some((s) => s.solves.length > 0)) return null;
+  return read.sessions;
+}
+
+// Quantos registros (sessões e solves) readV1 deixou de fora. 0 quando não há nada a ler.
+export function readV1Invalid(storage: Pick<Storage, 'getItem'> | null): number {
+  return readV1Parts(storage)?.skipped ?? 0;
 }
 
 const V1_EVENTS: ReadonlyMap<string, EventId> = new Map<string, EventId>([

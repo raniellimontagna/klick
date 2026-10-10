@@ -101,5 +101,10 @@ export const T = Object.freeze({
   centro: {
     label: 'Centro',
   },
+  // Mensagens de um arquivo que não pode ser lido (data/transfer.ts).
+  transfer: {
+    klickInvalid: 'Arquivo do Klick inválido.',
+    csTimerInvalid: 'Arquivo do csTimer inválido.',
+  },
   season: (done: number, finish: string) => `Temporada 1 · ${done} de 9 marcos · acabamento ${finish}`,
 });
