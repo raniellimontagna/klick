@@ -71,5 +71,26 @@ export const T = Object.freeze({
     best: (text: string) => `melhor ${text}`,
     count: (n: number, total: number) => `${n}/${total}`,
   },
+  // Datas e tempo relativo (ui/format.ts).
+  date: {
+    weekdaysShort: Object.freeze(['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb']),
+    monthsShort: Object.freeze(['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']),
+    months: Object.freeze(['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']),
+    today: 'hoje',
+    yesterday: 'ontem',
+    daysAgo: (n: number) => `há ${n} dias`,
+    now: 'agora',
+    minutesAgo: (n: number) => `há ${n} min`,
+    hoursAgo: (n: number) => `há ${n} h`,
+  },
+  // Nomes acessíveis dos gráficos (ui/charts.ts).
+  chart: {
+    empty: 'Sem solves no período',
+    evolution: 'Evolução dos tempos',
+  },
+  // Nome acessível do Centro quando a tela não dá um mais específico (ui/centro.ts).
+  centro: {
+    label: 'Centro',
+  },
   season: (done: number, finish: string) => `Temporada 1 · ${done} de 9 marcos · acabamento ${finish}`,
 });

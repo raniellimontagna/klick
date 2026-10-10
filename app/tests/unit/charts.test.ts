@@ -48,3 +48,10 @@ describe('gráficos com histórico grande', () => {
     expect((svg.match(/class="dot"/g) || []).length).toBe(200_000);
   });
 });
+
+// O rótulo vem de T.chart (strings.ts). O caso portado só confere o do gráfico vazio; este fixa o do gráfico com dados.
+describe('gráficos: rótulo acessível', () => {
+  it('com dados, o SVG se chama "Evolução dos tempos"', () => {
+    expect(evolutionChart({ times: [60000], ao5: [null], pb: [false] })).toMatch(/aria-label="Evolução dos tempos"/);
+  });
+});

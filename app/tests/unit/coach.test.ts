@@ -129,4 +129,46 @@ describe('coach com a média oficial do evento', () => {
     const msg = pick({ solve: sv(59000), newMilestones: ['sub1', 'nope'], achievedCount: 6 });
     expect(msg?.text).toBe('Primeiro solve abaixo de 1 minuto. Marco 6 de 9.');
   });
+
+  it('média igual ao melhor de antes não é recorde: vale só a estritamente menor, no Mo3 e no Ao5', () => {
+    // 6×6: Mo3 do histórico 106,67 / 113,33 / 106,67 s, melhor 106,67 s. O solve de 100,00 s fecha a última janela em 106,67 s de novo.
+    const mo = [100000, 120000, 100000, 120000, 100000].map((ms) => mk(ms));
+    expect(pickCoachMessage({ solve: mk(100000), history: mo, sessionSolves: mo.slice(), event: '666' })).toBeNull();
+    // 3×3: o Ao5 do histórico é 80,00 s. Com o solve de 60,00 s os últimos cinco também dão 80,00 s, e o single só empata com o de 60,00 s.
+    const ao = [60000, 70000, 80000, 90000, 100000].map((ms) => mk(ms, '333'));
+    expect(pickCoachMessage({ solve: mk(60000, '333'), history: ao, sessionSolves: ao.slice(), event: '333' })).toBeNull();
+  });
+});
+
+// A meta do dia e o "de volta" são da pessoa, não do evento. O histórico que a interface passa é só o do evento (os recordes
+// precisam disso), então ela passa também todayCount e prevAnyAt, que olham todos os eventos.
+describe('coach: a meta do dia e o "de volta" contam todos os eventos', () => {
+  it('a meta do dia sai quando todayCount, de todos os eventos, chega à meta, com menos solves no evento', () => {
+    // Dois solves de 3×3 hoje e este: 3 no evento. Com mais dois de outro evento, a pessoa chegou a 5.
+    const base = { solve: sv(65000), history: many([60000, 61000]), dailyGoal: 5 };
+    expect(pick(base)).toBeNull(); // só pelo histórico do evento seriam 3 de 5
+    const msg = pick({ ...base, todayCount: 5 });
+    expect(msg?.id).toBe('daily-goal');
+    expect(msg?.text).toBe('Meta de 5 solves feita. O resto é bônus.');
+  });
+
+  it('a meta do dia não sai quando todayCount já passou dela, mesmo que o evento sozinho chegue lá', () => {
+    // Três solves de 3×3 hoje, contando este: pelo evento seria a meta de 3. Mas a pessoa já tinha feito 5 no dia, e a meta passou antes.
+    const base = { solve: sv(65000), history: many([60000, 61000]), dailyGoal: 3 };
+    expect(pick(base)?.id).toBe('daily-goal');
+    expect(pick({ ...base, todayCount: 5 })).toBeNull();
+  });
+
+  it('"de volta" usa o solve anterior da pessoa em qualquer evento: treinou ontem em outro', () => {
+    const base = { solve: sv(70000), history: [sv(60000, null, NOW - 5 * DAY)] };
+    expect(pick(base)?.id).toBe('back'); // pelo último solve do evento seriam 5 dias
+    expect(pick({ ...base, prevAnyAt: NOW - DAY })).toBeNull();
+  });
+
+  it('"de volta" sai no primeiro solve de um evento quando a pessoa passou 3 dias ou mais sem solve em qualquer um', () => {
+    expect(pick({ solve: sv(70000) })).toBeNull(); // sem history nem prevAnyAt não há solve anterior
+    expect(pick({ solve: sv(70000), prevAnyAt: NOW - 4 * DAY })?.id).toBe('back');
+    expect(pick({ solve: sv(70000), prevAnyAt: NOW - 3 * DAY })?.id).toBe('back'); // 3 dias exatos já contam
+    expect(pick({ solve: sv(70000), prevAnyAt: NOW - 3 * DAY + 1 })).toBeNull();
+  });
 });

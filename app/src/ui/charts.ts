@@ -1,4 +1,7 @@
 // Gráficos da Evolução como strings SVG, sem dependências (porte de prototype/scripts/ui/charts.js).
+// Os nomes acessíveis ficam em strings.ts, em T.chart.
+import { T } from '../strings';
+
 const STEP = 5000;
 const valid = (v: number | null): v is number => v !== null && v !== Infinity;
 
@@ -34,7 +37,7 @@ function extent(values: number[]): { min: number; max: number } {
 // Tempo menor fica mais embaixo: a linha desce conforme você melhora.
 export function evolutionChart({ times, ao5, pb }: EvolutionData, { width = 600, height = 160, pad = 10 }: ChartSize = {}): string {
   const all = [...times.filter(valid), ...ao5.filter(valid)];
-  if (!all.length) return `<svg class="chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Sem solves no período"></svg>`;
+  if (!all.length) return `<svg class="chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="${T.chart.empty}"></svg>`;
   const { min, max } = extent(all);
   const span = Math.max(1, max - min);
   const n = times.length;
@@ -49,7 +52,7 @@ export function evolutionChart({ times, ao5, pb }: EvolutionData, { width = 600,
   });
   const pts = ao5.map((v, i) => (valid(v) ? `${x(i).toFixed(1)} ${y(v).toFixed(1)}` : null)).filter(Boolean);
   const line = pts.length > 1 ? `<path class="avg" d="M${pts.join(' L')}"/>` : '';
-  return `<svg class="chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Evolução dos tempos">${dots}${line}${diamonds}</svg>`;
+  return `<svg class="chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="${T.chart.evolution}">${dots}${line}${diamonds}</svg>`;
 }
 
 // Faixas de 5 s do menor ao maior tempo (sem DNF).

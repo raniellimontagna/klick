@@ -1,7 +1,7 @@
 // Escolhe no máximo uma mensagem do coach por solve, pela prioridade da spec (6.5). Porte de prototype/scripts/coach.js,
 // com o recorde de média pela média oficial do evento (Ao5, ou Mo3 no 6×6 e no 7×7).
 import { MILESTONE_INFO, T } from '../strings';
-import { averageOf, bestAverage, bestMean, bestSingle, dayKey, effectiveMs, formatMs, officialAverage, officialAverageLabel } from './stats';
+import { averageOf, bestAverage, bestMean, bestSingle, effectiveMs, formatMs, officialAverage, officialAverageLabel, solvesOnDay } from './stats';
 import type { EventId, Solve } from './types';
 
 export interface CoachMessage {
@@ -16,6 +16,9 @@ export interface CoachInput {
   newMilestones?: string[]; // ids conquistados por este solve; a interface só os passa para o 3×3
   achievedCount?: number; // total de marcos depois dele
   dailyGoal?: number;
+  // A meta do dia e o "de volta" são da pessoa, não do evento, e history só tem o evento. A interface passa estes dois:
+  todayCount?: number; // solves de hoje em todos os eventos, contando este; sem ele, conta os de hoje que vieram em history
+  prevAnyAt?: number; // momento do solve anterior da pessoa, de qualquer evento; sem ele, o do último solve de history
   silent?: boolean;
   event: EventId; // diz qual é a média oficial: Ao5 ou Mo3
 }
@@ -39,19 +42,18 @@ function tired(session: Solve[]): boolean {
   return first12 !== null && first12 !== Infinity && current5 !== null && current5 !== Infinity && current5 > first12 * 1.08;
 }
 
-// A média nova bate a melhor de antes: precisa ser válida (DNF não é recorde) e estritamente menor.
-const beats = (current: number | null, previousBest: number | null): current is number =>
-  previousBest !== null && current !== null && current !== Infinity && current < previousBest;
+// A média nova bate a melhor de antes: precisa ser válida (DNF não é recorde) e estritamente menor. Sem melhor de antes, não bate.
+const beats = (current: number, previousBest: number | null): boolean => previousBest !== null && current !== Infinity && current < previousBest;
 
 // Recorde de média, com o tamanho da média que o bateu. Vale a média oficial do evento e, nos eventos de Ao5, também a de 12.
 // O Mo3 é média simples, então o melhor de antes sai de bestMean: bestAverage(s, 3) daria a mediana de cada janela.
 function averageRecord(history: Solve[], all: Solve[], event: EventId): { n: number; value: number } | null {
   const { n, kind } = officialAverageLabel(event);
   const official = officialAverage(all, event);
-  if (beats(official, kind === 'mo' ? bestMean(history, n) : bestAverage(history, n))) return { n, value: official };
+  if (official !== null && beats(official, kind === 'mo' ? bestMean(history, n) : bestAverage(history, n))) return { n, value: official };
   if (kind === 'ao') {
     const twelve = averageOf(all, 12);
-    if (beats(twelve, bestAverage(history, 12))) return { n: 12, value: twelve };
+    if (twelve !== null && beats(twelve, bestAverage(history, 12))) return { n: 12, value: twelve };
   }
   return null;
 }
@@ -63,6 +65,8 @@ export function pickCoachMessage({
   newMilestones = [],
   achievedCount = 0,
   dailyGoal = 20,
+  todayCount,
+  prevAnyAt,
   silent = false,
   event,
 }: CoachInput): CoachMessage | null {
@@ -80,8 +84,8 @@ export function pickCoachMessage({
   const milestone = newMilestones.findLast(isMilestone);
   if (milestone) return { id: 'milestone', text: T.coach.milestone(MILESTONE_INFO[milestone].msg, achievedCount) };
 
-  // A meta conta os solves de hoje que vieram em history: com só os do evento, é a meta daquele evento.
-  const today = all.filter((x) => dayKey(x.at) === dayKey(solve.at)).length;
+  // A meta é da pessoa: todayCount já conta todos os eventos. Sem ele, valem os solves de hoje que vieram em history.
+  const today = todayCount ?? solvesOnDay(all, solve.at).length;
   if (today === dailyGoal) return { id: 'daily-goal', text: T.coach.dailyGoal(dailyGoal) };
 
   // A sequência estável olha o histórico; o cansaço, a sessão.
@@ -93,8 +97,9 @@ export function pickCoachMessage({
 
   if (solve.penalty === 'DNF' && !sessionSolves.some((x) => x.penalty === 'DNF')) return { id: 'first-dnf', text: T.coach.firstDnf };
 
-  const prev = history[history.length - 1];
-  if (prev && solve.at - prev.at >= 3 * DAY) return { id: 'back', text: T.coach.back };
+  // "De volta" também é da pessoa: prevAnyAt é o solve anterior em qualquer evento. Sem ele, o último de history.
+  const prevAt = prevAnyAt ?? history.at(-1)?.at;
+  if (prevAt !== undefined && solve.at - prevAt >= 3 * DAY) return { id: 'back', text: T.coach.back };
 
   return null;
 }

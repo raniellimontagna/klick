@@ -170,4 +170,8 @@ describe('Centro no DOM', () => {
     expect(svg.dataset.finish).toBe('fosco');
     expect(mount(renderCentro({ finish: '"><i>' as never })).dataset.finish).toBe('fosco');
   });
+
+  it('sem rótulo, o nome acessível do SVG é "Centro"', () => {
+    expect(mount(renderCentro()).getAttribute('aria-label')).toBe('Centro');
+  });
 });

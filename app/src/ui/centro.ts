@@ -3,6 +3,7 @@
 // Porte de prototype/scripts/centro.js.
 import type { ResultKind } from '../core/stats';
 import type { FinishId } from '../core/types';
+import { T } from '../strings';
 import { escapeHtml } from './format';
 
 export type CentroTheme = 'light' | 'dark';
@@ -156,7 +157,7 @@ export interface RenderOptions {
   label?: string; // nome acessível do SVG
 }
 
-export function renderCentro({ theme = 'light', ring = empty(), eyes = 'open', topLit = 0, sideLit = 0, finish = 'fosco', label = 'Centro' }: RenderOptions = {}): string {
+export function renderCentro({ theme = 'light', ring = empty(), eyes = 'open', topLit = 0, sideLit = 0, finish = 'fosco', label = T.centro.label }: RenderOptions = {}): string {
   const p = paletteFor(theme, finish);
   const finishId = finishOf(finish);
   const f = FINISHES[finishId];

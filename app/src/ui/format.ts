@@ -1,16 +1,16 @@
 // Formatação de datas e textos curtos da interface (porte de prototype/scripts/ui/format.js).
-// Os tempos dos solves (formatMs, formatSolve) e o dia (dayKey) ficam em core/stats.ts.
-const WD = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
-const MO = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-const MONTHS = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+// As palavras (dias, meses, "hoje", "há N min") ficam em strings.ts, em T.date. Os tempos dos solves (formatMs, formatSolve)
+// e o dia (dayKey) ficam em core/stats.ts.
+import { T } from '../strings';
+
 const DAY = 86400000;
 
 export const dateLabel = (ts: number): string => {
   const d = new Date(ts);
-  return `${WD[d.getDay()]}, ${d.getDate()} ${MO[d.getMonth()]}`;
+  return `${T.date.weekdaysShort[d.getDay()]}, ${d.getDate()} ${T.date.monthsShort[d.getMonth()]}`;
 };
 
-export const monthLabel = (ts: number): string => MONTHS[new Date(ts).getMonth()];
+export const monthLabel = (ts: number): string => T.date.months[new Date(ts).getMonth()];
 
 // Dias de calendário entre dois instantes. Compara ao meio-dia para a virada do horário de verão (23 h ou 25 h) não contar um dia a mais ou a menos.
 function calendarDays(a: number, b: number): number {
@@ -23,14 +23,14 @@ function calendarDays(a: number, b: number): number {
 
 export function daysAgoLabel(ts: number, now: number): string {
   const d = calendarDays(ts, now);
-  return d <= 0 ? 'hoje' : d === 1 ? 'ontem' : `há ${d} dias`;
+  return d <= 0 ? T.date.today : d === 1 ? T.date.yesterday : T.date.daysAgo(d);
 }
 
 export function relativeTime(ts: number, now: number): string {
   const diff = Math.max(0, now - ts);
-  if (diff < 60000) return 'agora';
-  if (diff < 3600000) return `há ${Math.floor(diff / 60000)} min`;
-  if (calendarDays(ts, now) === 0) return `há ${Math.floor(diff / 3600000)} h`;
+  if (diff < 60000) return T.date.now;
+  if (diff < 3600000) return T.date.minutesAgo(Math.floor(diff / 60000));
+  if (calendarDays(ts, now) === 0) return T.date.hoursAgo(Math.floor(diff / 3600000));
   return daysAgoLabel(ts, now);
 }
 
