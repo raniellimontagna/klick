@@ -62,9 +62,9 @@ export interface Repository {
   addSolve(s: NewSolve): Promise<Solve>;
   updateSolve(id: string, patch: { penalty?: Penalty; note?: string }): Promise<Solve>;
   deleteSolve(id: string): Promise<void>;
-  restoreSolve(id: string): Promise<void>;
-  listTrash(): Promise<{ sessions: Session[]; solves: Solve[] }>; // o excluído mais recentemente primeiro
-  purgeTrash(olderThanMs: number): Promise<number>; // apaga de vez o excluído antes de now - olderThanMs; devolve quantos itens (sessões e solves)
+  restoreSolve(id: string): Promise<void>; // se a sessão do solve está na lixeira, ela volta junto (só a sessão; os outros solves dela ficam)
+  listTrash(): Promise<{ sessions: Session[]; solves: Solve[] }>; // o excluído mais recentemente primeiro, sessões e solves
+  purgeTrash(olderThanMs: number): Promise<number>; // apaga de vez o excluído antes de now - olderThanMs (no limite exato ainda fica); devolve quantos itens (sessões e solves)
   getProfile(): Promise<Profile>; // padrão se ausente (e não grava o padrão)
   saveProfile(patch: ProfilePatch): Promise<Profile>; // settings faz merge raso, sound faz merge
   getMeta(): Promise<Meta>; // padrão se ausente (deviceId novo), gravado na primeira leitura
@@ -180,10 +180,20 @@ export function createRepository(
   }: {
     now?: () => number;
     channel?: ChannelLike | null; // omitido: BroadcastChannel('klick-data') se o ambiente tiver; null: sem canal
-    onError?: (err: unknown) => void; // erro de um ouvinte ou do envio ao canal; a gravação já foi confirmada
+    onError?: (err: unknown) => void; // erro de um ouvinte ou do envio ao canal; a gravação já foi confirmada. Se ele lançar, o erro sai por relançar-depois
   } = {},
 ): Repository {
   const listeners = new Set<{ fn: (kind: ChangeKind) => void }>();
+
+  // O onError é de quem usa o repositório. Se ele mesmo lançar, o erro não pode rejeitar uma gravação já confirmada (a fila
+  // gravaria de novo e duplicaria o solve): o erro que ele recebia e o que ele lançou saem juntos pelo relançar-depois.
+  function report(err: unknown): void {
+    try {
+      onError(err);
+    } catch (failure) {
+      rethrowLater(new AggregateError([err, failure], 'onError lançou ao receber um erro'));
+    }
+  }
 
   function emitLocal(kind: ChangeKind): void {
     for (const entry of [...listeners]) {
@@ -191,7 +201,7 @@ export function createRepository(
       try {
         entry.fn(kind);
       } catch (err) {
-        onError(err);
+        report(err);
       }
     }
   }
@@ -203,7 +213,7 @@ export function createRepository(
       try {
         channel?.postMessage({ kind });
       } catch (err) {
-        onError(err);
+        report(err);
       }
     }
   }
@@ -398,7 +408,24 @@ export function createRepository(
     },
 
     async restoreSolve(id) {
-      await changeSolve(id, (solve, at) => (solve.deletedAt === null ? null : { ...solve, deletedAt: null, updatedAt: at }));
+      const restored = await write(['solves', 'sessions'], async (tx) => {
+        const solves = tx.objectStore('solves');
+        const solve = await solves.get(id);
+        if (!solve) throw new Error(`Solve não encontrado: ${id}`);
+        if (solve.deletedAt === null) return null;
+        const at = now();
+        await solves.put({ ...solve, deletedAt: null, updatedAt: at });
+        // Solve ativo sob uma sessão na lixeira não aparece em lista nenhuma, e o purge apagaria a sessão de vez: ela volta
+        // junto, só o registro dela. Os outros solves excluídos da sessão continuam na lixeira, um a um.
+        const sessions = tx.objectStore('sessions');
+        const session = await sessions.get(solve.sessionId);
+        if (!session || session.deletedAt === null) return { session: false };
+        await sessions.put({ ...session, deletedAt: null, updatedAt: at });
+        return { session: true };
+      });
+      if (restored === null) return;
+      announce('solves');
+      if (restored.session) announce('sessions');
     },
 
     async listTrash() {

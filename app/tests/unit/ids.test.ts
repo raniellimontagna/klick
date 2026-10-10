@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { newId } from '../../src/data/ids';
 
+// O contador do newId é estado do módulo: dois testes que usam o mesmo `now` enxergam o contador um do outro. Os testes que
+// olham o contador pedem um `now` que nenhum outro usa (o passo de 10 também deixa livre o now + 1), e assim passam em
+// qualquer ordem e sozinhos, com -t.
+let clock = 1_800_000_000_000;
+const unusedNow = (): number => (clock += 10);
+
 describe('newId', () => {
   it('tem 17 caracteres e só letras minúsculas e dígitos', () => {
     expect(newId(1791500000000, () => 0.5)).toMatch(/^[0-9a-z]{17}$/);
@@ -17,7 +23,7 @@ describe('newId', () => {
   });
 
   it('guarda o tempo nos 9 primeiros caracteres, em base 36, e o contador volta a zero a cada milissegundo novo', () => {
-    const now = 1_791_500_000_000;
+    const now = unusedNow();
     const a = newId(now, () => 0);
     expect(a).toBe(`${now.toString(36).padStart(9, '0')}00000000`);
     expect(newId(now, () => 0).slice(9, 11)).toBe('01');
@@ -34,9 +40,10 @@ describe('newId', () => {
   });
 
   it('passando de 1296 ids no mesmo milissegundo, o tamanho se mantém e a ordem entre milissegundos também', () => {
-    const ids = Array.from({ length: 1400 }, () => newId(9000, () => 0.5));
+    const now = unusedNow();
+    const ids = Array.from({ length: 1400 }, () => newId(now, () => 0.5));
     expect(ids.every((id) => /^[0-9a-z]{17}$/.test(id))).toBe(true);
     expect(ids.slice(0, 1296)).toEqual([...ids.slice(0, 1296)].sort());
-    expect(newId(9001, () => 0) > ids[1399]).toBe(true);
+    expect(newId(now + 1, () => 0) > ids[1399]).toBe(true);
   });
 });

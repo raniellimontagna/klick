@@ -213,6 +213,23 @@ function recordingChannel() {
   return { channel, posted };
 }
 
+// O relançar-depois do repositório usa queueMicrotask. Aqui o erro que ele lançaria é guardado, em vez de derrubar a rodada
+// do Vitest. Quem usa precisa de vi.unstubAllGlobals() no afterEach.
+function captureRethrown(): unknown[] {
+  const surfaced: unknown[] = [];
+  const realQueue = globalThis.queueMicrotask.bind(globalThis);
+  vi.stubGlobal('queueMicrotask', (fn: () => void) =>
+    realQueue(() => {
+      try {
+        fn();
+      } catch (err) {
+        surfaced.push(err);
+      }
+    }),
+  );
+  return surfaced;
+}
+
 describe('repositório: falha de gravação', () => {
   it('banco fechado: a gravação rejeita, e ninguém é avisado', async () => {
     const { channel, posted } = recordingChannel();
@@ -290,6 +307,9 @@ describe('repositório: avisos', () => {
   beforeEach(async () => {
     t = 1_791_500_000_000;
     repo = await fresh();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it('toda gravação usa durability strict, e o aviso sai só depois do commit', async () => {
@@ -449,6 +469,64 @@ describe('repositório: avisos', () => {
     await repo.createSession({ event: '333' });
     expect(seen).toEqual(['sessions']);
     expect(errors).toHaveLength(1);
+  });
+
+  it('onError que lança, ao receber o erro de um ouvinte, não rejeita a gravação já confirmada: o solve fica gravado uma vez e os dois erros continuam visíveis', async () => {
+    const surfaced = captureRethrown();
+    const fromListener = new Error('ouvinte quebrado');
+    const fromHandler = new Error('onError quebrado');
+    const received: unknown[] = [];
+    const repo = createRepository(await openKlickDb(dbName()), {
+      now,
+      channel: null,
+      onError: (err) => {
+        received.push(err);
+        throw fromHandler;
+      },
+    });
+    const seen: string[] = [];
+    repo.onChange(() => {
+      throw fromListener;
+    });
+    repo.onChange((k) => seen.push(k));
+
+    const s = await repo.createSession({ event: '333' });
+    const solve = await repo.addSolve(ns(s.id, 60000, 1000)); // resolve com o solve; a fila não vai repetir
+    expect(solve).toMatchObject({ sessionId: s.id, ms: 60000 });
+    expect((await repo.listSolves({ includeDeleted: true })).map((x) => x.id)).toEqual([solve.id]); // gravado uma vez só
+    expect(seen).toEqual(['sessions', 'solves']); // o outro ouvinte foi avisado mesmo assim
+    expect(received).toEqual([fromListener, fromListener]);
+    // Nada some: cada falha do onError sai pelo relançar-depois, com o erro que ele recebia e o que ele lançou.
+    expect(surfaced).toHaveLength(2);
+    for (const err of surfaced) {
+      expect(err).toBeInstanceOf(AggregateError);
+      expect((err as AggregateError).errors).toEqual([fromListener, fromHandler]);
+    }
+  });
+
+  it('onError que lança, ao receber o erro do canal, também não rejeita a gravação já confirmada', async () => {
+    const surfaced = captureRethrown();
+    const fromChannel = new Error('canal fechado');
+    const fromHandler = new Error('onError quebrado');
+    const broken: ChannelLike = {
+      onmessage: null,
+      postMessage() {
+        throw fromChannel;
+      },
+    };
+    const repo = createRepository(await openKlickDb(dbName()), {
+      now,
+      channel: broken,
+      onError: () => {
+        throw fromHandler;
+      },
+    });
+
+    const s = await repo.createSession({ event: '333' });
+    const solve = await repo.addSolve(ns(s.id, 60000, 1000));
+    expect((await repo.listSolves({ includeDeleted: true })).map((x) => x.id)).toEqual([solve.id]);
+    expect(surfaced).toHaveLength(2);
+    for (const err of surfaced) expect((err as AggregateError).errors).toEqual([fromChannel, fromHandler]);
   });
 });
 
@@ -710,6 +788,84 @@ describe('repositório: sessões, solves e lixeira', () => {
     expect((await repo.listSolves({ sessionId: s.id }))[0]).toMatchObject({ id: a.id, deletedAt: null, updatedAt: t });
   });
 
+  it('restaurar um solve cuja sessão está na lixeira traz de volta a sessão, e só ela', async () => {
+    const s = await repo.createSession({ event: '333' });
+    const a = await repo.addSolve(ns(s.id, 60000, 1000));
+    const b = await repo.addSolve(ns(s.id, 61000, 2000));
+    t += 1000;
+    await repo.deleteSession(s.id);
+    expect(await repo.listSessions()).toEqual([]);
+    const seen: string[] = [];
+    repo.onChange((k) => seen.push(k));
+
+    t += 1000;
+    await repo.restoreSolve(a.id);
+    expect(seen).toEqual(['solves', 'sessions']);
+    expect(await repo.listSessions()).toMatchObject([{ id: s.id, deletedAt: null, updatedAt: t }]);
+    expect((await repo.listSolves({ sessionId: s.id })).map((x) => x.id)).toEqual([a.id]);
+    const trash = await repo.listTrash();
+    expect(trash.sessions).toEqual([]);
+    expect(trash.solves.map((x) => x.id)).toEqual([b.id]); // o outro solve da sessão continua na lixeira
+    const copy = await repo.exportAll({ includeDeleted: false }); // a cópia sem lixeira leva a sessão junto com o solve
+    expect(copy.sessions.map((x) => x.id)).toEqual([s.id]);
+    expect(copy.solves.map((x) => x.id)).toEqual([a.id]);
+
+    seen.length = 0;
+    await repo.restoreSolve(b.id); // a sessão já está ativa: só os solves mudam
+    expect(seen).toEqual(['solves']);
+    expect((await repo.listSolves({ sessionId: s.id })).map((x) => x.id)).toEqual([a.id, b.id]);
+  });
+
+  it('depois de restaurar um solve de sessão excluída, o purge não deixa solve ativo sem sessão', async () => {
+    const s = await repo.createSession({ event: '333' });
+    const a = await repo.addSolve(ns(s.id, 60000, 1000));
+    await repo.addSolve(ns(s.id, 61000, 2000));
+    await repo.deleteSession(s.id);
+    await repo.restoreSolve(a.id);
+    t += 31 * 86_400_000;
+    expect(await repo.purgeTrash(30 * 86_400_000)).toBe(1); // só o outro solve, que ficou na lixeira
+    expect((await repo.listSessions()).map((x) => x.id)).toEqual([s.id]);
+    expect((await repo.listSolves({ sessionId: s.id })).map((x) => x.id)).toEqual([a.id]);
+    const copy = await repo.exportAll({ includeDeleted: false });
+    expect(copy.solves.every((x) => copy.sessions.some((y) => y.id === x.sessionId))).toBe(true);
+  });
+
+  it('restaurar um solve cuja sessão já foi apagada de vez devolve só o solve, sem inventar a sessão', async () => {
+    const a = await repo.addSolve(ns('sessao-apagada', 60000, 1000));
+    await repo.deleteSolve(a.id);
+    const seen: string[] = [];
+    repo.onChange((k) => seen.push(k));
+    await repo.restoreSolve(a.id);
+    expect(seen).toEqual(['solves']);
+    expect((await repo.listSolves()).map((x) => x.id)).toEqual([a.id]);
+    expect(await repo.listSessions({ includeDeleted: true })).toEqual([]);
+  });
+
+  it('devolver o solve e a sessão é uma gravação só: uma transação strict, e se ela aborta nenhum dos dois volta', async () => {
+    const name = dbName();
+    const spy = spyOn(await openKlickDb(name));
+    const spied = createRepository(spy.db, { now, channel: null });
+    const s = await spied.createSession({ event: '333' });
+    const a = await spied.addSolve(ns(s.id, 60000, 1000));
+    await spied.deleteSession(s.id);
+    const seen: string[] = [];
+    spied.onChange((k) => seen.push(k));
+
+    spy.abortWrites = true;
+    await expect(spied.restoreSolve(a.id)).rejects.toMatchObject({ name: 'AbortError' });
+    const other = createRepository(await openKlickDb(name), { now, channel: null });
+    const trash = await other.listTrash();
+    expect(trash.solves.map((x) => x.id)).toEqual([a.id]);
+    expect(trash.sessions.map((x) => x.id)).toEqual([s.id]);
+    expect(seen).toEqual([]);
+
+    spy.abortWrites = false;
+    spy.opened.length = 0;
+    await spied.restoreSolve(a.id);
+    expect(spy.opened.filter((o) => o.mode === 'readwrite')).toEqual([{ mode: 'readwrite', durability: 'strict' }]);
+    expect(seen).toEqual(['solves', 'sessions']);
+  });
+
   it('updateSolve aceita penalty null para limpar a penalidade e nota vazia para limpar a nota', async () => {
     const s = await repo.createSession({ event: '333' });
     const a = await repo.addSolve(ns(s.id, 60000, 1000));
@@ -757,6 +913,40 @@ describe('repositório: sessões, solves e lixeira', () => {
     t += 10_000;
     expect(await repo.purgeTrash(1000)).toBe(4); // b, c, live e a sessão
     expect(await repo.listTrash()).toEqual({ sessions: [], solves: [] });
+  });
+
+  it('purgeTrash só apaga o que foi excluído ANTES de now - olderThanMs: no limite exato ainda fica, um milissegundo depois vai', async () => {
+    const day = 86_400_000;
+    const s = await repo.createSession({ event: '333' });
+    const a = await repo.addSolve(ns(s.id, 60000, 1000));
+    await repo.deleteSolve(a.id);
+    await repo.deleteSession(s.id); // o solve e a sessão com a mesma marca de exclusão
+    t += 30 * day; // exatamente 30 dias depois
+    expect(await repo.purgeTrash(30 * day)).toBe(0);
+    const trash = await repo.listTrash();
+    expect(trash.solves.map((x) => x.id)).toEqual([a.id]);
+    expect(trash.sessions.map((x) => x.id)).toEqual([s.id]);
+    t += 1;
+    expect(await repo.purgeTrash(30 * day)).toBe(2);
+    expect(await repo.listTrash()).toEqual({ sessions: [], solves: [] });
+  });
+
+  it('a lixeira lista também as sessões com a excluída mais recentemente primeiro, e desempata pela ordem de criação', async () => {
+    const a = await repo.createSession({ event: '333' });
+    const b = await repo.createSession({ event: '333' });
+    const c = await repo.createSession({ event: '333' });
+    const d = await repo.createSession({ event: '333' });
+    const e = await repo.createSession({ event: '333' });
+    await repo.deleteSession(b.id); // t0
+    t += 1000;
+    await repo.deleteSession(c.id); // t0 + 1000
+    t += 1000;
+    await repo.deleteSession(e.id); // t0 + 2000
+    await repo.deleteSession(a.id); // t0 + 2000, o mesmo instante do e: pela ordem de criação, o a vem antes
+    // d fica ativa
+    const trash = await repo.listTrash();
+    expect(trash.sessions.map((x) => x.id)).toEqual([a.id, e.id, c.id, b.id]);
+    expect(trash.sessions.map((x) => x.id)).not.toContain(d.id);
   });
 });
 
@@ -862,5 +1052,51 @@ describe('repositório: exportar e importar', () => {
 
     await repo.replaceAll({ format: 'klick', version: 1, exportedAt: t, sessions: [], solves: [], profile: null });
     expect((await repo.exportAll()).profile).toBeNull(); // o arquivo sem perfil limpa o perfil
+  });
+
+  it('importar com um solve inválido no meio desfaz tudo: nada do arquivo entra e nada do que já existia muda', async () => {
+    const s = await repo.createSession({ event: '333' });
+    const a = await repo.addSolve(ns(s.id, 60000, 1000));
+    const seen: string[] = [];
+    repo.onChange((k) => seen.push(k));
+
+    const file: KlickExport = {
+      format: 'klick',
+      version: 1,
+      exportedAt: t,
+      sessions: [{ ...s, id: 'sessao-nova', name: 'Nova' }],
+      solves: [
+        { ...a, note: 'mais novo', updatedAt: a.updatedAt + 10 }, // atualização válida do que já existe
+        { ...a, id: 'solve-novo', ms: 1 }, // solve novo e válido
+        { ...a, id: 'solve-ruim', scramble: (() => 1) as unknown as string }, // uma função não passa pelo clone estruturado
+      ],
+      profile: { ...(await repo.getProfile()), finish: 'gelo' },
+    };
+    await expect(repo.importAll(file)).rejects.toMatchObject({ name: 'DataCloneError' });
+    expect((await repo.listSessions({ includeDeleted: true })).map((x) => x.id)).toEqual([s.id]);
+    expect(await repo.listSolves({ includeDeleted: true })).toEqual([a]); // igual ao que era: nota vazia e updatedAt antigo
+    expect((await repo.exportAll()).profile).toBeNull();
+    expect(seen).toEqual([]);
+  });
+
+  it('importar com perfil inválido, depois de sessões e solves já gravados na transação, também desfaz tudo', async () => {
+    const s = await repo.createSession({ event: '333' });
+    const a = await repo.addSolve(ns(s.id, 60000, 1000));
+    const seen: string[] = [];
+    repo.onChange((k) => seen.push(k));
+
+    const file: KlickExport = {
+      format: 'klick',
+      version: 1,
+      exportedAt: t,
+      sessions: [{ ...s, id: 'sessao-nova', name: 'Nova' }],
+      solves: [{ ...a, id: 'solve-novo', ms: 1 }],
+      profile: { ...(await repo.getProfile()), finish: (() => 1) as never },
+    };
+    await expect(repo.importAll(file)).rejects.toMatchObject({ name: 'DataCloneError' });
+    expect((await repo.listSessions({ includeDeleted: true })).map((x) => x.id)).toEqual([s.id]);
+    expect((await repo.listSolves({ includeDeleted: true })).map((x) => x.id)).toEqual([a.id]);
+    expect((await repo.exportAll()).profile).toBeNull();
+    expect(seen).toEqual([]);
   });
 });
