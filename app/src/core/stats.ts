@@ -1,0 +1,253 @@
+// Estatísticas puras (porte de prototype/scripts/stats.js). As listas chegam em ordem cronológica (mais antigo primeiro).
+import { T } from '../strings';
+import { eventInfo } from './events';
+import type { EventId, Solve } from './types';
+
+const DAY = 86400000;
+
+export const MILESTONES = Object.freeze(['first', 'sub2', 'n100', 'sub130', 'ao5sub130', 'sub1', 'streak7', 'ao12sub1', 'n1000'] as const);
+export type MilestoneId = (typeof MILESTONES)[number];
+
+export interface MilestoneStatus {
+  id: MilestoneId;
+  achieved: boolean;
+  at: number | null; // quando foi conquistado
+  progress: string | null; // o que falta, enquanto não foi conquistado
+}
+
+export interface SolveDeltas {
+  vsAo5: number | null;
+  vsPb: number | null;
+  isPb: boolean;
+}
+
+// Reação do Centro a um solve.
+export type ResultKind = 'pb' | 'good' | 'slow' | 'plus2' | 'dnf';
+
+export interface HeatDay {
+  day: number;
+  count: number;
+  level: 0 | 1 | 2 | 3;
+  pb: boolean;
+  today: boolean;
+}
+
+export function effectiveMs(solve: Solve): number {
+  if (solve.penalty === 'DNF') return Infinity;
+  return solve.ms + (solve.penalty === '+2' ? 2000 : 0);
+}
+
+// Tempo truncado no centésimo, como no display do stackmat.
+export function formatMs(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined) return '—';
+  if (ms === Infinity) return 'DNF';
+  const cs = Math.floor(ms / 10);
+  const m = Math.floor(cs / 6000);
+  const rest = cs - m * 6000;
+  const s = Math.floor(rest / 100);
+  return `${m}:${String(s).padStart(2, '0')}.${String(rest % 100).padStart(2, '0')}`;
+}
+
+export function formatSolve(solve: Solve): string {
+  if (solve.penalty === 'DNF') return 'DNF';
+  return formatMs(effectiveMs(solve)) + (solve.penalty === '+2' ? '+' : '');
+}
+
+// Convenção do csTimer: descarta 5% de cada lado, arredondando para cima (ao5 e ao12: 1; ao50: 3; ao100: 5).
+export const trimCount = (n: number): number => Math.ceil(n * 0.05);
+
+function trimmedMean(values: number[]): number {
+  const t = trimCount(values.length);
+  const kept = [...values].sort((a, b) => a - b).slice(t, values.length - t);
+  if (kept.some((v) => v === Infinity)) return Infinity;
+  return Math.round(kept.reduce((a, b) => a + b, 0) / kept.length / 10) * 10;
+}
+
+export function averageOf(solves: Solve[], n: number): number | null {
+  if (solves.length < n) return null;
+  return trimmedMean(solves.slice(-n).map(effectiveMs));
+}
+
+export function rollingAverages(solves: Solve[], n: number): (number | null)[] {
+  const eff = solves.map(effectiveMs);
+  return eff.map((_, i) => (i + 1 < n ? null : trimmedMean(eff.slice(i + 1 - n, i + 1))));
+}
+
+export function bestSingle(solves: Solve[]): number | null {
+  let best: number | null = null;
+  for (const x of solves) {
+    const e = effectiveMs(x);
+    if (e !== Infinity && (best === null || e < best)) best = e;
+  }
+  return best;
+}
+
+export function bestSingleSolve(solves: Solve[]): Solve | null {
+  let best: Solve | null = null;
+  for (const x of solves) {
+    const e = effectiveMs(x);
+    if (e !== Infinity && (best === null || e < effectiveMs(best))) best = x;
+  }
+  return best;
+}
+
+export function bestAverage(solves: Solve[], n: number): number | null {
+  let best: number | null = null;
+  for (const v of rollingAverages(solves, n)) if (v !== null && v !== Infinity && (best === null || v < best)) best = v;
+  return best;
+}
+
+export function stdDevMs(solves: Solve[]): number | null {
+  const v = solves.map(effectiveMs).filter((e) => e !== Infinity);
+  if (v.length < 2) return null;
+  const mean = v.reduce((a, b) => a + b, 0) / v.length;
+  return Math.sqrt(v.reduce((a, b) => a + (b - mean) ** 2, 0) / (v.length - 1));
+}
+
+export function dayKey(ts: number): string {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+const noon = (key: string): number => new Date(`${key}T12:00:00`).getTime();
+
+export function solvesOnDay(solves: Solve[], ts: number): Solve[] {
+  const k = dayKey(ts);
+  return solves.filter((x) => dayKey(x.at) === k);
+}
+
+// Dias seguidos terminando hoje (ou ontem, se ainda não houve solve hoje).
+export function currentStreak(solves: Solve[], nowTs: number): number {
+  const days = new Set(solves.map((x) => dayKey(x.at)));
+  const d = new Date(nowTs);
+  d.setHours(12, 0, 0, 0);
+  if (!days.has(dayKey(d.getTime()))) d.setDate(d.getDate() - 1);
+  let n = 0;
+  while (days.has(dayKey(d.getTime()))) {
+    n++;
+    d.setDate(d.getDate() - 1);
+  }
+  return n;
+}
+
+// A média compara com avgHistory (a sessão); o recorde, com history (todos os solves).
+export function solveDeltas(history: Solve[], solve: Solve, avgHistory: Solve[] = history): SolveDeltas {
+  const e = effectiveMs(solve);
+  const prevAo5 = averageOf(avgHistory, 5);
+  const prevPb = bestSingle(history);
+  return {
+    vsAo5: prevAo5 !== null && prevAo5 !== Infinity && e !== Infinity ? e - prevAo5 : null,
+    vsPb: prevPb !== null && e !== Infinity ? e - prevPb : null,
+    isPb: prevPb !== null && e !== Infinity && e < prevPb,
+  };
+}
+
+export function resultKind(history: Solve[], solve: Solve, avgHistory: Solve[] = history): ResultKind {
+  if (solve.penalty === 'DNF') return 'dnf';
+  if (solve.penalty === '+2') return 'plus2';
+  const d = solveDeltas(history, solve, avgHistory);
+  if (d.isPb) return 'pb';
+  return d.vsAo5 === null || d.vsAo5 <= 0 ? 'good' : 'slow';
+}
+
+export function monthHeat(solves: Solve[], nowTs: number): HeatDay[] {
+  const now = new Date(nowTs);
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  const daysIn = new Date(y, m + 1, 0).getDate();
+  const counts = new Map<number, number>();
+  for (const x of solves) {
+    const d = new Date(x.at);
+    if (d.getFullYear() === y && d.getMonth() === m) counts.set(d.getDate(), (counts.get(d.getDate()) || 0) + 1);
+  }
+  const pb = bestSingleSolve(solves);
+  const pbDate = pb ? new Date(pb.at) : null;
+  const pbDay = pbDate && pbDate.getFullYear() === y && pbDate.getMonth() === m ? pbDate.getDate() : null;
+  return Array.from({ length: daysIn }, (_, i): HeatDay => {
+    const day = i + 1;
+    const count = counts.get(day) || 0;
+    return { day, count, level: count === 0 ? 0 : count < 5 ? 1 : count < 15 ? 2 : 3, pb: day === pbDay, today: day === now.getDate() };
+  });
+}
+
+// Marcos da temporada 1, com o momento em que cada um foi conquistado e o progresso dos que faltam.
+// Quem chama passa só os solves do 3×3: os marcos não valem para os outros eventos.
+export function milestoneProgress(solves: Solve[], nowTs: number): MilestoneStatus[] {
+  const at: Partial<Record<MilestoneId, number>> = {};
+  const r5 = rollingAverages(solves, 5);
+  const r12 = rollingAverages(solves, 12);
+  let best: number | null = null;
+  let run = 0;
+  let bestRun = 0;
+  let prevDay: string | null = null;
+  for (const [i, x] of solves.entries()) {
+    const e = effectiveMs(x);
+    if (e !== Infinity && (best === null || e < best)) best = e;
+    const k = dayKey(x.at);
+    if (k !== prevDay) {
+      run = prevDay !== null && Math.round((noon(k) - noon(prevDay)) / DAY) === 1 ? run + 1 : 1;
+      bestRun = Math.max(bestRun, run);
+      prevDay = k;
+    }
+    const hit = (id: MilestoneId, ok: boolean): void => {
+      if (ok && at[id] === undefined) at[id] = x.at;
+    };
+    const count = i + 1;
+    const ao5 = r5[i];
+    const ao12 = r12[i];
+    hit('first', count >= 1);
+    hit('sub2', best !== null && best < 120000);
+    hit('n100', count >= 100);
+    hit('sub130', best !== null && best < 90000);
+    hit('ao5sub130', ao5 !== null && ao5 < 90000);
+    hit('sub1', best !== null && best < 60000);
+    hit('streak7', bestRun >= 7);
+    hit('ao12sub1', ao12 !== null && ao12 < 60000);
+    hit('n1000', count >= 1000);
+  }
+  const n = solves.length;
+  const progress: Record<MilestoneId, string | null> = {
+    first: null,
+    sub2: best === null ? null : T.progress.best(formatMs(best)),
+    n100: T.progress.count(Math.min(n, 100), 100),
+    sub130: best === null ? null : T.progress.best(formatMs(best)),
+    ao5sub130: T.progress.best(formatMs(bestAverage(solves, 5))),
+    sub1: best === null ? null : T.progress.best(formatMs(best)),
+    streak7: T.progress.count(currentStreak(solves, nowTs), 7),
+    ao12sub1: T.progress.best(formatMs(bestAverage(solves, 12))),
+    n1000: T.progress.count(Math.min(n, 1000), 1000),
+  };
+  return MILESTONES.map((id) => ({ id, achieved: at[id] !== undefined, at: at[id] ?? null, progress: at[id] !== undefined ? null : progress[id] }));
+}
+
+export function achievedIds(solves: Solve[], nowTs: number): MilestoneId[] {
+  return milestoneProgress(solves, nowTs).filter((m) => m.achieved).map((m) => m.id);
+}
+
+// true onde o solve bateu o recorde que existia até ali (o primeiro solve não conta).
+export function pbFlags(solves: Solve[]): boolean[] {
+  let best: number | null = null;
+  return solves.map((x) => {
+    const e = effectiveMs(x);
+    const flag = best !== null && e !== Infinity && e < best;
+    if (e !== Infinity && (best === null || e < best)) best = e;
+    return flag;
+  });
+}
+
+// Mo n: média simples dos n últimos, sem descartar nenhum. DNF entre eles vira DNF; sem n solves, null.
+export function meanOf(solves: Solve[], n: number): number | null {
+  if (solves.length < n) return null;
+  const eff = solves.slice(-n).map(effectiveMs);
+  if (eff.some((v) => v === Infinity)) return Infinity;
+  return eff.reduce((a, b) => a + b, 0) / n;
+}
+
+// Média oficial do evento: Mo3 no 6×6 e no 7×7, Ao5 nos demais (o catálogo diz qual).
+export function officialAverage(solves: Solve[], event: EventId): number | null {
+  return eventInfo(event).average === 'mo3' ? meanOf(solves, 3) : averageOf(solves, 5);
+}
+
+export function officialAverageLabel(event: EventId): { n: number; kind: 'ao' | 'mo' } {
+  return eventInfo(event).average === 'mo3' ? { n: 3, kind: 'mo' } : { n: 5, kind: 'ao' };
+}
