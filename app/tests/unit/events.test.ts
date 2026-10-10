@@ -12,8 +12,9 @@ describe('catálogo de eventos', () => {
     for (const e of EVENTS) expect(e.inspection).toBe(e.id !== '333bf');
   });
 
-  it('6×6 e 7×7 usam Mo3; os outros, Ao5', () => {
-    for (const e of EVENTS) expect(e.average).toBe(e.id === '666' || e.id === '777' ? 'mo3' : 'ao5');
+  it('6×6, 7×7 e 3BLD usam Mo3; os outros, Ao5', () => {
+    const mo3 = ['666', '777', '333bf'];
+    for (const e of EVENTS) expect(e.average).toBe(mo3.includes(e.id) ? 'mo3' : 'ao5');
   });
 
   it('só o 3×3 tem marcos', () => {

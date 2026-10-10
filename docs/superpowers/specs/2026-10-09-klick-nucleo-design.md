@@ -180,8 +180,8 @@ O catálogo de eventos (`core/events.ts`) diz, para cada evento, o nome, o id no
 |---|---|
 | Inspeção de 15 s, avisos aos 8 e 12 s, +2 depois de 15 s, DNF depois de 17 s | todos, menos 3BLD |
 | Sem inspeção (a memorização conta no tempo) | 3BLD |
-| Média oficial **Ao5** | 3×3, 2×2, 4×4, 5×5, OH, 3BLD (regra WCA 2026: Bo5 com Ao5), Megaminx, Pyraminx, Skewb, Square-1, Clock |
-| Média oficial **Mo3** | 6×6, 7×7 |
+| Média oficial **Ao5** | 3×3, 2×2, 4×4, 5×5, OH, Megaminx, Pyraminx, Skewb, Square-1, Clock |
+| Média oficial **Mo3** | 6×6, 7×7, 3BLD (decisão de 10/10) |
 
 As médias seguem a convenção do csTimer, já testada no protótipo: descartam `ceil(5% de n)` de cada lado, o DNF conta como o pior tempo, e se sobrar DNF depois do descarte a média vira DNF. O Mo3 não descarta nada.
 

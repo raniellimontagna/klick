@@ -156,7 +156,7 @@ export function bestMean(solves: Solve[], n: number): number | null {
   return best;
 }
 
-// Média oficial do evento: Mo3 no 6×6 e no 7×7, Ao5 nos demais (o catálogo diz qual).
+// Média oficial do evento: Mo3 no 6×6, no 7×7 e no 3BLD, Ao5 nos demais (o catálogo diz qual).
 export function officialAverageLabel(event: EventId): { n: number; kind: 'ao' | 'mo' } {
   return eventInfo(event).average === 'mo3' ? { n: 3, kind: 'mo' } : { n: 5, kind: 'ao' };
 }

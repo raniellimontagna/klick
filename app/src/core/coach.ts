@@ -1,5 +1,5 @@
 // Escolhe no máximo uma mensagem do coach por solve, pela prioridade da spec (6.5). Porte de prototype/scripts/coach.js,
-// com o recorde de média pela média oficial do evento (Ao5, ou Mo3 no 6×6 e no 7×7).
+// com o recorde de média pela média oficial do evento (Ao5, ou Mo3 no 6×6, no 7×7 e no 3BLD).
 import { MILESTONE_INFO, T } from '../strings';
 import { averageOf, bestAverage, bestMean, bestSingle, effectiveMs, formatMs, officialAverage, officialAverageLabel, solvesOnDay } from './stats';
 import type { EventId, Solve } from './types';

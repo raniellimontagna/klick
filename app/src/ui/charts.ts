@@ -7,7 +7,7 @@ const valid = (v: number | null): v is number => v !== null && v !== Infinity;
 
 export interface EvolutionData {
   times: number[]; // tempos efetivos (Infinity = DNF)
-  ao5: (number | null)[]; // a média oficial do evento em cada ponto (Ao5, ou Mo3 no 6×6 e no 7×7); null onde não há
+  ao5: (number | null)[]; // a média oficial do evento em cada ponto (Ao5, ou Mo3 no 6×6, no 7×7 e no 3BLD); null onde não há
   pb: boolean[]; // true onde o solve bateu o recorde da época
 }
 

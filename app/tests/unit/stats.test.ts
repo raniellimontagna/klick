@@ -229,6 +229,7 @@ describe('média oficial por evento', () => {
   });
   it('rótulo da média oficial', () => {
     expect(officialAverageLabel('777')).toEqual({ n: 3, kind: 'mo' });
+    expect(officialAverageLabel('333bf')).toEqual({ n: 3, kind: 'mo' });
     expect(officialAverageLabel('sq1')).toEqual({ n: 5, kind: 'ao' });
   });
   it('Mo3 arredonda ao centésimo, como a média de 5', () => {

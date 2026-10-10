@@ -96,7 +96,7 @@
 
   const flags = $derived(pbFlags(pool));
   const times = $derived(split.inPeriod.map(effectiveMs));
-  // Média oficial em cada ponto (Ao5, ou Mo3 no 6×6 e no 7×7): a linha do gráfico.
+  // Média oficial em cada ponto (Ao5, ou Mo3 no 6×6, no 7×7 e no 3BLD): a linha do gráfico.
   const officialSeries = $derived(rollingOfficial(pool, official));
   // Média de 5 em cada ponto: a coluna da tabela.
   const ao5Series = $derived(rollingAverages(pool, 5));

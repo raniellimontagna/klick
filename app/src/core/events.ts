@@ -32,11 +32,14 @@ const ROWS: readonly EventRow[] = [
   { id: 'clock', name: 'Clock', short: 'Clock', scrambleId: 'clock', puzzle: 'clock', csTimer: 'clkwca' },
 ];
 
+// Média oficial de 3 (simples, sem descarte): 6×6, 7×7 e 3BLD. Os demais usam a média de 5.
+const MO3_EVENTS: readonly EventId[] = ['666', '777', '333bf'];
+
 function toEventInfo(row: EventRow): EventInfo {
   const info: EventInfo = {
     ...row,
     inspection: row.id !== '333bf',
-    average: row.id === '666' || row.id === '777' ? 'mo3' : 'ao5',
+    average: MO3_EVENTS.includes(row.id) ? 'mo3' : 'ao5',
     milestones: row.id === '333',
   };
   return Object.freeze(info);
