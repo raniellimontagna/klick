@@ -1,4 +1,4 @@
-// Tipos do domínio, compartilhados por core, data e ui. Só o DEFAULT_SETTINGS tem valor em tempo de execução.
+// Tipos do domínio, compartilhados por core, data e ui. Em tempo de execução só existem DEFAULT_SETTINGS e defaultSettings().
 
 export type Penalty = null | '+2' | 'DNF';
 
@@ -69,7 +69,7 @@ export interface Meta {
   installGuideDismissed: boolean;
 }
 
-// Congelado por inteiro, inclusive o grupo de sons: quem precisar alterar trabalha numa cópia.
+// Congelado por inteiro, inclusive o grupo de sons: quem precisar alterar trabalha numa cópia (defaultSettings).
 export const DEFAULT_SETTINGS: Settings = Object.freeze({
   inspection: true,
   holdMs: 300,
@@ -81,3 +81,8 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   dailyGoal: 20,
   scrambleImage: true,
 });
+
+// Cópia nova, profunda e mutável dos ajustes padrão, para montar um perfil ou um estado que a interface vá alterar.
+export function defaultSettings(): Settings {
+  return structuredClone(DEFAULT_SETTINGS);
+}

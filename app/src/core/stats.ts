@@ -1,4 +1,5 @@
-// Estatísticas puras (porte de prototype/scripts/stats.js). As listas chegam em ordem cronológica (mais antigo primeiro).
+// Estatísticas puras (porte de prototype/scripts/stats.js). As listas chegam em ordem cronológica (mais antigo primeiro)
+// e só com solves ativos: quem chama deixa de fora os da lixeira (deletedAt).
 import { T } from '../strings';
 import { eventInfo } from './events';
 import type { EventId, Solve } from './types';
@@ -16,7 +17,8 @@ export interface MilestoneStatus {
 }
 
 export interface SolveDeltas {
-  vsAo5: number | null;
+  vsAvg: number | null; // contra a média oficial do evento (Ao5 ou Mo3), pela sessão
+  avgN: number; // de quantos solves é essa média: 5 ou 3
   vsPb: number | null;
   isPb: boolean;
 }
@@ -56,13 +58,17 @@ export function formatSolve(solve: Solve): string {
 // Convenção do csTimer: descarta 5% de cada lado, arredondando para cima (ao5 e ao12: 1; ao50: 3; ao100: 5).
 export const trimCount = (n: number): number => Math.ceil(n * 0.05);
 
+// Médias e Mo3 valem ao centésimo (a WCA arredonda), então o cálculo arredonda para 10 ms antes de o display truncar.
+const toCentisecond = (ms: number): number => Math.round(ms / 10) * 10;
+
 function trimmedMean(values: number[]): number {
   const t = trimCount(values.length);
   const kept = [...values].sort((a, b) => a - b).slice(t, values.length - t);
   if (kept.some((v) => v === Infinity)) return Infinity;
-  return Math.round(kept.reduce((a, b) => a + b, 0) / kept.length / 10) * 10;
+  return toCentisecond(kept.reduce((a, b) => a + b, 0) / kept.length);
 }
 
+// Média com descarte (Ao5, Ao12, Ao100). Para o Mo3 use meanOf: com n = 3 o descarte deixa só a mediana.
 export function averageOf(solves: Solve[], n: number): number | null {
   if (solves.length < n) return null;
   return trimmedMean(solves.slice(-n).map(effectiveMs));
@@ -130,13 +136,33 @@ export function currentStreak(solves: Solve[], nowTs: number): number {
   return n;
 }
 
-// A média compara com avgHistory (a sessão); o recorde, com history (todos os solves).
+// Mo n: média simples dos n últimos, sem descartar nenhum, arredondada ao centésimo como o Ao5.
+// DNF entre os n vira DNF; sem n solves, null.
+export function meanOf(solves: Solve[], n: number): number | null {
+  if (solves.length < n) return null;
+  const eff = solves.slice(-n).map(effectiveMs);
+  if (eff.some((v) => v === Infinity)) return Infinity;
+  return toCentisecond(eff.reduce((a, b) => a + b, 0) / n);
+}
+
+// Média oficial do evento: Mo3 no 6×6 e no 7×7, Ao5 nos demais (o catálogo diz qual).
+export function officialAverageLabel(event: EventId): { n: number; kind: 'ao' | 'mo' } {
+  return eventInfo(event).average === 'mo3' ? { n: 3, kind: 'mo' } : { n: 5, kind: 'ao' };
+}
+
+export function officialAverage(solves: Solve[], event: EventId): number | null {
+  const { n, kind } = officialAverageLabel(event);
+  return kind === 'mo' ? meanOf(solves, n) : averageOf(solves, n);
+}
+
+// A média oficial do evento compara com avgHistory (a sessão); o recorde, com history (todos os solves do evento).
 export function solveDeltas(history: Solve[], solve: Solve, avgHistory: Solve[] = history): SolveDeltas {
   const e = effectiveMs(solve);
-  const prevAo5 = averageOf(avgHistory, 5);
+  const prevAvg = officialAverage(avgHistory, solve.event);
   const prevPb = bestSingle(history);
   return {
-    vsAo5: prevAo5 !== null && prevAo5 !== Infinity && e !== Infinity ? e - prevAo5 : null,
+    vsAvg: prevAvg !== null && prevAvg !== Infinity && e !== Infinity ? e - prevAvg : null,
+    avgN: officialAverageLabel(solve.event).n,
     vsPb: prevPb !== null && e !== Infinity ? e - prevPb : null,
     isPb: prevPb !== null && e !== Infinity && e < prevPb,
   };
@@ -147,7 +173,7 @@ export function resultKind(history: Solve[], solve: Solve, avgHistory: Solve[] =
   if (solve.penalty === '+2') return 'plus2';
   const d = solveDeltas(history, solve, avgHistory);
   if (d.isPb) return 'pb';
-  return d.vsAo5 === null || d.vsAo5 <= 0 ? 'good' : 'slow';
+  return d.vsAvg === null || d.vsAvg <= 0 ? 'good' : 'slow';
 }
 
 export function monthHeat(solves: Solve[], nowTs: number): HeatDay[] {
@@ -233,21 +259,4 @@ export function pbFlags(solves: Solve[]): boolean[] {
     if (e !== Infinity && (best === null || e < best)) best = e;
     return flag;
   });
-}
-
-// Mo n: média simples dos n últimos, sem descartar nenhum. DNF entre eles vira DNF; sem n solves, null.
-export function meanOf(solves: Solve[], n: number): number | null {
-  if (solves.length < n) return null;
-  const eff = solves.slice(-n).map(effectiveMs);
-  if (eff.some((v) => v === Infinity)) return Infinity;
-  return eff.reduce((a, b) => a + b, 0) / n;
-}
-
-// Média oficial do evento: Mo3 no 6×6 e no 7×7, Ao5 nos demais (o catálogo diz qual).
-export function officialAverage(solves: Solve[], event: EventId): number | null {
-  return eventInfo(event).average === 'mo3' ? meanOf(solves, 3) : averageOf(solves, 5);
-}
-
-export function officialAverageLabel(event: EventId): { n: number; kind: 'ao' | 'mo' } {
-  return eventInfo(event).average === 'mo3' ? { n: 3, kind: 'mo' } : { n: 5, kind: 'ao' };
 }

@@ -53,7 +53,7 @@ export const T = Object.freeze({
     back: 'Que bom te ver. Começa leve — o primeiro não conta pra nada.',
   },
   chips: {
-    vsAo5: (diffMs: number) => `${diffMs <= 0 ? '▼' : '▲'} ${sec(Math.abs(diffMs))} s vs média de 5`,
+    vsAvg: (diffMs: number, n: number) => `${diffMs <= 0 ? '▼' : '▲'} ${sec(Math.abs(diffMs))} s vs média de ${n}`,
     vsPb: (diffMs: number) => `▲ ${sec(diffMs)} s do recorde`,
     newPb: (diffMs: number) => `◆ ${sec(diffMs)} s abaixo do recorde`,
     solveN: (n: number) => `solve #${n}`,

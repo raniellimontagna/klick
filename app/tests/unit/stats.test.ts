@@ -79,7 +79,7 @@ describe('estatísticas', () => {
     const all = [60000, 61000, 62000, 63000, 64000, 50000].map((ms) => sv(ms));
     const session = [70000, 71000, 72000, 73000, 74000].map((ms) => sv(ms));
     const d = solveDeltas(all, sv(71500), session);
-    expect(d.vsAo5).toBe(71500 - 72000);
+    expect(d.vsAvg).toBe(71500 - 72000);
     expect(d.vsPb).toBe(71500 - 50000);
     expect(d.isPb).toBe(false);
     expect(resultKind(all, sv(71500), session)).toBe('good');
@@ -88,7 +88,7 @@ describe('estatísticas', () => {
 
   it('solveDeltas e resultKind', () => {
     const hist = [62000, 63000, 61000, 64000, 60000].map((ms) => sv(ms));
-    expect(solveDeltas(hist, sv(59000))).toEqual({ vsAo5: 59000 - 62000, vsPb: -1000, isPb: true });
+    expect(solveDeltas(hist, sv(59000))).toEqual({ vsAvg: 59000 - 62000, avgN: 5, vsPb: -1000, isPb: true });
     expect(resultKind(hist, sv(59000))).toBe('pb');
     expect(resultKind(hist, sv(61500))).toBe('good');
     expect(resultKind(hist, sv(70000))).toBe('slow');
@@ -139,10 +139,69 @@ describe('estatísticas', () => {
   });
 
   it('deltas e progressos vêm de strings.ts e truncam no centésimo', () => {
-    expect(T.chips.vsAo5(-429)).toBe('▼ 0.42 s vs média de 5');
+    expect(T.chips.vsAvg(-429, 5)).toBe('▼ 0.42 s vs média de 5');
     expect(T.coach.pbSingle(1999)).toBe('Novo recorde — 1.99 s mais rápido. Vale lembrar o que funcionou.');
     expect(T.progress.best('1:29.00')).toBe('melhor 1:29.00');
     expect(T.progress.count(3, 100)).toBe('3/100');
+  });
+});
+
+// O descarte de ceil(5%) de cada lado só se distingue com n maior que 5. Nestes dados, descartar outra quantidade dá
+// outro valor, então um descarte errado não passa. Os tempos entram fora de ordem para o teste exigir a ordenação.
+const rep = (ms: number, count: number): number[] => Array.from({ length: count }, () => ms);
+// Ao12: 10 s, 40 s, nove de 60 s e 200 s. Sem o 10 s e o 200 s: (40 + 9 × 60) / 10 = 58 s. Com 2 de cada lado seriam 60 s; sem descarte, 65,83 s.
+const AO12 = [10000, 60000, 200000, 60000, 60000, 40000, 60000, 60000, 60000, 60000, 60000, 60000];
+// Ao100: cinco de 10 s, um de 40 s, 88 de 60 s, um de 70 s e cinco de 200 s. Sem 5 de cada lado: (40 + 88 × 60 + 70) / 90 = 59,89 s.
+// Com 4 de cada lado seriam 60,87 s; com 6, 60 s.
+const ordenados100 = [...rep(10000, 5), 40000, ...rep(60000, 88), 70000, ...rep(200000, 5)];
+// 37 é primo com 100: i * 37 % 100 percorre 0..99 sem repetir, e o primeiro continua sendo um tempo de 10 s.
+const AO100 = ordenados100.map((_, i) => ordenados100[(i * 37) % 100]);
+
+describe('médias com descarte de 5%', () => {
+  it('Ao12 descarta um tempo de cada lado', () => {
+    expect(averageOf(AO12.map((ms) => sv(ms)), 12)).toBe(58000);
+  });
+
+  it('Ao100 descarta cinco tempos de cada lado', () => {
+    expect(averageOf(AO100.map((ms) => sv(ms)), 100)).toBe(59890);
+  });
+
+  it('rollingAverages e bestAverage com n = 12: a janela desliza um solve por vez', () => {
+    const xs = [...AO12, 90000].map((ms) => sv(ms));
+    const r = rollingAverages(xs, 12);
+    expect(r).toHaveLength(13);
+    expect(r.slice(0, 11).every((v) => v === null)).toBe(true);
+    expect(r[11]).toBe(58000);
+    expect(r[12]).toBe(63000); // sai o 10 s, entra o 90 s; descartados 40 s e 200 s: (9 × 60 + 90) / 10
+    expect(bestAverage(xs, 12)).toBe(58000);
+  });
+
+  it('rollingAverages e bestAverage com n = 100: a janela desliza um solve por vez', () => {
+    const xs = [...AO100, 60000].map((ms) => sv(ms));
+    const r = rollingAverages(xs, 100);
+    expect(r).toHaveLength(101);
+    expect(r.slice(0, 99).every((v) => v === null)).toBe(true);
+    expect(r[99]).toBe(59890);
+    expect(r[100]).toBe(60110); // sai um 10 s, entra um 60 s: (89 × 60 + 70) / 90
+    expect(bestAverage(xs, 100)).toBe(59890);
+  });
+
+  it('um DNF no Ao12 é descartado como o pior; o segundo sobrevive ao descarte e a média vira DNF', () => {
+    const one = AO12.map((ms) => sv(ms));
+    one[2] = sv(200000, 'DNF'); // o 200 s vira DNF e continua sendo o pior
+    expect(averageOf(one, 12)).toBe(58000);
+    const two = [...one];
+    two[3] = sv(60000, 'DNF');
+    expect(averageOf(two, 12)).toBe(Infinity);
+    expect(bestAverage(two, 12)).toBeNull(); // média DNF nunca é a melhor
+  });
+
+  it('lista só de DNF: a média e o Mo3 são DNF, e não há melhor single nem melhor média', () => {
+    const dnfs = Array.from({ length: 5 }, () => sv(1, 'DNF'));
+    expect(averageOf(dnfs, 5)).toBe(Infinity);
+    expect(meanOf(dnfs, 3)).toBe(Infinity);
+    expect(bestSingle(dnfs)).toBeNull();
+    expect(bestAverage(dnfs, 5)).toBeNull();
   });
 });
 
@@ -160,7 +219,7 @@ describe('média oficial por evento', () => {
     expect(meanOf([mk(90000), mk(100000)], 3)).toBeNull();
   });
   it('Mo3 conta o +2', () => {
-    expect(meanOf([mk(90000), mk(98000, '+2'), mk(100000)], 3)).toBe(96666.66666666667);
+    expect(meanOf([mk(90000), mk(98000, '+2'), mk(100000)], 3)).toBe(96670);
   });
   it('officialAverage usa Mo3 no 6×6 e Ao5 no 3×3', () => {
     const six = [mk(90000), mk(100000), mk(110000)];
@@ -171,5 +230,61 @@ describe('média oficial por evento', () => {
   it('rótulo da média oficial', () => {
     expect(officialAverageLabel('777')).toEqual({ n: 3, kind: 'mo' });
     expect(officialAverageLabel('sq1')).toEqual({ n: 5, kind: 'ao' });
+  });
+  it('Mo3 arredonda ao centésimo, como a média de 5', () => {
+    expect(meanOf([mk(60001), mk(60002), mk(60004)], 3)).toBe(60000); // 60002,33 vai para baixo
+    expect(meanOf([mk(60007), mk(60008), mk(60009)], 3)).toBe(60010); // 60008 vai para cima
+  });
+  it('officialAverage no 6×6 é a média dos três últimos, não a mediana', () => {
+    expect(officialAverage([mk(90000), mk(100000), mk(140000)], '666')).toBe(110000);
+  });
+  it('officialAverage é null sem solves suficientes para a média do evento', () => {
+    expect(officialAverage([mk(90000), mk(100000)], '666')).toBeNull(); // o Mo3 pede 3
+    expect(officialAverage([], '777')).toBeNull();
+    const four = [10, 20, 30, 40].map((s) => mk(s * 1000, null, '333'));
+    expect(officialAverage(four, '333')).toBeNull(); // o Ao5 pede 5
+  });
+});
+
+describe('chip e anel pela média oficial do evento', () => {
+  it('no 6×6 compara com o Mo3 da sessão, mesmo quando o Ao5 diria o contrário', () => {
+    const session = [100000, 105000, 500000, 200000, 200000].map((ms) => mk(ms));
+    const solve = mk(250000);
+    expect(averageOf(session, 5)).toBe(168330); // pelo Ao5 o solve ficaria 81,67 s acima da média
+    expect(solveDeltas(session, solve, session)).toEqual({ vsAvg: -50000, avgN: 3, vsPb: 150000, isPb: false }); // o Mo3 é 300 s
+    expect(resultKind(session, solve, session)).toBe('good');
+  });
+
+  it('no 6×6 o anel já fica lento com três solves na sessão, sem esperar o Ao5', () => {
+    const session = [100000, 100000, 100000].map((ms) => mk(ms));
+    expect(solveDeltas(session, mk(150000), session)).toMatchObject({ vsAvg: 50000, avgN: 3 });
+    expect(resultKind(session, mk(150000), session)).toBe('slow');
+  });
+
+  it('no 6×6 sem três solves, ou com DNF entre os três últimos, não há comparação com a média', () => {
+    const two = [100000, 100000].map((ms) => mk(ms));
+    expect(solveDeltas(two, mk(150000), two)).toMatchObject({ vsAvg: null, avgN: 3 });
+    expect(resultKind(two, mk(150000), two)).toBe('good');
+    const withDnf = [mk(100000), mk(1, 'DNF'), mk(100000)];
+    expect(solveDeltas(withDnf, mk(150000), withDnf)).toMatchObject({ vsAvg: null, avgN: 3 });
+  });
+
+  it('igual à média não é lento: o anel fica bom', () => {
+    const session = [100000, 100000, 100000].map((ms) => mk(ms));
+    expect(solveDeltas(session, mk(100000), session)).toMatchObject({ vsAvg: 0, avgN: 3, isPb: false });
+    expect(resultKind(session, mk(100000), session)).toBe('good');
+  });
+
+  it('no 3×3 continua pelo Ao5 da sessão', () => {
+    const session = [70000, 71000, 72000, 73000, 74000].map((ms) => sv(ms));
+    expect(solveDeltas(session, sv(71500), session)).toMatchObject({ vsAvg: 71500 - 72000, avgN: 5 });
+    const four = session.slice(0, 4);
+    expect(solveDeltas(four, sv(71500), four)).toMatchObject({ vsAvg: null, avgN: 5 });
+  });
+
+  it('o texto do chip leva o tamanho da média', () => {
+    expect(T.chips.vsAvg(-50000, 3)).toBe('▼ 50.00 s vs média de 3');
+    expect(T.chips.vsAvg(81670, 3)).toBe('▲ 81.67 s vs média de 3');
+    expect(T.chips.vsAvg(-429, 5)).toBe('▼ 0.42 s vs média de 5');
   });
 });
