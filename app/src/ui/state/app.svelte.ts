@@ -42,6 +42,9 @@ const DEFAULT_EVENT: EventId = '333';
 const UNDO_MS = 6000; // janela de Desfazer: a mesma do aviso que a oferece
 const TOAST_MS = 6000;
 const LIVE_DELAY_MS = 50; // o leitor de tela só anuncia de novo se o texto mudar depois de um intervalo
+// Quanto a abertura espera pelo primeiro embaralhamento. Se o cubing demora mais, a casca aparece em branco e o embaralhamento
+// chega depois, pela reatividade.
+const FIRST_SCRAMBLE_WAIT_MS = 150;
 
 const compareId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 // A ordem do repositório: o instante e, empatando, o id.
@@ -124,12 +127,18 @@ export class AppState {
     this.storageManager = deps.storageManager === undefined ? defaultStorageManager() : deps.storageManager;
     // A arrow function: a fila grava pelo addSolve atual do repositório, não pelo que existia quando ela foi criada.
     this.saves = createSaveQueue((s) => this.repo.addSolve(s), {
+      // A fila só avisa numa falha (n > 0) e quando esvazia depois dela (0). Nos dois casos o número é o que ela tem agora.
       onChange: (pending) => {
+        const before = this.savePending;
         this.savePending = pending;
+        // A primeira falha vai para a região aria-live: o aviso fixo da tela do Timer não é lido sozinho.
+        if (before === 0 && pending > 0) this.announce(T.data.saveFailed);
         // Depois de uma falha, a fila esvaziou: a pessoa fica sabendo que está tudo salvo.
         if (pending === 0) this.announce(T.data.saved);
       },
       onSaved: (s) => {
+        // Cada gravação bem-sucedida tira um item da fila, e a fila não avisa nesse caso: o número é lido aqui.
+        this.savePending = this.saves.pending();
         void this.recordSaved(s);
       },
     });
@@ -172,10 +181,19 @@ export class AppState {
     try {
       await this.repo.purgeTrash(TRASH_MS);
     } catch {
-      this.showToast(T.data.saveFailed);
+      // Limpar a lixeira é manutenção: a falha não apaga nada, e a próxima abertura tenta de novo. Sem aviso.
     }
     this.v1Available = !meta.v1ImportOffered && hasV1(this.storage);
-    await this.nextScramble();
+    // Não espera o cubing além de FIRST_SCRAMBLE_WAIT_MS: a casca pode aparecer antes do embaralhamento.
+    let patience: ReturnType<typeof setTimeout> | undefined;
+    const waited = new Promise<void>((resolve) => {
+      patience = setTimeout(resolve, FIRST_SCRAMBLE_WAIT_MS);
+    });
+    try {
+      await Promise.race([this.nextScramble(), waited]);
+    } finally {
+      clearTimeout(patience);
+    }
     this.queue.prefetch(this.event);
     await this.reload();
   }
@@ -265,19 +283,21 @@ export class AppState {
   }
 
   async createSession(event: EventId, name?: string): Promise<void> {
-    const ok = await this.write(async () => {
+    this.clearScramble(); // antes da gravação: um solve que caia nessa janela não leva o embaralhamento do evento antigo
+    await this.write(async () => {
       const session = await this.repo.createSession({ event, name });
       await this.repo.saveProfile({ currentSessionId: session.id });
     });
     await this.refresh();
-    if (ok) await this.nextScramble();
+    await this.nextScramble(); // zerado acima, então é preciso pedir outro, mesmo que a gravação tenha falhado
   }
 
   async switchSession(id: string): Promise<void> {
     if (id === this.profile.currentSessionId || !this.sessions.some((s) => s.id === id)) return;
-    const ok = await this.write(() => this.repo.saveProfile({ currentSessionId: id }));
+    this.clearScramble(); // antes da gravação, como em createSession
+    await this.write(() => this.repo.saveProfile({ currentSessionId: id }));
     await this.refresh();
-    if (ok) await this.nextScramble();
+    await this.nextScramble();
   }
 
   async renameSession(id: string, name: string): Promise<void> {
@@ -308,11 +328,17 @@ export class AppState {
     await this.refresh();
   }
 
-  async nextScramble(): Promise<void> {
-    const event = this.event;
-    const request = ++this.scrambleRequest;
+  // Tira o embaralhamento da tela e invalida os pedidos em voo: o que chegar depois não é mais deste evento.
+  private clearScramble(): void {
+    this.scrambleRequest++;
     this.scramble = '';
     this.scrambleError = false;
+  }
+
+  async nextScramble(): Promise<void> {
+    const event = this.event;
+    this.clearScramble();
+    const request = this.scrambleRequest;
     try {
       const next = await this.queue.next(event);
       // Um pedido mais novo (outra sessão, outro evento) já passou por aqui: este embaralhamento não é mais o da tela.
@@ -343,6 +369,7 @@ export class AppState {
 
   showToast(text: string, action?: string, onAction?: () => void, ms: number = TOAST_MS): void {
     this.toast = { text, action, onAction };
+    this.announce(text); // o aviso também vai para a região aria-live: o leitor de tela não pode perdê-lo
     clearTimeout(this.toastTimer);
     this.toastTimer = setTimeout(() => {
       this.toast = null;

@@ -183,6 +183,95 @@ describe('estado do app', () => {
     expect(app.scramble).toBe('333-1');
   });
 
+  it('init não espera o primeiro embaralhamento: a casca aparece em branco e ele chega depois', async () => {
+    const repo = createRepository(await openKlickDb(`app-${++n}`), { now, channel: null });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const queue = createScrambleQueue({ generate: async (ev) => { await gate; return `${ev}-1`; } });
+    const app = new AppState({ repo, queue, now, storage: null, storageManager: null });
+    const started = Date.now();
+    await app.init(); // a geração está presa no gate: se init esperasse por ela, este await não voltaria
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(app.scramble).toBe('');
+    release();
+    await vi.waitFor(() => expect(app.scramble).toBe('333-1'));
+  });
+
+  it('a primeira falha de gravação anuncia o aviso fixo na região aria-live', async () => {
+    const { app, repo } = await setup();
+    repo.addSolve = async () => { throw new Error('quota'); };
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      await app.addSolve({ ms: 60000, penalty: null, at: t });
+      expect(app.live).toBe('');
+      await vi.advanceTimersByTimeAsync(50);
+      expect(app.live).toBe(T.data.saveFailed);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('um aviso (showToast) também vai para a região aria-live', async () => {
+    const { app } = await setup();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      app.showToast('Solve excluído');
+      await vi.advanceTimersByTimeAsync(50);
+      expect(app.live).toBe('Solve excluído');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('depois de cada gravação, savePending é o que a fila ainda tem', async () => {
+    const { app, repo } = await setup();
+    const original = repo.addSolve.bind(repo);
+    let calls = 0;
+    let releaseB!: () => void;
+    // A falha duas vezes (A e B). Na terceira tentativa A grava; B fica em voo na quarta, sem falha.
+    repo.addSolve = async (s) => {
+      calls++;
+      if (calls <= 2) throw new Error('quota');
+      if (calls === 3) return original(s);
+      await new Promise<void>((resolve) => { releaseB = resolve; });
+      return original(s);
+    };
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      expect(await app.addSolve({ ms: 60000, penalty: null, at: t })).toBeNull();
+      expect(await app.addSolve({ ms: 61000, penalty: null, at: t + 1 })).toBeNull();
+      expect(app.savePending).toBe(2);
+      await vi.advanceTimersByTimeAsync(3000); // a nova tentativa: A grava
+      await vi.waitFor(() => expect(app.savePending).toBe(1));
+      expect(calls).toBe(4); // B já está em voo
+      releaseB();
+      await vi.waitFor(() => expect(app.solves).toHaveLength(2));
+      expect(app.savePending).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('trocar de sessão zera o embaralhamento antes de gravar, então um solve nessa janela não leva o do evento antigo', async () => {
+    const { app } = await setup();
+    expect(app.scramble).toBe('333-1');
+    const switching = app.createSession('sq1');
+    expect(app.scramble).toBe('');
+    const s = await app.addSolve({ ms: 60000, penalty: null, at: t });
+    expect(s?.scramble).toBe('');
+    await switching;
+    expect(app.scramble).toMatch(/^sq1-\d+$/);
+  });
+
+  it('uma falha ao limpar a lixeira na abertura não mostra aviso', async () => {
+    const repo = createRepository(await openKlickDb(`app-${++n}`), { now, channel: null });
+    repo.purgeTrash = async () => { throw new Error('bloqueado'); };
+    const app = new AppState({ repo, queue: fakeQueue(), now, storage: null, storageManager: null });
+    await app.init();
+    expect(app.toast).toBeNull();
+    expect(app.scramble).toBe('333-1');
+  });
+
   it('announce zera a região e põe o texto 50 ms depois', async () => {
     const { app } = await setup();
     vi.useFakeTimers();
