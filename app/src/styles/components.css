@@ -375,6 +375,15 @@
   background: var(--bg);
 }
 
+/* Passos do guia de instalação (InstallGuide.svelte) */
+.steps {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding-left: 22px;
+  font-size: 14px;
+}
+
 .list-btn {
   display: flex;
   justify-content: space-between;

@@ -5,10 +5,10 @@
 // solve gravado (afterSave). Assim, uma leitura que começou antes de um solve gravado não volta a esconder esse solve.
 import { dayKey } from '../../core/stats';
 import { defaultSettings } from '../../core/types';
-import type { EventId, Meta, Penalty, Profile, Session, Settings, Solve } from '../../core/types';
+import type { EventId, Meta, Penalty, Profile, Session, Solve } from '../../core/types';
 import { backupFileName, type DirHandleLike, saveToFolder } from '../../data/folder';
 import { newId } from '../../data/ids';
-import type { KlickExport, NewSolve, Repository } from '../../data/repository';
+import type { KlickExport, NewSolve, ProfilePatch, Repository } from '../../data/repository';
 import {
   countSolveSaved,
   createBackup,
@@ -470,12 +470,22 @@ export class AppState {
     return this.saves.pendingItems().map((s) => this.solveOf(s));
   }
 
-  async updateSettings(patch: Partial<Settings>): Promise<void> {
+  // Os ajustes podem vir parciais, inclusive o grupo de sons (um só som): o repositório junta com o que está gravado.
+  async updateSettings(patch: NonNullable<ProfilePatch['settings']>): Promise<void> {
     const ok = await this.write(async () => {
       this.profile = await this.repo.saveProfile({ settings: patch });
     });
     if (ok) this.applyPrefs();
     await this.refresh();
+  }
+
+  // Marcas que a interface grava no meta (guia de instalação dispensado, pedido de proteção). Só os campos dados mudam.
+  async updateMeta(patch: Partial<Meta>): Promise<void> {
+    await this.write(() =>
+      this.serial(async () => {
+        this.meta = await this.repo.saveMeta(patch);
+      }),
+    );
   }
 
   async updateProfile(patch: Partial<Omit<Profile, 'settings'>>): Promise<void> {

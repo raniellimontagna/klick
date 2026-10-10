@@ -5,6 +5,7 @@
   import { dateLabel } from './format';
   import type { AppState, Tab } from './state/app.svelte';
   import { boot } from './state/boot';
+  import AjustesScreen from './ajustes/AjustesScreen.svelte';
   import CentroScreen from './centro/CentroScreen.svelte';
   import EvolucaoScreen from './evolucao/EvolucaoScreen.svelte';
   import TimerScreen from './timer/TimerScreen.svelte';
@@ -115,9 +116,10 @@
       {#if app.tab === 'companion'}
         <CentroScreen {app} />
       {/if}
-      <section class="screen" data-screen="ajustes" aria-label={T.tabs.ajustes} hidden={app.tab !== 'ajustes'}>
-        <h2 class="label">{T.tabs.ajustes}</h2>
-      </section>
+      <!-- A tela Ajustes só é montada com a aba aberta, como as outras que não são o Timer. -->
+      {#if app.tab === 'ajustes'}
+        <AjustesScreen {app} />
+      {/if}
     </main>
 
     <nav class="tabbar" aria-label={T.shell.nav} hidden={!isCompact}>

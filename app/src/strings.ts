@@ -144,6 +144,67 @@ export const T = Object.freeze({
   // Casca (ui/App.svelte): nomes das abas, rótulo das duas barras de navegação e o atalho para o conteúdo.
   tabs: { timer: 'Timer', evolucao: 'Evolução', companion: 'Centro', ajustes: 'Ajustes' },
   shell: { nav: 'Seções', skip: 'Pular para o conteúdo' },
+  // Tela Ajustes (ui/ajustes/AjustesScreen.svelte). Os valores de cada grupo ficam aqui; o código só guarda os identificadores.
+  ajustes: Object.freeze({
+    timer: 'Timer',
+    look: 'Aparência e som',
+    coach: 'Coach e acessibilidade',
+    inspection: 'Inspeção de 15 s',
+    inspectionHint: 'Avisos aos 8 e 12 s; +2 depois de 15 s; DNF depois de 17 s.',
+    hold: 'Tempo para armar',
+    holdHint: 'Quanto tempo segurar até ficar verde.',
+    holdOptions: Object.freeze([[0, '0'], [300, '0,3 s'], [550, '0,55 s'], [1000, '1 s']] as const),
+    mobileArm: 'Armar no celular',
+    mobileArmHint: 'Dois polegares evita disparo sem querer.',
+    mobileArmOptions: Object.freeze([['two', 'Dois polegares'], ['one', 'Um toque']] as const),
+    theme: 'Tema',
+    themeOptions: Object.freeze([['system', 'Sistema'], ['light', 'Claro'], ['dark', 'Noite']] as const),
+    scrambleImage: 'Imagem do embaralhamento',
+    scrambleImageHint: 'Desenho do cubo para conferir o embaralhamento.',
+    soundKlick: 'Som "klick"',
+    soundKlickHint: 'Ao ficar pronto e ao parar.',
+    soundInsp: 'Tique da inspeção',
+    soundInspHint: 'Aos 8 e 12 s.',
+    soundPb: 'Acorde do recorde',
+    silent: 'Modo silencioso',
+    silentHint: 'O Centro reage, mas o coach não escreve.',
+    reducedMotion: 'Reduzir movimento',
+    reducedMotionOptions: Object.freeze([['system', 'Seguir o sistema'], ['always', 'Sempre']] as const),
+    language: 'Idioma',
+    languageHint: 'Inglês fica para depois.',
+    languageValue: 'Português (Brasil)',
+  }),
+  // Diálogos (ui/dialogs/*). O botão de fechar é o mesmo em todos.
+  dialog: { close: 'Fechar' },
+  // Atalhos do timer (ui/dialogs/ShortcutsDialog.svelte): a tabela do protótipo.
+  shortcuts: Object.freeze({
+    title: 'Atalhos',
+    rows: Object.freeze([
+      ['espaço', 'Armar (segure) e largar (solte)'],
+      ['qualquer tecla', 'Parar'],
+      ['P', '+2 no último solve'],
+      ['D', 'DNF no último solve'],
+      ['M', 'Nota'],
+      ['⌫', 'Excluir o último'],
+      ['Z', 'Desfazer a exclusão'],
+      ['N', 'Novo embaralhamento'],
+      ['?', 'Mostrar atalhos'],
+      ['1–4', 'Trocar de aba'],
+    ] as const),
+  }),
+  // Guia de instalação (ui/dialogs/InstallGuide.svelte).
+  install: Object.freeze({
+    title: 'Instalar o Klick',
+    iosIntro: 'No iPhone, o Safari pode apagar os dados de um site que você não abre por alguns dias. Instalado na Tela de Início, o Klick protege os seus solves.',
+    iosSteps: Object.freeze([
+      'Toque em Compartilhar, o botão da barra de baixo do Safari.',
+      'Role a lista e toque em Adicionar à Tela de Início.',
+      'Confirme em Adicionar. O ícone do Klick aparece na Tela de Início.',
+    ]),
+    otherIntro: 'Instalado, o Klick abre numa janela própria, como um app.',
+    installButton: 'Instalar o app',
+    menuHint: 'Abra o menu do navegador e escolha instalar o app ou adicionar à tela inicial.',
+  }),
   // Avisos de dados (ui/state/app.svelte.ts e a casca). saveFailed é o aviso fixo: enquanto houver solve pendente, fica na tela.
   data: {
     dbUnavailable: 'O navegador bloqueou o armazenamento do Klick. Sem ele, os solves não ficam salvos neste aparelho. Libere o armazenamento para este site e recarregue a página.',
