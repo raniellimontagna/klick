@@ -18,6 +18,8 @@ import type { BackupRecord, KlickDB } from './db';
 import { newId } from './ids';
 
 export type ChangeKind = 'solves' | 'sessions' | 'profile' | 'meta' | 'all';
+// De onde veio o aviso: 'local' é desta aba (já está na memória de quem gravou); 'remote' é de outra aba (o canal).
+export type ChangeOrigin = 'local' | 'remote';
 
 // O que o repositório usa de um BroadcastChannel; testes passam um canal falso.
 export interface ChannelLike {
@@ -84,7 +86,7 @@ export interface Repository {
   exportAll(o?: { includeDeleted?: boolean }): Promise<KlickExport>; // includeDeleted padrão true
   importAll(data: KlickExport): Promise<ImportReport>; // junta por id; fica o de updatedAt maior. Sessão da lixeira que recebe solve ativo do arquivo volta (sem entrar no relatório; avisa sessions)
   replaceAll(data: KlickExport): Promise<void>; // limpa solves, sessões e perfil e grava os do arquivo, como vieram
-  onChange(fn: (kind: ChangeKind) => void): () => void; // mudanças locais e de outras abas
+  onChange(fn: (kind: ChangeKind, origin: ChangeOrigin) => void): () => void; // mudanças locais e de outras abas, com a origem
   close(): void; // fecha a conexão do banco e o canal; depois disso o repositório não responde mais (usado ao trocar pela conexão reaberta)
 }
 
@@ -204,7 +206,7 @@ export function createRepository(
     onError?: (err: unknown) => void; // erro de um ouvinte ou do envio ao canal; a gravação já foi confirmada. Se ele lançar, o erro sai por relançar-depois
   } = {},
 ): Repository {
-  const listeners = new Set<{ fn: (kind: ChangeKind) => void }>();
+  const listeners = new Set<{ fn: (kind: ChangeKind, origin: ChangeOrigin) => void }>();
   let closed = false; // depois de close(), nada mais sai pelo canal (um post aqui lançaria, e o erro iria para onError)
 
   // O onError é de quem usa o repositório. Se ele mesmo lançar, o erro não pode rejeitar uma gravação já confirmada (a fila
@@ -217,11 +219,11 @@ export function createRepository(
     }
   }
 
-  function emitLocal(kind: ChangeKind): void {
+  function emit(kind: ChangeKind, origin: ChangeOrigin): void {
     for (const entry of [...listeners]) {
       if (!listeners.has(entry)) continue; // saiu durante este aviso
       try {
-        entry.fn(kind);
+        entry.fn(kind, origin);
       } catch (err) {
         reportError(err);
       }
@@ -231,7 +233,7 @@ export function createRepository(
   // Só depois do commit. Aviso que chega de outra aba vai aos ouvintes daqui e não volta ao canal.
   function announce(...kinds: ChangeKind[]): void {
     for (const kind of kinds) {
-      emitLocal(kind);
+      emit(kind, 'local');
       if (closed) continue;
       try {
         channel?.postMessage({ kind });
@@ -244,7 +246,7 @@ export function createRepository(
   if (channel) {
     channel.onmessage = (ev) => {
       const kind = (ev?.data as { kind?: unknown } | null | undefined)?.kind;
-      if (isChangeKind(kind)) emitLocal(kind);
+      if (isChangeKind(kind)) emit(kind, 'remote');
     };
   }
 

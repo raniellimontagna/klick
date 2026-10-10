@@ -1410,3 +1410,22 @@ describe('repositório: fechado não anuncia (fix round 2)', () => {
     expect(posts).toEqual([{ kind: 'sessions' }]);
   });
 });
+
+// A origem do aviso: o que esta aba grava chega como 'local'; o que chega pelo canal de outra aba, como 'remote'. A tela usa isto para
+// não reler o que ela mesma já pôs na memória.
+describe('origem dos avisos', () => {
+  it('um aviso desta aba chega com origem local, e o de outra aba com origem remote', async () => {
+    const b = bus();
+    const name = `klick-test-${++dbn}`;
+    const tabA = createRepository(await openKlickDb(name), { now, channel: b.make() });
+    const tabB = createRepository(await openKlickDb(name), { now, channel: b.make() });
+    const fromA: unknown[] = [];
+    const fromB: unknown[] = [];
+    tabA.onChange((kind, origin) => fromA.push([kind, origin]));
+    tabB.onChange((kind, origin) => fromB.push([kind, origin]));
+    await tabA.createSession({ event: '333' });
+    expect(fromA).toEqual([['sessions', 'local']]);
+    expect(fromB).toEqual([['sessions', 'remote']]);
+  });
+});
+

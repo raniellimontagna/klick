@@ -47,7 +47,8 @@ describe('estado do app', () => {
   it('a cada 50 solves faz uma cópia automática', async () => {
     const { app, repo } = await setup();
     for (let i = 0; i < 50; i++) await app.addSolve({ ms: 60000 + i, penalty: null, at: t + i });
-    expect((await repo.listBackups()).map((b) => b.reason)).toEqual(['auto50']);
+    // A cópia roda em segundo plano (parte B): o addSolve do 50º volta antes dela, então espera-se por ela.
+    await vi.waitFor(async () => expect((await repo.listBackups()).map((b) => b.reason)).toEqual(['auto50']));
   });
 
   it('trocar para uma sessão de outro evento muda solves e embaralhamento', async () => {
@@ -1203,7 +1204,8 @@ describe('estado do app: sessão de outra aba, pasta e textos de falha', () => {
     const { app, repo } = await setup();
     repo.saveBackup = async () => { throw new Error('quota'); };
     for (let i = 0; i < 50; i++) await app.addSolve({ ms: 60000 + i, penalty: null, at: t + i });
-    expect(app.toast?.text).toBe(T.data.backupFailed);
+    // A cópia falha em segundo plano (parte B): o aviso sai depois que o addSolve volta.
+    await vi.waitFor(() => expect(app.toast?.text).toBe(T.data.backupFailed));
   });
 
   it('uma cópia na pasta que falha ao gravar mostra o aviso próprio de cópia na pasta', async () => {
@@ -1256,3 +1258,117 @@ describe('estado do app: proteção dos dados (pedido automático)', () => {
     }
   });
 });
+
+// Escritas próprias atualizam a memória sem reler o banco; um aviso de outra aba relê só o tipo que mudou; a cópia automática
+// roda em segundo plano (parte B, I3).
+describe('estado do app: escritas próprias e avisos por tipo (parte B)', () => {
+  beforeEach(() => { t = 1_791_500_000_000; });
+
+  // 50 000 solves em memória, na ordem de tempo, na sessão atual (o estado que a tela tem num histórico grande).
+  function bigHistory(sessionId: string, count = 50_000): Solve[] {
+    return Array.from({ length: count }, (_, i) => ({
+      id: `h${String(i).padStart(7, '0')}`, sessionId, event: '333' as const, ms: 60_000 + ((i * 37) % 30_000), penalty: null,
+      at: t - (count - i) * 60_000, scramble: 'R', note: '', createdAt: 1, updatedAt: 1, deletedAt: null,
+    }));
+  }
+
+  // Um repositório com canal falso: o teste faz chegar avisos de "outra aba" pelo canal.
+  async function withChannel() {
+    const channel = { postMessage() {}, onmessage: null as ((ev: { data: unknown }) => void) | null, close() {} };
+    const repo = createRepository(await openKlickDb(`app-${++n}`), { now, channel });
+    const app = new AppState({ repo, queue: fakeQueue(), now, storage: null, storageManager: null });
+    await app.init();
+    return { app, repo, channel };
+  }
+
+  it('addSolve com 50 000 solves em memória não relê os solves do banco', async () => {
+    const { app, repo } = await setup();
+    app.solves = bigHistory(app.currentSession!.id);
+    const listSolves = vi.spyOn(repo, 'listSolves');
+    const solve = await app.addSolve({ ms: 61_000, penalty: null, at: t });
+    expect(listSolves).not.toHaveBeenCalled();
+    expect(app.solves).toHaveLength(50_001);
+    expect(app.solves.at(-1)?.id).toBe(solve!.id);
+  });
+
+  it('o solve novo entra na posição da ordem por tempo, também quando cai no meio da lista', async () => {
+    const { app } = await setup();
+    app.solves = bigHistory(app.currentSession!.id);
+    const middle = app.solves[25_000].at + 500; // entre o 25 000º e o 25 001º
+    const solve = await app.addSolve({ ms: 61_000, penalty: null, at: middle });
+    expect(app.solves.findIndex((s) => s.id === solve!.id)).toBe(25_001);
+    const ats = app.solves.map((s) => s.at);
+    expect(ats).toEqual([...ats].sort((a, b) => a - b));
+  });
+
+  it('um aviso de solves de outra aba relê só os solves', async () => {
+    const { app, repo, channel } = await withChannel();
+    const spies = {
+      listSolves: vi.spyOn(repo, 'listSolves'),
+      listSessions: vi.spyOn(repo, 'listSessions'),
+      getProfile: vi.spyOn(repo, 'getProfile'),
+      getMeta: vi.spyOn(repo, 'getMeta'),
+    };
+    channel.onmessage!({ data: { kind: 'solves' } });
+    await vi.waitFor(() => expect(spies.listSolves).toHaveBeenCalledTimes(1));
+    expect(spies.listSessions).not.toHaveBeenCalled();
+    expect(spies.getProfile).not.toHaveBeenCalled();
+    expect(spies.getMeta).not.toHaveBeenCalled();
+  });
+
+  it('um aviso de sessões de outra aba relê só as sessões', async () => {
+    const { app, repo, channel } = await withChannel();
+    const spies = { listSolves: vi.spyOn(repo, 'listSolves'), listSessions: vi.spyOn(repo, 'listSessions'), getMeta: vi.spyOn(repo, 'getMeta') };
+    channel.onmessage!({ data: { kind: 'sessions' } });
+    await vi.waitFor(() => expect(spies.listSessions).toHaveBeenCalledTimes(1));
+    expect(spies.listSolves).not.toHaveBeenCalled();
+    expect(spies.getMeta).not.toHaveBeenCalled();
+    expect(app.sessions).toHaveLength(1);
+  });
+
+  it('um aviso de solves de outra aba traz o solve que ela gravou', async () => {
+    const { app, repo, channel } = await withChannel();
+    await repo.addSolve({ id: 'de-outra-aba', sessionId: app.currentSession!.id, event: '333', ms: 70_000, penalty: null, at: t, scramble: 'R' });
+    channel.onmessage!({ data: { kind: 'solves' } });
+    await vi.waitFor(() => expect(app.solves.map((s) => s.id)).toContain('de-outra-aba'));
+  });
+
+  it('a penalidade e a nota atualizam o solve na memória, sem reler os solves', async () => {
+    const { app, repo } = await setup();
+    const s = (await app.addSolve({ ms: 61_000, penalty: null, at: t }))!;
+    const listSolves = vi.spyOn(repo, 'listSolves');
+    await app.setPenalty(s.id, '+2');
+    await app.setNote(s.id, 'cruz');
+    expect(listSolves).not.toHaveBeenCalled();
+    expect(app.solves.find((x) => x.id === s.id)).toMatchObject({ penalty: '+2', note: 'cruz' });
+  });
+
+  it('apagar um solve o tira da memória sem reler os solves', async () => {
+    const { app, repo } = await setup();
+    const s = (await app.addSolve({ ms: 61_000, penalty: null, at: t }))!;
+    const listSolves = vi.spyOn(repo, 'listSolves');
+    await app.deleteSolve(s.id);
+    expect(listSolves).not.toHaveBeenCalled();
+    expect(app.solves).toEqual([]);
+  });
+
+  it('a cópia automática roda em segundo plano: addSolve resolve antes dela', async () => {
+    const { app, repo } = await setup();
+    for (let i = 0; i < 49; i++) await app.addSolve({ ms: 60_000 + i, penalty: null, at: t + i });
+    // A cópia do 50º solve fica presa: o addSolve não pode esperar por ela.
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const exportAll = repo.exportAll.bind(repo);
+    repo.exportAll = async (o) => {
+      await held;
+      return exportAll(o);
+    };
+    const pending = app.addSolve({ ms: 60_000, penalty: null, at: t + 50 });
+    const outcome = await Promise.race([pending.then(() => 'resolveu'), new Promise((r) => setTimeout(() => r('esperou'), 1500))]);
+    expect(outcome).toBe('resolveu');
+    expect(app.solves).toHaveLength(50);
+    release();
+    await vi.waitFor(async () => expect(await repo.listBackups()).toHaveLength(1));
+  });
+});
+

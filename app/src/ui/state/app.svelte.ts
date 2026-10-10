@@ -9,7 +9,7 @@ import type { EventId, Meta, Penalty, Profile, Session, Solve } from '../../core
 import type { BackupRecord } from '../../data/db';
 import { backupFileName, type DirHandleLike, folderGranted, pickFolder, saveToFolder } from '../../data/folder';
 import { newId } from '../../data/ids';
-import type { KlickExport, NewSolve, ProfilePatch, Repository } from '../../data/repository';
+import type { ChangeKind, KlickExport, NewSolve, ProfilePatch, Repository } from '../../data/repository';
 import {
   countSolveSaved,
   createBackup,
@@ -95,6 +95,23 @@ const compareId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
 // A ordem do repositório: o instante e, empatando, o id.
 const bySolveTime = (a: Solve, b: Solve): number => a.at - b.at || compareId(a.id, b.id);
 
+// Onde um solve entra na lista ordenada: a primeira posição que não vem antes dele (busca binária, sem reordenar a lista).
+function lowerBound(list: readonly Solve[], solve: Solve): number {
+  let lo = 0;
+  let hi = list.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (bySolveTime(list[mid], solve) < 0) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+// Os tipos que a memória do app lê do banco (um aviso 'all' são todos).
+type ReadKind = Exclude<ChangeKind, 'all'>;
+const ALL_READS: readonly ReadKind[] = ['sessions', 'solves', 'profile', 'meta'];
+const readsOf = (kind: ChangeKind): readonly ReadKind[] => (kind === 'all' ? ALL_READS : [kind]);
+
 const isConnectionError = (err: unknown): boolean => {
   const name = typeof err === 'object' && err !== null ? (err as { name?: unknown }).name : undefined;
   return typeof name === 'string' && CONNECTION_ERRORS.includes(name);
@@ -149,7 +166,8 @@ const counters = (m: Meta): Partial<Meta> => ({
 
 export class AppState {
   sessions = $state<Session[]>([]); // não excluídas, em ordem de order
-  solves = $state<Solve[]>([]); // todos os eventos, não excluídos, em ordem de at
+  // Todos os eventos, não excluídos, em ordem de at. Lista de referência (não é proxy): cada mudança troca o array, e a tela vê a troca.
+  solves = $state.raw<Solve[]>([]);
   profile = $state<Profile>(placeholderProfile());
   meta = $state<Meta | null>(null);
   tab = $state<Tab>('timer');
@@ -178,6 +196,7 @@ export class AppState {
   private readonly reopenDb: (() => Promise<Repository>) | undefined;
   // A sessão atual que outra aba excluiu: segue apontada no perfil, na lixeira. O próximo solve vai para ela (o repositório a revive).
   private parked = $state.raw<Session | null>(null);
+  private allSessions: Session[] = []; // todas as sessões, excluídas inclusive: a sessão que o perfil aponta sai daqui
   private scrambleEvent: EventId | null = null; // o evento do embaralhamento que a tela pediu (null: nenhum, ou zerado)
   private unsubscribe: (() => void) | null = null;
   private reopening: Promise<void> | null = null; // a reabertura em andamento, reaproveitada por quem pede enquanto ela não termina
@@ -305,29 +324,45 @@ export class AppState {
 
   // Relê sessões, solves, perfil e meta do banco. Na mesma fila que as contas, então nunca fica por cima de um solve novo.
   reload(): Promise<void> {
+    return this.readKinds(ALL_READS);
+  }
+
+  // Relê só os tipos pedidos (cada um é uma leitura do banco) e recalcula o que deles depende. Na mesma fila que as contas.
+  private readKinds(kinds: readonly ReadKind[]): Promise<void> {
+    const want = new Set<ReadKind>(kinds);
     return this.serial(async () => {
-      const [all, solves, profile, meta] = await Promise.all([
-        this.repo.listSessions({ includeDeleted: true }),
-        this.repo.listSolves(),
-        this.repo.getProfile(),
-        this.repo.getMeta(),
+      const [sessions, solves, profile, meta] = await Promise.all([
+        want.has('sessions') ? this.repo.listSessions({ includeDeleted: true }) : undefined,
+        want.has('solves') ? this.repo.listSolves() : undefined,
+        want.has('profile') ? this.repo.getProfile() : undefined,
+        want.has('meta') ? this.repo.getMeta() : undefined,
       ]);
-      this.sessions = all.filter((s) => s.deletedAt === null);
-      this.parked = all.find((s) => s.deletedAt !== null && s.id === profile.currentSessionId) ?? null;
-      this.solves = solves;
-      this.profile = profile;
-      this.meta = meta;
-      this.applyPrefs();
+      if (sessions) {
+        this.allSessions = sessions;
+        this.sessions = sessions.filter((s) => s.deletedAt === null);
+      }
+      if (solves) this.solves = solves;
+      if (profile) this.profile = profile;
+      if (meta) this.meta = meta;
+      // A sessão que o perfil aponta, se outra aba a excluiu (está na lixeira): depende das sessões e do perfil.
+      if (sessions || profile) {
+        this.parked = this.allSessions.find((s) => s.deletedAt !== null && s.id === this.profile.currentSessionId) ?? null;
+      }
+      if (profile) this.applyPrefs();
       // O embaralhamento da tela é de outro evento (outra aba trocou de sessão, ou a atual foi excluída): pede o do evento certo.
       if (this.scrambleEvent !== null && this.scrambleEvent !== this.event) void this.nextScramble();
     });
   }
 
   // Leitura que falha não pode virar uma promessa sem dono: a pessoa vê o aviso.
-  private refresh(): Promise<void> {
-    return this.reload().catch(() => {
+  private refreshKinds(kinds: readonly ReadKind[]): Promise<void> {
+    return this.readKinds(kinds).catch(() => {
       this.showToast(T.data.readFailed);
     });
+  }
+
+  private refresh(): Promise<void> {
+    return this.refreshKinds(ALL_READS);
   }
 
   private serial<R>(job: () => Promise<R>): Promise<R> {
@@ -365,25 +400,33 @@ export class AppState {
     }
   }
 
+  // Penalidade e nota: o repositório devolve o solve gravado, e a memória recebe esse mesmo (sem reler os solves).
+  private async editSolve(change: () => Promise<Solve>): Promise<void> {
+    await this.write(async () => {
+      const updated = await change();
+      await this.serial(async () => this.replaceSolve(updated));
+    });
+  }
+
   async setPenalty(id: string, penalty: Penalty): Promise<void> {
-    await this.write(() => this.repo.updateSolve(id, { penalty }));
-    await this.refresh();
+    await this.editSolve(() => this.repo.updateSolve(id, { penalty }));
   }
 
   async setNote(id: string, note: string): Promise<void> {
-    await this.write(() => this.repo.updateSolve(id, { note }));
-    await this.refresh();
+    await this.editSolve(() => this.repo.updateSolve(id, { note }));
   }
 
   async deleteSolve(id: string): Promise<void> {
-    const ok = await this.write(() => this.repo.deleteSolve(id));
+    const ok = await this.write(async () => {
+      await this.repo.deleteSolve(id);
+      await this.serial(async () => this.removeSolve(id));
+    });
     if (ok) {
       const undoAction = () => void this.undoDelete();
       this.undo = { id, until: this.now() + UNDO_MS };
       this.undoAction = undoAction;
       this.showToast(T.toast.deleted, this.undoLabel(), undoAction, UNDO_MS);
     }
-    await this.refresh();
   }
 
   // Restaura se o prazo ainda não passou. Qualquer resposta encerra a janela: desfazer uma vez não se repete.
@@ -392,7 +435,7 @@ export class AppState {
     this.closeUndo();
     if (!undo || this.now() > undo.until) return false;
     const ok = await this.write(() => this.repo.restoreSolve(undo.id));
-    await this.refresh();
+    await this.refreshKinds(['solves']);
     return ok;
   }
 
@@ -402,7 +445,7 @@ export class AppState {
       const session = await this.repo.createSession({ event, name });
       await this.repo.saveProfile({ currentSessionId: session.id });
     });
-    await this.refresh();
+    await this.refreshKinds(['sessions', 'profile']);
     await this.nextScramble(); // zerado acima, então é preciso pedir outro, mesmo que a gravação tenha falhado
   }
 
@@ -410,13 +453,13 @@ export class AppState {
     if (id === this.profile.currentSessionId || !this.sessions.some((s) => s.id === id)) return;
     this.clearScramble(); // antes da gravação, como em createSession
     await this.write(() => this.repo.saveProfile({ currentSessionId: id }));
-    await this.refresh();
+    await this.refreshKinds(['profile']);
     await this.nextScramble();
   }
 
   async renameSession(id: string, name: string): Promise<void> {
     await this.write(() => this.repo.renameSession(id, name));
-    await this.refresh();
+    await this.refreshKinds(['sessions']);
   }
 
   // Se a sessão apagada era a atual, a primeira que sobrou assume (ou uma de 3×3 nova, se não sobrou nenhuma).
@@ -627,7 +670,7 @@ export class AppState {
     const chosen = handle;
     if (!(await this.write(() => this.repo.saveFolderHandle(chosen)))) return false;
     await this.copyToFolder();
-    await this.refresh();
+    await this.refreshKinds(['meta']);
     return true;
   }
 
@@ -742,7 +785,7 @@ export class AppState {
       this.profile = await this.repo.saveProfile({ settings: patch });
     }, T.data.settingFailed);
     if (ok) this.applyPrefs();
-    await this.refresh();
+    await this.refreshKinds(['profile']);
   }
 
   // Marcas que a interface grava no meta (guia de instalação dispensado, pedido de proteção). Só os campos dados mudam.
@@ -758,7 +801,7 @@ export class AppState {
     await this.write(async () => {
       this.profile = await this.repo.saveProfile(patch);
     });
-    await this.refresh();
+    await this.refreshKinds(['profile']);
   }
 
   // Tira o embaralhamento da tela e invalida os pedidos em voo: o que chegar depois não é mais deste evento.
@@ -923,11 +966,13 @@ export class AppState {
     void this.refresh();
   }
 
-  // Um só ouvinte de mudanças, do repositório atual: trocar o repositório tira o ouvinte do antigo.
+  // Um só ouvinte de mudanças, do repositório atual: trocar o repositório tira o ouvinte do antigo. O que esta aba grava já está na
+  // memória (quem grava a atualiza); só o que outra aba gravou é relido, e só o tipo que mudou.
   private subscribe(): void {
     this.unsubscribe?.();
-    this.unsubscribe = this.repo.onChange(() => {
-      void this.refresh();
+    this.unsubscribe = this.repo.onChange((kind, origin) => {
+      if (origin === 'local') return;
+      void this.refreshKinds(readsOf(kind));
     });
   }
 
@@ -981,14 +1026,27 @@ export class AppState {
     return this.askPersistence(true);
   }
 
-  // As contas de um solve gravado: entra na lista, soma nos contadores e roda o que o plano pede. Não rejeita: cada falha vira aviso.
+  // As contas de um solve gravado: entra na lista e soma nos contadores (o que a reação espera). A cópia automática, a cópia na
+  // pasta e o lembrete saem depois, em segundo plano na mesma fila: não seguram a reação. Não rejeita: cada falha vira aviso.
   private async afterSave(solve: Solve): Promise<void> {
     this.upsertSolve(solve);
+    let counted: Meta;
     try {
-      const counted = countSolveSaved(this.meta ?? (await this.repo.getMeta()));
+      counted = countSolveSaved(this.meta ?? (await this.repo.getMeta()));
       this.meta = counted; // antes de gravar: se a gravação falhar, a contagem em memória continua certa
       this.meta = await this.repo.saveMeta(counters(counted));
-      void this.askPersistence();
+    } catch {
+      this.showToast(T.data.saveFailed);
+      return;
+    }
+    void this.askPersistence();
+    void this.serial(() => this.afterCount(counted));
+  }
+
+  // O que vem depois de um solve gravado: cópia automática, cópia na pasta e lembrete. Roda na fila, depois das leituras e gravações
+  // que já estavam nela; cada falha vira aviso.
+  private async afterCount(counted: Meta): Promise<void> {
+    try {
       const plan = planAfterSolve(counted, await this.folderConfigured());
       if (plan.backup) await this.backup(plan.backup);
       if (plan.remindExport) this.exportReminder = true;
@@ -998,10 +1056,31 @@ export class AppState {
     }
   }
 
-  // Um solve que já está na lista não entra de novo (a leitura pode tê-lo trazido antes).
+  // O solve gravado entra na lista na posição da ordem por tempo. Um solve que já está na lista não entra de novo (a leitura pode
+  // tê-lo trazido antes). Chamado na fila: uma leitura que começou antes não o apaga depois.
   private upsertSolve(solve: Solve): void {
-    if (solve.deletedAt !== null || this.solves.some((s) => s.id === solve.id)) return;
-    this.solves = [...this.solves, solve].sort(bySolveTime);
+    if (solve.deletedAt !== null) return;
+    const list = this.solves;
+    const at = lowerBound(list, solve);
+    if (list[at]?.id === solve.id) return;
+    const next = list.slice();
+    next.splice(at, 0, solve);
+    this.solves = next;
+  }
+
+  // A versão editada do solve (penalidade, nota) substitui a que estava na lista. Se o solve não está na lista, nada muda.
+  private replaceSolve(solve: Solve): void {
+    const i = this.solves.findIndex((s) => s.id === solve.id);
+    if (i < 0) return;
+    const next = this.solves.slice();
+    if (solve.deletedAt !== null) next.splice(i, 1);
+    else next[i] = solve;
+    this.solves = next;
+  }
+
+  private removeSolve(id: string): void {
+    if (!this.solves.some((s) => s.id === id)) return;
+    this.solves = this.solves.filter((s) => s.id !== id);
   }
 
   private async backup(reason: 'auto50' | 'daily'): Promise<void> {
