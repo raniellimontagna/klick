@@ -188,6 +188,7 @@ export class AppState {
   timerBusy = $state(false); // o timer está na inspeção, armado, pronto ou rodando (a tela atualiza): o guia de instalação e o lembrete esperam
   pendingInspect = $state(false); // o espaço segurado antes da inspeção (o timer ainda parado): conta como ocupado, como o timerBusy
   folderNeedsPermission = $state(false); // a pasta de cópias perdeu a permissão de gravar: Ajustes pede de novo, num clique
+  private folderCheck = 0; // geração da última conferência da pasta: uma resposta velha não apaga a de uma tentativa mais nova
   solvesInFlight = $state(0); // addSolve ainda não voltou (o solve não está gravado nem na fila): o unsaved espera por ele
 
   private repo: Repository; // troca quando a conexão é reaberta (useRepo)
@@ -435,7 +436,8 @@ export class AppState {
     this.closeUndo();
     if (!undo || this.now() > undo.until) return false;
     const ok = await this.write(() => this.repo.restoreSolve(undo.id));
-    await this.refreshKinds(['solves']);
+    // Restaurar o solve pode reviver a sessão dele (se outra aba a mandou para a lixeira): relê as duas.
+    await this.refreshKinds(['solves', 'sessions']);
     return ok;
   }
 
@@ -1030,13 +1032,17 @@ export class AppState {
   // pasta e o lembrete saem depois, em segundo plano na mesma fila: não seguram a reação. Não rejeita: cada falha vira aviso.
   private async afterSave(solve: Solve): Promise<void> {
     this.upsertSolve(solve);
+    // O repositório revive a sessão do solve se outra aba a mandou para a lixeira, e o aviso local não relê nada: relê as sessões
+    // (na fila, depois deste trabalho) quando a sessão do solve não está na lista.
+    if (!this.sessions.some((s) => s.id === solve.sessionId)) void this.refreshKinds(['sessions']);
     let counted: Meta;
     try {
       counted = countSolveSaved(this.meta ?? (await this.repo.getMeta()));
       this.meta = counted; // antes de gravar: se a gravação falhar, a contagem em memória continua certa
       this.meta = await this.repo.saveMeta(counters(counted));
     } catch {
-      this.showToast(T.data.saveFailed);
+      // O solve já está gravado; só a contagem das cópias não foi salva.
+      this.showToast(T.data.countFailed);
       return;
     }
     void this.askPersistence();
@@ -1097,7 +1103,9 @@ export class AppState {
       const handle = (await this.repo.getFolderHandle()) as DirHandleLike | null;
       if (!handle) return;
       // Sem permissão a cópia continua devida, e Ajustes mostra que a permissão expirou (com o botão de pedir de novo).
-      this.folderNeedsPermission = !(await this.writeFolderCopy(handle, false));
+      const check = ++this.folderCheck;
+      const saved = await this.writeFolderCopy(handle, false);
+      if (check === this.folderCheck) this.folderNeedsPermission = !saved;
     } catch {
       this.showToast(T.data.folderCopyFailed);
     }
@@ -1109,8 +1117,9 @@ export class AppState {
     try {
       const handle = (await this.repo.getFolderHandle()) as DirHandleLike | null;
       if (!handle) return false;
+      const check = ++this.folderCheck;
       const saved = await this.writeFolderCopy(handle, true);
-      this.folderNeedsPermission = !saved;
+      if (check === this.folderCheck) this.folderNeedsPermission = !saved;
       if (!saved) this.showToast(T.data.folderPermissionDenied);
       return saved;
     } catch {
@@ -1121,9 +1130,15 @@ export class AppState {
 
   // Grava a cópia na pasta. false: sem permissão (quem chama decide o que mostrar). Uma falha de gravação rejeita.
   private async writeFolderCopy(handle: DirHandleLike, ask: boolean): Promise<boolean> {
+    // A permissão vem antes da exportação: sem ela não vale ler tudo (a cada solve, enquanto a cópia está devida), e o pedido
+    // precisa sair perto do clique de "Permitir de novo", dentro do gesto.
+    const mode = { mode: 'readwrite' } as const;
+    let permission = (await handle.queryPermission?.(mode)) ?? 'granted';
+    if (permission !== 'granted' && ask && handle.requestPermission) permission = await handle.requestPermission(mode);
+    if (permission !== 'granted') return false;
     const now = this.now();
     const text = toKlickJson(await this.repo.exportAll({ includeDeleted: false }));
-    if (!(await saveToFolder(handle, backupFileName(now), text, { ask }))) return false;
+    if (!(await saveToFolder(handle, backupFileName(now), text, { ask: false }))) return false;
     this.meta = await this.repo.saveMeta({ solvesSinceFolderSave: 0, lastFolderSaveAt: now, lastFolderSaveDay: dayKey(now) });
     return true;
   }
@@ -1132,8 +1147,10 @@ export class AppState {
   // cópia. Não pede nada à pessoa.
   private async checkFolderPermission(): Promise<void> {
     try {
+      const check = ++this.folderCheck;
       const handle = (await this.repo.getFolderHandle()) as DirHandleLike | null;
-      this.folderNeedsPermission = handle !== null && !(await folderGranted(handle));
+      const needs = handle !== null && !(await folderGranted(handle));
+      if (check === this.folderCheck) this.folderNeedsPermission = needs;
     } catch {
       // sem como saber agora: a próxima cópia na pasta diz
     }

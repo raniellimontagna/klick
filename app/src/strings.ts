@@ -219,6 +219,7 @@ export const T = Object.freeze({
     restoreTimeout: 'A restauração está demorando. Seus solves novos estão guardados na memória; exporte antes de recarregar.',
     settingFailed: 'Não consegui guardar este ajuste. Tente de novo.',
     backupFailed: 'Não consegui fazer a cópia automática. Ela será tentada de novo.',
+    countFailed: 'O solve está salvo, mas não consegui atualizar a contagem das cópias.',
     folderCopyFailed: 'Não consegui gravar a cópia nessa pasta. Ela será tentada de novo.',
     folderPermissionDenied: 'O navegador não liberou a pasta. Tente de novo ou escolha outra pasta.',
   },

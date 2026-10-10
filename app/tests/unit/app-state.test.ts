@@ -1099,6 +1099,22 @@ describe('estado do app: sessão de outra aba, pasta e textos de falha', () => {
     const solve = (await app.addSolve({ ms: 60000, penalty: null, at: t }))!;
     expect(solve).toMatchObject({ sessionId: sq1.id, event: 'sq1' });
     expect((await repo.listSessions()).map((s) => s.id)).toContain(sq1.id);
+    // A memória acompanha: a sessão revivida volta para a lista e segue como a atual.
+    await vi.waitFor(() => expect(app.sessions.map((s) => s.id)).toContain(sq1.id));
+    expect(app.currentSession?.id).toBe(sq1.id);
+  });
+
+  it('desfazer a exclusão de um solve cuja sessão foi para a lixeira traz a sessão de volta também na memória', async () => {
+    const { app, repo } = await setup();
+    await app.createSession('sq1');
+    const sq1 = app.currentSession!;
+    const solve = (await app.addSolve({ ms: 60000, penalty: null, at: t }))!;
+    await app.deleteSolve(solve.id);
+    await repo.deleteSession(sq1.id); // outra aba excluiu a sessão
+    await app.reload();
+    expect(app.sessions.map((s) => s.id)).not.toContain(sq1.id);
+    expect(await app.undoDelete()).toBe(true);
+    await vi.waitFor(() => expect(app.sessions.map((s) => s.id)).toContain(sq1.id));
   });
 
   it('depois de um reload que troca o evento (outra aba mudou a sessão), o embaralhamento passa a ser do evento novo', async () => {
