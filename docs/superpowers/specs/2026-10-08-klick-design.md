@@ -513,6 +513,12 @@ O Ranielli usa o protótipo por 3 dias, com pelo menos 50 solves, no desktop e n
 
 As respostas orientam os ajustes antes dos sub-projetos 2 e 3.
 
+**Resultado (09/10):**
+- o Centro não distraiu e não seria desligado;
+- os avisos da inspeção são percebidos;
+- o recorde ficou bom;
+- não faltou nada: o caminho está certo.
+
 ## 9. Fora de escopo, com espaço já reservado no design
 
 - **Camada 2:**
@@ -530,10 +536,10 @@ As respostas orientam os ajustes antes dos sub-projetos 2 e 3.
 | Item | Como resolver |
 |---|---|
 | A Geist pode não ter números tabulares (`tnum`) | Verificar no protótipo. Se faltar, usar os números da Geist Mono só no tempo. |
-| Âmbar e laranja da inspeção podem ficar sem contraste sobre o papel claro | Medir e ajustar o tom mantendo o matiz. |
-| Regra de largada com dois polegares (sair o primeiro ou os dois) | Decidir no teste em celular real (8.6). |
-| O rosto do Centro pode ficar ilegível em 48 px | Teste de tamanhos. Se não funcionar, trocar o rosto por uma versão simplificada em tamanhos pequenos. |
-| Nome do companion | "Centro" é o nome de trabalho. Confirmar no fim do protótipo. |
+| Âmbar e laranja da inspeção podem ficar sem contraste sobre o papel claro | Resolvido no protótipo: tons ajustados e cobertos pelo teste de contraste. |
+| Regra de largada com dois polegares (sair o primeiro ou os dois) | Decidido em 09/10: larga quando sai o primeiro polegar. |
+| O rosto do Centro pode ficar ilegível em 48 px | Validado em 09/10: legível no celular. |
+| Nome do companion | Confirmado em 09/10: "Centro". |
 | Ajustes da temporada 2 em diante | Ficam para o sub-projeto 3. |
 
 ## 11. Referências
