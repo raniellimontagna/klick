@@ -305,6 +305,7 @@ export const T = Object.freeze({
     folderFailed: 'Não consegui abrir essa pasta.',
     nothingV1: 'Não encontrei solves da versão anterior neste aparelho.',
     importFailed: 'Não consegui importar. Seus solves continuam como estavam.',
+    importWhileRestoring: 'Há uma restauração em andamento. Importe de novo quando ela terminar.',
   }),
   // Diálogo de exportar: aparece quando o navegador não baixa o arquivo (iframe, ou o download falhou).
   exportDialog: Object.freeze({
@@ -330,7 +331,8 @@ export const T = Object.freeze({
       `${added} ${added === 1 ? 'solve importado' : 'solves importados'}, ${existing} ${existing === 1 ? 'já existia' : 'já existiam'}.`,
     skippedSessions: (n: number): string => `${n} ${n === 1 ? 'sessão ficou' : 'sessões ficaram'} de fora por não ter um evento conhecido.`,
     unreadable: (n: number): string =>
-      `${n} ${n === 1 ? 'registro da versão anterior não pôde' : 'registros da versão anterior não puderam'} ser lidos.`,
+      n === 1 ? '1 registro da versão anterior não pôde ser lido.' : `${n} registros da versão anterior não puderam ser lidos.`,
+    offerNotMarked: 'Os solves entraram, mas não consegui guardar que a oferta foi feita. Importar de novo não duplica os solves.',
   }),
   // Diálogo das cópias automáticas. Restaurar pede um segundo clique: a troca substitui tudo.
   backupsDialog: Object.freeze({
@@ -348,6 +350,8 @@ export const T = Object.freeze({
     restoreAria: (when: string): string => `Restaurar a cópia de ${when}`,
     confirm: 'Tem certeza? Clique de novo',
     restored: 'Cópia restaurada.',
+    restoreFailed: 'Não consegui restaurar esta cópia. Seus dados continuam como estavam.',
+    restoreBusy: 'Já há uma restauração em andamento.',
     loadFailed: 'Não consegui ler as cópias.',
   }),
   // Diálogo da lixeira: solves e sessões excluídos, cada um com o seu restaurar.

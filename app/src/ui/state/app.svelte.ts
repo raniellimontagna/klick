@@ -66,6 +66,7 @@ export interface ImportSummary {
   existing: number;
   skippedSessions: number; // sessões sem evento (csTimer) ou de um puzzle que o Klick não tem (versão anterior)
   unreadable: number; // registros da versão anterior que não puderam ser lidos
+  offerNotMarked?: boolean; // os solves entraram, mas a marca "oferta feita" não foi gravada (a importação pode ser refeita)
 }
 
 const DEFAULT_EVENT: EventId = '333';
@@ -127,10 +128,11 @@ const placeholderProfile = (): Profile => ({
   currentSessionId: null,
 });
 
-// Quem tem dados da v1 neste navegador. Uma leitura que lança é tratada como "não há nada".
+// Quem tem dados da v1 para oferecer: os que batem, ou só registros que não batem (a oferta mostra quantos ficaram de fora). Uma
+// leitura que lança é tratada como "não há nada".
 function hasV1(storage: Pick<Storage, 'getItem'> | null): boolean {
   try {
-    return readV1(storage) !== null;
+    return readV1(storage) !== null || readV1Invalid(storage) > 0;
   } catch {
     return false;
   }
@@ -168,6 +170,8 @@ export class AppState {
   private reopening: Promise<void> | null = null; // a reabertura em andamento, reaproveitada por quem pede enquanto ela não termina
   private restoring: Promise<void> | null = null; // o portão: fechado enquanto a troca não acaba (mesmo depois do prazo); as gravações esperam
   private restoreBusy = false; // uma restauração por vez, desde o começo (inclui a espera pela fila)
+  private importing: Promise<ImportSummary | null> | null = null; // a importação que está gravando: a restauração espera por ela
+  private persistAsked = false; // o pedido automático de proteção já saiu nesta sessão (uma vez, mesmo sem resposta ainda)
   private attempts = 0; // tentativas de gravação já começadas: só a mais recente mexe em saveStalled
   private readonly storage: Pick<Storage, 'getItem'> | null;
   private readonly storageManager: StorageLike | null;
@@ -214,6 +218,11 @@ export class AppState {
   // Há solve que ainda não foi gravado (na fila) ou uma gravação presa: fechar a aba perderia o que está só na memória.
   get unsaved(): boolean {
     return this.saves.pending() > 0 || this.saveStalled;
+  }
+
+  // Uma restauração em curso, ou com o portão ainda fechado (passou do prazo e a troca segue): não se começa outra.
+  get restoreRunning(): boolean {
+    return this.restoreBusy || this.restoring !== null;
   }
 
   get currentSession(): Session | null {
@@ -406,6 +415,9 @@ export class AppState {
 
   private async restoreNow(id: string): Promise<boolean> {
     if (this.reopening) await this.reopening;
+    // Uma importação que já está gravando termina antes da troca: a cópia de segurança (a pre-restore) leva o que ela trouxe, e o
+    // replaceAll não cai no meio dela. Imports que chegam agora são recusados (importJob).
+    if (this.importing) await this.importing;
     if (!this.saveStalled) await this.saves.flush();
     if (this.saveStalled || this.saves.pending() > 0) {
       this.showToast(T.data.restoreBlocked);
@@ -549,10 +561,15 @@ export class AppState {
     this.dialog = 'export';
   }
 
-  // Depois de exportar (download ou cópia): zera o contador do lembrete, grava quando foi e tira o aviso.
-  async markExported(): Promise<void> {
+  // Depois de exportar (download ou cópia): zera o contador do lembrete e grava quando foi. Devolve se a gravação deu certo: quem
+  // diz "copiado" só deve dizer isso se deu (a falha já saiu como aviso de salvar).
+  async markExported(): Promise<boolean> {
     this.exportReminder = false;
-    await this.updateMeta({ solvesSinceExport: 0, lastExportAt: this.now() });
+    return this.write(() =>
+      this.serial(async () => {
+        this.meta = await this.repo.saveMeta({ solvesSinceExport: 0, lastExportAt: this.now() });
+      }),
+    );
   }
 
   // Se já há uma pasta escolhida para as cópias automáticas.
@@ -578,9 +595,14 @@ export class AppState {
   }
 
   // Uma importação por vez, na fila das leituras: dois cliques no mesmo botão não gravam os mesmos solves duas vezes (os ids são
-  // novos). A importação é uma transação (importAll): se falha, nada entrou e o aviso sai; devolve null nesse caso.
+  // novos). A importação é uma transação (importAll): se falha, nada entrou e o aviso sai; devolve null nesse caso. Durante uma
+  // restauração, a importação é recusada com aviso: a troca substitui tudo, e um import no meio dela se perderia.
   private async importJob(job: () => Promise<ImportSummary>): Promise<ImportSummary | null> {
-    const summary = await this.serial(async () => {
+    if (this.restoreRunning) {
+      this.showToast(T.dados.importWhileRestoring);
+      return null;
+    }
+    const run = this.serial(async () => {
       try {
         return await job();
       } catch {
@@ -588,6 +610,13 @@ export class AppState {
         return null;
       }
     });
+    this.importing = run;
+    let summary: ImportSummary | null;
+    try {
+      summary = await run;
+    } finally {
+      if (this.importing === run) this.importing = null;
+    }
     await this.refresh();
     return summary;
   }
@@ -624,13 +653,15 @@ export class AppState {
 
   // Dados da versão anterior (a chave do localStorage antigo). Só o que bate é importado; o que não bate é contado em unreadable.
   async importV1(): Promise<ImportSummary | null> {
+    // A contagem vem antes: um arquivo sem nenhum registro legível ainda tem o que avisar, e a oferta continua na tela.
+    const unreadable = readV1Invalid(this.storage);
     const v1 = readV1(this.storage);
     if (!v1) {
+      if (unreadable > 0) return { solves: 0, existing: 0, skippedSessions: 0, unreadable };
       this.v1Available = false;
       this.showToast(T.dados.nothingV1);
       return null;
     }
-    const unreadable = readV1Invalid(this.storage);
     return this.importJob(async () => {
       const [existingSessions, existingSolves] = await Promise.all([
         this.repo.listSessions({ includeDeleted: true }),
@@ -646,10 +677,22 @@ export class AppState {
         solves: plan.solves,
         profile: null,
       });
-      // A marca vai por último: se esta gravação falha, a importação pode ser refeita sem duplicar (os ids são os mesmos).
-      await this.repo.saveMeta({ v1ImportOffered: true });
-      this.v1Available = false;
-      return { solves: report.solvesAdded, existing: plan.duplicates, skippedSessions: plan.skippedSessions, unreadable };
+      // A marca vai por último. Se ela falha depois de a importação ter entrado, os solves já estão lá: o resumo sai com uma nota,
+      // e uma nova importação não duplica nada (os ids são os mesmos).
+      let offerMarked = true;
+      try {
+        await this.repo.saveMeta({ v1ImportOffered: true });
+      } catch {
+        offerMarked = false;
+      }
+      if (offerMarked) this.v1Available = false; // sem a marca, a oferta segue na tela: importar de novo é seguro
+      return {
+        solves: report.solvesAdded,
+        existing: plan.duplicates,
+        skippedSessions: plan.skippedSessions,
+        unreadable,
+        offerNotMarked: !offerMarked,
+      };
     });
   }
 
@@ -864,9 +907,12 @@ export class AppState {
     return done;
   }
 
-  // Depois do primeiro solve gravado, pede o armazenamento persistente em silêncio (spec 6.2: nunca ao abrir o app). Se o navegador
-  // não responde (rejeita), a próxima gravação pede de novo. Uma resposta, seja qual for, marca o pedido feito.
+  // Depois do primeiro solve gravado, pede o armazenamento persistente em silêncio (spec 6.2: nunca ao abrir o app). Sai uma vez por
+  // sessão: os solves gravados antes da resposta não pedem de novo. Uma resposta marca o pedido feito; uma rejeição fica para a
+  // próxima sessão.
   private askPersistence(): void {
+    if (this.persistAsked) return;
+    this.persistAsked = true;
     void requestPersistence(this.storageManager)
       .then(() => this.updateMeta({ persistRequested: true }))
       .catch(() => undefined);

@@ -39,8 +39,9 @@
       areaEl?.select();
       return;
     }
-    await app.markExported();
-    app.showToast(current.format === 'klick' ? T.exportDialog.copiedKlick : T.toast.exportCopied);
+    // "Copiado" só se a exportação ficou marcada; se a gravação falhou, o aviso de salvar já saiu.
+    const saved = await app.markExported();
+    if (saved) app.showToast(current.format === 'klick' ? T.exportDialog.copiedKlick : T.toast.exportCopied);
     dialogEl?.close();
   }
 </script>

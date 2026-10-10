@@ -68,9 +68,12 @@
 
   // Linhas do resumo de uma importação (os textos ficam em strings.ts).
   function summaryLines(s: ImportSummary): string[] {
-    const lines = [T.importDialog.result(s.solves, s.existing)];
+    // Sem nenhum solve novo nem existente, e só com registros ilegíveis, a linha de contagem não diz nada: fica só o aviso.
+    const nothingRead = s.solves === 0 && s.existing === 0 && s.unreadable > 0;
+    const lines = nothingRead ? [] : [T.importDialog.result(s.solves, s.existing)];
     if (s.skippedSessions > 0) lines.push(T.importDialog.skippedSessions(s.skippedSessions));
     if (s.unreadable > 0) lines.push(T.importDialog.unreadable(s.unreadable));
+    if (s.offerNotMarked) lines.push(T.importDialog.offerNotMarked);
     return lines;
   }
 

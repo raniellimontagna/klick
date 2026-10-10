@@ -4,9 +4,9 @@ import { fileURLToPath } from 'node:url';
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openKlickDb } from '../../src/data/db';
-import { createRepository } from '../../src/data/repository';
+import { createRepository, type KlickExport, type Repository } from '../../src/data/repository';
 import { createBackup } from '../../src/data/safety';
-import { V1_KEY } from '../../src/data/transfer';
+import { parseCsTimer, V1_KEY } from '../../src/data/transfer';
 import { createScrambleQueue } from '../../src/scramble/queue';
 import { formatSolve } from '../../src/core/stats';
 import { T } from '../../src/strings';
@@ -33,6 +33,20 @@ async function app({ storage = null, storageManager = null }: Setup = {}) {
   });
   await a.init();
   return { a, repo };
+}
+
+// Faz a próxima gravação de metadados que traz `key` falhar, uma vez. As outras passam: a de proteção, por exemplo, sai em segundo
+// plano depois do primeiro solve e não pode consumir a falha desenhada para este teste.
+function failMetaWrite(repo: Repository, key: string): void {
+  const real = repo.saveMeta;
+  let failed = false;
+  vi.spyOn(repo, 'saveMeta').mockImplementation(async (patch) => {
+    if (!failed && key in patch) {
+      failed = true;
+      throw new Error('cota cheia');
+    }
+    return real(patch);
+  });
 }
 
 // O texto que o último download levou (nome, texto).
@@ -190,7 +204,7 @@ describe('Seus dados: cópias, exportar, lixeira e importar', () => {
     expect(a.v1Available).toBe(true);
     render(DataSection, { app: a });
     await fireEvent.click(await screen.findByRole('button', { name: T.dados.importV1 }));
-    expect(await screen.findByText(/1 registro da versão anterior não pôde ser lidos/)).toBeInTheDocument();
+    expect(await screen.findByText('1 registro da versão anterior não pôde ser lido.')).toBeInTheDocument();
     expect((await repo.getMeta()).v1ImportOffered).toBe(true);
     expect(a.v1Available).toBe(false);
     expect((await repo.listSolves()).map((s) => s.id)).toEqual(['v1-a']);
@@ -241,6 +255,197 @@ describe('Seus dados: cópias, exportar, lixeira e importar', () => {
     expect(a.dialog).toBe('trash');
     unmount();
     expect(a.dialog).toBeNull();
+  });
+
+  it('restaurar uma cópia que não abre mostra um aviso, não mexe nos dados e a caixa volta ao primeiro clique', async () => {
+    const { a, repo } = await app();
+    const kept = (await a.addSolve({ ms: 60000, penalty: null, at: Date.now() }))!;
+    await repo.saveBackup({ id: 'copia-ruim', createdAt: Date.now(), reason: 'manual', solveCount: 1, encoding: 'json', payload: '{não é json' });
+    render(DataSection, { app: a });
+    await fireEvent.click(await screen.findByRole('button', { name: /Ver cópias/ }));
+    await fireEvent.click(await screen.findByRole('button', { name: /Restaurar/ }));
+    await fireEvent.click(await screen.findByRole('button', { name: /Tem certeza/ }));
+    await vi.waitFor(() => expect(a.toast?.text).toBe(T.backupsDialog.restoreFailed));
+    expect(a.solves.map((s) => s.id)).toEqual([kept.id]);
+    expect(a.dialog).toBe('backups');
+    expect(await screen.findByRole('button', { name: /Restaurar/ })).toBeInTheDocument();
+  });
+
+  it('restaurar enquanto outra restauração corre mostra o aviso e não começa outra', async () => {
+    const { a, repo } = await app();
+    await a.addSolve({ ms: 60000, penalty: null, at: Date.now() });
+    const copy = await createBackup(repo, 'manual', Date.now());
+    await a.addSolve({ ms: 70000, penalty: null, at: Date.now() + 1 });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const replaceAll = repo.replaceAll;
+    vi.spyOn(repo, 'replaceAll').mockImplementationOnce(async (data) => {
+      await held;
+      await replaceAll(data);
+    });
+    const first = a.restoreFromBackup(copy.id);
+    expect(a.restoreRunning).toBe(true);
+    render(DataSection, { app: a });
+    await fireEvent.click(await screen.findByRole('button', { name: /Ver cópias/ }));
+    await fireEvent.click((await screen.findAllByRole('button', { name: /Restaurar/ }))[0]);
+    expect(a.toast?.text).toBe(T.backupsDialog.restoreBusy);
+    release();
+    expect(await first).toBe(true);
+  });
+
+  it('importação confirmada enquanto uma restauração corre é recusada com aviso e não entra na troca', async () => {
+    const { a, repo } = await app();
+    await a.addSolve({ ms: 60000, penalty: null, at: Date.now() });
+    const copy = await createBackup(repo, 'manual', Date.now());
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const replaceAll = repo.replaceAll;
+    vi.spyOn(repo, 'replaceAll').mockImplementationOnce(async (data) => {
+      await held;
+      await replaceAll(data);
+    });
+    const restoring = a.restoreFromBackup(copy.id);
+    const text = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../fixtures', 'cstimer-export.txt'), 'utf8');
+    const refused = await a.importCsTimer(parseCsTimer(text), { session3: '333' });
+    expect(refused).toBeNull();
+    expect(a.toast?.text).toBe(T.dados.importWhileRestoring);
+    release();
+    expect(await restoring).toBe(true);
+    expect((await repo.listSolves()).map((s) => s.ms)).toEqual([60000]);
+  });
+
+  it('restaurar espera a importação que já está gravando, e a cópia de segurança leva o que ela trouxe', async () => {
+    const { a, repo } = await app();
+    const kept = (await a.addSolve({ ms: 60000, penalty: null, at: Date.now() }))!;
+    const copy = await createBackup(repo, 'manual', Date.now());
+    const incoming: KlickExport = {
+      format: 'klick',
+      version: 1,
+      exportedAt: Date.now(),
+      profile: null,
+      sessions: [],
+      solves: [
+        {
+          id: 'imp-1',
+          sessionId: a.currentSession!.id,
+          event: '333',
+          ms: 50000,
+          penalty: null,
+          at: Date.now() + 5,
+          scramble: 'R U',
+          note: '',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          deletedAt: null,
+        },
+      ],
+    };
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const importAll = repo.importAll;
+    vi.spyOn(repo, 'importAll').mockImplementationOnce(async (data) => {
+      await held;
+      return importAll(data);
+    });
+    const importing = a.importKlick(incoming);
+    const restoring = a.restoreFromBackup(copy.id);
+    expect(a.restoreRunning).toBe(true);
+    release();
+    expect(await importing).toEqual(expect.objectContaining({ solves: 1 }));
+    expect(await restoring).toBe(true);
+    const pre = (await repo.listBackups()).find((r) => r.reason === 'pre-restore')!;
+    expect(pre.solveCount).toBe(2);
+    expect((await repo.listSolves()).map((s) => s.id)).toEqual([kept.id]);
+  });
+
+  it('versão anterior sem nenhum registro legível mostra quantos ficaram de fora, e a oferta continua', async () => {
+    const v1 = {
+      state: {
+        sessions: [
+          {
+            id: 'v1-s1',
+            name: 'Sessão 1',
+            puzzleType: '3x3',
+            solves: [
+              { id: 'v1-b', timeMs: 'ruim', penalty: 'NONE', scramble: 'R U', createdAt: '2026-01-02T10:01:00.000Z' },
+              { id: 'v1-c', timeMs: -5, penalty: 'NONE', scramble: 'R U', createdAt: '2026-01-02T10:02:00.000Z' },
+            ],
+          },
+        ],
+      },
+      version: 0,
+    };
+    const storage = { getItem: (key: string) => (key === V1_KEY ? JSON.stringify(v1) : null) };
+    const { a, repo } = await app({ storage });
+    expect(a.v1Available).toBe(true);
+    render(DataSection, { app: a });
+    await fireEvent.click(await screen.findByRole('button', { name: T.dados.importV1 }));
+    expect(await screen.findByText('2 registros da versão anterior não puderam ser lidos.')).toBeInTheDocument();
+    expect(a.toast?.text).not.toBe(T.dados.nothingV1);
+    expect(a.v1Available).toBe(true);
+    expect((await repo.getMeta()).v1ImportOffered).toBe(false);
+    expect(screen.getByRole('button', { name: T.dados.importV1 })).toBeInTheDocument();
+  });
+
+  it('versão anterior: se marcar a oferta falha depois de importar, o resumo traz uma nota e não diz que falhou', async () => {
+    const v1 = {
+      state: {
+        sessions: [
+          {
+            id: 'v1-s1',
+            name: 'Sessão 1',
+            puzzleType: '3x3',
+            solves: [{ id: 'v1-a', timeMs: 61000, penalty: 'NONE', scramble: 'R U', createdAt: '2026-01-02T10:00:00.000Z' }],
+          },
+        ],
+      },
+    };
+    const storage = { getItem: (key: string) => (key === V1_KEY ? JSON.stringify(v1) : null) };
+    const { a, repo } = await app({ storage });
+    render(DataSection, { app: a });
+    failMetaWrite(repo, 'v1ImportOffered');
+    await fireEvent.click(await screen.findByRole('button', { name: T.dados.importV1 }));
+    expect(await screen.findByText(/^1 solve importado/)).toBeInTheDocument();
+    expect(await screen.findByText(T.importDialog.offerNotMarked)).toBeInTheDocument();
+    expect(a.toast?.text).not.toBe(T.dados.importFailed);
+    expect(a.v1Available).toBe(true); // sem a marca, a oferta segue: importar de novo é seguro
+    expect((await repo.listSolves()).map((s) => s.id)).toEqual(['v1-a']);
+  });
+
+  it('copiar: se a exportação não pôde ser marcada, o aviso de copiado não aparece', async () => {
+    const { a, repo } = await app();
+    await a.addSolve({ ms: 61234, penalty: null, at: Date.now() });
+    const writeText = vi.fn(async (_text: string) => undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    download.mockReturnValueOnce(false);
+    render(DataSection, { app: a });
+    await fireEvent.click(await screen.findByRole('button', { name: /Exportar \(Klick\)/ }));
+    failMetaWrite(repo, 'lastExportAt');
+    await fireEvent.click(await screen.findByRole('button', { name: T.exportDialog.copy }));
+    // O aviso final vale depois do fechamento: a gravação falha mostra o aviso de salvar, não o de copiado.
+    await vi.waitFor(() => expect(a.dialog).toBeNull());
+    expect(a.toast?.text).toBe(T.data.saveFailed);
+  });
+
+  it('o pedido automático de proteção sai uma vez, mesmo com solves gravados antes da resposta', async () => {
+    let answer!: (granted: boolean) => void;
+    const persist = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    const { a, repo } = await app({ storageManager: { persist, persisted: async () => false } });
+    for (let i = 0; i < 3; i++) await a.addSolve({ ms: 60000 + i, penalty: null, at: Date.now() + i });
+    expect(persist).toHaveBeenCalledTimes(1);
+    answer(true);
+    await vi.waitFor(async () => expect((await repo.getMeta()).persistRequested).toBe(true));
   });
 
   it('o botão Como instalar abre o guia pelo estado do app', async () => {

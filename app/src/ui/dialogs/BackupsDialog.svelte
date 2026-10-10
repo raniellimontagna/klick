@@ -40,20 +40,29 @@
 
   async function restore(b: BackupRecord): Promise<void> {
     if (busy) return;
+    // Outra restauração corre (ou o portão segue fechado depois de um prazo): esta não começa e não pede confirmação.
+    if (app.restoreRunning) {
+      app.showToast(T.backupsDialog.restoreBusy);
+      return;
+    }
     if (asking !== b.id) {
       asking = b.id;
       return;
     }
     busy = true;
+    let ok = false;
     try {
-      const ok = await app.restoreFromBackup(b.id);
-      if (ok) {
-        app.showToast(T.backupsDialog.restored);
-        dialogEl?.close();
-      }
+      ok = await app.restoreFromBackup(b.id);
+    } catch {
+      // Cópia que não abre, ou erro ao trocar: a troca não gravou nada, e o aviso diz que os dados seguem como estavam.
+      app.showToast(T.backupsDialog.restoreFailed);
     } finally {
       busy = false;
       asking = null;
+    }
+    if (ok) {
+      app.showToast(T.backupsDialog.restored);
+      dialogEl?.close();
     }
   }
 </script>
