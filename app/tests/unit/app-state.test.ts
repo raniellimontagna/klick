@@ -795,8 +795,9 @@ describe('estado do app: fix round 1 (brief 9b)', () => {
 describe('estado do app: fix round 2 (brief 9b)', () => {
   beforeEach(() => { t = 1_791_500_000_000; });
 
-  // N1: a restauração inteira tem prazo de 30 s. Se a leitura da cópia não responde, a chamada sai com aviso e as gravações andam.
-  it('uma restauração que não termina em 30 s devolve false com o aviso de prazo, e uma gravação que chegou durante ela segue', async () => {
+  // N1 (round 3, a): a restauração inteira tem prazo de 30 s. Se a leitura da cópia não responde, a chamada sai com false e o aviso
+  // acende; o portão segue fechado, então a gravação de durante a troca fica na memória, sem ser gravada.
+  it('uma restauração que não termina em 30 s devolve false com o aviso; o portão segue fechado e a gravação de durante ela fica na memória', async () => {
     const { app, repo } = await setup();
     await app.addSolve(newSolve(60000));
     const backup = await createBackup(repo, 'manual', t);
@@ -805,14 +806,18 @@ describe('estado do app: fix round 2 (brief 9b)', () => {
     try {
       const restoring = app.restoreFromBackup(backup.id);
       await vi.advanceTimersByTimeAsync(0); // a troca está presa na leitura
-      const adding = app.addSolve(newSolve(61000, t + 1)); // espera o portão da troca
+      void app.addSolve(newSolve(61000, t + 1)); // espera o portão, que não abre enquanto a troca não acaba
       await vi.advanceTimersByTimeAsync(29_999);
       expect(app.toast).toBeNull();
+      expect(app.saveStalled).toBe(false);
       await vi.advanceTimersByTimeAsync(1);
       expect(await restoring).toBe(false);
       expect(app.toast?.text).toBe(T.data.restoreTimeout);
-      expect(await adding).not.toBeNull(); // o portão abriu: a gravação entrou e foi gravada
-      expect((await repo.listSolves()).map((x) => x.ms)).toEqual([60000, 61000]);
+      expect(app.saveStalled).toBe(true);
+      expect(app.unsaved).toBe(true);
+      expect(await app.restoreFromBackup(backup.id)).toBe(false); // portão fechado: a segunda chamada sai com false
+      expect((await repo.listSolves()).map((x) => x.ms)).toEqual([60000]); // a gravação de durante a troca ainda não foi feita
+      expect((await app.exportData()).solves.map((x) => x.ms)).toEqual([60000, 61000]); // mas ela está no export
     } finally {
       vi.useRealTimers();
     }
@@ -900,6 +905,108 @@ describe('estado do app: fix round 2 (brief 9b)', () => {
       expect(app.savePending).toBe(1);
       await vi.advanceTimersByTimeAsync(1000); // a próxima falha (9 s) pede outra reabertura
       expect(reopen).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Fix round 3: o portão da restauração só abre quando a troca termina de verdade, mesmo depois do prazo. Só a troca que acendeu
+// o aviso o apaga. Sem sleeps reais: o relógio é falso e a leitura da cópia é um portão controlado.
+
+describe('estado do app: fix round 3 (brief 9b)', () => {
+  beforeEach(() => { t = 1_791_500_000_000; });
+
+  // Leitura da cópia presa até o teste liberá-la. Devolve a função que libera.
+  const holdRead = (repo: Repository): (() => void) => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const getBackup = repo.getBackup.bind(repo);
+    repo.getBackup = async (id) => {
+      await gate;
+      return getBackup(id);
+    };
+    return () => release();
+  };
+
+  // (b) A troca termina depois do prazo: o portão abre, a gravação que esperava cai depois do replaceAll e sobrevive, e o aviso sai.
+  it('uma troca que termina depois do prazo abre o portão: a gravação de durante ela cai depois do replaceAll e sobrevive, e o aviso sai', async () => {
+    const { app, repo } = await setup();
+    await app.addSolve(newSolve(59000));
+    const backup = await createBackup(repo, 'manual', t); // a cópia tem só o 59000
+    await app.addSolve(newSolve(60000, t + 1));
+    const openRead = holdRead(repo);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const restoring = app.restoreFromBackup(backup.id);
+      await vi.advanceTimersByTimeAsync(0);
+      const adding = app.addSolve(newSolve(61000, t + 2)); // espera o portão
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(await restoring).toBe(false);
+      expect(app.saveStalled).toBe(true);
+      openRead(); // a leitura volta: a troca termina depois do prazo
+      expect(await adding).not.toBeNull(); // o portão abriu e a gravação entrou, depois do replaceAll
+      expect(app.saveStalled).toBe(false);
+      expect((await repo.listSolves()).map((x) => x.ms)).toEqual([59000, 61000]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // (c) Só a troca que acendeu o aviso o apaga: um aviso de outra tentativa não é limpo quando a troca termina.
+  it('um aviso de gravação presa que não é da troca não é limpo quando a troca termina', async () => {
+    const { app, repo } = await setup();
+    await app.addSolve(newSolve(60000));
+    const backup = await createBackup(repo, 'manual', t);
+    const openRead = holdRead(repo);
+    let reloaded = false;
+    const reloadBefore = app.reload.bind(app);
+    app.reload = async () => {
+      await reloadBefore();
+      reloaded = true;
+    };
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const restoring = app.restoreFromBackup(backup.id);
+      await vi.advanceTimersByTimeAsync(1000);
+      app.saveStalled = true; // uma gravação presa de outra tentativa acende o aviso enquanto a troca corre
+      await vi.advanceTimersByTimeAsync(29_000); // 30 s: a troca passa do prazo; o aviso é de outra tentativa
+      expect(await restoring).toBe(false);
+      openRead();
+      await vi.waitFor(() => expect(reloaded).toBe(true)); // a troca leu, trocou e recarregou
+      await vi.advanceTimersByTimeAsync(0); // o portão abre (fim da troca)
+      expect(app.saveStalled).toBe(true); // a troca não apaga um aviso que não é dela
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // (d) Uma troca que falha depois do prazo abre o portão sem mexer nos dados: o aviso não fica para sempre.
+  it('uma troca que falha depois do prazo abre o portão sem mexer nos dados', async () => {
+    const { app, repo } = await setup();
+    await app.addSolve(newSolve(60000));
+    const backup = await createBackup(repo, 'manual', t);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    repo.getBackup = async () => {
+      await gate;
+      return undefined; // a cópia "some": a troca termina com erro
+    };
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const restoring = app.restoreFromBackup(backup.id);
+      await vi.advanceTimersByTimeAsync(0);
+      const adding = app.addSolve(newSolve(61000, t + 1));
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(await restoring).toBe(false);
+      release();
+      expect(await adding).not.toBeNull(); // o portão abriu depois do erro
+      expect((await repo.listSolves()).map((x) => x.ms)).toEqual([60000, 61000]);
     } finally {
       vi.useRealTimers();
     }
