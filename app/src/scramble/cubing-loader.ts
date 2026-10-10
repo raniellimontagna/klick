@@ -1,9 +1,16 @@
 import type { EventId } from '../core/types';
 import { eventInfo } from '../core/events';
 
+// Forma mínima do cubing.js usada pela imagem do embaralhamento. Só este arquivo fala com o módulo de verdade.
+export interface KPuzzleLike {
+  defaultPattern(): { applyAlg(alg: string): unknown };
+}
+
 export interface CubingModule {
   randomScrambleForEvent(eventId: string): Promise<{ toString(): string }>;
   TwistyPlayer: new (config: Record<string, unknown>) => HTMLElement;
+  puzzles: Record<string, { kpuzzle(): Promise<KPuzzleLike>; svg(): Promise<string> }>;
+  ExperimentalSVGAnimator: new (kpuzzle: KPuzzleLike, svg: string) => { wrapperElement: HTMLElement; draw(pattern: unknown): void };
 }
 
 let cached: Promise<CubingModule> | null = null;

@@ -1,2 +1,3 @@
 export { randomScrambleForEvent } from 'cubing/scramble';
-export { TwistyPlayer } from 'cubing/twisty';
+export { puzzles } from 'cubing/puzzles';
+export { ExperimentalSVGAnimator, TwistyPlayer } from 'cubing/twisty';

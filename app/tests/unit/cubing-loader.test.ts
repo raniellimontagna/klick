@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { CubingModule } from '../../src/scramble/cubing-loader';
 
 // Cada teste carrega o módulo do zero: o cache e o contador de tentativas não passam de um teste para o outro.
 async function carregarModulo() {
@@ -6,9 +7,9 @@ async function carregarModulo() {
   return import('../../src/scramble/cubing-loader');
 }
 
-// Módulo falso do cubing.js. A classe do twisty não é usada aqui, então basta o construtor do HTMLElement.
-function falso(sorteio: (evento: string) => Promise<{ toString(): string }> = async () => ({ toString: () => "R U R' U'" })) {
-  return { TwistyPlayer: HTMLElement, randomScrambleForEvent: sorteio };
+// Módulo falso do cubing.js. O twisty, o animador e os puzzles não são usados aqui, então basta um construtor qualquer.
+function falso(sorteio: (evento: string) => Promise<{ toString(): string }> = async () => ({ toString: () => "R U R' U'" })): CubingModule {
+  return { TwistyPlayer: HTMLElement, ExperimentalSVGAnimator: HTMLElement, puzzles: {}, randomScrambleForEvent: sorteio } as unknown as CubingModule;
 }
 
 afterEach(() => {
@@ -49,7 +50,7 @@ describe('carregador do cubing.js', () => {
   it('uma geração que não termina rejeita com timeout no prazo; sem prazo explícito, o padrão é 20 s', async () => {
     const { generateScramble } = await carregarModulo();
     vi.useFakeTimers();
-    const travado = { TwistyPlayer: HTMLElement, randomScrambleForEvent: () => new Promise<never>(() => {}) };
+    const travado = falso(() => new Promise<never>(() => {}));
     const pendente = Symbol('pendente');
     const aindaPendente = (p: Promise<unknown>) => Promise.race([p, Promise.resolve(pendente)]);
     const desfecho = (p: Promise<string>) => p.then(() => 'resolveu', (erro: Error) => erro.message);
