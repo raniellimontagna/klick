@@ -787,3 +787,121 @@ describe('estado do app: fix round 1 (brief 9b)', () => {
     expect(data.solves.map((x) => x.ms)).toEqual([61000, 62000]);
   });
 });
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Fix round 2 (brief 9b, revisão): prazo da restauração, uma restauração por vez, a troca espera a reabertura em curso, e a
+// reabertura tem prazo. Sem sleeps reais: o relógio é falso, ou a espera é por um portão controlado.
+
+describe('estado do app: fix round 2 (brief 9b)', () => {
+  beforeEach(() => { t = 1_791_500_000_000; });
+
+  // N1: a restauração inteira tem prazo de 30 s. Se a leitura da cópia não responde, a chamada sai com aviso e as gravações andam.
+  it('uma restauração que não termina em 30 s devolve false com o aviso de prazo, e uma gravação que chegou durante ela segue', async () => {
+    const { app, repo } = await setup();
+    await app.addSolve(newSolve(60000));
+    const backup = await createBackup(repo, 'manual', t);
+    repo.getBackup = () => new Promise<never>(() => {}); // o banco não responde à leitura da cópia
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const restoring = app.restoreFromBackup(backup.id);
+      await vi.advanceTimersByTimeAsync(0); // a troca está presa na leitura
+      const adding = app.addSolve(newSolve(61000, t + 1)); // espera o portão da troca
+      await vi.advanceTimersByTimeAsync(29_999);
+      expect(app.toast).toBeNull();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await restoring).toBe(false);
+      expect(app.toast?.text).toBe(T.data.restoreTimeout);
+      expect(await adding).not.toBeNull(); // o portão abriu: a gravação entrou e foi gravada
+      expect((await repo.listSolves()).map((x) => x.ms)).toEqual([60000, 61000]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // N4: uma restauração já em curso; a segunda sai com false sem mexer no portão (a gravação que espera continua esperando).
+  it('uma segunda restauração enquanto outra corre sai com false e não mexe no portão', async () => {
+    const { app, repo } = await setup();
+    await app.addSolve(newSolve(60000));
+    const backup = await createBackup(repo, 'manual', t);
+    let inside = false;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const replaceAll = repo.replaceAll.bind(repo);
+    repo.replaceAll = async (data) => {
+      inside = true;
+      await gate;
+      return replaceAll(data);
+    };
+    const first = app.restoreFromBackup(backup.id);
+    await vi.waitFor(() => expect(inside).toBe(true));
+    expect(await app.restoreFromBackup(backup.id)).toBe(false);
+    const adding = app.addSolve(newSolve(63000, t + 2)); // o portão da primeira segue fechado para ela
+    await vi.waitFor(() => expect(app.unsaved).toBe(true)); // a gravação já entrou na fila
+    expect((await repo.listSolves()).map((x) => x.ms)).toEqual([60000]);
+    release();
+    expect(await first).toBe(true);
+    expect(await adding).not.toBeNull();
+    expect((await repo.listSolves()).map((x) => x.ms)).toEqual([60000, 63000]);
+  });
+
+  // N2: uma reabertura em curso: a restauração espera por ela e lê o repositório que ela devolveu.
+  it('uma restauração espera a reabertura em curso e usa o repositório que ela devolveu', async () => {
+    const broken = await freshRepo();
+    const healthy = await freshRepo();
+    const session = await healthy.createSession({ event: '333' });
+    await healthy.addSolve({ sessionId: session.id, event: '333', ms: 59000, penalty: null, at: t, scramble: "R U R'" });
+    const backup = await createBackup(healthy, 'manual', t); // a cópia existe só no repositório novo
+    let openHealthy!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      openHealthy = resolve;
+    });
+    const app = await appWith(broken, { reopen: async () => { await gate; return healthy; } });
+    let failedOnce = false;
+    const original = broken.addSolve.bind(broken);
+    broken.addSolve = async (s) => {
+      if (!failedOnce) {
+        failedOnce = true;
+        throw dbError('InvalidStateError');
+      }
+      return original(s);
+    };
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      expect(await app.addSolve(newSolve(60000))).toBeNull(); // a falha abre a reabertura (presa no portão)
+      const restoring = app.restoreFromBackup(backup.id);
+      let settled = false;
+      void restoring.then(() => { settled = true; });
+      await vi.advanceTimersByTimeAsync(3000); // a nova tentativa grava no repositório antigo, que ainda está aberto
+      await vi.waitFor(() => expect(app.savePending).toBe(0));
+      expect(settled).toBe(false); // a restauração ainda espera a reabertura
+      openHealthy();
+      expect(await restoring).toBe(true);
+      // Se a troca tivesse usado o repositório antigo, a cópia não existiria nele e a chamada teria falhado.
+      expect((await healthy.listSolves()).map((x) => x.ms)).toEqual([59000]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Reabertura com prazo (item 5): uma reabertura que não responde é desistida em 8 s; a próxima falha pede outra.
+  it('uma reabertura que não responde em 8 s é desistida: o repositório atual segue e a próxima falha pede outra', async () => {
+    const broken = await freshRepo();
+    const reopen = vi.fn(() => new Promise<Repository>(() => {})); // nunca responde
+    const app = await appWith(broken, { reopen });
+    broken.addSolve = async () => { throw dbError('InvalidStateError'); };
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      expect(await app.addSolve(newSolve(60000))).toBeNull(); // falha 1: a reabertura 1 começa e fica presa
+      expect(reopen).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(8000); // a reabertura 1 é desistida; as tentativas da fila seguem no repositório atual
+      expect(reopen).toHaveBeenCalledTimes(1);
+      expect(app.savePending).toBe(1);
+      await vi.advanceTimersByTimeAsync(1000); // a próxima falha (9 s) pede outra reabertura
+      expect(reopen).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

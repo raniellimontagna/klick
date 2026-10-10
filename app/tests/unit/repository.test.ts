@@ -1377,3 +1377,36 @@ describe('repositório: id estável do solve', () => {
     expect((await tabB.listSolves()).map((x) => x.id)).toEqual(['solve-fixo']);
   });
 });
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Fix round 2 (N3): um repositório fechado não posta no canal. Um post depois do close lançaria (como o BroadcastChannel
+// fechado) e o erro iria para onError.
+
+describe('repositório: fechado não anuncia (fix round 2)', () => {
+  beforeEach(() => {
+    t = 1_791_500_000_000;
+  });
+
+  it('uma escrita que termina depois do close não posta no canal e não chama onError', async () => {
+    const posts: unknown[] = [];
+    let open = true;
+    const channel: ChannelLike = {
+      onmessage: null,
+      postMessage(data) {
+        if (!open) throw new Error('canal fechado');
+        posts.push(data);
+      },
+      close() {
+        open = false;
+      },
+    };
+    const onError = vi.fn();
+    const repo = createRepository(await openKlickDb(dbName()), { now, channel, onError });
+    const s = await repo.createSession({ event: '333' });
+    const writing = repo.addSolve(ns(s.id, 60000, 1000)); // a transação já começou
+    repo.close();
+    await writing;
+    expect(onError).not.toHaveBeenCalled();
+    expect(posts).toEqual([{ kind: 'sessions' }]);
+  });
+});

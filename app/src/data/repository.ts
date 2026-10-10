@@ -205,6 +205,7 @@ export function createRepository(
   } = {},
 ): Repository {
   const listeners = new Set<{ fn: (kind: ChangeKind) => void }>();
+  let closed = false; // depois de close(), nada mais sai pelo canal (um post aqui lançaria, e o erro iria para onError)
 
   // O onError é de quem usa o repositório. Se ele mesmo lançar, o erro não pode rejeitar uma gravação já confirmada (a fila
   // gravaria de novo e duplicaria o solve): o erro que ele recebia e o que ele lançou saem juntos pelo relançar-depois.
@@ -231,6 +232,7 @@ export function createRepository(
   function announce(...kinds: ChangeKind[]): void {
     for (const kind of kinds) {
       emitLocal(kind);
+      if (closed) continue;
       try {
         channel?.postMessage({ kind });
       } catch (err) {
@@ -650,6 +652,7 @@ export function createRepository(
     },
 
     close() {
+      closed = true;
       listeners.clear();
       if (channel) channel.onmessage = null;
       channel?.close?.();

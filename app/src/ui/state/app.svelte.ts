@@ -53,6 +53,10 @@ const FIRST_SCRAMBLE_WAIT_MS = 150;
 const STALL_MS = 5000;
 // Passado este prazo, a tentativa desiste (TimeoutError) e a fila tenta de novo, com o mesmo id, no repositório atual.
 const SAVE_DEADLINE_MS = 8000;
+// Uma reabertura que não responde nesse prazo é desistida: o repositório atual segue e a próxima falha pode pedir outra.
+const REOPEN_DEADLINE_MS = 8000;
+// A restauração inteira (ler a cópia, trocar, recarregar). Passado o prazo, as gravações voltam a andar e a pessoa vê o aviso.
+const RESTORE_DEADLINE_MS = 30000;
 // Erros que dizem que a conexão morreu (o iOS derruba a conexão com o app em segundo plano), ou que a tentativa não teve resposta
 // no prazo. Cota cheia não está nesta lista.
 const CONNECTION_ERRORS: readonly string[] = ['InvalidStateError', 'UnknownError', 'TransactionInactiveError', 'TimeoutError'];
@@ -134,7 +138,8 @@ export class AppState {
   private readonly reopenDb: (() => Promise<Repository>) | undefined;
   private unsubscribe: (() => void) | null = null;
   private reopening: Promise<void> | null = null; // a reabertura em andamento, reaproveitada por quem pede enquanto ela não termina
-  private restoring: Promise<void> | null = null; // uma restauração em curso: as gravações esperam ela acabar
+  private restoring: Promise<void> | null = null; // a troca em curso (depois da pausa para a fila esvaziar): as gravações esperam ela acabar
+  private restoreBusy = false; // uma restauração por vez, desde o começo (inclui a espera pela fila)
   private attempts = 0; // tentativas de gravação já começadas: só a mais recente mexe em saveStalled
   private readonly storage: Pick<Storage, 'getItem'> | null;
   private readonly storageManager: StorageLike | null;
@@ -359,28 +364,56 @@ export class AppState {
     if (wasCurrent || replaced) await this.nextScramble();
   }
 
-  // Troca tudo pela cópia escolhida. Antes, a fila precisa estar vazia: um solve que ainda não foi gravado ficaria de fora da troca,
-  // e uma gravação presa nunca termina, então com ela a troca é recusada direto.
+  // Troca tudo pela cópia escolhida. Uma por vez: a segunda sai com false sem tocar em nada. Antes, espera uma reabertura em curso (a
+  // troca usa o repositório que ela devolver) e a fila precisa estar vazia: um solve que ainda não foi gravado ficaria de fora da
+  // troca, e uma gravação presa nunca termina, então com ela a troca é recusada direto.
   async restoreFromBackup(id: string): Promise<boolean> {
+    if (this.restoreBusy) return false;
+    this.restoreBusy = true;
+    try {
+      return await this.restoreNow(id);
+    } finally {
+      this.restoreBusy = false;
+    }
+  }
+
+  private async restoreNow(id: string): Promise<boolean> {
+    if (this.reopening) await this.reopening;
     if (!this.saveStalled) await this.saves.flush();
     if (this.saveStalled || this.saves.pending() > 0) {
       this.showToast(T.data.restoreBlocked);
       return false;
     }
     // As gravações que chegarem agora esperam (saveWatched) até a troca acabar: caem depois do replaceAll, não no meio dele.
+    // Se a troca não termina no prazo, o portão abre e a pessoa vê o aviso. A restauração que ainda estiver presa pode terminar
+    // depois; o pré-restore que ela grava antes fica como cópia para voltar.
     let done!: () => void;
     this.restoring = new Promise<void>((resolve) => {
       done = resolve;
     });
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<'expired'>((resolve) => {
+      deadline = setTimeout(() => resolve('expired'), RESTORE_DEADLINE_MS);
+    });
     try {
-      await restoreBackup(this.repo, id, this.now());
-      await this.reload();
+      const outcome = await Promise.race([this.replaceFromBackup(id).then(() => 'done' as const), expired]);
+      if (outcome === 'expired') {
+        this.showToast(T.data.restoreTimeout);
+        return false;
+      }
     } finally {
+      clearTimeout(deadline);
       this.restoring = null;
       done();
     }
     await this.nextScramble(); // a cópia pode ter trazido outra sessão, de outro evento
     return true;
+  }
+
+  // A troca em si: lê a cópia, grava por cima de tudo e recarrega. Lê o repositório atual no momento da chamada.
+  private async replaceFromBackup(id: string): Promise<void> {
+    await restoreBackup(this.repo, id, this.now());
+    await this.reload();
   }
 
   // Exportação de emergência: o que está gravado no banco, mais o que a fila ainda segura (com os mesmos ids). Se o banco falha
@@ -551,16 +584,28 @@ export class AppState {
     void this.reopenRepo();
   }
 
-  // Uma reabertura por vez: quem pede enquanto ela não termina recebe a mesma. Se falha, o repositório antigo segue.
+  // Uma reabertura por vez: quem pede enquanto ela não termina recebe a mesma. Se falha, ou não responde em REOPEN_DEADLINE_MS, o
+  // repositório antigo segue: a fila tenta de novo com ele e o aviso fixo continua. Uma conexão que responde depois do prazo é fechada.
   private reopenRepo(): Promise<void> {
     const open = this.reopenDb;
     if (!open) return Promise.resolve();
     if (!this.reopening) {
-      this.reopening = Promise.resolve()
-        .then(open)
-        .then((next) => this.useRepo(next))
-        .catch(() => undefined) // sem conexão nova, a fila tenta de novo com o repositório que tem e o aviso fixo continua
+      let deadline: ReturnType<typeof setTimeout> | undefined;
+      const late = new Promise<'late'>((resolve) => {
+        deadline = setTimeout(() => resolve('late'), REOPEN_DEADLINE_MS);
+      });
+      const opening = Promise.resolve().then(open);
+      this.reopening = Promise.race([opening, late])
+        .then((won) => {
+          if (won === 'late') {
+            void opening.then((next) => next.close(), () => undefined);
+            return;
+          }
+          this.useRepo(won);
+        })
+        .catch(() => undefined)
         .finally(() => {
+          clearTimeout(deadline);
           this.reopening = null;
         });
     }
