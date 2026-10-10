@@ -66,6 +66,7 @@ export interface ImportSummary {
   existing: number;
   skippedSessions: number; // sessões sem evento (csTimer) ou de um puzzle que o Klick não tem (versão anterior)
   unreadable: number; // registros da versão anterior que não puderam ser lidos
+  missed: number; // solves que a conta do arquivo tinha como novos e o repositório deixou de fora (um id repetido): o resumo diz quantos
   offerNotMarked?: boolean; // os solves entraram, mas a marca "oferta feita" não foi gravada (a importação pode ser refeita)
 }
 
@@ -644,7 +645,8 @@ export class AppState {
   importKlick(data: KlickExport): Promise<ImportSummary | null> {
     return this.importJob(async () => {
       const report = await this.repo.importAll(data);
-      return { solves: report.solvesAdded + report.solvesUpdated, existing: report.skipped, skippedSessions: 0, unreadable: 0 };
+      // No Klick, `skipped` são os solves que já existiam (com a mesma ou mais nova edição): não há conta prévia a conferir.
+      return { solves: report.solvesAdded + report.solvesUpdated, existing: report.skipped, skippedSessions: 0, unreadable: 0, missed: 0 };
     });
   }
 
@@ -666,7 +668,8 @@ export class AppState {
         solves: plan.solves,
         profile: null,
       });
-      return { solves: report.solvesAdded, existing: plan.duplicates, skippedSessions: plan.skippedSessions, unreadable: 0 };
+      // Os solves do plano são novos pela conta do conversor: o que o repositório deixou de fora (skipped) não pode sumir do resumo.
+      return { solves: report.solvesAdded, existing: plan.duplicates, skippedSessions: plan.skippedSessions, unreadable: 0, missed: report.skipped };
     });
   }
 
@@ -676,7 +679,7 @@ export class AppState {
     const unreadable = readV1Invalid(this.storage);
     const v1 = readV1(this.storage);
     if (!v1) {
-      if (unreadable > 0) return { solves: 0, existing: 0, skippedSessions: 0, unreadable };
+      if (unreadable > 0) return { solves: 0, existing: 0, skippedSessions: 0, unreadable, missed: 0 };
       this.v1Available = false;
       this.showToast(T.dados.nothingV1);
       return null;
@@ -710,6 +713,7 @@ export class AppState {
         existing: plan.duplicates,
         skippedSessions: plan.skippedSessions,
         unreadable,
+        missed: report.skipped,
         offerNotMarked: !offerMarked,
       };
     });

@@ -515,6 +515,34 @@ describe('csTimer', () => {
       expect(file.properties.sessionN).toBe(2);
     });
 
+    // Um solve vivo cuja sessão não está viva (excluída em outra aba, ou que nunca existiu) não pode sumir do arquivo do csTimer.
+    it('solves vivos sem sessão viva saem numa sessão "Sem sessão", de 3×3, depois das outras; os excluídos continuam de fora', () => {
+      const sessions = [mkSession({ id: 'a', name: 'A', order: 0 }), mkSession({ id: 'b', name: 'B', order: 1, deletedAt: 5 })];
+      const solves = [
+        mkSolve({ id: '1', sessionId: 'a', ms: 1_000 }),
+        mkSolve({ id: '2', sessionId: 'nunca-existiu', event: 'sq1', ms: 2_000, at: AT + 1_000, scramble: 'R' }),
+        mkSolve({ id: '3', sessionId: 'b', ms: 3_000, at: AT + 2_000, scramble: 'U' }), // sessão na lixeira, solve vivo
+        mkSolve({ id: '4', sessionId: 'nunca-existiu', ms: 4_000, deletedAt: 5, at: AT + 3_000 }),
+      ];
+      const file = out(sessions, solves);
+      expect(Object.keys(file)).toEqual(['session1', 'session2', 'properties']);
+      expect(file.session1).toEqual([[[0, 1000], "R U R'", '', 1791400000]]);
+      expect(file.session2).toEqual([
+        [[0, 2000], 'R', '', 1791400001],
+        [[0, 3000], 'U', '', 1791400002],
+      ]);
+      expect(JSON.parse(file.properties.sessionData)[2]).toEqual({ name: 'Sem sessão', opt: { scrType: '333' }, rank: 2 });
+      expect(file.properties.sessionN).toBe(2);
+    });
+
+    it('o arquivo com solves órfãos volta ao csTimer com a sessão "Sem sessão" e os solves nela', () => {
+      const sessions = [mkSession({ id: 'a', name: 'A', order: 0 })];
+      const solves = [mkSolve({ id: '1', sessionId: 'a', ms: 1_000 }), mkSolve({ id: '2', sessionId: 'perdida', ms: 2_000, at: AT + 1_000 })];
+      const parsed = parseCsTimer(toCsTimerJson(sessions, solves));
+      expect(parsed.map((p) => [p.name, p.solves.length])).toEqual([['A', 1], ['Sem sessão', 1]]);
+      expect(parsed[1].event).toBe('333');
+    });
+
     it('só o que não foi excluído, com os números seguidos; sessão sem solves sai vazia', () => {
       const sessions = [
         mkSession({ id: 'a', name: 'A', order: 0 }),

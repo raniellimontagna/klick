@@ -140,6 +140,7 @@ export const T = Object.freeze({
   transfer: {
     klickInvalid: 'Arquivo do Klick inválido.',
     csTimerInvalid: 'Arquivo do csTimer inválido.',
+    orphanSession: 'Sem sessão', // a sessão do csTimer que leva os solves vivos cuja sessão não existe mais (exportação do csTimer)
   },
   // Casca (ui/App.svelte): nomes das abas, rótulo das duas barras de navegação e o atalho para o conteúdo.
   tabs: { timer: 'Timer', evolucao: 'Evolução', companion: 'Centro', ajustes: 'Ajustes' },
@@ -331,6 +332,10 @@ export const T = Object.freeze({
     confirm: 'Importar solves',
     result: (added: number, existing: number): string =>
       `${added} ${added === 1 ? 'solve importado' : 'solves importados'}, ${existing} ${existing === 1 ? 'já existia' : 'já existiam'}.`,
+    missed: (n: number): string =>
+      n === 1
+        ? '1 solve não entrou por um erro. Importe o mesmo arquivo de novo para tentar outra vez.'
+        : `${n} solves não entraram por um erro. Importe o mesmo arquivo de novo para tentar outra vez.`,
     skippedSessions: (n: number): string => `${n} ${n === 1 ? 'sessão ficou' : 'sessões ficaram'} de fora por não ter um evento conhecido.`,
     unreadable: (n: number): string =>
       n === 1 ? '1 registro da versão anterior não pôde ser lido.' : `${n} registros da versão anterior não puderam ser lidos.`,

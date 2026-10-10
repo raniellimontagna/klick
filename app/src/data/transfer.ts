@@ -146,27 +146,41 @@ export function parseCsTimer(text: string): CsTimerSession[] {
   });
 }
 
-// Só as sessões e os solves que não foram excluídos. Cada sessão leva o tipo de embaralhamento do evento, para o csTimer reconhecer.
+// Só as sessões vivas e os solves que não foram excluídos. Cada sessão leva o tipo de embaralhamento do evento, para o csTimer
+// reconhecer. Um solve vivo cuja sessão não está viva (excluída em outra aba, ou que nunca existiu) não some do arquivo: vai para
+// uma sessão "Sem sessão", de 3×3, depois das outras.
 export function toCsTimerJson(sessions: Session[], solves: Solve[]): string {
   const live = sessions.filter((s) => s.deletedAt === null).sort((a, b) => a.order - b.order);
+  const liveIds = new Set(live.map((s) => s.id));
   const bySession = new Map<string, Solve[]>();
+  const orphans: Solve[] = [];
   for (const solve of solves) {
     if (solve.deletedAt !== null) continue;
+    if (!liveIds.has(solve.sessionId)) {
+      orphans.push(solve);
+      continue;
+    }
     const list = bySession.get(solve.sessionId);
     if (list) list.push(solve);
     else bySession.set(solve.sessionId, [solve]);
   }
+  const groups: { name: string; scrType: string; solves: Solve[] }[] = live.map((session) => ({
+    name: session.name,
+    scrType: eventInfo(session.event).csTimer,
+    solves: bySession.get(session.id) ?? [],
+  }));
+  if (orphans.length > 0) groups.push({ name: T.transfer.orphanSession, scrType: eventInfo('333').csTimer, solves: orphans });
   const file: Record<string, unknown> = {};
   const sessionData: Record<number, { name: string; opt: { scrType: string }; rank: number }> = {};
-  live.forEach((session, i) => {
+  groups.forEach((group, i) => {
     const n = i + 1;
-    const items = (bySession.get(session.id) ?? [])
+    const items = [...group.solves]
       .sort((a, b) => a.at - b.at)
       .map((s) => [[penaltyToCs(s.penalty), s.ms], s.scramble, s.note, Math.floor(s.at / 1000)]);
     file[`session${n}`] = items;
-    sessionData[n] = { name: session.name, opt: { scrType: eventInfo(session.event).csTimer }, rank: n };
+    sessionData[n] = { name: group.name, opt: { scrType: group.scrType }, rank: n };
   });
-  file.properties = { sessionData: JSON.stringify(sessionData), sessionN: live.length };
+  file.properties = { sessionData: JSON.stringify(sessionData), sessionN: groups.length };
   return JSON.stringify(file);
 }
 

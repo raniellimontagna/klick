@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { openKlickDb } from '../../src/data/db';
 import { createRepository, type Repository } from '../../src/data/repository';
+import { parseCsTimer } from '../../src/data/transfer';
+import { summaryLines } from '../../src/ui/import-flow';
 import { createBackup } from '../../src/data/safety';
 import type { Solve } from '../../src/core/types';
 import { createScrambleQueue } from '../../src/scramble/queue';
@@ -1027,5 +1029,57 @@ describe('estado do app: fix round 3 (brief 9b)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// Importação grande não pode perder solve em silêncio (final review, C1): ids únicos, e o que não entrar aparece no resumo.
+describe('estado do app: importação sem perda', () => {
+  beforeEach(() => { t = 1_791_500_000_000; });
+
+  // Um csTimer de n solves numa sessão só, com segundos distintos (o dedupe do csTimer é ms + segundo).
+  const csTimerText = (n: number): string =>
+    JSON.stringify({
+      session1: Array.from({ length: n }, (_, i) => [[0, 60_000 + i], 'R U', '', 1_791_000_000 + i]),
+      properties: { sessionData: JSON.stringify({ 1: { name: 'Grande', opt: {} } }) },
+    });
+
+  it('importar um csTimer de 5000 solves no mesmo milissegundo grava os 5000, com ids únicos', async () => {
+    const { app, repo } = await setup();
+    // Pior caso: o sufixo aleatório repete. Só o contador do newId separa os ids.
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    let summary;
+    try {
+      summary = await app.importCsTimer(parseCsTimer(csTimerText(5000)), {});
+    } finally {
+      random.mockRestore();
+    }
+    expect(summary).toMatchObject({ solves: 5000, existing: 0, missed: 0 });
+    const stored = await repo.listSolves();
+    expect(stored).toHaveLength(5000);
+    expect(new Set(stored.map((s) => s.id)).size).toBe(5000);
+  });
+
+  it('um solve que o repositório deixa de fora (id repetido) conta em missed e o resumo diz quantos não entraram', async () => {
+    const { app, repo } = await setup();
+    const importAll = repo.importAll.bind(repo);
+    vi.spyOn(repo, 'importAll').mockImplementationOnce((data) =>
+      importAll({ ...data, solves: [...data.solves, { ...data.solves[0] }] }),
+    );
+    const summary = await app.importCsTimer(parseCsTimer(csTimerText(5)), {});
+    expect(summary).toMatchObject({ solves: 5, existing: 0, missed: 1 });
+    expect(summaryLines(summary!)).toContain(T.importDialog.missed(1));
+  });
+
+  it('a versão anterior com um solve de fora (id repetido) também conta em missed', async () => {
+    const v1 = JSON.stringify({ state: { sessions: [{ id: 'v', name: 'S', puzzleType: '3x3', solves: [
+      { id: 'x1', timeMs: 1000, penalty: 'NONE', scramble: 'R', createdAt: '2026-01-01T00:00:00Z' },
+      { id: 'x2', timeMs: 2000, penalty: 'NONE', scramble: 'U', createdAt: '2026-01-01T00:01:00Z' },
+    ] }] } });
+    const { app, repo } = await setup({ getItem: (k) => (k === 'klick-sessions' ? v1 : null) });
+    const importAll = repo.importAll.bind(repo);
+    vi.spyOn(repo, 'importAll').mockImplementationOnce((data) =>
+      importAll({ ...data, solves: [...data.solves, { ...data.solves[0] }] }),
+    );
+    expect(await app.importV1()).toMatchObject({ solves: 2, missed: 1 });
   });
 });

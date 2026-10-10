@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { newId } from '../../src/data/ids';
 
 // O contador do newId é estado do módulo: dois testes que usam o mesmo `now` enxergam o contador um do outro. Os testes que
@@ -22,13 +22,16 @@ describe('newId', () => {
     expect(new Set(ids).size).toBe(50);
   });
 
-  it('guarda o tempo nos 9 primeiros caracteres, em base 36, e o contador volta a zero a cada milissegundo novo', () => {
+  it('guarda o tempo nos 9 primeiros caracteres, em base 36, e o contador volta a zero a cada milissegundo novo', async () => {
     const now = unusedNow();
     const a = newId(now, () => 0);
     expect(a).toBe(`${now.toString(36).padStart(9, '0')}00000000`);
     expect(newId(now, () => 0).slice(9, 11)).toBe('01');
     expect(newId(now + 1, () => 0).slice(9, 11)).toBe('00');
-    expect(newId(0, () => 0)).toBe('0'.repeat(17));
+    // Tempo zero só sai num módulo novo: depois de qualquer id, o relógio que volta segue no último milissegundo entregue.
+    vi.resetModules();
+    const fresh = await import('../../src/data/ids');
+    expect(fresh.newId(0, () => 0)).toBe('0'.repeat(17));
   });
 
   it('o sufixo aleatório usa a faixa inteira e nunca muda o tamanho, mesmo com um rand fora de [0, 1)', () => {
@@ -45,5 +48,31 @@ describe('newId', () => {
     expect(ids.every((id) => /^[0-9a-z]{17}$/.test(id))).toBe(true);
     expect(ids.slice(0, 1296)).toEqual([...ids.slice(0, 1296)].sort());
     expect(newId(now + 1, () => 0) > ids[1399]).toBe(true);
+  });
+
+  // Importação grande: todos os ids saem no mesmo `now` e o sufixo aleatório pode repetir. Só o contador separa os ids.
+  it('5000 ids no mesmo now, mesmo com o mesmo sufixo aleatório, saem todos diferentes e em ordem', () => {
+    const now = unusedNow();
+    const ids = Array.from({ length: 5000 }, () => newId(now, () => 0.5));
+    expect(ids.every((id) => /^[0-9a-z]{17}$/.test(id))).toBe(true);
+    expect(new Set(ids).size).toBe(5000);
+    expect([...ids].sort()).toEqual(ids);
+  });
+
+  it('estourando o contador, o id seguinte usa o milissegundo seguinte, e ele continua depois de todos os anteriores', () => {
+    const now = unusedNow();
+    const ids = Array.from({ length: 1296 }, () => newId(now, () => 0));
+    const over = newId(now, () => 0);
+    expect(over.slice(0, 9)).toBe((now + 1).toString(36).padStart(9, '0'));
+    expect(over.slice(9, 11)).toBe('00');
+    expect(over > ids[1295]).toBe(true);
+  });
+
+  it('um relógio que volta não repete nem ordena antes os ids já gerados', () => {
+    const now = unusedNow();
+    const ids = Array.from({ length: 3 }, () => newId(now, () => 0));
+    const back = newId(now - 5, () => 0);
+    expect(back > ids[2]).toBe(true);
+    expect(new Set([...ids, back]).size).toBe(4);
   });
 });
