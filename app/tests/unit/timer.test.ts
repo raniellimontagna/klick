@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { STATES, createTimer } from '../../src/core/timer';
 import type { TimerResult, TimerState } from '../../src/core/timer';
 import type { Penalty } from '../../src/core/types';
@@ -264,6 +264,79 @@ describe('horário do evento', () => {
     c.set(25000); timer.press(24900);
     expect(timer.result).toEqual({ ms: 10000, penalty: null });
   });
+
+  // Um tick no horário do handler (o quadro que rodou antes do keyup) pode deixar o timer pronto antes do que o evento diz.
+  it('pronto por um tick no horário do handler, soltar antes do tempo pelo horário do evento não larga', () => {
+    const c = clock();
+    const timer = createTimer({ now: c.now, holdMs: 300, inspection: false });
+    timer.press(0);
+    c.set(400); timer.tick();              // 400 ms no relógio do handler: já fica pronto
+    expect(timer.state).toBe('ready');
+    c.set(450); timer.release(250);        // mas o dedo saiu aos 250 ms
+    expect(timer.state).toBe('idle');      // o mesmo destino de soltar cedo no armar
+  });
+
+  it('o mesmo na inspeção: volta para a inspeção, que continua contando', () => {
+    const c = clock();
+    const timer = createTimer({ now: c.now, holdMs: 300, inspection: true });
+    timer.press(0); timer.release(0);      // a inspeção começa em 0
+    c.set(1000); timer.press(1000);
+    c.set(1400); timer.tick();             // pronto pelo relógio do handler
+    expect(timer.state).toBe('ready');
+    c.set(1450); timer.release(1250);      // segurou 250 ms pelo evento
+    expect(timer.state).toBe('inspect');
+    c.set(2000);
+    expect(timer.inspectElapsed).toBe(2000);
+  });
+
+  // O tick de dentro do release também mede pelo evento: pelo relógio do handler o timer passaria por pronto, e a tela
+  // acenderia o verde numa soltura que não armou.
+  it('soltar antes do tempo de armar, com o handler atrasado, nem chega a passar por pronto', () => {
+    const c = clock();
+    const timer = createTimer({ now: c.now, holdMs: 300, inspection: false });
+    const states: TimerState[] = [];
+    timer.on('state', (next) => states.push(next));
+    timer.press(0);
+    c.set(400); timer.release(250);        // o dedo saiu aos 250 ms; pelo relógio do handler já seriam 400
+    expect(states).toEqual(['arming', 'idle']);
+  });
+});
+
+// Os limites são os da WCA: +2 depois de 15 s de inspeção, DNF depois de 17 s, avisos aos 8 s e aos 12 s. "Depois de" é
+// estritamente depois. Tudo pelo horário do evento: os testes dão o horário a cada chamada e o relógio nem é lido.
+describe('limites da inspeção WCA', () => {
+  const limites: [ie: number, penalty: Penalty][] = [
+    [14999, null],
+    [15000, null],
+    [15001, '+2'],
+    [16999, '+2'],
+    [17000, '+2'],
+    [17001, 'DNF'],
+  ];
+
+  it.each(limites)('largar com %i ms de inspeção dá %s', (ie, expected) => {
+    const timer = createTimer({ now: () => 0, holdMs: 0, inspection: true });
+    timer.press(0); timer.release(0);      // a inspeção começa em 0
+    timer.press(ie - 100);                 // sem tempo de armar: pronto na hora
+    timer.release(ie);
+    timer.press(ie + 10000);
+    expect(timer.result).toEqual({ ms: 10000, penalty: expected });
+  });
+
+  it('os avisos saem em 8 s e 12 s exatos, e não antes', () => {
+    const timer = createTimer({ now: () => 0, holdMs: 300, inspection: true });
+    const warns: number[] = [];
+    timer.on('warn', (w) => warns.push(w));
+    timer.press(0); timer.release(0);
+    timer.tick(7999);
+    expect(warns).toEqual([]);
+    timer.tick(8000);
+    expect(warns).toEqual([8000]);
+    timer.tick(11999);
+    expect(warns).toEqual([8000]);
+    timer.tick(12000);
+    expect(warns).toEqual([8000, 12000]);
+  });
 });
 
 describe('cancel', () => {
@@ -300,5 +373,89 @@ describe('eventos do timer', () => {
     off();
     timer.reset();
     expect(changes).toHaveLength(4);
+  });
+
+  // Um ouvinte que lança não pode derrubar a máquina nem os outros ouvintes: é no 'done' que o solve é gravado.
+  // Estes testes injetam onError. O padrão relança numa microtask, e o Vitest contaria isso como erro não tratado.
+  it('um ouvinte de state que lança não impede o done: o resultado chega ao ouvinte do done', () => {
+    const onError = vi.fn();
+    const timer = createTimer({ now: () => 0, holdMs: 0, inspection: false, onError });
+    const done: TimerResult[] = [];
+    timer.on('state', (next) => {
+      if (next === 'done') throw new Error('ouvinte de state quebrou');
+    });
+    timer.on('done', (r) => done.push(r));
+    timer.press(0); timer.release(0);
+    timer.press(1000);
+    expect(timer.state).toBe('done');
+    expect(done).toEqual([{ ms: 1000, penalty: null }]);
+    expect(onError).toHaveBeenCalledTimes(1);     // o ouvinte lançou de verdade
+  });
+
+  it('um primeiro ouvinte de done que lança não pula o segundo', () => {
+    const onError = vi.fn();
+    const timer = createTimer({ now: () => 0, holdMs: 0, inspection: false, onError });
+    const calls: string[] = [];
+    timer.on('done', () => {
+      calls.push('primeiro');
+      throw new Error('primeiro quebrou');
+    });
+    timer.on('done', () => calls.push('segundo'));
+    timer.press(0); timer.release(0);
+    timer.press(1000);
+    expect(calls).toEqual(['primeiro', 'segundo']);
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
+  it('um ouvinte de warn que lança não trava o release: o timer larga como de costume', () => {
+    const onError = vi.fn();
+    const timer = createTimer({ now: () => 0, holdMs: 0, inspection: true, onError });
+    timer.on('warn', () => {
+      throw new Error('ouvinte de warn quebrou');
+    });
+    timer.press(0); timer.release(0);      // a inspeção começa em 0
+    timer.press(7000);                     // pronto, ainda antes do primeiro aviso
+    expect(timer.state).toBe('ready');
+    timer.release(8100);                   // o primeiro aviso sai dentro deste release
+    expect(timer.state).toBe('running');
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
+  it('o erro de um ouvinte chega ao onError com o valor lançado, e o timer não lança', () => {
+    const onError = vi.fn();
+    const timer = createTimer({ now: () => 0, holdMs: 300, inspection: false, onError });
+    const boom = new Error('boom');
+    timer.on('state', () => {
+      throw boom;
+    });
+    expect(() => timer.press(0)).not.toThrow();
+    expect(timer.state).toBe('arming');
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith(boom);
+  });
+
+  it('sem onError, o erro do ouvinte é relançado numa microtask, para seguir visível no navegador', () => {
+    const agendadas: (() => void)[] = [];
+    vi.stubGlobal('queueMicrotask', (cb: () => void) => {
+      agendadas.push(cb);
+    });
+    try {
+      const timer = createTimer({ now: () => 0, holdMs: 300, inspection: false });
+      const boom = new Error('boom');
+      timer.on('state', () => {
+        throw boom;
+      });
+      expect(() => timer.press(0)).not.toThrow();
+      expect(agendadas).toHaveLength(1);
+      let relancado: unknown;
+      try {
+        agendadas[0]();
+      } catch (err) {
+        relancado = err;
+      }
+      expect(relancado).toBe(boom);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

@@ -1,19 +1,22 @@
 // Traduz toques nas zonas da tela em press()/release() do timer (porte de prototype/scripts/touch.js).
 // Modo 'two': arma só com as duas zonas (esquerda e direita) pressionadas; o primeiro polegar que sai larga.
 // Modo 'one': a área inteira é uma zona só.
+//
+// down e up aceitam o horário do evento do toque (event.timeStamp, a mesma base do timer) e o repassam a press e a release,
+// que o repassam ao timer. Sem ele, o timer usa o próprio relógio, como antes.
 import type { TimerState } from './timer';
 
 export interface TouchArm {
   setMode(m: 'two' | 'one'): void;
-  down(pointerId: number, zone: 'left' | 'right'): void;
-  up(pointerId: number): void;
+  down(pointerId: number, zone: 'left' | 'right', at?: number): void;
+  up(pointerId: number, at?: number): void;
   cancelAll(): void; // abandona o que estiver pressionado sem largar o timer (ligação, troca de app, ponteiro perdido)
 }
 
 export function createTouchArm(
   { press, release, cancel, getState, getInspection, mode = 'two' }: {
-    press: () => void;
-    release: () => void;
+    press: (at?: number) => void;
+    release: (at?: number) => void;
     cancel: () => void;
     getState: () => TimerState;
     getInspection: () => boolean;
@@ -35,11 +38,11 @@ export function createTouchArm(
     setMode(m) {
       mode = m;
     },
-    down(pointerId, zone) {
+    down(pointerId, zone, at) {
       const st = getState();
       active.set(pointerId, zone);
       if (st === 'running') {
-        press();
+        press(at);
         stopping = true;
         return;
       }
@@ -47,10 +50,10 @@ export function createTouchArm(
       const tapToInspect = isRest(st) && getInspection();
       if (!pressed && (tapToInspect || shouldArm())) {
         pressed = true;
-        press();
+        press(at);
       }
     },
-    up(pointerId) {
+    up(pointerId, at) {
       if (!active.has(pointerId)) return;
       active.delete(pointerId);
       if (stopping) {
@@ -62,12 +65,12 @@ export function createTouchArm(
         // toque que inicia a inspeção: solta quando todos os dedos saem
         if (active.size === 0) {
           pressed = false;
-          release();
+          release(at);
         }
         return;
       }
       pressed = false;
-      release();
+      release(at);
     },
     cancelAll() {
       active.clear();

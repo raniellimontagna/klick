@@ -17,7 +17,7 @@ function rig({ inspection = false, mode = 'two' }: { inspection?: boolean; mode?
     t = ms;
     timer.tick();
   };
-  return { timer, touch, at };
+  return { timer, touch, at, setTime: (ms: number) => { t = ms; } };
 }
 
 // Casos portados de prototype/tests/touch.test.js.
@@ -120,5 +120,40 @@ describe('armar no toque', () => {
     touch.down(6, 'right');
     touch.up(6);
     expect(timer.state).toBe(STATES.INSPECT);
+  });
+});
+
+// O toque leva o horário do evento (event.timeStamp) até o timer. Nestes testes o handler de cada toque roda depois do
+// evento: o relógio do timer (setTime) mostra a hora do handler, e o número dado a down e up é a hora do evento.
+describe('armar no toque, com o horário do evento', () => {
+  it('soltar depois do tempo de armar, pelo horário do evento, larga; e parar mede até o evento da parada', () => {
+    const { timer, touch, setTime } = rig();
+    setTime(60); touch.down(1, 'left', 0);
+    setTime(90); touch.down(2, 'right', 50);        // os dois polegares armam desde 50
+    setTime(500); touch.up(1, 380);                 // saiu em 380: segurou 330 ms, ainda que o handler só rode aos 500
+    expect(timer.state).toBe(STATES.RUNNING);
+    setTime(10700); touch.down(3, 'left', 10380);   // parou em 10380
+    expect(timer.state).toBe(STATES.DONE);
+    expect(timer.result).toEqual({ ms: 10000, penalty: null });
+  });
+
+  it('soltar antes do tempo de armar, pelo horário do evento, não larga', () => {
+    const { timer, touch, setTime } = rig();
+    setTime(60); touch.down(1, 'left', 0);
+    setTime(90); touch.down(2, 'right', 50);
+    setTime(500); touch.up(1, 300);                 // saiu em 300: segurou só 250 ms, ainda que o handler só rode aos 500
+    expect(timer.state).toBe(STATES.IDLE);
+  });
+
+  it('com inspeção: a inspeção começa quando o último dedo sai, pelo horário do evento', () => {
+    const { timer, touch, setTime } = rig({ inspection: true });
+    setTime(30); touch.down(1, 'left', 0);
+    setTime(60); touch.down(2, 'right', 40);
+    setTime(150); touch.up(1, 100);                 // ainda há um dedo na tela
+    expect(timer.state).toBe(STATES.IDLE);
+    setTime(400); touch.up(2, 180);                 // o último saiu em 180
+    expect(timer.state).toBe(STATES.INSPECT);
+    setTime(8180);
+    expect(timer.inspectElapsed).toBe(8000);        // contada desde 180, e não desde os 400 do handler
   });
 });

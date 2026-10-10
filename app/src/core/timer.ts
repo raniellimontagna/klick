@@ -4,6 +4,10 @@
 // press, release e tick aceitam o horário do evento (event.timeStamp, na mesma base de performance.now()). Armar, largar,
 // parar, a penalidade e os avisos da inspeção decidem por esse horário, e não pela hora em que o handler roda; sem ele, vale
 // now(). Os getters armProgress, inspectElapsed e elapsed servem só à tela e continuam em now().
+//
+// Um ouvinte que lança não derruba a máquina nem os outros ouvintes: o erro vai para onError. É no 'done' que o solve é
+// gravado, e ele sai mesmo que um ouvinte de 'state' quebre. O onError padrão relança o erro numa microtask, para ele
+// continuar visível no navegador.
 import type { Penalty } from './types';
 
 export const STATES = Object.freeze({
@@ -50,8 +54,24 @@ const PLUS2_AFTER = 15000;
 const DNF_AFTER = 17000;
 const WARNINGS = [8000, 12000];
 
+// onError padrão: o erro do ouvinte sai da máquina de estados e reaparece numa microtask (no navegador, como erro não tratado).
+const rethrowLater = (err: unknown) =>
+  queueMicrotask(() => {
+    throw err;
+  });
+
 export function createTimer(
-  { now = () => performance.now(), holdMs = 300, inspection = true }: { now?: () => number; holdMs?: number; inspection?: boolean } = {},
+  {
+    now = () => performance.now(),
+    holdMs = 300,
+    inspection = true,
+    onError = rethrowLater,
+  }: {
+    now?: () => number;
+    holdMs?: number;
+    inspection?: boolean;
+    onError?: (err: unknown) => void; // recebe o erro que um ouvinte lançou
+  } = {},
 ): Timer {
   let state: TimerState = STATES.IDLE;
   let base: TimerState = STATES.IDLE; // para onde volta se soltar antes do verde
@@ -68,7 +88,15 @@ export function createTimer(
     done: new Set(),
   };
 
-  const emit = <E extends keyof TimerEvents>(ev: E, ...args: TimerEvents[E]) => listeners[ev].forEach((fn) => fn(...args));
+  const emit = <E extends keyof TimerEvents>(ev: E, ...args: TimerEvents[E]) => {
+    listeners[ev].forEach((fn) => {
+      try {
+        fn(...args);
+      } catch (err) {
+        onError(err);
+      }
+    });
+  };
   const set = (next: TimerState) => {
     if (next === state) return;
     const prev = state;
@@ -115,7 +143,9 @@ export function createTimer(
       set(STATES.INSPECT);
       return;
     }
-    if (state === STATES.ARMING) {
+    // Soltou antes do tempo de armar. Pelo horário do evento isso vale também para o pronto que um tick no horário do
+    // handler adiantou.
+    if (state === STATES.ARMING || (state === STATES.READY && t - holdStart < holdMs)) {
       set(base);
       return;
     }
