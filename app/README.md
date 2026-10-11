@@ -31,13 +31,20 @@ O resultado fica em `dist/`.
 
 ## Publicar
 
-Depois do build, dentro de `app/`:
+Depois do build, dentro de `app/`. Primeiro o beta (beta.klick.ranimontagna.com, fora dos buscadores), para conferir:
 
 ```bash
 npx wrangler deploy
 ```
 
-A configuração está em `wrangler.jsonc` (Cloudflare Workers com arquivos estáticos).
+Depois a raiz (klick.ranimontagna.com, worker `klick-app`):
+
+```bash
+npx wrangler deploy --env production
+```
+
+A configuração está em `wrangler.jsonc` (Cloudflare Workers com arquivos estáticos). A raiz chega ao app por uma rota na zona; o
+registro DNS da Vercel continua o da v1. Para voltar à v1, remova a rota `klick.ranimontagna.com/*` no painel do Cloudflare.
 
 ## Por que o cubing.js é empacotado à parte
 
