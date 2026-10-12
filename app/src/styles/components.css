@@ -361,14 +361,28 @@
   width: 40%;
 }
 
+/* As linhas quebram numa tela estreita: o seletor e o campo têm largura mínima própria e, lado a lado com o botão, passavam da
+   borda do diálogo no celular. */
 .sheet .row {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 14px;
 }
 
+.sheet .row select {
+  flex: 1 1 8rem;
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-btn);
+  background: var(--bg);
+}
+
 .sheet input[type='text'] {
-  flex: 1;
+  flex: 1 1 10rem;
+  min-width: 0;
   min-height: 36px;
   padding: 6px 12px;
   border: 1px solid var(--line);
@@ -418,6 +432,22 @@
   list-style: none;
   margin: 0;
   padding: 0;
+}
+
+/* Uma sessão por linha: o botão dela ocupa o espaço que sobra, e as ações vão para baixo quando não cabem ao lado. */
+.sheet-list .setting {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sheet-list .list-btn {
+  flex: 1 1 14rem;
+  width: auto;
+  min-width: 0;
+}
+
+.sheet-list .data-actions {
+  margin-left: auto;
 }
 
 /* Aviso com desfazer */
@@ -473,7 +503,8 @@
   .finish,
   .tab,
   .toast button,
-  .sheet input[type='text'] {
+  .sheet input[type='text'],
+  .sheet .row select {
     min-height: 44px;
   }
 }
