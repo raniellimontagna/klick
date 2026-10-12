@@ -1107,6 +1107,65 @@ describe('estado do app: exportar pela folha de compartilhar', () => {
   });
 });
 
+// Aparelho novo: depois de trazer solves de outro lugar, a pessoa cai na sessão com os solves dela, não na "Sessão 1" vazia (12/10).
+describe('estado do app: a sessão atual depois de importar do csTimer ou da v1', () => {
+  beforeEach(() => { t = 1_791_500_000_000; });
+
+  // Três sessões: 3×3 com 3 solves, 4×4 com 5 (a maior) e uma sem evento conhecido, que fica de fora.
+  const csText = (): string =>
+    JSON.stringify({
+      session1: Array.from({ length: 3 }, (_, i) => [[0, 15_000 + i], 'R U', '', 1_791_000_000 + i]),
+      session2: Array.from({ length: 5 }, (_, i) => [[0, 60_000 + i], 'Rw U', '', 1_791_000_100 + i]),
+      session3: [[[0, 2_000], 'R', '', 1_791_000_200]],
+      properties: { sessionData: JSON.stringify({
+        1: { name: 'Main', opt: {} },
+        2: { name: 'Quatro', opt: { scrType: '444wca' } },
+        3: { name: 'ZBLL', opt: { scrType: 'zbll' } },
+      }) },
+    });
+
+  it('com a sessão atual vazia, passa para a sessão importada com mais solves e pede o embaralhamento dela', async () => {
+    const { app } = await setup();
+    expect(app.eventSolves).toHaveLength(0);
+    await app.importCsTimer(parseCsTimer(csText()), {});
+    expect(app.currentSession?.name).toBe('Quatro');
+    expect(app.event).toBe('444');
+    await vi.waitFor(() => expect(app.scramble).toBe('444-1'));
+  });
+
+  it('com solves na sessão atual, ela continua a atual', async () => {
+    const { app } = await setup();
+    const before = app.currentSession!.id;
+    await app.addSolve({ ms: 61_000, penalty: null, at: t });
+    await app.importCsTimer(parseCsTimer(csText()), {});
+    expect(app.currentSession?.id).toBe(before);
+  });
+
+  it('importar de novo o mesmo arquivo (nada novo) não troca de sessão', async () => {
+    const { app } = await setup();
+    await app.importCsTimer(parseCsTimer(csText()), {});
+    const empty = app.sessions.find((s) => s.name === 'Sessão 1')!;
+    await app.switchSession(empty.id);
+    await app.importCsTimer(parseCsTimer(csText()), {});
+    expect(app.currentSession?.id).toBe(empty.id);
+  });
+
+  it('a versão anterior segue a mesma regra', async () => {
+    const v1 = JSON.stringify({ state: { sessions: [
+      { id: 'a', name: 'Pequena', puzzleType: '3x3', solves: [
+        { id: 'x1', timeMs: 1000, penalty: 'NONE', scramble: 'R', createdAt: '2026-01-01T00:00:00Z' },
+      ] },
+      { id: 'b', name: 'Grande', puzzleType: '3x3', solves: [
+        { id: 'y1', timeMs: 1000, penalty: 'NONE', scramble: 'R', createdAt: '2026-01-01T00:00:00Z' },
+        { id: 'y2', timeMs: 2000, penalty: 'NONE', scramble: 'U', createdAt: '2026-01-01T00:01:00Z' },
+      ] },
+    ] } });
+    const { app } = await setup({ getItem: (k) => (k === 'klick-sessions' ? v1 : null) });
+    await app.importV1();
+    expect(app.currentSession?.name).toBe('Grande');
+  });
+});
+
 // Importação grande não pode perder solve em silêncio (final review, C1): ids únicos, e o que não entrar aparece no resumo.
 describe('estado do app: importação sem perda', () => {
   beforeEach(() => { t = 1_791_500_000_000; });

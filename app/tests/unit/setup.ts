@@ -34,3 +34,6 @@ dialogProto.close = function (this: HTMLDialogElement) {
   this.removeAttribute('open');
   this.dispatchEvent(new Event('close'));
 };
+
+// O jsdom não rola a janela (avisa "Not implemented" a cada chamada); a troca de aba volta ao topo com window.scrollTo.
+window.scrollTo = (() => {}) as typeof window.scrollTo;

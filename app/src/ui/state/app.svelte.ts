@@ -57,6 +57,15 @@ export interface AppDeps {
   share?: ShareFile | null; // exportar pela folha de compartilhar (padrão: a do sistema no iPhone e no iPad; nos outros, o download)
 }
 
+// A sessão que recebe mais solves numa importação (no empate, a primeira que aparece). null quando não há solve.
+function busiestSession(solves: readonly { sessionId: string }[]): string | null {
+  const counts = new Map<string, number>();
+  for (const s of solves) counts.set(s.sessionId, (counts.get(s.sessionId) ?? 0) + 1);
+  let best: string | null = null;
+  for (const [id, n] of counts) if (best === null || n > counts.get(best)!) best = id;
+  return best;
+}
+
 export type ExportFormat = 'klick' | 'cstimer';
 // Uma exportação que o navegador não baixou: o texto vai para o ExportDialog, que a pessoa copia.
 export interface PendingExport {
@@ -206,7 +215,7 @@ export class AppState {
   private reopening: Promise<void> | null = null; // a reabertura em andamento, reaproveitada por quem pede enquanto ela não termina
   private restoring: Promise<void> | null = null; // o portão: fechado enquanto a troca não acaba (mesmo depois do prazo); as gravações esperam
   private restoreBusy = false; // uma restauração por vez, desde o começo (inclui a espera pela fila)
-  private importing: Promise<ImportSummary | null> | null = null; // a importação que está gravando: a restauração espera por ela
+  private importing: Promise<unknown> | null = null; // a importação que está gravando: a restauração espera por ela
   private persistAsked = false; // o pedido automático de proteção já saiu nesta sessão (uma vez, mesmo sem resposta ainda)
   private attempts = 0; // tentativas de gravação já começadas: só a mais recente mexe em saveStalled
   private readonly storage: Pick<Storage, 'getItem'> | null;
@@ -695,7 +704,10 @@ export class AppState {
   // Uma importação por vez, na fila das leituras: dois cliques no mesmo botão não gravam os mesmos solves duas vezes (os ids são
   // novos). A importação é uma transação (importAll): se falha, nada entrou e o aviso sai; devolve null nesse caso. Durante uma
   // restauração, a importação é recusada com aviso: a troca substitui tudo, e um import no meio dela se perderia.
-  private async importJob(job: () => Promise<ImportSummary>): Promise<ImportSummary | null> {
+  //
+  // `adopt` é a sessão importada para onde a pessoa vai quando a sessão atual dela não tem solve nenhum (o aparelho novo): sem isso, ela
+  // cairia na "Sessão 1" vazia, com os solves dela em outra sessão. A troca vem depois da fila, porque switchSession usa a fila.
+  private async importJob(job: () => Promise<{ summary: ImportSummary; adopt: string | null }>): Promise<ImportSummary | null> {
     if (this.restoreRunning) {
       this.showToast(T.dados.importWhileRestoring);
       return null;
@@ -709,14 +721,16 @@ export class AppState {
       }
     });
     this.importing = run;
-    let summary: ImportSummary | null;
+    let result: { summary: ImportSummary; adopt: string | null } | null;
     try {
-      summary = await run;
+      result = await run;
     } finally {
       if (this.importing === run) this.importing = null;
     }
     await this.refresh();
-    return summary;
+    const current = this.profile.currentSessionId;
+    if (result?.adopt && !this.solves.some((s) => s.sessionId === current)) await this.switchSession(result.adopt);
+    return result?.summary ?? null;
   }
 
   // Um arquivo do Klick: junta por id. Nada é apagado; o que já existe e não é mais novo fica como está. O perfil do arquivo vale
@@ -725,7 +739,7 @@ export class AppState {
     return this.importJob(async () => {
       const report = await this.repo.importAll(data);
       // No Klick, `skipped` são os solves que já existiam (com a mesma ou mais nova edição): não há conta prévia a conferir.
-      return {
+      const summary: ImportSummary = {
         solves: report.solvesAdded + report.solvesUpdated,
         existing: report.skipped,
         skippedSessions: 0,
@@ -733,6 +747,7 @@ export class AppState {
         missed: 0,
         settingsApplied: data.profile !== null,
       };
+      return { summary, adopt: null }; // no Klick, a sessão atual vem do perfil do arquivo (o repositório decide)
     });
   }
 
@@ -755,7 +770,10 @@ export class AppState {
         profile: null,
       });
       // Os solves do plano são novos pela conta do conversor: o que o repositório deixou de fora (skipped) não pode sumir do resumo.
-      return { solves: report.solvesAdded, existing: plan.duplicates, skippedSessions: plan.skippedSessions, unreadable: 0, missed: report.skipped };
+      return {
+        summary: { solves: report.solvesAdded, existing: plan.duplicates, skippedSessions: plan.skippedSessions, unreadable: 0, missed: report.skipped },
+        adopt: report.solvesAdded > 0 ? busiestSession(plan.solves) : null,
+      };
     });
   }
 
@@ -795,12 +813,15 @@ export class AppState {
       }
       if (offerMarked) this.v1Available = false; // sem a marca, a oferta segue na tela: importar de novo é seguro
       return {
-        solves: report.solvesAdded,
-        existing: plan.duplicates,
-        skippedSessions: plan.skippedSessions,
-        unreadable,
-        missed: report.skipped,
-        offerNotMarked: !offerMarked,
+        summary: {
+          solves: report.solvesAdded,
+          existing: plan.duplicates,
+          skippedSessions: plan.skippedSessions,
+          unreadable,
+          missed: report.skipped,
+          offerNotMarked: !offerMarked,
+        },
+        adopt: report.solvesAdded > 0 ? busiestSession(plan.solves) : null,
       };
     });
   }

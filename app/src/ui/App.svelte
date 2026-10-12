@@ -126,6 +126,16 @@
     if (app) app.tab = tab;
   }
 
+  // Trocar de aba volta ao topo: a página rola na janela, e a aba nova abria na rolagem da anterior (a Evolução no meio do histórico,
+  // depois de Ajustes). Vale para qualquer troca (abas, atalhos, tour, exportar); abrir o app não mexe na rolagem.
+  let shownTab: Tab | null = null;
+  $effect(() => {
+    const tab = app?.tab;
+    if (!tab) return;
+    if (shownTab !== null && shownTab !== tab) window.scrollTo(0, 0);
+    shownTab = tab;
+  });
+
   function current(tab: Tab): 'page' | undefined {
     return app?.tab === tab ? 'page' : undefined;
   }

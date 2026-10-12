@@ -31,6 +31,34 @@ vi.mock('../../src/ui/state/boot', async () => {
 import App from '../../src/ui/App.svelte';
 
 describe('casca do app', () => {
+  it('trocar de aba volta ao topo da página: a aba nova não abre no meio, na rolagem da anterior', async () => {
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+    try {
+      render(App);
+      await screen.findByRole('button', { name: 'Timer' });
+      scrollTo.mockClear();
+      screen.getAllByRole('button', { name: 'Evolução' })[0].click();
+      await waitFor(() => expect(scrollTo).toHaveBeenCalledWith(0, 0));
+      scrollTo.mockClear();
+      screen.getAllByRole('button', { name: 'Ajustes' })[0].click();
+      await waitFor(() => expect(scrollTo).toHaveBeenCalledWith(0, 0));
+    } finally {
+      scrollTo.mockRestore();
+    }
+  });
+
+  it('abrir o app não mexe na rolagem (só a troca de aba volta ao topo)', async () => {
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+    try {
+      render(App);
+      await screen.findByRole('button', { name: 'Timer' });
+      await tick();
+      expect(scrollTo).not.toHaveBeenCalled();
+    } finally {
+      scrollTo.mockRestore();
+    }
+  });
+
   it('mostra as quatro abas e a tela do Timer', async () => {
     render(App);
     expect(await screen.findByRole('button', { name: 'Timer' })).toHaveAttribute('aria-current', 'page');
