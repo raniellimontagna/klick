@@ -1,6 +1,6 @@
-// Worker do protótipo (prototype/). Desde 10/10 ele está sem rota: a raiz, klick.ranimontagna.com, é do app (app/wrangler.jsonc,
-// worker klick-app). Para mostrar o protótipo de novo na raiz, aponte a rota `klick.ranimontagna.com/*` para klick-v2-prototipo no
-// painel do Cloudflare.
+// Worker do protótipo (prototype/). Desde 10/10 ele está sem rota nem domínio: a raiz, klick.ranimontagna.com, é domínio próprio
+// do app (app/wrangler.jsonc, worker klick-app). Para publicá-lo de novo, dê a ele um domínio próprio, como
+// { "pattern": "prototipo.klick.ranimontagna.com", "custom_domain": true } em "routes".
 {
   "name": "klick-v2-prototipo",
   "account_id": "3a9dc0a9d9f05ff97021ce237e3ed92f",
