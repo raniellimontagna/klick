@@ -263,6 +263,7 @@
 .seg button {
   border: 0;
   background: none;
+  white-space: nowrap;
   padding: 5px 14px;
   border-radius: 999px;
   font-size: 13px;

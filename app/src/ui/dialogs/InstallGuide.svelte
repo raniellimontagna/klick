@@ -45,6 +45,7 @@
           <li>{step}</li>
         {/each}
       </ol>
+      <p class="muted">{T.install.iosDataNote}</p>
     {:else}
       <p>{T.install.otherIntro}</p>
       {#if installEvent}

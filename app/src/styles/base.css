@@ -14,11 +14,26 @@ html {
 
 body {
   min-height: 100dvh;
+  padding-top: env(safe-area-inset-top, 0px); /* app instalado no iPhone: a página começa abaixo do relógio */
   background: var(--bg);
   color: var(--ink);
   font: 500 15px/1.5 var(--font);
   touch-action: manipulation;
   -webkit-font-smoothing: antialiased;
+}
+
+/* App instalado no iPhone: com viewport-fit=cover a barra de status é transparente, e o conteúdo rolava por baixo do relógio. Uma
+   faixa com o fundo da página cobre essa área; onde não há recorte no topo, a altura é 0. */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: env(safe-area-inset-top, 0px);
+  background: var(--bg);
+  z-index: 30;
+  pointer-events: none;
 }
 
 button,

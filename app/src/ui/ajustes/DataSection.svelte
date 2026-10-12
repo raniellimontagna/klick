@@ -7,6 +7,7 @@
   import { folderSupported } from '../../data/folder';
   import { T } from '../../strings';
   import { daysAgoLabel } from '../format';
+  import { isStandalone } from '../platform';
   import { confirmCsTimerImport, importFile, importV1Flow } from '../import-flow';
   import BackupsDialog from '../dialogs/BackupsDialog.svelte';
   import ExportDialog from '../dialogs/ExportDialog.svelte';
@@ -17,6 +18,7 @@
   let { app }: { app: AppState } = $props();
 
   const folderOk = folderSupported();
+  const installed = isStandalone(); // aberto como app instalado: não há o que ensinar a instalar
   // Os diálogos que esta seção abre (o guia de instalação é do App).
   const DATA_DIALOGS: readonly DialogId[] = ['export', 'import', 'backups', 'trash'];
 
@@ -178,8 +180,13 @@
   {/if}
 
   <div class="setting">
-    {@render caption(T.dados.install, T.dados.installHint)}
-    <button type="button" class="btn" onclick={() => (app.dialog = 'install')}>{T.dados.installButton}</button>
+    {#if installed}
+      {@render caption(T.dados.install, T.dados.installedHint)}
+      <span class="data-status">{T.dados.installedLabel}</span>
+    {:else}
+      {@render caption(T.dados.install, T.dados.installHint)}
+      <button type="button" class="btn" onclick={() => (app.dialog = 'install')}>{T.dados.installButton}</button>
+    {/if}
   </div>
 
   <input

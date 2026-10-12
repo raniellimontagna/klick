@@ -37,7 +37,8 @@ export const T = Object.freeze({
   coach: {
     idle: 'Quando quiser. Segure espaço para armar.',
     idleInsp: 'Quando quiser. Aperte espaço para começar a inspeção.',
-    idleInspTouch: 'Quando quiser. Toque para começar a inspeção.',
+    idleInspTouch: 'Quando quiser. Toque para começar a inspeção.', // modo um toque: a tela inteira começa
+    idleInspThumb: 'Quando quiser. Toque num polegar para começar a inspeção.', // dois polegares: só as áreas de polegar
     idleTouch: 'Quando quiser. Segure com os dois polegares.',
     idleOne: 'Quando quiser. Toque e segure para armar.',
     inspect: 'Inspeção. Segure para armar quando estiver pronto.',
@@ -200,10 +201,12 @@ export const T = Object.freeze({
     title: 'Instalar o Klick',
     iosIntro: 'No iPhone, o Safari pode apagar os dados de um site que você não abre por alguns dias. Instalado na Tela de Início, o Klick protege os seus solves.',
     iosSteps: Object.freeze([
-      'Toque em Compartilhar, o botão da barra de baixo do Safari.',
-      'Role a lista e toque em Adicionar à Tela de Início.',
+      'Toque em Compartilhar. No iOS 26, ele fica no menu ••• da barra do Safari.',
+      'Toque em Adicionar à Tela de Início. Se não aparecer, toque em Ver Mais.',
       'Confirme em Adicionar. O ícone do Klick aparece na Tela de Início.',
     ]),
+    iosDataNote:
+      'O app instalado guarda os dados à parte do Safari: os solves feitos aqui não aparecem nele. Se já tem solves aqui, exporte em Ajustes e importe no app depois de instalar.',
     otherIntro: 'Instalado, o Klick abre numa janela própria, como um app.',
     installButton: 'Instalar o app',
     menuHint: 'Abra o menu do navegador e escolha instalar o app ou adicionar à tela inicial.',
@@ -308,6 +311,8 @@ export const T = Object.freeze({
     install: 'Instalação',
     installHint: 'Instalado na Tela de Início, o Klick protege seus dados no iPhone.',
     installButton: 'Como instalar',
+    installedLabel: 'Instalado',
+    installedHint: 'O Klick está instalado neste aparelho.',
     persistFailed: 'Não consegui pedir a proteção dos dados. Tente de novo mais tarde.',
     persistDenied: 'O navegador não liberou a proteção agora. Você pode tentar de novo depois.',
     persistUnsupported: 'Este navegador não permite proteger os dados deste site.',
@@ -411,10 +416,12 @@ export const T = Object.freeze({
       {
         title: 'Segure até ficar verde',
         text: 'Segure espaço (ou o botão abaixo). O anel enche de vermelho; quando ficar verde, solte.',
+        touchText: 'Segure o botão abaixo. O anel enche de vermelho; quando ficar verde, solte.',
       },
       {
         title: 'Seu primeiro marco',
         text: 'Pare com qualquer tecla. O primeiro solve já acende um adesivo dourado em cima do Centro.',
+        touchText: 'Pare com um toque na tela. O primeiro solve já acende um adesivo dourado em cima do Centro.',
       },
     ] as const),
     skip: 'Pular apresentação',

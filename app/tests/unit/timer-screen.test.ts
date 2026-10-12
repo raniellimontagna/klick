@@ -7,6 +7,7 @@ import { createScrambleQueue } from '../../src/scramble/queue';
 import { T } from '../../src/strings';
 import { AppState } from '../../src/ui/state/app.svelte';
 import TimerScreen from '../../src/ui/timer/TimerScreen.svelte';
+import { mockMedia } from './media';
 
 let n = 0;
 async function app() {
@@ -29,6 +30,29 @@ describe('tela do Timer', () => {
     await a.createSession('666');
     render(TimerScreen, { app: a });
     expect(await screen.findByText('Média de 3')).toBeInTheDocument();
+  });
+
+  it('no celular, com inspeção e dois polegares, pede o toque num polegar: só as áreas de polegar começam a inspeção', async () => {
+    const restore = mockMedia(['(pointer: coarse)']);
+    try {
+      const { a } = await app();
+      render(TimerScreen, { app: a });
+      expect(await screen.findByText(T.coach.idleInspThumb)).toBeInTheDocument();
+    } finally {
+      restore();
+    }
+  });
+
+  it('no celular, com inspeção e um toque, a tela inteira começa a inspeção', async () => {
+    const restore = mockMedia(['(pointer: coarse)']);
+    try {
+      const { a } = await app();
+      await a.updateSettings({ mobileArm: 'one' });
+      render(TimerScreen, { app: a });
+      expect(await screen.findByText(T.coach.idleInspTouch)).toBeInTheDocument();
+    } finally {
+      restore();
+    }
   });
 
   it('com gravação pendente, mostra o aviso fixo', async () => {

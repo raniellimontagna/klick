@@ -37,7 +37,8 @@ import {
 import type { ScrambleQueue } from '../../scramble/queue';
 import { T, TRAIL } from '../../strings';
 import { downloadText } from '../download';
-import { isStandalone } from '../platform';
+import { isIOS, isStandalone } from '../platform';
+import { type ShareFile, shareFile } from '../share';
 
 export type Tab = 'timer' | 'evolucao' | 'companion' | 'ajustes';
 export type DialogId = 'sessions' | 'shortcuts' | 'onboarding' | 'export' | 'import' | 'backups' | 'trash' | 'install';
@@ -53,6 +54,7 @@ export interface AppDeps {
   storage?: Pick<Storage, 'getItem'> | null; // para achar dados da v1 (padrão: localStorage, ou null)
   storageManager?: StorageLike | null; // armazenamento persistente (padrão: navigator.storage)
   reopen?: () => Promise<Repository>; // abre uma conexão nova com o banco; sem ela, uma conexão morta não é trocada
+  share?: ShareFile | null; // exportar pela folha de compartilhar (padrão: a do sistema no iPhone e no iPad; nos outros, o download)
 }
 
 export type ExportFormat = 'klick' | 'cstimer';
@@ -209,6 +211,7 @@ export class AppState {
   private attempts = 0; // tentativas de gravação já começadas: só a mais recente mexe em saveStalled
   private readonly storage: Pick<Storage, 'getItem'> | null;
   private readonly storageManager: StorageLike | null;
+  private readonly share: ShareFile | null;
   private readonly saves: SaveQueue;
   // Um por solve gravado: a fila entrega o mesmo objeto ao enqueue e ao onSaved, e a conta só acontece uma vez.
   private readonly afterSaves = new WeakMap<Solve, Promise<void>>();
@@ -226,6 +229,7 @@ export class AppState {
     this.reopenDb = deps.reopen;
     this.storage = deps.storage === undefined ? defaultStorage() : deps.storage;
     this.storageManager = deps.storageManager === undefined ? defaultStorageManager() : deps.storageManager;
+    this.share = deps.share === undefined ? (isIOS() ? shareFile : null) : deps.share;
     // A arrow function: a fila grava pelo repositório atual, não pelo que existia quando ela foi criada.
     this.saves = createSaveQueue((s) => this.saveWatched(s), {
       // A fila só avisa numa falha (n > 0) e quando esvazia depois dela (0). Nos dois casos o número é o que ela tem agora.
@@ -629,7 +633,18 @@ export class AppState {
     const klick = format === 'klick';
     const text = klick ? toKlickJson(data) : toCsTimerJson(data.sessions, data.solves);
     const name = klick ? `klick-${stamp}.json` : `klick-csTimer-${stamp}.txt`;
-    if (downloadText(name, text, klick ? 'application/json' : 'text/plain')) {
+    const mime = klick ? 'application/json' : 'text/plain';
+    // No iPhone, o download abre uma prévia que a pessoa pode fechar sem salvar: lá a exportação vai pela folha de compartilhar
+    // (Salvar em Arquivos), e só conta como feita quando a pessoa conclui. Fechar a folha não conta nem abre outra coisa.
+    if (this.share) {
+      const outcome = await this.share(name, text, mime);
+      if (outcome === 'shared') {
+        await this.markExported();
+        return;
+      }
+      if (outcome === 'cancelled') return;
+    }
+    if (downloadText(name, text, mime)) {
       await this.markExported();
       return;
     }

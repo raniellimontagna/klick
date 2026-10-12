@@ -1064,6 +1064,49 @@ describe('estado do app: importar o Klick traz os ajustes', () => {
   });
 });
 
+// No iPhone, o download abre uma prévia que se fecha sem salvar: a exportação vai pela folha de compartilhar, que diz se deu certo.
+describe('estado do app: exportar pela folha de compartilhar', () => {
+  beforeEach(() => { t = 1_791_500_000_000; });
+
+  async function withShare(outcome: 'shared' | 'cancelled' | 'unsupported') {
+    const repo = createRepository(await openKlickDb(`app-${++n}`), { now, channel: null });
+    const share = vi.fn(async (_name: string, _text: string, _mime: string) => outcome);
+    const app = new AppState({ repo, queue: fakeQueue(), now, storage: null, storageManager: null, share });
+    await app.init();
+    return { app, repo, share };
+  }
+
+  it('concluir a folha conta como exportado, com o arquivo do Klick', async () => {
+    const { app, repo, share } = await withShare('shared');
+    await app.exportFile('klick');
+    const [name, text, mime] = share.mock.calls[0];
+    expect(name).toMatch(/^klick-.*\.json$/);
+    expect(JSON.parse(text).format).toBe('klick');
+    expect(mime).toBe('application/json');
+    expect((await repo.getMeta()).lastExportAt).toBe(t);
+  });
+
+  it('fechar a folha sem escolher nada não conta como exportado e não abre outra coisa', async () => {
+    const { app, repo } = await withShare('cancelled');
+    await app.exportFile('cstimer');
+    expect((await repo.getMeta()).lastExportAt).toBeNull();
+    expect(app.dialog).toBeNull();
+  });
+
+  it('sem a folha (o navegador recusou), cai no download de sempre', async () => {
+    const { app, repo, share } = await withShare('unsupported');
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    try {
+      await app.exportFile('klick');
+      expect(share).toHaveBeenCalledTimes(1);
+      expect(click).toHaveBeenCalledTimes(1); // o link do download
+      expect((await repo.getMeta()).lastExportAt).toBe(t);
+    } finally {
+      click.mockRestore();
+    }
+  });
+});
+
 // Importação grande não pode perder solve em silêncio (final review, C1): ids únicos, e o que não entrar aparece no resumo.
 describe('estado do app: importação sem perda', () => {
   beforeEach(() => { t = 1_791_500_000_000; });

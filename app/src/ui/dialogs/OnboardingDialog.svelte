@@ -52,7 +52,10 @@
     app.profile.settings.theme === 'system' ? (darkNow ? 'dark' : 'light') : app.profile.settings.theme === 'dark' ? 'dark' : 'light',
   );
 
+  // Numa tela de toque, os passos falam do botão e do toque, não do espaço e da tecla.
+  const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
   const current = $derived(T.onboarding.steps[step - 1]);
+  const stepText = $derived(coarse && 'touchText' in current ? current.touchText : current.text);
   // O markup do Centro muda só com o passo e o tema; o anel e os olhos do segurar mudam pelo DOM (updateCentro), sem refazer o SVG.
   const centroMarkup = $derived(renderCentro({ theme, ...STEP_CENTRO[step - 1], label: T.centro.label }));
   const holdClass = $derived(ready ? 'ready' : pressing ? 'arming' : practiced ? 'ready' : '');
@@ -206,7 +209,7 @@
       <div class="label">{T.onboarding.stepOf(step)}</div>
       <div class="centro-box" bind:this={boxEl}>{@html centroMarkup}</div>
       <h2>{current.title}</h2>
-      <p>{current.text}</p>
+      <p>{stepText}</p>
       {#if step === 2}
         <button
           type="button"

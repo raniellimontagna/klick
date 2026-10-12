@@ -196,10 +196,12 @@
 
   // ----- Texto e pintura (a cada quadro, sem passar pelo Svelte) -----
 
+  // No celular, o modo dois polegares só responde nas áreas de polegar; no modo um toque, a tela inteira responde.
   function idleText(): string {
     if (!coarseMq) return inspectionOn() ? T.coach.idleInsp : T.coach.idle;
-    if (inspectionOn()) return T.coach.idleInspTouch;
-    return app.profile.settings.mobileArm === 'one' ? T.coach.idleOne : T.coach.idleTouch;
+    const one = app.profile.settings.mobileArm === 'one';
+    if (inspectionOn()) return one ? T.coach.idleInspTouch : T.coach.idleInspThumb;
+    return one ? T.coach.idleOne : T.coach.idleTouch;
   }
 
   function centroView(now: number): Vista {

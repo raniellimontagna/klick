@@ -603,6 +603,12 @@ body.solving .t-coach {
 }
 
 @media (max-width: 639px) {
+  /* Seletor segmentado na linha de baixo do rótulo e na largura toda: lado a lado, os rótulos dos botões quebravam ("0,3 / s"). */
+  .setting:has(> .seg) { flex-wrap: wrap; gap: 8px; }
+  .setting:has(> .seg) > span:first-child { flex-basis: 100%; }
+  .setting > .seg { width: 100%; }
+  .setting > .seg button { flex: 1; }
+
   .topbar { padding: 14px 16px; gap: 12px; }
   .topbar .tabs,
   .topbar [data-date] { display: none; }

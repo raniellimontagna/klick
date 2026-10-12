@@ -5,6 +5,8 @@ import { createRepository } from '../../src/data/repository';
 import { createScrambleQueue } from '../../src/scramble/queue';
 import { AppState } from '../../src/ui/state/app.svelte';
 import OnboardingDialog from '../../src/ui/dialogs/OnboardingDialog.svelte';
+import { T } from '../../src/strings';
+import { mockMedia } from './media';
 
 let n = 0;
 async function app() {
@@ -137,5 +139,40 @@ describe('primeira vez: o tour', () => {
     expect(a.tab).toBe('ajustes');
     expect(a.dialog).toBeNull();
     await vi.waitFor(() => expect(v1).toHaveBeenCalledTimes(1), { timeout: 3000 });
+  });
+});
+
+describe('o tour numa tela de toque', () => {
+  it('o passo 2 fala do botão, não do espaço', async () => {
+    const restore = mockMedia(['(pointer: coarse)']);
+    try {
+      const { a } = await app();
+      render(OnboardingDialog, { app: a, open: true });
+      await fireEvent.click(await screen.findByRole('button', { name: 'Continuar' }));
+      expect(await screen.findByText(T.onboarding.steps[1].touchText)).toBeInTheDocument();
+      expect(screen.queryByText(/espaço/)).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it('o passo 3 diz para parar com um toque, não com uma tecla', async () => {
+    const restore = mockMedia(['(pointer: coarse)']);
+    try {
+      const { a } = await app();
+      render(OnboardingDialog, { app: a, open: true });
+      await fireEvent.click(await screen.findByRole('button', { name: 'Pular apresentação' }));
+      expect(await screen.findByText(T.onboarding.steps[2].touchText)).toBeInTheDocument();
+      expect(screen.queryByText(/tecla/)).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it('com teclado, os passos continuam falando de espaço e de tecla', async () => {
+    const { a } = await app();
+    render(OnboardingDialog, { app: a, open: true });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Pular apresentação' }));
+    expect(await screen.findByText(T.onboarding.steps[2].text)).toBeInTheDocument();
   });
 });

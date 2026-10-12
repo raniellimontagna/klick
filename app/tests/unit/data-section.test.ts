@@ -9,6 +9,7 @@ import { createScrambleQueue } from '../../src/scramble/queue';
 import { T } from '../../src/strings';
 import { AppState } from '../../src/ui/state/app.svelte';
 import DataSection from '../../src/ui/ajustes/DataSection.svelte';
+import { mockMedia } from './media';
 
 vi.mock('../../src/ui/download', () => ({ downloadText: vi.fn(() => true) }));
 import { downloadText } from '../../src/ui/download';
@@ -22,6 +23,19 @@ async function app(storageManager: unknown = null) {
 }
 
 describe('Seus dados', () => {
+  it('dentro do app instalado, diz que está instalado em vez de ensinar a instalar', async () => {
+    const restore = mockMedia(['(display-mode: standalone)']);
+    try {
+      const { a } = await app();
+      render(DataSection, { app: a });
+      expect(await screen.findByText(T.dados.installedLabel)).toBeInTheDocument();
+      expect(screen.getByText(T.dados.installedHint)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: T.dados.installButton })).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
   it('mostra se o armazenamento está protegido e permite pedir proteção', async () => {
     let persisted = false;
     const sm = { persisted: async () => persisted, persist: async () => (persisted = true), estimate: async () => ({ usage: 2048, quota: 1e9 }) };
