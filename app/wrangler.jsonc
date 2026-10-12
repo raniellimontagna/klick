@@ -1,7 +1,7 @@
 // Publica o app (dist/) como Worker de arquivos estáticos.
 // - `npx wrangler deploy`: beta.klick.ranimontagna.com, para conferir antes.
-// - `npx wrangler deploy --env production`: a raiz, klick.ranimontagna.com, por uma rota na zona. O registro DNS da Vercel não
-//   é alterado: sem a rota, a raiz volta para a v1.
+// - `npx wrangler deploy --env production`: a raiz, klick.ranimontagna.com, por uma rota na zona. A v1 saiu da Vercel em 12/10:
+//   o registro DNS do domínio (com proxy) ainda aponta para lá, mas é só o que mantém a rota viva. Não o apague.
 {
   "name": "klick-app-beta",
   "account_id": "3a9dc0a9d9f05ff97021ce237e3ed92f",

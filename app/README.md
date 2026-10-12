@@ -43,8 +43,9 @@ Depois a raiz (klick.ranimontagna.com, worker `klick-app`):
 npx wrangler deploy --env production
 ```
 
-A configuração está em `wrangler.jsonc` (Cloudflare Workers com arquivos estáticos). A raiz chega ao app por uma rota na zona; o
-registro DNS da Vercel continua o da v1. Para voltar à v1, remova a rota `klick.ranimontagna.com/*` no painel do Cloudflare.
+A configuração está em `wrangler.jsonc` (Cloudflare Workers com arquivos estáticos). A raiz chega ao app por uma rota na zona.
+A v1 não está mais no ar (o projeto da Vercel foi apagado em 12/10): o registro DNS de `klick.ranimontagna.com`, com proxy do
+Cloudflare, só existe para a rota funcionar. Apagá-lo derruba a raiz. O código da v1 continua na `main` (tag `v1.4.0`).
 
 ## Por que o cubing.js é empacotado à parte
 
