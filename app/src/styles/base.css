@@ -46,6 +46,9 @@ select {
 
 button {
   cursor: pointer;
+  -webkit-user-select: none; /* iPhone: segurar um botão selecionava o texto dele e abria o menu "Copiar" */
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 button:active:not(:disabled) {

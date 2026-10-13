@@ -14,3 +14,9 @@ test('o toque não pisca o realce do navegador e o botão apertado responde', as
   await page.mouse.up();
   await expect(button).toHaveCSS('opacity', '1');
 });
+
+// No iPhone, segurar um botão selecionava o texto dele e abria o menu "Copiar".
+test('segurar um botão não seleciona o texto dele', async ({ page }) => {
+  await fresh(page);
+  await expect(page.getByRole('button', { name: 'Ajustes' })).toHaveCSS('user-select', 'none');
+});
