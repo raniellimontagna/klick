@@ -377,7 +377,7 @@ describe('Seus dados: cópias, exportar, lixeira e importar', () => {
     expect((await repo.listSolves()).map((s) => s.id)).toEqual([kept.id]);
   });
 
-  it('versão anterior sem nenhum registro legível mostra quantos ficaram de fora, e a oferta continua', async () => {
+  it('versão anterior sem nenhum registro legível mostra quantos ficaram de fora, e a oferta acaba', async () => {
     const v1 = {
       state: {
         sessions: [
@@ -401,9 +401,10 @@ describe('Seus dados: cópias, exportar, lixeira e importar', () => {
     await fireEvent.click(await screen.findByRole('button', { name: T.dados.importV1 }));
     expect(await screen.findByText('2 registros da versão anterior não puderam ser lidos.')).toBeInTheDocument();
     expect(a.toast?.text).not.toBe(T.dados.nothingV1);
-    expect(a.v1Available).toBe(true);
-    expect((await repo.getMeta()).v1ImportOffered).toBe(false);
-    expect(screen.getByRole('button', { name: T.dados.importV1 })).toBeInTheDocument();
+    // Mostrada a contagem, a oferta acaba: importar de novo daria o mesmo resultado (os dados da v1 continuam no navegador).
+    await vi.waitFor(async () => expect((await repo.getMeta()).v1ImportOffered).toBe(true));
+    expect(a.v1Available).toBe(false);
+    await vi.waitFor(() => expect(screen.queryByRole('button', { name: T.dados.importV1 })).toBeNull());
   });
 
   it('versão anterior: se marcar a oferta falha depois de importar, o resumo traz uma nota e não diz que falhou', async () => {

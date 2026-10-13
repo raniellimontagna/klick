@@ -781,11 +781,20 @@ export class AppState {
 
   // Dados da versão anterior (a chave do localStorage antigo). Só o que bate é importado; o que não bate é contado em unreadable.
   async importV1(): Promise<ImportSummary | null> {
-    // A contagem vem antes: um arquivo sem nenhum registro legível ainda tem o que avisar, e a oferta continua na tela.
+    // A contagem vem antes: um arquivo sem nenhum registro legível ainda tem o que avisar. Depois de avisar, a oferta acaba (importar
+    // de novo daria o mesmo resultado); os dados da v1 continuam no navegador, intocados. Se a marca não grava, a oferta segue.
     const unreadable = readV1Invalid(this.storage);
     const v1 = readV1(this.storage);
     if (!v1) {
-      if (unreadable > 0) return { solves: 0, existing: 0, skippedSessions: 0, unreadable, missed: 0 };
+      if (unreadable > 0) {
+        try {
+          this.meta = await this.repo.saveMeta({ v1ImportOffered: true });
+          this.v1Available = false;
+        } catch {
+          // a oferta segue na tela; tentar de novo é inofensivo
+        }
+        return { solves: 0, existing: 0, skippedSessions: 0, unreadable, missed: 0 };
+      }
       this.v1Available = false;
       this.showToast(T.dados.nothingV1);
       return null;
