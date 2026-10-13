@@ -31,6 +31,15 @@ const easyT2 = (startedAt: number): SeasonState => ({
   marks: Array.from({ length: 9 }, () => ({ kind: 'count' as const, target: 1 })),
   basis: { single: 50000, ao5: 50000, ao12: 50000 },
 });
+// Variantes da T2: nove marcos de um solve abaixo de 30 s (um DNF não é um solve), e nove marcos de dois solves.
+const strictT2 = (startedAt: number): SeasonState => ({
+  ...easyT2(startedAt),
+  marks: Array.from({ length: 9 }, () => ({ kind: 'single' as const, target: 30000 })),
+});
+const pairT2 = (startedAt: number): SeasonState => ({
+  ...easyT2(startedAt),
+  marks: Array.from({ length: 9 }, () => ({ kind: 'count' as const, target: 2 })),
+});
 const rec1 = { n: 1, startedAt: END - 10 * DAY, endedAt: END - DAY, solves: 1000, startAo12: null, endAo12: 50000 };
 
 describe('temporada no AppState', () => {
@@ -56,7 +65,7 @@ describe('temporada no AppState', () => {
     await a.init();
     expect(a.profile.season.current.n).toBe(2);
     const solve = await a.addSolve({ ms: 20000, penalty: null, at: END + 1000 });
-    await a.checkSeason(); // espera a conferência que o solve pôs na fila
+    await a.reload(); // a conferência que o solve pôs na fila roda antes desta leitura (mesma fila)
     expect(a.profile.season.current.n).toBe(3);
     expect(a.profile.season.past.map((r) => r.n)).toEqual([1, 2]);
     expect(a.profile.season.past[1]).toMatchObject({ n: 2, startedAt: END, endedAt: END + 1000, solves: 1, startAo12: 50000 });
@@ -65,6 +74,49 @@ describe('temporada no AppState', () => {
     expect(a.profile.season.current.n).toBe(3);
     expect((await repo.getProfile()).season.past).toHaveLength(2);
     expect(a.seasonStatus().some((m) => m.achieved)).toBe(false);
+  });
+
+  it('desfazer a exclusão do solve que fechou a temporada não a reabre, e o solve de volta não conta na seguinte', async () => {
+    const repo = await repoNamed();
+    await repo.saveProfile({ season: { current: easyT2(END), past: [rec1] } });
+    const a = make(repo, () => END + 2000);
+    await a.init();
+    const solve = await a.addSolve({ ms: 20000, penalty: null, at: END + 1000 });
+    await a.reload();
+    expect(a.profile.season.current.n).toBe(3);
+    await a.deleteSolve(solve!.id);
+    expect(await a.undoDelete()).toBe(true);
+    expect(a.solves.some((s) => s.id === solve!.id)).toBe(true); // o solve voltou
+    expect(a.profile.season.current.n).toBe(3);
+    expect((await repo.getProfile()).season.past).toHaveLength(2);
+    expect(a.seasonStatus().some((m) => m.achieved)).toBe(false); // o solve é anterior ao início da T3
+  });
+
+  it('desfazer a exclusão que devolve o último marco vira a temporada', async () => {
+    const repo = await repoNamed();
+    await repo.saveProfile({ season: { current: pairT2(END), past: [rec1] } });
+    const a = make(repo, () => END + 2000);
+    await a.init();
+    const first = await a.addSolve({ ms: 20000, penalty: null, at: END + 1000 });
+    await a.deleteSolve(first!.id); // com ele fora, o outro solve (gravado direto no banco) é o único da temporada
+    await repo.addSolve({ sessionId: a.activeSession!.id, event: '333', ms: 20000, penalty: null, at: END + 1500, scramble: '' });
+    await a.reload();
+    expect(a.profile.season.current.n).toBe(2);
+    expect(await a.undoDelete()).toBe(true);
+    expect(a.profile.season.current.n).toBe(3);
+  });
+
+  it('tirar o DNF de um solve vira a temporada, sem conferência explícita', async () => {
+    const repo = await repoNamed();
+    await repo.saveProfile({ season: { current: strictT2(END), past: [rec1] } });
+    const a = make(repo, () => END + 2000);
+    await a.init();
+    const solve = await a.addSolve({ ms: 20000, penalty: 'DNF', at: END + 1000 });
+    await a.reload();
+    expect(a.profile.season.current.n).toBe(2); // um DNF não é um solve abaixo de 30 s
+    await a.setPenalty(solve!.id, null);
+    await a.reload(); // a conferência que a penalidade pôs na fila roda antes desta leitura
+    expect(a.profile.season.current.n).toBe(3);
   });
 
   it('duas abas no mesmo banco viram a temporada uma vez só', async () => {
