@@ -16,10 +16,6 @@
   transition: fill var(--t-state) var(--ease);
 }
 
-.centro .eyes {
-  transition: opacity var(--t-state) var(--ease);
-}
-
 .centro .eye {
   transform-box: fill-box;
   transform-origin: center;
@@ -29,16 +25,6 @@
 @keyframes blink {
   0%, 94%, 100% { transform: scaleY(1); }
   96.5% { transform: scaleY(0.1); }
-}
-
-[data-cview='idle'] .t-centro .eyes[data-e='open'] {
-  animation: look 8s ease-in-out infinite;
-}
-
-@keyframes look {
-  0%, 42%, 100% { transform: translateX(0); }
-  50%, 60% { transform: translateX(-1.6px); }
-  70%, 80% { transform: translateX(1.6px); }
 }
 
 [data-cview='sleep'] .centro .ring.lit {

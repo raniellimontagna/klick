@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { PALETTES, RING_ORDER, eyesFor, paletteFor, renderCentro, ringFor, updateCentro } from '../../src/ui/centro';
+import { centroTarget, PALETTES, RING_ORDER, eyesFor, paintFace, paintRing, paintTop, paletteFor, renderCentro, ringFor, updateCentro } from '../../src/ui/centro';
+import { EXPRESSIONS, EYE_X, eyePath } from '../../src/ui/centro/face';
 
 const N = null;
 
@@ -53,8 +54,10 @@ describe('Centro', () => {
     const svg = renderCentro({ theme: 'light', ring: ['red', N, N, N, N, N, N, N], eyes: 'half', topLit: 6, sideLit: 4 });
     expect((svg.match(/class="ring/g) || []).length).toBe(8);
     expect(svg).toMatch(/class="ring lit" data-k="0"/);
-    expect(svg).toMatch(/data-e="half" opacity="1"/);
-    expect(svg).toMatch(/data-e="open" opacity="0"/);
+    expect(svg).toMatch(/data-eyes="half"/);
+    expect((svg.match(/<path class="eye"/g) || []).length).toBe(2);
+    expect(svg).toContain(`d="${eyePath(EXPRESSIONS.half, EYE_X.l)}"`);
+    expect(svg).toContain(`d="${eyePath(EXPRESSIONS.half, EYE_X.r)}"`);
     const gold = PALETTES.light.gold;
     const trail = PALETTES.light.trail;
     expect(svg.split(`fill="${gold}"`).length - 1).toBe(6);
@@ -67,58 +70,6 @@ describe('Centro', () => {
     expect(renderCentro({ finish: 'brilho' })).toMatch(/fill="url\(#ct\d+g\)"/);
     expect(renderCentro({ theme: 'dark', ring: Array(8).fill('green') })).toMatch(/drop-shadow\(0 0 2.2px/);
     expect(renderCentro({ theme: 'light', ring: Array(8).fill('green') })).not.toMatch(/drop-shadow/);
-  });
-
-  // Um SVG de mentira com só o que updateCentro toca: dataset, querySelectorAll, setAttribute, classList e style.
-  interface StubEl {
-    dataset: Record<string, string>;
-    attrs: Record<string, string>;
-    style: { filter?: string };
-    cls: Set<string>;
-    setAttribute(name: string, value: string): void;
-    classList: { toggle(name: string, on?: boolean): void };
-  }
-  function stubSvg(theme: string) {
-    const mk = (data: Record<string, string>): StubEl => {
-      const el: StubEl = {
-        dataset: data,
-        attrs: {},
-        style: {},
-        cls: new Set(),
-        setAttribute: (name, value) => {
-          el.attrs[name] = value;
-        },
-        classList: {
-          toggle: (name, on) => {
-            if (on) el.cls.add(name);
-            else el.cls.delete(name);
-          },
-        },
-      };
-      return el;
-    };
-    const rings = Array.from({ length: 8 }, (_, k) => mk({ k: String(k) }));
-    const eyes = ['open', 'half', 'focus', 'happy', 'sleep'].map((e) => mk({ e }));
-    const svg = {
-      dataset: { theme, finish: 'fosco' } as Record<string, string>,
-      rings,
-      eyes,
-      querySelectorAll: (sel: string) => (sel === '.ring' ? rings : sel === '.eyes' ? eyes : []),
-    };
-    return svg;
-  }
-
-  it('updateCentro usa o tema do próprio SVG e pinta anel e olhos', () => {
-    const svg = stubSvg('dark');
-    updateCentro(svg as unknown as SVGElement, { ring: ['green', N, N, N, N, N, N, N], eyes: 'focus' });
-    expect(svg.rings[0].attrs.fill).toBe(PALETTES.dark.green);
-    expect(svg.rings[0].style.filter).toMatch(/drop-shadow\(0 0 2.2px/);
-    expect(svg.rings[0].cls.has('lit')).toBe(true);
-    expect(svg.rings[1].attrs.fill).toBe(PALETTES.dark.off);
-    expect(svg.dataset.eyes).toBe('focus');
-    expect(svg.eyes.find((g) => g.dataset.e === 'focus')?.attrs.opacity).toBe('1');
-    expect(svg.eyes.find((g) => g.dataset.e === 'open')?.attrs.opacity).toBe('0');
-    expect(renderCentro({ theme: 'dark' })).toMatch(/data-theme="dark"/);
   });
 
   it('na inspeção, depois de 15 s os olhos ficam semicerrados', () => {
@@ -152,8 +103,10 @@ describe('Centro no DOM', () => {
     expect(rings[1].classList.contains('lit')).toBe(true);
     expect(rings[1].style.filter).toMatch(/drop-shadow\(0 0 2.2px/);
     expect(svg.dataset.eyes).toBe('happy');
-    expect(svg.querySelector('[data-e="happy"]')?.getAttribute('opacity')).toBe('1');
-    expect(svg.querySelector('[data-e="open"]')?.getAttribute('opacity')).toBe('0');
+    const eyes = svg.querySelectorAll<SVGPathElement>('path.eye');
+    expect(eyes).toHaveLength(2);
+    expect(eyes[0].getAttribute('d')).toBe(eyePath(EXPRESSIONS.happy, EYE_X.l));
+    expect(eyes[1].getAttribute('d')).toBe(eyePath(EXPRESSIONS.happy, EYE_X.r));
   });
 
   it('updateCentro aceita trocar o tema na chamada e ignora um SVG ausente', () => {
@@ -173,5 +126,31 @@ describe('Centro no DOM', () => {
 
   it('sem rótulo, o nome acessível do SVG é "Centro"', () => {
     expect(mount(renderCentro()).getAttribute('aria-label')).toBe('Centro');
+  });
+
+  it('paintFace escreve os olhos e o corpo; paintTop apaga a face de cima; paintRing pinta o anel', () => {
+    const svg = mount(renderCentro({ theme: 'light' }));
+    paintFace(svg, { ...EXPRESSIONS.open, lookX: 1.6, squash: 0.94 }, 3);
+    expect(svg.querySelector('path.eye')?.getAttribute('d')).toBe(eyePath({ ...EXPRESSIONS.open, lookX: 1.6 }, EYE_X.l));
+    expect(svg.querySelector('g.cbody')?.getAttribute('transform')).toBe('translate(0 -3.00) translate(0 130) scale(1 0.940) translate(0 -130)');
+    paintFace(svg, EXPRESSIONS.open);
+    expect(svg.querySelector('g.cbody')?.hasAttribute('transform')).toBe(false);
+    paintTop(svg, 0.7);
+    expect(svg.querySelector<SVGGElement>('g.top')?.style.opacity).toBe('0.3');
+    paintTop(svg, 0);
+    expect(svg.querySelector<SVGGElement>('g.top')?.style.opacity).toBe('');
+    paintRing(svg, ['green', N, N, N, N, N, N, N]);
+    expect(svg.querySelector('.ring')?.getAttribute('fill')).toBe(PALETTES.light.green);
+  });
+
+  it('a face de cima e a lateral mantêm o transform de hoje', () => {
+    const svg = mount(renderCentro({ topLit: 2, sideLit: 1 }));
+    expect(svg.querySelector('g.top')?.getAttribute('transform')).toBe('matrix(1,0,0.3,-0.3,0,30)');
+    expect(svg.querySelector('g.side')?.getAttribute('transform')).toBe('matrix(0.3,-0.3,0,1,100,30)');
+    expect(svg.querySelectorAll('g.top .lit')).toHaveLength(2);
+  });
+
+  it('centroTarget junta o anel e a expressão do estado', () => {
+    expect(centroTarget({ state: 'ready' })).toEqual({ ring: Array(8).fill('green'), eyes: 'focus' });
   });
 });
