@@ -86,6 +86,7 @@ export interface Profile {
   finish: FinishId;
   onboarded: boolean;
   currentSessionId: string | null;
+  season: SeasonProgress; // a temporada atual e as fechadas (spec do sub-projeto 3, seção 5.1)
 }
 
 // Estado local deste aparelho: versão do esquema, contadores e marcas das cópias de segurança, e sinalizadores de avisos já tratados.

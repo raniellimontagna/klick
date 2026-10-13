@@ -132,6 +132,16 @@ describe('formato Klick', () => {
     it('trilha mais longa que a do Klick é cortada nas 9 etapas', () => {
       expect(parseKlickJson(withProfile({ trail: Array<boolean>(12).fill(true) })).profile).toEqual({ trail: Array<boolean>(9).fill(true) });
     });
+
+    it('a temporada passa só inteira e bem formada', () => {
+      const season = {
+        current: { n: 2, startedAt: 10, marks: Array.from({ length: 9 }, () => ({ kind: 'count', target: 1 })), basis: { single: 1, ao5: null, ao12: null } },
+        past: [{ n: 1, startedAt: 1, endedAt: 2, solves: 3, startAo12: null, endAo12: null }],
+      };
+      expect(parseKlickJson(withProfile({ season })).profile).toEqual({ season });
+      expect(parseKlickJson(withProfile({ season: { ...season, past: [...season.past, season.past[0]] } })).profile).toEqual({});
+      expect(parseKlickJson(withProfile({ season: { ...season, current: { ...season.current, marks: season.current.marks.slice(1) } } })).profile).toEqual({});
+    });
   });
 
   describe('rejeita o arquivo inteiro se alguma coisa não bate', () => {

@@ -11,8 +11,9 @@
 //
 // Leitura: o que sai do IndexedDB já é cópia. Os padrões (perfil e meta) são montados novos a cada chamada, nunca compartilhados.
 import type { IDBPDatabase, IDBPObjectStore, IDBPTransaction, StoreNames } from 'idb';
+import { defaultSeason, finishUnlocked, moreAdvanced, seasonFrom } from '../core/season';
 import { defaultSettings } from '../core/types';
-import type { EventId, Meta, Penalty, Profile, Session, Settings, Solve } from '../core/types';
+import type { EventId, Meta, Penalty, Profile, SeasonRecord, SeasonState, Session, Settings, Solve } from '../core/types';
 import { T } from '../strings';
 import type { BackupRecord, KlickDB } from './db';
 import { newId } from './ids';
@@ -80,6 +81,9 @@ export interface Repository {
   purgeTrash(olderThanMs: number): Promise<number>; // apaga de vez o excluído antes de now - olderThanMs (no limite exato ainda fica); devolve quantos itens (sessões e solves)
   getProfile(): Promise<Profile>; // padrão se ausente (e não grava o padrão)
   saveProfile(patch: ProfilePatch): Promise<Profile>; // settings faz merge raso, sound faz merge
+  // Vira a temporada (spec 5.5) numa transação: só grava se a temporada gravada ainda for fromN. Se outra aba já virou, não grava nem
+  // avisa e devolve o perfil gravado.
+  advanceSeason(fromN: number, record: SeasonRecord, next: SeasonState): Promise<Profile>;
   getMeta(): Promise<Meta>; // padrão se ausente (deviceId novo), gravado na primeira leitura
   saveMeta(patch: Partial<Meta>): Promise<Meta>;
   getFolderHandle(): Promise<unknown | null>;
@@ -90,7 +94,7 @@ export interface Repository {
   deleteBackup(id: string): Promise<void>;
   exportAll(o?: { includeDeleted?: boolean }): Promise<KlickExport>; // includeDeleted padrão true
   importAll(data: KlickExport): Promise<ImportReport>; // junta por id; fica o de updatedAt maior. Sessão da lixeira que recebe solve ativo do arquivo volta (sem entrar no relatório; avisa sessions). O perfil do arquivo vale por cima do daqui (ver importAll)
-  replaceAll(data: KlickExport): Promise<void>; // limpa solves, sessões e perfil e grava os do arquivo, como vieram
+  replaceAll(data: KlickExport): Promise<void>; // limpa solves, sessões e perfil e grava os do arquivo; a temporada fica a mais adiantada (a daqui ou a do arquivo)
   onChange(fn: ChangeListener): () => void; // mudanças locais e de outras abas, com a origem (e, nos solves, os ids que mudaram)
   getSolves(ids: readonly string[]): Promise<(Solve | undefined)[]>; // vários solves por id numa leitura; o que não existe vem undefined
   close(): void; // fecha a conexão do banco e o canal; depois disso o repositório não responde mais (usado ao trocar pela conexão reaberta)
@@ -141,6 +145,7 @@ function defaultProfile(): Profile {
     finish: 'fosco',
     onboarded: false,
     currentSessionId: null,
+    season: defaultSeason(),
   };
 }
 
@@ -571,6 +576,19 @@ export function createRepository(
       return structuredClone(profile); // a trilha do patch não fica compartilhada com quem recebe o perfil
     },
 
+    async advanceSeason(fromN, record, next) {
+      const outcome = await write(['profile'], async (tx) => {
+        const store = tx.objectStore('profile');
+        const base = profileOrDefault(await store.get('current'));
+        if (base.season.current.n !== fromN) return { profile: base, saved: false };
+        const advanced: Profile = { ...base, season: { current: next, past: [...base.season.past, record] } };
+        await store.put(advanced, 'current');
+        return { profile: advanced, saved: true };
+      });
+      if (outcome.saved) announce('profile');
+      return structuredClone(outcome.profile);
+    },
+
     async getMeta() {
       const stored = (await db.get('meta', 'current')) as Meta | undefined;
       if (stored) return metaOrNew(stored, now());
@@ -702,8 +720,13 @@ export function createRepository(
             const mineEmpty = currentSessionId === null || (await solves.index('bySession').count(keyRange(currentSessionId))) === 0;
             if (target?.deletedAt === null && mineEmpty) currentSessionId = target.id;
           }
+          // A temporada nunca regride (spec 5.6): fica a mais adiantada. O acabamento do arquivo só vale se estiver liberado por ela.
+          const season = moreAdvanced(base.season, seasonFrom(theirs.season));
+          const finish = theirs.finish !== undefined && finishUnlocked(theirs.finish, season.past.length) ? theirs.finish : base.finish;
           const merged = mergeProfile(base, {
             ...theirs,
+            season,
+            finish,
             trail: theirs.trail ? base.trail.map((done, i) => done || theirs.trail?.[i] === true) : base.trail,
             onboarded: base.onboarded || theirs.onboarded === true,
             currentSessionId,
@@ -727,10 +750,19 @@ export function createRepository(
         const sessionStore = tx.objectStore('sessions');
         const solveStore = tx.objectStore('solves');
         const profileStore = tx.objectStore('profile');
+        // A temporada daqui é lida antes de limpar: a restauração fica com a mais adiantada (spec 5.6), mesmo que a cópia não tenha perfil.
+        const mine = profileOrDefault(await profileStore.get('current')).season;
         await Promise.all([sessionStore.clear(), solveStore.clear(), profileStore.clear()]);
         await each(sessions, (s) => sessionStore.put(s));
         await each(solves, (s) => solveStore.put(s));
-        if (profile) await profileStore.put(mergeProfile(defaultProfile(), profile), 'current');
+        const restored = profile ? mergeProfile(defaultProfile(), profile) : null;
+        const season = moreAdvanced(mine, seasonFrom(profile?.season));
+        // Sem perfil na cópia e sem temporada a guardar, o perfil fica vazio (os padrões), como sempre foi.
+        if (restored || season.past.length > 0) {
+          const base = restored ?? defaultProfile();
+          const finish = finishUnlocked(base.finish, season.past.length) ? base.finish : 'fosco';
+          await profileStore.put({ ...base, season, finish }, 'current');
+        }
       });
       announce('all');
     },

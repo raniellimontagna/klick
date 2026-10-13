@@ -5,6 +5,7 @@
 // com um erro claro. A migração da v1 não recusa: lê o que bate e conta o que ficou de fora (readV1Invalid), para a pessoa saber.
 // O que fica de fora por falta de dados (sessão sem evento) também volta contado no resultado.
 import { EVENT_IDS, eventFromCsTimer, eventInfo } from '../core/events';
+import { seasonFrom } from '../core/season';
 import type { EventId, FinishId, Penalty, Session, Settings, Solve } from '../core/types';
 import { T, TRAIL } from '../strings';
 import type { KlickExport, ProfilePatch } from './repository';
@@ -108,6 +109,8 @@ function profileOf(v: Record<string, unknown>): ProfilePatch {
   if (isFinish(v.finish)) profile.finish = v.finish;
   if (isBool(v.onboarded)) profile.onboarded = v.onboarded;
   if (v.currentSessionId === null || typeof v.currentSessionId === 'string') profile.currentSessionId = v.currentSessionId;
+  const season = seasonFrom(v.season);
+  if (season) profile.season = season;
   return profile;
 }
 

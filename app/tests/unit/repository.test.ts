@@ -1,6 +1,8 @@
 import type { IDBPDatabase } from 'idb';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { defaultSeason } from '../../src/core/season';
 import { DEFAULT_SETTINGS } from '../../src/core/types';
+import type { FinishId, Profile, SeasonProgress, SeasonRecord, SeasonState } from '../../src/core/types';
 import { openKlickDb, type KlickDB } from '../../src/data/db';
 import { createRepository, createSender, type ChannelLike, type KlickExport, type Repository } from '../../src/data/repository';
 
@@ -796,12 +798,12 @@ describe('repositório: perfil e meta', () => {
 
   it('ler o perfil não grava o padrão: o arquivo importado ainda pode trazer o dele', async () => {
     const source = await fresh();
-    await source.saveProfile({ finish: 'carbono', onboarded: true });
+    await source.saveProfile({ settings: { holdMs: 550 }, onboarded: true });
     const data = await source.exportAll();
     await repo.getProfile();
     expect((await repo.exportAll()).profile).toBeNull();
     await repo.importAll(data);
-    expect(await repo.getProfile()).toMatchObject({ finish: 'carbono', onboarded: true });
+    expect(await repo.getProfile()).toMatchObject({ settings: { holdMs: 550 }, onboarded: true });
   });
 
   it('saveProfile junta ajustes parciais e sons parciais com o que está gravado, e ignora undefined', async () => {
@@ -1208,12 +1210,12 @@ describe('repositório: exportar e importar', () => {
 
   it('sem perfil gravado, o do arquivo entra', async () => {
     const source = await fresh();
-    await source.saveProfile({ finish: 'gelo', onboarded: true });
+    await source.saveProfile({ settings: { holdMs: 550 }, onboarded: true });
     const data = await source.exportAll();
 
     const empty = await fresh();
     expect(await empty.importAll(data)).toEqual({ sessionsAdded: 0, solvesAdded: 0, solvesUpdated: 0, skipped: 0 });
-    expect(await empty.getProfile()).toMatchObject({ finish: 'gelo', onboarded: true });
+    expect(await empty.getProfile()).toMatchObject({ settings: { holdMs: 550 }, onboarded: true });
   });
 
   describe('perfil do arquivo sobre um perfil já gravado', () => {
@@ -1222,7 +1224,7 @@ describe('repositório: exportar e importar', () => {
 
     it('os ajustes e o acabamento do arquivo valem, a trilha soma as duas e o tour feito fica feito', async () => {
       const source = await fresh();
-      await source.saveProfile({ settings: { holdMs: 550, sound: { pb: false } }, finish: 'gelo', trail: marked(0), onboarded: false });
+      await source.saveProfile({ settings: { holdMs: 550, sound: { pb: false } }, finish: 'fosco', trail: marked(0), onboarded: false }); // o Fosco é o único liberado sem temporada fechada
       const data = await source.exportAll();
 
       const has = await fresh();
@@ -1230,7 +1232,7 @@ describe('repositório: exportar e importar', () => {
       await has.importAll(data);
       expect(await has.getProfile()).toMatchObject({
         settings: { ...DEFAULT_SETTINGS, holdMs: 550, sound: { ...DEFAULT_SETTINGS.sound, pb: false } }, // o tema do arquivo é o padrão
-        finish: 'gelo',
+        finish: 'fosco', // o Carbono daqui foi trocado pelo do arquivo
         trail: marked(0, 1),
         onboarded: true,
       });
@@ -1250,7 +1252,7 @@ describe('repositório: exportar e importar', () => {
       await repo.saveProfile({ finish: 'carbono' });
       const seen: string[] = [];
       repo.onChange((k) => seen.push(k));
-      await repo.importAll({ format: 'klick', version: 1, exportedAt: t, sessions: [], solves: [], profile: { finish: 'gelo' } });
+      await repo.importAll({ format: 'klick', version: 1, exportedAt: t, sessions: [], solves: [], profile: { finish: 'fosco' } });
       expect(seen).toEqual(['all']);
     });
 
@@ -1308,12 +1310,12 @@ describe('repositório: exportar e importar', () => {
     const incoming = await fresh();
     const s2 = await incoming.createSession({ event: '444', name: 'De fora' });
     await incoming.addSolve({ ...ns(s2.id, 9000, 9000), event: '444' as const });
-    await incoming.saveProfile({ finish: 'carbono' });
+    await incoming.saveProfile({ settings: { holdMs: 777 }, onboarded: true });
     await repo.replaceAll(await incoming.exportAll());
 
     expect((await repo.listSessions()).map((x) => x.name)).toEqual(['De fora']);
     expect((await repo.listSolves()).map((x) => x.ms)).toEqual([9000]);
-    expect((await repo.getProfile()).finish).toBe('carbono');
+    expect(await repo.getProfile()).toMatchObject({ settings: { holdMs: 777 }, onboarded: true, finish: 'fosco' }); // o Gelo daqui não sobrevive
     expect(await repo.getMeta()).toEqual(meta);
     expect((await repo.listBackups()).map((x) => x.id)).toEqual(['b']);
     expect(await repo.getFolderHandle()).toEqual({ name: 'pasta' });
@@ -1359,7 +1361,7 @@ describe('repositório: exportar e importar', () => {
       exportedAt: t,
       sessions: [{ ...s, id: 'sessao-nova', name: 'Nova' }],
       solves: [{ ...a, id: 'solve-novo', ms: 1 }],
-      profile: { ...(await repo.getProfile()), finish: (() => 1) as never },
+      profile: { ...(await repo.getProfile()), settings: { holdMs: (() => 1) as never } },
     };
     await expect(repo.importAll(file)).rejects.toMatchObject({ name: 'DataCloneError' });
     expect((await repo.listSessions({ includeDeleted: true })).map((x) => x.id)).toEqual([s.id]);
@@ -1473,7 +1475,7 @@ describe('repositório: exportar e importar', () => {
       const seen: string[] = [];
       repo.onChange((k) => seen.push(k));
 
-      const file = fileOf([{ ...old, id: 'solve-de-fora', deletedAt: null }], { profile: { ...(await repo.getProfile()), finish: (() => 1) as never } });
+      const file = fileOf([{ ...old, id: 'solve-de-fora', deletedAt: null }], { profile: { ...(await repo.getProfile()), settings: { holdMs: (() => 1) as never } } });
       await expect(repo.importAll(file)).rejects.toMatchObject({ name: 'DataCloneError' });
       expect(await repo.listSessions()).toEqual([]);
       expect(await repo.listSolves({ sessionId: s.id })).toEqual([]);
@@ -1628,3 +1630,94 @@ describe('origem dos avisos', () => {
   });
 });
 
+
+describe('temporadas no perfil', () => {
+  let repo: Repository;
+  beforeEach(async () => {
+    t = 1_791_500_000_000;
+    repo = await fresh();
+  });
+
+  const t2 = (startedAt: number): SeasonState => ({
+    n: 2,
+    startedAt,
+    marks: Array.from({ length: 9 }, () => ({ kind: 'count' as const, target: 1 })),
+    basis: { single: 20000, ao5: 21000, ao12: 22000 },
+  });
+  const rec1: SeasonRecord = { n: 1, startedAt: 1, endedAt: 2, solves: 1000, startAo12: null, endAo12: 50000 };
+  const file = (profile: KlickExport['profile']): KlickExport => ({ format: 'klick', version: 1, exportedAt: t, sessions: [], solves: [], profile });
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+
+  it('perfil novo e perfil antigo, sem temporada, começam na T1', async () => {
+    expect((await repo.getProfile()).season).toEqual(defaultSeason());
+    const db = await openKlickDb(`klick-test-${++dbn}`);
+    const old = { settings: { ...DEFAULT_SETTINGS, sound: { ...DEFAULT_SETTINGS.sound } }, trail: Array<boolean>(9).fill(false), finish: 'fosco', onboarded: true, currentSessionId: null };
+    await db.put('profile', old as unknown as Profile, 'current');
+    const p = await createRepository(db, { now, channel: null }).getProfile();
+    expect(p.season).toEqual(defaultSeason());
+    expect(p.onboarded).toBe(true);
+  });
+
+  it('advanceSeason vira uma vez só, mesmo com duas chamadas ao mesmo tempo, e avisa uma vez', async () => {
+    const heard: string[] = [];
+    repo.onChange((k) => heard.push(k));
+    const [a, b] = await Promise.all([repo.advanceSeason(1, rec1, t2(5)), repo.advanceSeason(1, rec1, t2(6))]);
+    await tick();
+    const saved = await repo.getProfile();
+    expect(saved.season.past).toEqual([rec1]);
+    expect(saved.season.current.n).toBe(2);
+    expect(a.season).toEqual(saved.season);
+    expect(b.season).toEqual(saved.season);
+    expect(heard.filter((k) => k === 'profile')).toHaveLength(1);
+  });
+
+  it('advanceSeason de uma temporada que não é mais a atual não grava nada', async () => {
+    await repo.advanceSeason(1, rec1, t2(5));
+    const again = await repo.advanceSeason(1, { ...rec1, solves: 1 }, t2(9));
+    expect(again.season.past).toEqual([rec1]);
+    expect(again.season.current.startedAt).toBe(5);
+  });
+
+  it('importar fica com a temporada mais adiantada e não aplica um acabamento ainda bloqueado aqui', async () => {
+    const ahead: SeasonProgress = { current: t2(5), past: [rec1] };
+    await repo.importAll(file({ season: ahead, finish: 'carbono' as FinishId }));
+    let p = await repo.getProfile();
+    expect(p.season).toEqual(ahead);
+    expect(p.finish).toBe('fosco'); // o Carbono pede 3 temporadas fechadas
+    await repo.importAll(file({ season: defaultSeason(), finish: 'brilho' }));
+    p = await repo.getProfile();
+    expect(p.season).toEqual(ahead); // a daqui estava mais adiantada
+    expect(p.finish).toBe('brilho'); // o Brilho já está liberado aqui
+  });
+
+  it('importar uma temporada malformada deixa a daqui', async () => {
+    await repo.advanceSeason(1, rec1, t2(5));
+    await repo.importAll(file({ season: { current: 'x', past: [] } as unknown as SeasonProgress }));
+    expect((await repo.getProfile()).season.past).toEqual([rec1]);
+  });
+
+  it('restaurar uma cópia antiga ou sem perfil não volta a temporada nem o acabamento', async () => {
+    await repo.advanceSeason(1, rec1, t2(5));
+    await repo.saveProfile({ finish: 'brilho' });
+    await repo.replaceAll(file({ finish: 'brilho', onboarded: true }));
+    let p = await repo.getProfile();
+    expect(p.season.past).toEqual([rec1]);
+    expect(p.finish).toBe('brilho');
+    expect(p.onboarded).toBe(true);
+    await repo.replaceAll(file(null));
+    p = await repo.getProfile();
+    expect(p.season.current.n).toBe(2);
+    await repo.replaceAll(file({ finish: 'gelo', season: { current: 'x' } as unknown as SeasonProgress }));
+    p = await repo.getProfile();
+    expect(p.season.past).toEqual([rec1]);
+    expect(p.finish).toBe('fosco'); // o Gelo da cópia ainda está bloqueado aqui
+  });
+
+  it('restaurar sem perfil, sem temporada adiantada, deixa o perfil padrão como antes', async () => {
+    await repo.saveProfile({ onboarded: true });
+    await repo.replaceAll(file(null));
+    const p = await repo.getProfile();
+    expect(p.onboarded).toBe(false);
+    expect(p.season).toEqual(defaultSeason());
+  });
+});

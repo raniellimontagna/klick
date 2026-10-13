@@ -3,6 +3,7 @@
 //
 // Duas coisas andam numa fila única, na ordem em que foram pedidas: as leituras do banco (reload) e as contas depois de cada
 // solve gravado (afterSave). Assim, uma leitura que começou antes de um solve gravado não volta a esconder esse solve.
+import { defaultSeason } from '../../core/season';
 import { dayKey } from '../../core/stats';
 import { defaultSettings } from '../../core/types';
 import type { EventId, Meta, Penalty, Profile, Session, Solve } from '../../core/types';
@@ -200,6 +201,7 @@ const placeholderProfile = (): Profile => ({
   finish: 'fosco',
   onboarded: false,
   currentSessionId: null,
+  season: defaultSeason(),
 });
 
 // Quem tem dados da v1 para oferecer: os que batem, ou só registros que não batem (a oferta mostra quantos ficaram de fora). Uma
