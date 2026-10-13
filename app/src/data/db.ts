@@ -28,8 +28,28 @@ export interface KlickDB extends DBSchema {
   backups: { key: string; value: BackupRecord; indexes: { byCreated: number } };
 }
 
-export function openKlickDb(name: string = DB_NAME): Promise<IDBPDatabase<KlickDB>> {
-  return openDB<KlickDB>(name, DB_VERSION, {
+// O que acontece com a conexão por causa de outras abas ou do navegador. Quem abre o banco decide o que mostrar.
+export interface DbEvents {
+  blocking?: () => void; // outra aba pede uma versão mais nova: esta conexão já foi fechada para não prender a outra
+  blocked?: () => void; // esta abertura espera uma aba antiga largar o banco (uma versão velha do app, sem `blocking`)
+  terminated?: () => void; // o navegador derrubou a conexão (falta de espaço, aba suspensa): quem abriu reabre
+}
+
+// `version` só muda nos testes (simulam a aba de uma versão nova); o app abre sempre DB_VERSION.
+export async function openKlickDb(name: string = DB_NAME, events: DbEvents = {}, version: number = DB_VERSION): Promise<IDBPDatabase<KlickDB>> {
+  let opened: IDBPDatabase<KlickDB> | null = null;
+  opened = await openDB<KlickDB>(name, version, {
+    blocked() {
+      events.blocked?.();
+    },
+    // Sem fechar aqui, a aba da versão nova fica presa até esta fechar: a migração nunca termina.
+    blocking() {
+      opened?.close();
+      events.blocking?.();
+    },
+    terminated() {
+      events.terminated?.();
+    },
     upgrade(db, oldVersion) {
       if (oldVersion < 1) {
         const solves = db.createObjectStore('solves', { keyPath: 'id' });
@@ -43,4 +63,5 @@ export function openKlickDb(name: string = DB_NAME): Promise<IDBPDatabase<KlickD
       }
     },
   });
+  return opened;
 }

@@ -229,6 +229,9 @@ export const T = Object.freeze({
     countFailed: 'O solve está salvo, mas não consegui atualizar a contagem das cópias.',
     folderCopyFailed: 'Não consegui gravar a cópia nessa pasta. Ela será tentada de novo.',
     folderPermissionDenied: 'O navegador não liberou a pasta. Tente de novo ou escolha outra pasta.',
+    dbUpdated: 'O Klick foi atualizado em outra aba. Recarregue esta para continuar.',
+    dbUpdatedUnsaved: 'O Klick foi atualizado em outra aba. Há solves que só esta aba tem: exporte antes de recarregar.',
+    dbCloseOthers: 'Feche as outras abas do Klick para terminar a atualização.',
   },
   // Tela do Timer (ui/timer/*): embaralhamento, ações do solve, nota, tiles, constância e zonas de toque.
   timer: {

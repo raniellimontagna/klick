@@ -15,6 +15,8 @@
   import SessionsDialog from './dialogs/SessionsDialog.svelte';
   import ShortcutsDialog from './dialogs/ShortcutsDialog.svelte';
   import UpdatePrompt from './dialogs/UpdatePrompt.svelte';
+  import DbNotice from './dialogs/DbNotice.svelte';
+  import { dbNotice } from './state/db-notice.svelte';
   import TimerScreen from './timer/TimerScreen.svelte';
 
   // Quanto o boot pode demorar antes de a casca desistir e mostrar o aviso de banco indisponível.
@@ -245,9 +247,10 @@
       <OnboardingDialog {app} open={app.dialog === 'onboarding'} onpickfile={() => importInput?.click()} />
       <InstallGuide {app} open={app.dialog === 'install'} {installEvent} onused={() => (installEvent = null)} />
     </div>
-  {:else if failed}
+  {:else if failed && dbNotice() !== 'closeOthers'}
     <main class="screen">
       <p role="alert">{T.data.dbUnavailable}</p>
     </main>
   {/if}
+  <DbNotice {app} />
 </div>

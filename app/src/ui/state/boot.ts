@@ -1,16 +1,25 @@
 // Monta o que o app precisa para começar: o banco, o repositório, a fila de embaralhamentos e o estado inicial.
 // Quem chama é a casca (App.svelte), que mostra o fundo enquanto isto não termina, e a mensagem de erro se falhar.
-import { openKlickDb } from '../../data/db';
+import { DB_NAME, openKlickDb } from '../../data/db';
 import { createRepository } from '../../data/repository';
 import { generateScramble } from '../../scramble/cubing-loader';
 import { createScrambleQueue } from '../../scramble/queue';
 import { AppState } from './app.svelte';
+import { dbEvents, dbNotice, setDbNotice } from './db-notice.svelte';
 
 export async function boot(): Promise<AppState> {
-  const repo = createRepository(await openKlickDb());
+  let app: AppState | undefined;
+  const events = dbEvents(() => app);
+  // Uma abertura que esperou outra aba largar o banco tira o aviso quando termina.
+  const open = async () => {
+    const db = await openKlickDb(DB_NAME, events);
+    if (dbNotice() === 'closeOthers') setDbNotice(null);
+    return db;
+  };
+  const repo = createRepository(await open());
   const queue = createScrambleQueue({ generate: (event) => generateScramble(event) });
   // A conexão nova para quando o iOS derruba a antiga (o AppState chama isto ao receber um erro de conexão).
-  const app = new AppState({ repo, queue, reopen: async () => createRepository(await openKlickDb()) });
+  app = new AppState({ repo, queue, reopen: async () => createRepository(await open()) });
   await app.init();
   return app;
 }

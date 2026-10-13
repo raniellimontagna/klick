@@ -991,6 +991,11 @@ export class AppState {
     }
   }
 
+  // O navegador derrubou a conexão (evento terminated do banco): reabre, como num erro de conexão de uma gravação.
+  connectionLost(): void {
+    void this.reopenRepo();
+  }
+
   private stalled(): void {
     this.saveStalled = true;
     this.announce(T.data.saveFailed);
