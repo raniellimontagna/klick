@@ -182,6 +182,19 @@ describe('Seus dados: cópias, exportar, lixeira e importar', () => {
     expect(a.solves.map((x) => x.id)).toContain(solve.id);
   });
 
+  it('lixeira: a sessão excluída mostra quantos solves leva, sem uma linha por solve', async () => {
+    const { a } = await app();
+    for (let i = 0; i < 5; i++) await a.addSolve({ ms: 60000 + i, penalty: null, at: Date.now() + i });
+    const session = a.currentSession!;
+    await a.deleteSession(session.id);
+    render(DataSection, { app: a });
+    expect(await screen.findByRole('button', { name: 'Ver lixeira (1)' })).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: 'Ver lixeira (1)' }));
+    const restoreSession = await screen.findByRole('button', { name: `Restaurar sessão ${session.name}` });
+    expect(restoreSession.closest('li')).toHaveTextContent(T.trashDialog.sessionSolves(5));
+    expect(screen.queryAllByRole('button', { name: /Restaurar solve/ })).toHaveLength(0);
+  });
+
   it('versão anterior: mostra quantos registros não puderam ser lidos e marca a oferta', async () => {
     const v1 = {
       state: {

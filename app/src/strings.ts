@@ -383,6 +383,7 @@ export const T = Object.freeze({
     intro: 'Solves e sessões excluídos. Ficam aqui por 30 dias e depois somem de vez. Restaurar uma sessão traz de volta os solves dela que estão aqui.',
     empty: 'A lixeira está vazia.',
     sessionKind: 'Sessão',
+    sessionSolves: (n: number): string => (n === 0 ? 'sem solves' : n === 1 ? '1 solve' : `${n} solves`),
     deletedOn: (when: string): string => `excluído em ${when}`,
     restore: 'Restaurar',
     restoreSession: (name: string): string => `Restaurar sessão ${name}`,

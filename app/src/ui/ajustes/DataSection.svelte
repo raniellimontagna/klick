@@ -8,6 +8,7 @@
   import { T } from '../../strings';
   import { daysAgoLabel } from '../format';
   import { isStandalone } from '../platform';
+  import { groupTrash } from '../trash';
   import { confirmCsTimerImport, importFile, importV1Flow } from '../import-flow';
   import BackupsDialog from '../dialogs/BackupsDialog.svelte';
   import ExportDialog from '../dialogs/ExportDialog.svelte';
@@ -69,7 +70,7 @@
   async function refreshCounts(): Promise<void> {
     const [backups, trash, folder] = await Promise.all([
       app.listBackups().then((list) => list.length, () => null),
-      app.listTrash().then((t) => t.sessions.length + t.solves.length, () => null),
+      app.listTrash().then((t) => groupTrash(t).count, () => null),
       app.hasBackupFolder().catch(() => null),
     ]);
     backupCount = backups;

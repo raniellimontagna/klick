@@ -1,12 +1,13 @@
 <script lang="ts">
-  // A lixeira: solves e sessões excluídos, os mais recentes primeiro. Restaurar devolve o item (uma sessão traz os solves dela). Depois
-  // de restaurar, o foco vai para o próximo item da lista (ou para Fechar, se a lista acabou): o botão de quem sai some.
+  // A lixeira: solves e sessões excluídos, os mais recentes primeiro. Restaurar devolve o item (uma sessão traz os solves que saíram
+  // junto com ela, por isso eles aparecem só como contagem na linha da sessão: ui/trash.ts). Depois de restaurar, o foco vai para o
+  // próximo item da lista (ou para Fechar, se a lista acabou): o botão de quem sai some.
   import { tick } from 'svelte';
   import { eventInfo } from '../../core/events';
   import { formatSolve } from '../../core/stats';
-  import type { Session, Solve } from '../../core/types';
   import { T } from '../../strings';
   import { dateLabel, timeOfDay } from '../format';
+  import { groupTrash, type TrashView } from '../trash';
   import type { AppState } from '../state/app.svelte';
   import { modal } from './modal';
 
@@ -15,8 +16,7 @@
   let dialogEl = $state<HTMLDialogElement>();
   let listEl = $state<HTMLElement>();
   let closeEl = $state<HTMLButtonElement>();
-  let sessions = $state<Session[]>([]);
-  let solves = $state<Solve[]>([]);
+  let view = $state<TrashView>({ sessions: [], solves: [], count: 0 });
   let loaded = $state(false);
   let busy = $state(false);
 
@@ -28,12 +28,9 @@
 
   async function load(): Promise<void> {
     try {
-      const trash = await app.listTrash();
-      sessions = trash.sessions;
-      solves = trash.solves;
+      view = groupTrash(await app.listTrash());
     } catch {
-      sessions = [];
-      solves = [];
+      view = { sessions: [], solves: [], count: 0 };
       app.showToast(T.trashDialog.loadFailed);
     }
     loaded = true;
@@ -74,15 +71,15 @@
   {#if open}
     <h2>{T.trashDialog.title}</h2>
     <p class="muted">{T.trashDialog.intro}</p>
-    {#if loaded && sessions.length === 0 && solves.length === 0}
+    {#if loaded && view.count === 0}
       <p class="muted">{T.trashDialog.empty}</p>
     {/if}
     <div bind:this={listEl}>
       <ul class="sheet-list">
-        {#each sessions as s (s.id)}
+        {#each view.sessions as { session: s, solves: n } (s.id)}
           {@const when = dateLabel(s.deletedAt ?? s.updatedAt)}
           <li class="setting">
-            <span>{s.name}<small>{T.trashDialog.sessionKind} · {eventInfo(s.event).short} · {T.trashDialog.deletedOn(`${when}, ${timeOfDay(s.deletedAt ?? s.updatedAt)}`)}</small></span>
+            <span>{s.name}<small>{T.trashDialog.sessionKind} · {eventInfo(s.event).short} · {T.trashDialog.sessionSolves(n)} · {T.trashDialog.deletedOn(`${when}, ${timeOfDay(s.deletedAt ?? s.updatedAt)}`)}</small></span>
             <button
               type="button"
               class="btn"
@@ -92,7 +89,7 @@
             >
           </li>
         {/each}
-        {#each solves as s (s.id)}
+        {#each view.solves as s (s.id)}
           {@const when = dateLabel(s.deletedAt ?? s.updatedAt)}
           <li class="setting">
             <span>{formatSolve(s)} · {eventInfo(s.event).short}<small>{T.trashDialog.deletedOn(`${when}, ${timeOfDay(s.deletedAt ?? s.updatedAt)}`)}</small></span>
