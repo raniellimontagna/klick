@@ -750,16 +750,20 @@ export function createRepository(
         const sessionStore = tx.objectStore('sessions');
         const solveStore = tx.objectStore('solves');
         const profileStore = tx.objectStore('profile');
-        // A temporada daqui é lida antes de limpar: a restauração fica com a mais adiantada (spec 5.6), mesmo que a cópia não tenha perfil.
-        const mine = profileOrDefault(await profileStore.get('current')).season;
+        // O perfil daqui é lido antes de limpar: a restauração fica com a temporada mais adiantada (spec 5.6), mesmo que a cópia não
+        // tenha perfil, e uma cópia sem perfil também não tira o acabamento que a pessoa escolheu.
+        const local = profileOrDefault(await profileStore.get('current'));
+        const mine = local.season;
         await Promise.all([sessionStore.clear(), solveStore.clear(), profileStore.clear()]);
         await each(sessions, (s) => sessionStore.put(s));
         await each(solves, (s) => solveStore.put(s));
         const restored = profile ? mergeProfile(defaultProfile(), profile) : null;
         const season = moreAdvanced(mine, seasonFrom(profile?.season));
-        // Sem perfil na cópia e sem temporada a guardar, o perfil fica vazio (os padrões), como sempre foi.
+        // Sem perfil na cópia e sem temporada a guardar, o perfil fica vazio (os padrões), como sempre foi. Sem perfil na cópia e com
+        // temporada a guardar, o perfil é o padrão com o acabamento daqui; com perfil, vale o acabamento da cópia. Nos dois, só se
+        // estiver liberado pelas temporadas fechadas.
         if (restored || season.past.length > 0) {
-          const base = restored ?? defaultProfile();
+          const base = restored ?? { ...defaultProfile(), finish: local.finish };
           const finish = finishUnlocked(base.finish, season.past.length) ? base.finish : 'fosco';
           await profileStore.put({ ...base, season, finish }, 'current');
         }

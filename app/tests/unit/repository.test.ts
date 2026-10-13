@@ -1684,6 +1684,10 @@ describe('temporadas no perfil', () => {
     let p = await repo.getProfile();
     expect(p.season).toEqual(ahead);
     expect(p.finish).toBe('fosco'); // o Carbono pede 3 temporadas fechadas
+    await repo.saveProfile({ finish: 'brilho' });
+    await repo.importAll(file({ season: ahead, finish: 'carbono' }));
+    expect((await repo.getProfile()).finish).toBe('brilho'); // o bloqueado não troca o que já está escolhido
+    await repo.saveProfile({ finish: 'fosco' });
     await repo.importAll(file({ season: defaultSeason(), finish: 'brilho' }));
     p = await repo.getProfile();
     expect(p.season).toEqual(ahead); // a daqui estava mais adiantada
@@ -1707,6 +1711,7 @@ describe('temporadas no perfil', () => {
     await repo.replaceAll(file(null));
     p = await repo.getProfile();
     expect(p.season.current.n).toBe(2);
+    expect(p.finish).toBe('brilho'); // a cópia sem perfil não tira o acabamento escolhido
     await repo.replaceAll(file({ finish: 'gelo', season: { current: 'x' } as unknown as SeasonProgress }));
     p = await repo.getProfile();
     expect(p.season.past).toEqual([rec1]);
