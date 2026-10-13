@@ -1,9 +1,11 @@
 import { render, screen, waitFor } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { marksFor } from '../../src/core/season';
 import { openKlickDb } from '../../src/data/db';
 import { createRepository } from '../../src/data/repository';
 import { createScrambleQueue } from '../../src/scramble/queue';
+import { T } from '../../src/strings';
 import { AppState } from '../../src/ui/state/app.svelte';
 import CentroScreen from '../../src/ui/centro/CentroScreen.svelte';
 import TimerScreen from '../../src/ui/timer/TimerScreen.svelte';
@@ -119,14 +121,43 @@ describe('Centro: relógio da tela', () => {
     vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'], now: noon.getTime() + 2 * 3_600_000 });
     try {
       render(CentroScreen, { app: a });
-      expect(screen.getByText('3/7')).toBeInTheDocument();
+      expect(screen.getByText('3 de 7 dias')).toBeInTheDocument();
       vi.setSystemTime(noon.getTime() + day + 2 * 3_600_000);
       vi.advanceTimersByTime(60_000);
       await tick();
-      expect(screen.getByText('0/7')).toBeInTheDocument();
+      expect(screen.getByText('0 de 7 dias')).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
   });
 });
 
+describe('Centro: temporadas', () => {
+  it('na T2 os marcos vêm da escada; o histórico mostra a T1; o Brilho está liberado e o Gelo diz de onde sai', async () => {
+    const repo = createRepository(await openKlickDb(`ce-${++n}`), { channel: null });
+    const basis = { single: 15210, ao5: 18770, ao12: 19340 };
+    await repo.saveProfile({
+      season: {
+        current: { n: 2, startedAt: new Date(2026, 9, 13, 12).getTime(), marks: marksFor(basis), basis },
+        past: [{ n: 1, startedAt: new Date(2025, 9, 8, 12).getTime(), endedAt: new Date(2026, 9, 13, 11).getTime(), solves: 1204, startAo12: null, endAo12: 62310 }],
+      },
+    });
+    const a = new AppState({ repo, queue: createScrambleQueue({ generate: async () => 'R U' }), storage: null, storageManager: null });
+    await a.init();
+    render(CentroScreen, { app: a });
+    expect(await screen.findByText(/Temporada 2 · 0 de 9 marcos · Fosco/)).toBeInTheDocument();
+    expect(screen.getByText('Face de cima · Temporada 2, desde 13/10')).toBeInTheDocument();
+    expect(screen.getByText('Média de 5 abaixo de 18 s')).toBeInTheDocument();
+    expect(screen.getByText('5 seguidos dentro de 1.9 s')).toBeInTheDocument();
+    expect(screen.getByText('T1 · 08/10/2025 a 13/10/2026 · 1.204 solves · média de 12 em 1:02.31 · Brilho')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Brilho' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Gelo · sai na T2' })).toBeInTheDocument();
+  });
+
+  it('sem temporada fechada, o histórico diz que a primeira está em andamento', async () => {
+    const { a } = await app();
+    render(CentroScreen, { app: a });
+    expect(await screen.findByText(T.centro.historyEmpty)).toBeInTheDocument();
+    expect(screen.getByText('Face de cima · Temporada 1')).toBeInTheDocument();
+  });
+});

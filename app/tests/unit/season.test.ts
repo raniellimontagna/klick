@@ -7,6 +7,8 @@ import {
   defaultSeason,
   evaluateSeason,
   finishUnlocked,
+  markLabel,
+  markMessage,
   marksFor,
   moreAdvanced,
   planAdvance,
@@ -16,9 +18,11 @@ import {
   seasonOne,
   seasonSolves,
   stepBelow,
+  targetText,
 } from '../../src/core/season';
 import { MILESTONES, milestoneProgress } from '../../src/core/stats';
 import type { SeasonProgress, Solve } from '../../src/core/types';
+import { MILESTONE_INFO } from '../../src/strings';
 
 let id = 0;
 const sv = (ms: number, at: number, penalty: Solve['penalty'] = null, event: Solve['event'] = '333'): Solve => ({
@@ -255,5 +259,27 @@ describe('virada da temporada (spec 5.5)', () => {
     const list = Array.from({ length: 15 }, (_, i) => sv(19000 + i * 100, NOON + 1 + i));
     const status = evaluateSeason(state, list);
     expect(closeRecord(state, list, status)).toEqual({ n: 2, startedAt: NOON, endedAt: NOON + 12, solves: 12, startAo12: 22000, endAo12: 19550 });
+  });
+});
+
+describe('rótulos dos marcos (spec 7.3)', () => {
+  it('a T1 usa os de hoje; da T2 em diante saem do tipo e da meta', () => {
+    expect(seasonOne().marks.map((m, i) => markLabel(1, i, m))).toEqual(MILESTONES.map((id) => MILESTONE_INFO[id].label));
+    const marks = marksFor({ single: 15210, ao5: 18770, ao12: 61000 });
+    expect(marks.map((m, i) => markLabel(2, i, m))).toEqual([
+      '50 solves na temporada',
+      'Single abaixo de 15 s',
+      'Média de 5 abaixo de 18 s',
+      '7 dias seguidos',
+      'Média de 12 abaixo de 1:00',
+      '300 solves na temporada',
+      'Média de 5 abaixo de 17 s',
+      '5 seguidos dentro de 1.9 s',
+      'Média de 12 abaixo de 58 s',
+    ]);
+    expect(targetText(9500)).toBe('9.5 s');
+    expect(targetText(90000)).toBe('1:30');
+    expect(markMessage(1, 5, seasonOne().marks[5])).toBe(MILESTONE_INFO.sub1.msg);
+    expect(markMessage(2, 2, marks[2])).toBe('Média de 5 abaixo de 18 s');
   });
 });

@@ -1,7 +1,8 @@
 // Temporadas do Centro (spec do sub-projeto 3, seção 5): a escada de degraus, os 9 marcos de cada temporada, a validação do que vem de
 // fora e os acabamentos. Tudo puro: quem chama passa os solves ativos em ordem de tempo.
+import { MILESTONE_INFO, T } from '../strings';
 import { eventInfo } from './events';
-import { bestAverage, bestSingle, dayKey, effectiveMs, noon, trimmedMean } from './stats';
+import { bestAverage, bestSingle, dayKey, effectiveMs, MILESTONES, noon, trimmedMean } from './stats';
 import type { FinishId, MarkKind, SeasonBasis, SeasonMark, SeasonProgress, SeasonRecord, SeasonState, Solve } from './types';
 
 // A T1 de hoje, na ordem de MILESTONES (stats.ts): os rótulos dela continuam os de MILESTONE_INFO.
@@ -312,4 +313,41 @@ export function planAdvance(
   const record = closeRecord(cur, solves, status);
   const basis = basisOf(solves.filter((s) => eventInfo(s.event).milestones));
   return { fromN: cur.n, record, next: { n: cur.n + 1, startedAt: Math.max(now, record.endedAt), marks: marksFor(basis), basis } };
+}
+
+// --- Textos dos marcos ---
+
+// A meta redonda como a pessoa fala: "18 s", "9.5 s", "1:30".
+export function targetText(ms: number): string {
+  if (ms >= 60000) {
+    const m = Math.floor(ms / 60000);
+    const s = Math.round((ms % 60000) / 1000);
+    return `${m}:${String(s).padStart(2, '0')}`;
+  }
+  const s = ms / 1000;
+  return `${Number.isInteger(s) ? s : s.toFixed(1)} s`;
+}
+
+// O rótulo de um marco na lista. A T1 mantém os de hoje (MILESTONE_INFO, na ordem de MILESTONES).
+export function markLabel(n: number, index: number, mark: SeasonMark): string {
+  if (n === 1) return MILESTONE_INFO[MILESTONES[index]].label;
+  switch (mark.kind) {
+    case 'count':
+      return T.marks.count(mark.target);
+    case 'single':
+      return T.marks.single(targetText(mark.target));
+    case 'ao5':
+      return T.marks.ao5(targetText(mark.target));
+    case 'ao12':
+      return T.marks.ao12(targetText(mark.target));
+    case 'streak':
+      return T.marks.streak(mark.target);
+    case 'steady':
+      return T.marks.steady((mark.target / 1000).toFixed(1));
+  }
+}
+
+// A frase do coach para um marco conquistado. A T1 mantém as de hoje; da T2 em diante, o próprio rótulo.
+export function markMessage(n: number, index: number, mark: SeasonMark): string {
+  return n === 1 ? MILESTONE_INFO[MILESTONES[index]].msg : markLabel(n, index, mark);
 }

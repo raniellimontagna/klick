@@ -28,9 +28,9 @@ export const TRAIL = Object.freeze([
 
 export const FINISH_INFO = Object.freeze({
   fosco: { label: 'Fosco', unlock: 'padrão' },
-  brilho: { label: 'Brilho', unlock: 'temporada 1' },
-  gelo: { label: 'Gelo', unlock: 'temporada 2' },
-  carbono: { label: 'Carbono', unlock: 'temporada 3' },
+  brilho: { label: 'Brilho', unlock: 'sai na T1' },
+  gelo: { label: 'Gelo', unlock: 'sai na T2' },
+  carbono: { label: 'Carbono', unlock: 'sai na T3' },
 });
 
 export const T = Object.freeze({
@@ -71,6 +71,18 @@ export const T = Object.freeze({
   progress: {
     best: (text: string) => `melhor ${text}`,
     count: (n: number, total: number) => `${n}/${total}`,
+    of: (n: number, total: number) => `${n} de ${total}`,
+    days: (n: number, total: number) => `${n} de ${total} dias`,
+    spread: (text: string) => `menor variação ${text}`,
+  },
+  // Rótulos dos marcos da T2 em diante (core/season.ts). Os da T1 ficam em MILESTONE_INFO.
+  marks: {
+    count: (target: number) => `${target} solves na temporada`,
+    single: (time: string) => `Single abaixo de ${time}`,
+    ao5: (time: string) => `Média de 5 abaixo de ${time}`,
+    ao12: (time: string) => `Média de 12 abaixo de ${time}`,
+    streak: (days: number) => `${days} dias seguidos`,
+    steady: (sec: string) => `5 seguidos dentro de ${sec} s`,
   },
   // Nome de uma sessão criada sem nome (data/repository.ts). Ele vai gravado junto com a sessão.
   session: {
@@ -107,7 +119,14 @@ export const T = Object.freeze({
     finishes: 'Acabamentos',
     preview: (finish: string) => ` · prévia: ${finish}`,
     finishLocked: (label: string, unlock: string) => `${label} · ${unlock}`,
-    topFace: 'Face de cima · marcos',
+    topFace: (n: number, since: string | null) => (since ? `Face de cima · Temporada ${n}, desde ${since}` : `Face de cima · Temporada ${n}`),
+    history: 'Temporadas',
+    historyEmpty: 'A primeira temporada ainda está em andamento.',
+    // "T1 · 08/10/2025 a 13/10/2026 · 1.204 solves · média de 12 em 1:02.31 · Brilho": sem média ou sem acabamento, a parte some.
+    historyRow: (n: number, from: string, to: string, solves: number, ao12: string | null, finish: string | null) =>
+      [`T${n}`, `${from} a ${to}`, `${solves.toLocaleString('pt-BR')} ${solves === 1 ? 'solve' : 'solves'}`, ao12 ? `média de 12 em ${ao12}` : null, finish]
+        .filter((part) => part !== null)
+        .join(' · '),
     sideFace: 'Face lateral · trilha',
     know: 'já sei',
     undo: 'desfazer',
@@ -452,5 +471,5 @@ export const T = Object.freeze({
     text: 'Faz um tempo que você não exporta seus solves. Guarde uma cópia fora do navegador.',
     later: 'Agora não',
   }),
-  season: (done: number, finish: string) => `Temporada 1 · ${done} de 9 marcos · acabamento ${finish}`,
+  season: (n: number, done: number, finish: string) => `Temporada ${n} · ${done} de 9 marcos · ${finish}`,
 });

@@ -1,9 +1,12 @@
 <script lang="ts">
-  // A tela do Centro (porte de prototype/scripts/ui/companion-view.js): o cubo com a jornada, os acabamentos, os marcos (face de
-  // cima), a trilha (face lateral) e o modo silencioso. Os marcos valem só para os solves de 3×3. Os textos ficam em strings.ts.
-  import { MILESTONES, milestoneProgress } from '../../core/stats';
-  import { FINISH_INFO, MILESTONE_INFO, T, TRAIL } from '../../strings';
+  // A tela do Centro: o cubo com a jornada, os acabamentos, os marcos da temporada atual (face de cima), a trilha (face lateral), o
+  // histórico das temporadas e o modo silencioso. Os marcos valem só para os solves de 3×3. Os textos ficam em strings.ts.
+  import { finishUnlocked, type MarkStatus, markLabel, seasonFinish, seasonSolves } from '../../core/season';
+  import { currentStreak, formatMs } from '../../core/stats';
+  import type { SeasonRecord } from '../../core/types';
+  import { FINISH_INFO, T, TRAIL } from '../../strings';
   import { type Palette, paletteFor, renderCentro, type CentroTheme } from '../centro';
+  import { fullDate, shortDate } from '../format';
   import type { AppState } from '../state/app.svelte';
 
   type FinishKey = keyof typeof FINISH_INFO;
@@ -39,13 +42,19 @@
   let trailWrites: Promise<void> = Promise.resolve();
 
   const finishName = (f: string): string => (isFinishKey(f) ? FINISH_INFO[f].label : FINISH_INFO.fosco.label);
-  const unlocked = (f: FinishKey, done: number): boolean => f === 'fosco' || (f === 'brilho' && done === MILESTONES.length);
+  const unlocked = (f: FinishKey): boolean => finishUnlocked(f, app.profile.season.past.length);
 
-  // Os marcos saem só dos solves de 3×3.
-  const milestones = $derived(milestoneProgress(app.solves.filter((s) => s.event === '333'), clock));
-  const done = $derived(milestones.filter((m) => m.achieved).length);
+  // A temporada atual: os marcos saem dos solves de 3×3 depois do início dela (a conta é do AppState, guardada por lista).
+  const season = $derived(app.profile.season.current);
+  const status = $derived(app.seasonStatus(app.solves, season));
+  const done = $derived(status.filter((m) => m.achieved).length);
+  const nextMilestone = $derived(status.findIndex((m) => !m.achieved));
+  const streakNow = $derived(currentStreak(seasonSolves(app.solves, season), clock));
+  const marks = $derived(
+    status.map((m, i) => ({ label: markLabel(season.n, i, m.mark), achieved: m.achieved, progress: m.achieved ? null : progressText(m) })),
+  );
+  const history = $derived([...app.profile.season.past].reverse());
   const trailDone = $derived(app.profile.trail.filter(Boolean).length);
-  const nextMilestone = $derived(milestones.findIndex((m) => !m.achieved));
   const nextStep = $derived(app.profile.trail.findIndex((x) => !x));
   const shownFinish = $derived<FinishKey>(preview ?? (isFinishKey(app.profile.finish) ? app.profile.finish : 'fosco'));
   const theme = $derived<CentroTheme>(
@@ -63,6 +72,28 @@
     }),
   );
 
+  // O que falta num marco pendente: quantos, o melhor até agora, os dias seguidos de agora ou a menor variação.
+  function progressText(m: MarkStatus): string | null {
+    const { kind, target } = m.mark;
+    switch (kind) {
+      case 'count':
+        return target === 1 ? null : T.progress.of(Math.min(m.current ?? 0, target), target);
+      case 'single':
+      case 'ao5':
+      case 'ao12':
+        return m.current === null ? null : T.progress.best(formatMs(m.current));
+      case 'streak':
+        return T.progress.days(Math.min(streakNow, target), target);
+      case 'steady':
+        return m.current === null ? null : T.progress.spread(formatMs(m.current));
+    }
+  }
+
+  function historyRow(r: SeasonRecord): string {
+    const finish = seasonFinish(r.n);
+    return T.centro.historyRow(r.n, fullDate(r.startedAt), fullDate(r.endedAt), r.solves, r.endAo12 === null ? null : formatMs(r.endAo12), finish ? FINISH_INFO[finish].label : null);
+  }
+
   function clearPreview(): void {
     previewGen++;
     clearTimeout(previewTimer);
@@ -71,7 +102,7 @@
 
   // Acabamento liberado grava o perfil e cancela a prévia. Bloqueado só mostra a prévia, por 3 s, e não grava nada.
   function pickFinish(f: FinishKey): void {
-    if (unlocked(f, done)) {
+    if (unlocked(f)) {
       clearPreview();
       void app.updateProfile({ finish: f });
       return;
@@ -128,11 +159,11 @@
       <div class="big">{@html svg}</div>
       <h2>{T.centro.label}</h2>
       <p>
-        {T.season(done, finishName(app.profile.finish))}{#if preview}{T.centro.preview(FINISH_INFO[preview].label)}{/if}
+        {T.season(season.n, done, finishName(app.profile.finish))}{#if preview}{T.centro.preview(FINISH_INFO[preview].label)}{/if}
       </p>
       <div class="finishes" role="group" aria-label={T.centro.finishes}>
         {#each FINISH_IDS as f (f)}
-          {@const locked = !unlocked(f, done)}
+          {@const locked = !unlocked(f)}
           <button type="button" class="finish" class:locked data-finish={f} aria-pressed={shownFinish === f ? 'true' : 'false'} onclick={() => pickFinish(f)}>
             <i style:background={SWATCH[f](palette)}></i>
             {locked ? T.centro.finishLocked(FINISH_INFO[f].label, FINISH_INFO[f].unlock) : FINISH_INFO[f].label}
@@ -143,11 +174,11 @@
 
     <div class="comp-cols">
       <div class="card">
-        <div class="label">{T.centro.topFace}</div>
+        <div class="label">{T.centro.topFace(season.n, season.n === 1 ? null : shortDate(season.startedAt))}</div>
         <ul class="mlist">
-          {#each milestones as m, i (m.id)}
+          {#each marks as m, i (i)}
             <li class:done={m.achieved} class:next={!m.achieved && i === nextMilestone}>
-              <i></i>{MILESTONE_INFO[m.id].label}
+              <i></i>{m.label}
               {#if m.achieved}<em>✓</em>{:else if m.progress}<em>{m.progress}</em>{/if}
             </li>
           {/each}
@@ -167,6 +198,19 @@
             </li>
           {/each}
         </ul>
+      </div>
+
+      <div class="card">
+        <div class="label">{T.centro.history}</div>
+        {#if history.length === 0}
+          <p class="muted">{T.centro.historyEmpty}</p>
+        {:else}
+          <ul class="mlist">
+            {#each history as r (r.n)}
+              <li class="done"><i></i>{historyRow(r)}</li>
+            {/each}
+          </ul>
+        {/if}
       </div>
 
       <div class="card silent-row">

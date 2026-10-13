@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dateLabel, daysAgoLabel, escapeHtml, monthLabel, relativeTime, truncate } from '../../src/ui/format';
+import { dateLabel, daysAgoLabel, escapeHtml, fullDate, monthLabel, relativeTime, shortDate, truncate } from '../../src/ui/format';
 
 const NOW = new Date(2026, 9, 8, 20, 0, 0).getTime();
 
@@ -8,6 +8,12 @@ describe('formatação', () => {
   it('datas em pt-BR curtas', () => {
     expect(dateLabel(NOW)).toBe('qui, 8 out');
     expect(monthLabel(NOW)).toBe('outubro');
+  });
+
+  it('datas curtas e completas, no fuso local', () => {
+    const ts = new Date(2025, 9, 8, 12).getTime();
+    expect(shortDate(ts)).toBe('08/10');
+    expect(fullDate(ts)).toBe('08/10/2025');
   });
 
   it('tempo relativo', () => {

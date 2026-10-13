@@ -45,3 +45,16 @@ export const truncate = (s: string, n: number): string => (s.length > n ? `${s.s
 const HTML_ESCAPES: Readonly<Record<string, string>> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 
 export const escapeHtml = (s: unknown): string => String(s).replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]);
+
+const two = (n: number): string => String(n).padStart(2, '0');
+
+// "13/10": dia e mês, no fuso local.
+export function shortDate(ts: number): string {
+  const d = new Date(ts);
+  return `${two(d.getDate())}/${two(d.getMonth() + 1)}`;
+}
+
+// "08/10/2025": dia, mês e ano, no fuso local.
+export function fullDate(ts: number): string {
+  return `${shortDate(ts)}/${new Date(ts).getFullYear()}`;
+}
