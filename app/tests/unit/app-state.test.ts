@@ -693,13 +693,15 @@ describe('estado do app: fix round 1 (brief 9b)', () => {
     }
   });
 
-  // Uma leitura do banco que não responde prendia a fila inteira: as contas, as gravações do meta e as releituras paravam.
-  it('uma leitura que não responde desiste em 8 s, a fila segue e o banco é reaberto', async () => {
+  // Uma leitura do banco que não responde prendia a fila inteira: as contas, as gravações do meta e as releituras paravam. Mas uma
+  // leitura só lenta (histórico grande num celular lento) não pode virar falha: passado o prazo, uma sondagem rápida decide.
+  it('uma leitura que não responde, com o banco também mudo na sondagem, desiste, a fila segue e o banco é reaberto', async () => {
     const repo = await freshRepo();
     const replacement = await freshRepo(); // abre antes dos timers falsos
     const reopen = vi.fn(async () => replacement);
     const app = await appWith(repo, { reopen });
     repo.listSessions = () => new Promise<never>(() => {});
+    repo.getMeta = () => new Promise<never>(() => {}); // a sondagem também não responde: conexão morta
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
       const reading = app.reload();
@@ -707,12 +709,78 @@ describe('estado do app: fix round 1 (brief 9b)', () => {
       const after = app.updateMeta({ installGuideDismissed: true }); // passa pela mesma fila
       let metaDone = false;
       void after.then(() => { metaDone = true; });
-      await vi.advanceTimersByTimeAsync(7999);
+      await vi.advanceTimersByTimeAsync(10_999); // 8 s de prazo + 3 s de sondagem
       expect(metaDone).toBe(false);
       await vi.advanceTimersByTimeAsync(1);
       expect(await failed).toMatchObject({ name: 'TimeoutError' });
       await vi.waitFor(() => expect(metaDone).toBe(true));
       await vi.waitFor(() => expect(reopen).toHaveBeenCalled());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('uma leitura só lenta, com o banco respondendo à sondagem, é esperada: nada falha nem reabre', async () => {
+    const repo = await freshRepo();
+    const reopen = vi.fn(async () => repo);
+    const app = await appWith(repo, { reopen });
+    const realList = repo.listSolves.bind(repo);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      repo.listSolves = (o) => new Promise((resolve) => setTimeout(() => resolve(realList(o)), 12_000));
+      app.toast = null;
+      const reading = app.reload();
+      let done = false;
+      void reading.then(() => { done = true; });
+      await vi.advanceTimersByTimeAsync(11_999);
+      expect(done).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await reading;
+      expect(reopen).not.toHaveBeenCalled();
+      expect(app.toast).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('abrir o app com um histórico que demora a ler não desiste: a abertura espera', async () => {
+    const repo = await freshRepo();
+    // Um aparelho com uso: sessão e perfil gravados antes do relógio falso (gravar com o relógio parado não termina no banco de teste).
+    const session = await repo.createSession({ event: '333' });
+    await repo.saveProfile({ currentSessionId: session.id, onboarded: true });
+    await repo.addSolve({ sessionId: session.id, event: '333', ms: 60_000, penalty: null, at: t, scramble: 'R' });
+    const realList = repo.listSolves.bind(repo);
+    const realMeta = repo.getMeta.bind(repo);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      repo.listSolves = (o) => new Promise((resolve) => setTimeout(() => resolve(realList(o)), 20_000));
+      repo.getMeta = () => new Promise((resolve) => setTimeout(() => resolve(realMeta()), 20_000)); // nem a sondagem responde rápido
+      const app = new AppState({ repo, queue: fakeQueue(), now, storage: null, storageManager: null });
+      const opening = app.init().then(() => 'ok', (err: unknown) => err);
+      // O banco de teste também anda no relógio falso: avança em passos até a abertura terminar (bem além dos 8 s do prazo).
+      for (let i = 0; i < 40; i++) await vi.advanceTimersByTimeAsync(5_000);
+      expect(await opening).toBe('ok');
+      expect(app.solves).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 30_000);
+
+  it('a contagem das cópias que não responde não segura o solve: ele volta com o aviso da contagem', async () => {
+    const repo = await freshRepo();
+    const app = await appWith(repo);
+    repo.saveMeta = () => new Promise<never>(() => {});
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const adding = app.addSolve(newSolve(61_000));
+      let done = false;
+      void adding.then(() => { done = true; });
+      // O banco de teste também anda no relógio falso: avança em passos, bem além dos 8 s do prazo da contagem.
+      for (let i = 0; i < 20 && !done; i++) await vi.advanceTimersByTimeAsync(2_500);
+      expect(done).toBe(true);
+      expect((await adding)?.ms).toBe(61_000);
+      expect(app.solves.map((x) => x.ms)).toEqual([61_000]);
+      expect(app.toast?.text).toBe(T.data.countFailed);
     } finally {
       vi.useRealTimers();
     }

@@ -57,6 +57,21 @@ export interface AppDeps {
   share?: ShareFile | null; // exportar pela folha de compartilhar (padrão: a do sistema no iPhone e no iPad; nos outros, o download)
 }
 
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+// A promessa, ou TimeoutError se ela não termina dentro do prazo (ela continua; o resultado tardio é ignorado).
+async function within<R>(promise: Promise<R>, ms: number): Promise<R> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(Object.assign(new Error('sem resposta'), { name: 'TimeoutError' })), ms);
+  });
+  try {
+    return await Promise.race([promise, expired]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // 'done' se a promessa termina (com sucesso ou erro) dentro do prazo; 'late' se não.
 async function settlesWithin(promise: Promise<unknown>, ms: number): Promise<'done' | 'late'> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -110,9 +125,15 @@ const STALL_MS = 5000;
 const SAVE_DEADLINE_MS = 8000;
 // Uma reabertura que não responde nesse prazo é desistida: o repositório atual segue e a próxima falha pode pedir outra.
 const REOPEN_DEADLINE_MS = 8000;
-// Uma leitura do banco que não responde em READ_DEADLINE_MS desiste (TimeoutError): a fila segue e o banco é reaberto. Sem isso, uma
-// leitura presa segurava a fila inteira (contas, meta, releituras) para sempre.
+// Uma leitura do banco que passa de READ_DEADLINE_MS sem resposta pede uma sondagem (uma leitura mínima, do meta): se o banco responde
+// em PROBE_MS, a leitura só está lenta (histórico grande, celular lento) e é esperada; se não, a conexão está morta: a leitura desiste
+// (TimeoutError), a fila segue e o banco é reaberto. Sem isso, uma leitura presa segurava a fila inteira para sempre.
 const READ_DEADLINE_MS = 8000;
+const PROBE_MS = 3000;
+// As contas de um solve gravado (ler e gravar o meta) são mínimas: sem resposta neste prazo, desistem com aviso, e a fila segue.
+const COUNT_DEADLINE_MS = 8000;
+// As cópias depois de um solve podem demorar de verdade com um histórico grande; o prazo largo só impede que prendam a fila para sempre.
+const AFTER_COUNT_DEADLINE_MS = 60000;
 // A restauração espera uma importação em andamento terminar, mas não para sempre.
 const IMPORT_WAIT_MS = 8000;
 // A restauração inteira (ler a cópia, trocar, recarregar). Passado o prazo, a chamada devolve false com o aviso, mas o portão segue
@@ -317,7 +338,7 @@ export class AppState {
   }
 
   async init(): Promise<void> {
-    await this.reload();
+    await this.readKinds(ALL_READS, false); // a abertura não desiste: um histórico grande num celular lento só demora
     // Assina antes do primeiro embaralhamento: a espera pelo cubing pode ser longa, e uma mudança de outra aba nesse tempo não
     // pode ficar de fora. As leituras que as próprias escritas disparam entram na fila; a última espera por elas no fim.
     this.subscribe();
@@ -344,7 +365,7 @@ export class AppState {
       clearTimeout(patience);
     }
     this.queue.prefetch(this.event);
-    await this.reload();
+    await this.readKinds(ALL_READS, false);
     // As cópias do dia e da pasta vêm depois do primeiro embaralhamento e rodam em segundo plano: uma cópia grande não segura a
     // casca. backup() e copyToFolder() já tratam as próprias falhas (com aviso); o catch só evita uma rejeição sem dono.
     void this.openingCopies(plan).catch(() => undefined);
@@ -362,7 +383,7 @@ export class AppState {
   }
 
   // Relê só os tipos pedidos (cada um é uma leitura do banco) e recalcula o que deles depende. Na mesma fila que as contas.
-  private readKinds(kinds: readonly ReadKind[]): Promise<void> {
+  private readKinds(kinds: readonly ReadKind[], deadline = true): Promise<void> {
     const want = new Set<ReadKind>(kinds);
     return this.serial(async () => {
       const reading = Promise.all([
@@ -371,7 +392,7 @@ export class AppState {
         want.has('profile') ? this.repo.getProfile() : undefined,
         want.has('meta') ? this.repo.getMeta() : undefined,
       ] as const);
-      const [sessions, solves, profile, meta] = await this.withReadDeadline(reading);
+      const [sessions, solves, profile, meta] = deadline ? await this.withReadDeadline(reading) : await reading;
       if (sessions) {
         this.allSessions = sessions;
         this.sessions = sessions.filter((s) => s.deletedAt === null);
@@ -389,21 +410,18 @@ export class AppState {
     });
   }
 
-  // Uma leitura do banco com prazo: sem resposta em READ_DEADLINE_MS, desiste (TimeoutError) e o banco é reaberto. A resposta que
-  // chegar tarde é ignorada.
+  // Uma leitura do banco com prazo e sondagem (READ_DEADLINE_MS, PROBE_MS). Banco vivo: espera a leitura, por lenta que seja. Banco
+  // mudo: desiste (TimeoutError) e reabre; a resposta que chegar tarde é ignorada.
   private async withReadDeadline<R>(reading: Promise<R>): Promise<R> {
-    let deadline: ReturnType<typeof setTimeout> | undefined;
-    const expired = new Promise<never>((_, reject) => {
-      deadline = setTimeout(() => reject(Object.assign(new Error('leitura sem resposta'), { name: 'TimeoutError' })), READ_DEADLINE_MS);
-    });
-    try {
-      return await Promise.race([reading, expired]);
-    } catch (err) {
-      if (isConnectionError(err)) void this.reopenRepo();
-      throw err;
-    } finally {
-      clearTimeout(deadline);
-    }
+    if ((await settlesWithin(reading, READ_DEADLINE_MS)) === 'done') return reading;
+    const probe = this.repo.getMeta().then(
+      () => 'alive' as const,
+      () => 'dead' as const,
+    );
+    const answer = await Promise.race([probe, sleep(PROBE_MS).then(() => 'dead' as const)]);
+    if (answer === 'alive') return reading;
+    void this.reopenRepo();
+    throw Object.assign(new Error('leitura sem resposta'), { name: 'TimeoutError' });
   }
 
   // Outra aba mudou estes solves: lê só eles e os encaixa na lista em memória, em vez de reler o histórico inteiro.
@@ -823,10 +841,9 @@ export class AppState {
   // as que ficam sem evento não entram. Os solves viram registros novos; os que já existem (até os da lixeira) não entram de novo.
   importCsTimer(sessions: CsTimerSession[], mapping: Record<string, EventId | undefined>): Promise<ImportSummary | null> {
     return this.importJob(async () => {
-      const [existingSessions, existingSolves] = await Promise.all([
-        this.repo.listSessions({ includeDeleted: true }),
-        this.repo.listSolves({ includeDeleted: true }),
-      ]);
+      const [existingSessions, existingSolves] = await this.withReadDeadline(
+        Promise.all([this.repo.listSessions({ includeDeleted: true }), this.repo.listSolves({ includeDeleted: true })]),
+      );
       const now = this.now();
       const plan = csTimerToKlick(sessions, mapping, { now, newId: () => newId(now), existingSessions, existingSolves });
       const report = await this.repo.importAll({
@@ -866,10 +883,9 @@ export class AppState {
       return null;
     }
     return this.importJob(async () => {
-      const [existingSessions, existingSolves] = await Promise.all([
-        this.repo.listSessions({ includeDeleted: true }),
-        this.repo.listSolves({ includeDeleted: true }),
-      ]);
+      const [existingSessions, existingSolves] = await this.withReadDeadline(
+        Promise.all([this.repo.listSessions({ includeDeleted: true }), this.repo.listSolves({ includeDeleted: true })]),
+      );
       const now = this.now();
       const plan = v1ToKlick(v1, { now, existingSessions, existingSolves });
       const report = await this.repo.importAll({
@@ -1167,16 +1183,18 @@ export class AppState {
     if (!this.sessions.some((s) => s.id === solve.sessionId)) void this.refreshKinds(['sessions']);
     let counted: Meta;
     try {
-      counted = countSolveSaved(this.meta ?? (await this.repo.getMeta()));
+      counted = countSolveSaved(this.meta ?? (await within(this.repo.getMeta(), COUNT_DEADLINE_MS)));
       this.meta = counted; // antes de gravar: se a gravação falhar, a contagem em memória continua certa
-      this.meta = await this.repo.saveMeta(counters(counted));
+      this.meta = await within(this.repo.saveMeta(counters(counted)), COUNT_DEADLINE_MS);
     } catch {
       // O solve já está gravado; só a contagem das cópias não foi salva.
       this.showToast(T.data.countFailed);
       return;
     }
     void this.askPersistence();
-    void this.serial(() => this.afterCount(counted));
+    void this.serial(async () => {
+      if ((await settlesWithin(this.afterCount(counted), AFTER_COUNT_DEADLINE_MS)) === 'late') this.showToast(T.data.backupFailed);
+    });
   }
 
   // O que vem depois de um solve gravado: cópia automática, cópia na pasta e lembrete. Roda na fila, depois das leituras e gravações
@@ -1188,7 +1206,7 @@ export class AppState {
       if (plan.remindExport) this.exportReminder = true;
       if (plan.folderSave) await this.copyToFolder();
     } catch {
-      this.showToast(T.data.saveFailed);
+      this.showToast(T.data.backupFailed); // o solve já está gravado: o que falhou foi a cópia
     }
   }
 
