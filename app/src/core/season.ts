@@ -351,3 +351,79 @@ export function markLabel(n: number, index: number, mark: SeasonMark): string {
 export function markMessage(n: number, index: number, mark: SeasonMark): string {
   return n === 1 ? MILESTONE_INFO[MILESTONES[index]].msg : markLabel(n, index, mark);
 }
+
+// --- "Quase lá" (spec 7.2) ---
+
+const NEAR = 1.03; // até 3% acima da meta
+const NEAR_COUNT = 10; // faltam até 10 solves
+
+export interface NearMark {
+  index: number;
+  mark: SeasonMark;
+  gap: number; // tempo: ms acima da meta; count: solves que faltam; streak: 1 (falta um dia)
+}
+
+// Dias seguidos com solve, terminando no dia do solve `end` (a lista em ordem de tempo).
+function runEndingAt(list: Solve[], end: number): number {
+  let run = 1;
+  let day = dayKey(list[end].at);
+  for (let i = end - 1; i >= 0; i--) {
+    const k = dayKey(list[i].at);
+    if (k === day) continue;
+    if (Math.round((noon(day) - noon(k)) / DAY) !== 1) break;
+    run += 1;
+    day = k;
+  }
+  return run;
+}
+
+// Quanto falta quando o solve `end` da lista (os da temporada, em ordem) deixa o marco perto; null quando não deixa.
+function nearGap(mark: SeasonMark, list: Solve[], end: number): number | null {
+  const solve = list[end];
+  switch (mark.kind) {
+    case 'ao5':
+    case 'ao12': {
+      const n = mark.kind === 'ao5' ? 5 : 12;
+      if (end + 1 < n) return null;
+      const v = trimmedMean(list.slice(end + 1 - n, end + 1).map(effectiveMs));
+      return v !== Infinity && v > mark.target && v <= mark.target * NEAR ? v - mark.target : null;
+    }
+    case 'single': {
+      const e = effectiveMs(solve);
+      return e !== Infinity && e > mark.target && e <= mark.target * NEAR ? e - mark.target : null;
+    }
+    case 'count': {
+      const left = mark.target - (end + 1);
+      return left >= 1 && left <= NEAR_COUNT ? left : null;
+    }
+    case 'streak':
+      if (end > 0 && dayKey(list[end - 1].at) === dayKey(solve.at)) return null; // só o primeiro solve do dia
+      return runEndingAt(list, end) === mark.target - 1 ? 1 : null;
+    case 'steady':
+      return null;
+  }
+}
+
+// O primeiro marco pendente que este solve deixou perto e que nenhum solve anterior da sessão já tinha deixado: uma vez por marco por
+// sessão, sem memória (a conta refaz os anteriores). `prior` são os solves da temporada antes dele; `sessionPrior`, os da sessão.
+export function firstNearInSession(
+  marks: readonly SeasonMark[],
+  achieved: readonly boolean[],
+  prior: Solve[],
+  sessionPrior: Solve[],
+  solve: Solve,
+): NearMark | null {
+  const list = [...prior, solve];
+  const end = prior.length;
+  const inSession = new Set(sessionPrior.map((s) => s.id));
+  for (let index = 0; index < marks.length; index++) {
+    if (achieved[index]) continue;
+    const mark = marks[index];
+    const gap = nearGap(mark, list, end);
+    if (gap === null) continue;
+    let said = false;
+    for (let j = 0; j < end && !said; j++) said = inSession.has(list[j].id) && nearGap(mark, list, j) !== null;
+    if (!said) return { index, mark: { ...mark }, gap };
+  }
+  return null;
+}

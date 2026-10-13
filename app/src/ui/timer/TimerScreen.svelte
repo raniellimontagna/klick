@@ -2,10 +2,10 @@
   // A tela do Timer (porte de prototype/scripts/app.js e ui/timer-view.js). Dona do timer, da entrada, da reação, do coach e da
   // pintura do tempo. O solve é gravado antes da reação: a reação só começa depois que o solve está em app.solves.
   import { tick, untrack } from 'svelte';
-  import { pickCoachMessage } from '../../core/coach';
+  import { type CoachSeason, pickCoachMessage } from '../../core/coach';
   import { eventInfo } from '../../core/events';
+  import { closeRecord, seasonFinish, seasonSolves } from '../../core/season';
   import {
-    createMilestoneTracker,
     averageOf,
     bestSingleSolve,
     currentStreak,
@@ -13,7 +13,6 @@
     formatMs,
     formatSolve,
     monthHeat,
-    type MilestoneId,
     officialAverage,
     officialAverageLabel,
     type ResultKind,
@@ -23,7 +22,7 @@
   } from '../../core/stats';
   import { createTimer, type Timer, type TimerResult, type TimerState } from '../../core/timer';
   import { createTouchArm } from '../../core/touch';
-  import type { EventId, Solve } from '../../core/types';
+  import type { EventId, SeasonState, Solve } from '../../core/types';
   import { T } from '../../strings';
   import { daysAgoLabel, monthLabel } from '../format';
   import { type CentroView as Vista, eyesFor, ringFor, updateCentro } from '../centro';
@@ -63,8 +62,6 @@
     const i = list.findIndex((s) => s.id === solve.id);
     return i < 0 ? [] : list.slice(0, i);
   };
-  // Os marcos valem só para os eventos que os têm (o 3×3, segundo o catálogo).
-  const milestoneSolves = (list: Solve[]): Solve[] => list.filter((s) => eventInfo(s.event).milestones);
 
   // A inspeção vale quando o ajuste pede e o evento tem (o 3BLD não tem). Os ajustes do timer, do toque e do som entram pelo
   // efeito de ajustes, logo na montagem, antes de qualquer toque.
@@ -173,28 +170,21 @@
     };
   });
 
-  // Os marcos conquistados percorrem o histórico inteiro: a conta é guardada por lista (a mesma lista não se conta duas vezes) e
-  // não roda no caminho do solve. A contagem do Centro é atualizada numa macrotarefa depois de cada mudança dos solves.
-  // O rastreador continua a conta de onde parou quando a lista só ganhou solves no fim (o caso de cada solve novo): com 50 mil solves
-  // isso deixa de percorrer o histórico inteiro a cada solve. O memo por lista evita até a conferência do começo da lista.
-  const achievedMemo = new WeakMap<Solve[], MilestoneId[]>();
-  const tracker = createMilestoneTracker();
-  const achievedOf = (list: Solve[]): MilestoneId[] => {
-    let ids = achievedMemo.get(list);
-    if (!ids) {
-      ids = tracker.achieved(milestoneSolves(list));
-      achievedMemo.set(list, ids);
-    }
-    return ids;
-  };
+  // Os marcos da temporada atual, para a face de cima. A conta é do AppState (guardada por lista; continua de onde parou) e roda numa
+  // macrotarefa depois de cada mudança dos solves ou da temporada, fora do caminho do solve.
   let topLit = $state(0);
   $effect(() => {
     const list = app.solves;
+    const state = app.profile.season.current;
     const later = setTimeout(() => {
-      topLit = achievedOf(list).length;
+      topLit = app.seasonStatus(list, state).filter((m) => m.achieved).length;
     }, 0);
     return () => clearTimeout(later);
   });
+  // Na virada, a face de cima segue cheia durante a reação e só depois esvazia (spec 8). null: mostra a contagem de agora.
+  let topHold = $state<number | null>(null);
+  let topHoldTimer: ReturnType<typeof setTimeout> | undefined;
+  const topShown = $derived(topHold ?? topLit);
   const sideLit = $derived(app.profile.trail.filter(Boolean).length);
 
   // ----- Texto e pintura (a cada quadro, sem passar pelo Svelte) -----
@@ -286,6 +276,22 @@
 
   // ----- Solve: gravar, depois reagir -----
 
+  // A temporada do solve para o coach: os marcos antes e depois dele, os solves da temporada antes dele e, se ele fechou a temporada, o
+  // resumo dela. Conta na temporada de quando o solve começou: a virada pode já ter gravado a próxima.
+  function seasonInput(state: SeasonState, listBefore: Solve[]): CoachSeason {
+    const before = app.seasonStatus(listBefore, state);
+    const after = app.seasonStatus(app.solves, state);
+    const closed = before.some((m) => !m.achieved) && after.every((m) => m.achieved);
+    const record = closed ? closeRecord(state, app.solves, after) : null;
+    return {
+      state,
+      before,
+      after,
+      prior: seasonSolves(listBefore, state),
+      end: record && { n: record.n, solves: record.solves, startAo12: record.startAo12, endAo12: record.endAo12, finish: seasonFinish(record.n) },
+    };
+  }
+
   // Uma tecla ou toque que para o timer chega aqui. A gravação acontece antes de qualquer reação.
   async function finishSolve({ ms, penalty }: TimerResult): Promise<void> {
     const mine = ++solveSeq;
@@ -295,6 +301,7 @@
     const sessionList = app.sessionSolves;
     const prevAnyAt = app.solves.at(-1)?.at;
     const listBefore = app.solves; // os marcos de antes são contados depois, na lista que estava aqui (a gravação não espera por eles)
+    const seasonAtStart = $state.snapshot(app.profile.season.current); // a temporada em que este solve cai
     saving = true;
     unstored = null;
     showResult = false;
@@ -337,17 +344,14 @@
       kick();
       return;
     }
-    const milestone = eventInfo(solve.event).milestones;
-    const milestonesBefore = milestone ? achievedOf(listBefore) : [];
-    const after = milestone ? achievedOf(app.solves) : [];
-    const fresh = milestone ? after.filter((id) => !milestonesBefore.includes(id)) : [];
+    const season = eventInfo(solve.event).milestones ? seasonInput(seasonAtStart, listBefore) : undefined;
+    const seasonClosed = season?.end != null;
     const s = app.profile.settings;
     const msg = pickCoachMessage({
       solve,
       history: eventList,
       sessionSolves: sessionList,
-      newMilestones: fresh,
-      achievedCount: after.length,
+      season,
       dailyGoal: s.dailyGoal,
       todayCount: solvesOnDay(app.solves, solve.at).length,
       prevAnyAt,
@@ -356,6 +360,13 @@
     });
     const t0 = performance.now();
     reaction = { from: t0 + REACTION_DELAY, until: t0 + REACTION_DELAY + REACTION_MS };
+    clearTimeout(topHoldTimer);
+    if (seasonClosed) {
+      topHold = 9;
+      topHoldTimer = setTimeout(() => {
+        topHold = null;
+      }, REACTION_DELAY + REACTION_MS);
+    }
     coach = msg ? { text: msg.text, from: t0 + REACTION_DELAY, until: t0 + REACTION_DELAY + COACH_MS } : null;
     clearTimeout(chordTimer);
     if (kind === 'pb') {
@@ -507,6 +518,8 @@
       coach = null;
       showResult = false;
       unstored = null;
+      topHold = null;
+      clearTimeout(topHoldTimer);
       closeNote();
     }
     kick();
@@ -572,6 +585,7 @@
       destroyed = true;
       loop.stop();
       clearTimeout(chordTimer);
+      clearTimeout(topHoldTimer);
       const body = document.body;
       body.classList.remove('solving');
       for (const k of ['tstate', 'cview', 'result', 'insp']) delete body.dataset[k];
@@ -758,7 +772,7 @@
 
   <aside class="t-side" aria-label={T.timer.side}>
     <div class="card t-coach">
-      <CentroView {theme} finish={app.profile.finish} {topLit} {sideLit} />
+      <CentroView {theme} finish={app.profile.finish} topLit={topShown} {sideLit} />
       <div class="t-coachtext">
         <div class="label fade">{T.timer.coachLabel}</div>
         <p class="coach" class:quiet={coachShown === null}>{coachShown ?? ''}</p>

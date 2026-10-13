@@ -52,6 +52,15 @@ export const T = Object.freeze({
     fatigue: 'Seus últimos estão subindo. Uma pausa de 5 minutos costuma ajudar.',
     firstDnf: 'DNF acontece. Respira e segue.',
     back: 'Que bom te ver. Começa leve — o primeiro não conta pra nada.',
+    seasonEnd: (n: number, solves: number, from: string | null, to: string | null, finish: string | null) =>
+      `Temporada ${n} completa: ${solves.toLocaleString('pt-BR')} ${solves === 1 ? 'solve' : 'solves'}${from && to ? `, melhor média de 12 de ${from} para ${to}` : ''}.${finish ? ` ${finish} liberado.` : ''}`,
+    nearAverage: (n: number, gapMs: number, target: string) => `Faltam ${sec(gapMs)} s para a média de ${n} abaixo de ${target}.`,
+    nearSingle: (gapMs: number, target: string) => `Esse ficou a ${sec(gapMs)} s do single abaixo de ${target}.`,
+    nearCount: (left: number, target: number, inSeason: boolean) =>
+      `Faltam ${left} ${left === 1 ? 'solve' : 'solves'} para os ${target.toLocaleString('pt-BR')}${inSeason ? ' da temporada' : ' solves'}.`,
+    nearStreak: (days: number) => `${days - 1} dias seguidos. Mais um fecha o marco.`,
+    week: (event: string, diffMs: number) => `Sua semana no ${event} foi ${sec(diffMs)} s mais rápida que a anterior.`,
+    outlier: (ao12: string) => `Esse escapou. A média de 12 segue em ${ao12}.`,
   },
   chips: {
     vsAvg: (diffMs: number, n: number) => `${diffMs <= 0 ? '▼' : '▲'} ${sec(Math.abs(diffMs))} s vs média de ${n}`,

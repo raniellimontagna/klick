@@ -175,6 +175,25 @@ describe('tela do Timer: solve, reação e nota', () => {
     expect(form).toHaveAttribute('hidden');
     expect(campo).not.toHaveFocus();
   });
+
+  it('um solve que fecha a temporada mostra o fim de temporada no coach, segura a face de cima cheia e depois esvazia', async () => {
+    const { a, repo } = await app();
+    await a.updateSettings({ inspection: false });
+    await repo.saveProfile({
+      season: {
+        current: { n: 2, startedAt: Date.now() - 1000, marks: Array.from({ length: 9 }, () => ({ kind: 'count' as const, target: 1 })), basis: { single: 50000, ao5: 50000, ao12: 50000 } },
+        past: [{ n: 1, startedAt: 1, endedAt: 2, solves: 1000, startAo12: null, endAo12: 50000 }],
+      },
+    });
+    await a.reload();
+    render(TimerScreen, { app: a });
+    const litFaces = () => document.querySelectorAll('[data-centro-slot] svg.centro g[transform="matrix(1,0,0.3,-0.3,0,30)"] .lit').length;
+    await solveByKeys();
+    expect(await screen.findByText('Temporada 2 completa: 1 solve. Gelo liberado.', {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(litFaces()).toBe(9);
+    await waitFor(() => expect(a.profile.season.current.n).toBe(3));
+    await waitFor(() => expect(litFaces()).toBe(0), { timeout: 4000 });
+  });
 });
 
 // Tempo controlado: o timer lê performance.now(), então a duração de cada solve é a que o teste manda, sem esperas reais.

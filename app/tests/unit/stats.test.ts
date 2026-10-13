@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  achievedIds, averageOf, createMilestoneTracker, bestAverage, bestMean, bestSingle, currentStreak, dayKey, effectiveMs, formatMs, formatSolve,
+  achievedIds, averageOf, bestAverage, bestMean, bestSingle, currentStreak, dayKey, effectiveMs, formatMs, formatSolve,
   meanOf, milestoneProgress, monthHeat, officialAverage, officialAverageLabel, pbFlags, resultKind,
   rollingAverages, solveDeltas, stdDevMs, trimCount,
 } from '../../src/core/stats';
@@ -335,51 +335,5 @@ describe('bestMean: melhor média simples entre as janelas de n solves', () => {
     expect(bestMean(xs, 5)).toBe(Math.min(meanOf(xs.slice(0, 5), 5)!, meanOf(xs, 5)!));
     expect(bestMean(xs, 6)).toBe(meanOf(xs, 6));
     expect(bestMean(xs, 7)).toBeNull();
-  });
-});
-
-// Os marcos percorrem o histórico inteiro. Um solve novo só acrescenta no fim: o rastreador continua a conta de onde parou, e
-// qualquer outra mudança (editar ou excluir no meio) refaz do zero. O resultado tem de ser sempre o mesmo da conta inteira.
-describe('marcos: conta que continua de onde parou', () => {
-  const DAY_MS = 86_400_000;
-  const BASE = new Date(2026, 0, 1, 12).getTime();
-  // Um histórico que acende tudo: dias seguidos, tempos caindo de 2:10 até 0:50, alguns DNF e +2.
-  const history = (n: number): Solve[] =>
-    Array.from({ length: n }, (_, i) => {
-      const penalty: Solve['penalty'] = i % 37 === 5 ? 'DNF' : i % 23 === 7 ? '+2' : null;
-      return { ...sv(Math.max(50_000, 130_000 - i * 70), penalty, BASE + Math.floor(i / 150) * DAY_MS + i * 1000), id: `s${i}` };
-    });
-
-  it('solve a solve, o rastreador dá o mesmo que a conta inteira', () => {
-    const all = history(1200);
-    const tracker = createMilestoneTracker();
-    for (const n of [1, 2, 5, 12, 99, 100, 101, 500, 999, 1000, 1200]) {
-      expect(tracker.achieved(all.slice(0, n))).toEqual(achievedIds(all.slice(0, n), NOW));
-    }
-    expect(tracker.achieved(all)).toContain('n1000');
-  });
-
-  it('acrescentar no fim continua a conta; editar no meio refaz do zero', () => {
-    const all = history(300);
-    const tracker = createMilestoneTracker();
-    tracker.achieved(all.slice(0, 200));
-    expect(tracker.lastRun()).toBe('full');
-    tracker.achieved(all.slice(0, 201));
-    expect(tracker.lastRun()).toBe('appended');
-    const edited = all.slice(0, 201);
-    edited[50] = { ...edited[50], penalty: 'DNF' };
-    expect(tracker.achieved(edited)).toEqual(achievedIds(edited, NOW));
-    expect(tracker.lastRun()).toBe('full');
-    const removed = edited.slice(0, 120);
-    expect(tracker.achieved(removed)).toEqual(achievedIds(removed, NOW));
-    expect(tracker.lastRun()).toBe('full');
-  });
-
-  it('a mesma lista não conta de novo', () => {
-    const all = history(100);
-    const tracker = createMilestoneTracker();
-    tracker.achieved(all);
-    tracker.achieved(all);
-    expect(tracker.lastRun()).toBe('cached');
   });
 });

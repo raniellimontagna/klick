@@ -7,6 +7,7 @@ import {
   defaultSeason,
   evaluateSeason,
   finishUnlocked,
+  firstNearInSession,
   markLabel,
   markMessage,
   marksFor,
@@ -281,5 +282,27 @@ describe('rótulos dos marcos (spec 7.3)', () => {
     expect(targetText(90000)).toBe('1:30');
     expect(markMessage(1, 5, seasonOne().marks[5])).toBe(MILESTONE_INFO.sub1.msg);
     expect(markMessage(2, 2, marks[2])).toBe('Média de 5 abaixo de 18 s');
+  });
+});
+
+describe('quase lá (spec 7.2)', () => {
+  const filler = Array.from({ length: 8 }, () => ({ kind: 'count' as const, target: 99999 }));
+
+  it('uma vez por marco por sessão: um solve anterior da sessão que já ficou perto cala o seguinte', () => {
+    const marks = [{ kind: 'ao5' as const, target: 18000 }, ...filler];
+    const prior = [18300, 18400, 18200, 18500].map((ms, i) => sv(ms, i + 1));
+    const first = sv(18350, 5);
+    expect(firstNearInSession(marks, Array(9).fill(false), prior, prior, first)).toEqual({ index: 0, mark: marks[0], gap: 350 });
+    const all = [...prior, first];
+    expect(firstNearInSession(marks, Array(9).fill(false), all, all, sv(18300, 6))).toBeNull();
+    expect(firstNearInSession(marks, Array(9).fill(false), all, [], sv(18300, 6))).toEqual({ index: 0, mark: marks[0], gap: 350 });
+  });
+
+  it('marco já feito, meta batida ou longe demais não ficam perto', () => {
+    const marks = [{ kind: 'single' as const, target: 15000 }, ...filler];
+    expect(firstNearInSession(marks, [true, ...Array(8).fill(false)], [], [], sv(15200, 1))).toBeNull();
+    expect(firstNearInSession(marks, Array(9).fill(false), [], [], sv(14900, 1))).toBeNull();
+    expect(firstNearInSession(marks, Array(9).fill(false), [], [], sv(15500, 1))).toBeNull(); // 3,3% acima
+    expect(firstNearInSession(marks, Array(9).fill(false), [], [], sv(15000, 1, 'DNF'))).toBeNull();
   });
 });

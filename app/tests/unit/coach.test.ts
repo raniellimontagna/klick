@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { pickCoachMessage } from '../../src/core/coach';
-import type { Solve } from '../../src/core/types';
+import { type CoachSeason, pickCoachMessage } from '../../src/core/coach';
+import { type MarkStatus, seasonOne } from '../../src/core/season';
+import type { SeasonMark, SeasonState, Solve } from '../../src/core/types';
 import { T } from '../../src/strings';
 
 type CoachInput = Parameters<typeof pickCoachMessage>[0];
@@ -15,10 +16,21 @@ const many = (list: number[], at = NOW): Solve[] => list.map((ms, i) => sv(ms, n
 // Todas as chamadas levam event: '333', o evento dos casos portados do protótipo.
 const pick = (over: Pick<CoachInput, 'solve'> & Partial<CoachInput>) => pickCoachMessage({ history: [], sessionSolves: [], event: '333', ...over });
 
+// Os marcos de uma temporada, com os índices dados já feitos.
+const statusOf = (state: SeasonState, done: number[]): MarkStatus[] =>
+  state.marks.map((mark, i) => ({ mark, achieved: done.includes(i), at: done.includes(i) ? NOW : null, current: null }));
+const seasonIn = (state: SeasonState, before: number[], after: number[], prior: Solve[] = []): CoachSeason => ({
+  state, before: statusOf(state, before), after: statusOf(state, after), prior, end: null,
+});
+const t1 = (before: number[], after: number[]) => seasonIn(seasonOne(), before, after);
+const t2 = (marks: SeasonMark[]): SeasonState => ({ n: 2, startedAt: 0, marks, basis: { single: null, ao5: null, ao12: null } });
+// Um marco de teste na frente e 8 que nunca ficam perto.
+const pending = (m: SeasonMark): SeasonMark[] => [m, ...Array.from({ length: 8 }, () => ({ kind: 'count' as const, target: 99999 }))];
+
 // Casos portados de prototype/tests/coach.test.js.
 describe('coach', () => {
   it('recorde de single tem prioridade máxima', () => {
-    const msg = pick({ solve: sv(55000), history: many([59000, 61000]), newMilestones: ['sub1'], achievedCount: 6 });
+    const msg = pick({ solve: sv(55000), history: many([59000, 61000]), season: t1([0, 1, 2, 3, 4], [0, 1, 2, 3, 4, 5]) });
     expect(msg?.id).toBe('pb-single');
     expect(msg?.text).toBe('Novo recorde — 4.00 s mais rápido. Vale lembrar o que funcionou.');
   });
@@ -30,7 +42,7 @@ describe('coach', () => {
   });
 
   it('marco conquistado', () => {
-    const msg = pick({ solve: sv(59000), newMilestones: ['sub1'], achievedCount: 6 });
+    const msg = pick({ solve: sv(59000), season: t1([0, 1, 2, 3, 4], [0, 1, 2, 3, 4, 5]) });
     expect(msg?.text).toBe('Primeiro solve abaixo de 1 minuto. Marco 6 de 9.');
   });
 
@@ -124,10 +136,9 @@ describe('coach com a média oficial do evento', () => {
     expect(msg?.text).toBe('Sua média de 12 caiu para 1:09.00. Isso é consistência, não sorte.');
   });
 
-  it('marco que a interface não conhece é ignorado em vez de quebrar a mensagem', () => {
-    expect(pick({ solve: sv(59000), newMilestones: ['nope'], achievedCount: 1 })).toBeNull();
-    const msg = pick({ solve: sv(59000), newMilestones: ['sub1', 'nope'], achievedCount: 6 });
-    expect(msg?.text).toBe('Primeiro solve abaixo de 1 minuto. Marco 6 de 9.');
+  it('da T2 em diante, a mensagem do marco é o rótulo dele', () => {
+    const msg = pick({ solve: sv(17000), season: seasonIn(t2(pending({ kind: 'ao5', target: 18000 })), [], [0]) });
+    expect(msg?.text).toBe('Média de 5 abaixo de 18 s. Marco 1 de 9.');
   });
 
   it('média igual ao melhor de antes não é recorde: vale só a estritamente menor, no Mo3 e no Ao5', () => {
@@ -170,5 +181,67 @@ describe('coach: a meta do dia e o "de volta" contam todos os eventos', () => {
     expect(pick({ solve: sv(70000), prevAnyAt: NOW - 4 * DAY })?.id).toBe('back');
     expect(pick({ solve: sv(70000), prevAnyAt: NOW - 3 * DAY })?.id).toBe('back'); // 3 dias exatos já contam
     expect(pick({ solve: sv(70000), prevAnyAt: NOW - 3 * DAY + 1 })).toBeNull();
+  });
+});
+
+describe('gatilhos novos do coach (spec do sub-projeto 3, seção 7)', () => {
+  it('fim de temporada vem antes de tudo, com a média e o acabamento', () => {
+    const season = { ...t1([0, 1, 2, 3, 4, 5, 6, 7], [0, 1, 2, 3, 4, 5, 6, 7, 8]), end: { n: 2, solves: 412, startAo12: 18610, endAo12: 17840, finish: 'gelo' as const } };
+    const msg = pick({ solve: sv(55000), history: many([59000]), season });
+    expect(msg?.id).toBe('season-end');
+    expect(msg?.text).toBe('Temporada 2 completa: 412 solves, melhor média de 12 de 0:18.61 para 0:17.84. Gelo liberado.');
+  });
+
+  it('o fim da T1 sai sem média; da T4 em diante, sem acabamento', () => {
+    expect(T.coach.seasonEnd(1, 1204, null, null, 'Brilho')).toBe('Temporada 1 completa: 1.204 solves. Brilho liberado.');
+    expect(T.coach.seasonEnd(4, 1, '0:15.00', '0:14.00', null)).toBe('Temporada 4 completa: 1 solve, melhor média de 12 de 0:15.00 para 0:14.00.');
+  });
+
+  it('quase lá na média de 5, uma vez por sessão', () => {
+    const state = t2(pending({ kind: 'ao5', target: 18000 }));
+    const prior = many([18300, 18400, 18200, 18500]);
+    const solve = sv(18350);
+    // Ao5 = 18300, 18400 e 18350 (sem 18200 e 18500) = 18350: 0,35 s acima de 18 s (1,9%).
+    const msg = pick({ solve, history: prior, sessionSolves: prior, season: seasonIn(state, [], [], prior) });
+    expect(msg?.id).toBe('near');
+    expect(msg?.text).toBe('Faltam 0.35 s para a média de 5 abaixo de 18 s.');
+    const all = [...prior, solve];
+    const next = sv(18300, null, NOW + 60000);
+    expect(pick({ solve: next, history: all, sessionSolves: all, season: seasonIn(state, [], [], all) })?.id).not.toBe('near');
+    expect(pick({ solve: next, history: all, sessionSolves: [], season: seasonIn(state, [], [], all) })?.id).toBe('near');
+  });
+
+  it('quase lá no single, no volume e na sequência de dias', () => {
+    const single = t2(pending({ kind: 'single', target: 15000 }));
+    expect(pick({ solve: sv(15210), history: many([14000]), season: seasonIn(single, [], []) })?.text).toBe('Esse ficou a 0.21 s do single abaixo de 15 s.');
+    const count = t2(pending({ kind: 'count', target: 300 }));
+    const prior = Array.from({ length: 290 }, (_, i) => sv(20000, null, NOW - DAY + i));
+    expect(pick({ solve: sv(20000), history: many([10000]), season: seasonIn(count, [], [], prior) })?.text).toBe('Faltam 9 solves para os 300 da temporada.');
+    const streak = t2(pending({ kind: 'streak', target: 7 }));
+    const days = Array.from({ length: 5 }, (_, i) => sv(20000, null, NOW - (5 - i) * DAY));
+    expect(pick({ solve: sv(20000), history: many([10000]), season: seasonIn(streak, [], [], days) })?.text).toBe('6 dias seguidos. Mais um fecha o marco.');
+  });
+
+  it('semana melhor: no primeiro solve do dia, os 7 dias anteriores contra os 7 antes deles', () => {
+    const at = (daysAgo: number, k: number) => NOW - daysAgo * DAY - k * 60000;
+    const older = Array.from({ length: 12 }, (_, k) => sv(21000, null, at(10, k)));
+    const recent = Array.from({ length: 12 }, (_, k) => sv(20000, null, at(3, k)));
+    const history = [...older, ...recent].sort((x, y) => x.at - y.at);
+    const msg = pick({ solve: sv(30000), history });
+    expect(msg?.id).toBe('week');
+    expect(msg?.text).toBe('Sua semana no 3×3 foi 1.00 s mais rápida que a anterior.');
+    expect(pick({ solve: sv(30000), history: [...history, sv(20000, null, NOW - 60000)] })?.id).not.toBe('week'); // já houve solve hoje
+    expect(pick({ solve: sv(30000), history: history.slice(1) })?.id).not.toBe('week'); // só 11 solves na semana mais antiga
+  });
+
+  it('fora da curva: o primeiro solve da sessão acima de 1,25 vez a média de 12, sem DNF', () => {
+    const session = many(Array.from({ length: 12 }, (_, i) => 20000 + i * 100));
+    // Ao12 dos 12 = 20550. 26 s passa de 1,25 × 20,55 s; com ele, a média de 12 fica em 20,65 s.
+    const msg = pick({ solve: sv(26000), history: session, sessionSolves: session });
+    expect(msg?.id).toBe('outlier');
+    expect(msg?.text).toBe('Esse escapou. A média de 12 segue em 0:20.65.');
+    const after = [...session, sv(26000)];
+    expect(pick({ solve: sv(27000, null, NOW + 60000), history: after, sessionSolves: after })?.id).not.toBe('outlier');
+    expect(pick({ solve: sv(26000, 'DNF'), history: session, sessionSolves: session })?.id).toBe('first-dnf');
   });
 });

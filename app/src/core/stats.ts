@@ -261,40 +261,6 @@ function reachedAt(solves: Solve[]): Partial<Record<MilestoneId, number>> {
   return st.at;
 }
 
-export interface MilestoneTracker {
-  achieved(solves: Solve[]): MilestoneId[]; // o mesmo que achievedIds(solves), sem recontar o que já contou
-  lastRun(): 'cached' | 'appended' | 'full'; // como foi a última conta (para os testes e para medir)
-}
-
-// Guarda a última lista contada e o estado da dobra. Se a lista nova começa com os mesmos solves (os mesmos objetos, na mesma ordem),
-// só os novos do fim entram na conta. Qualquer outra mudança (um solve editado, excluído ou inserido no meio) refaz do zero.
-export function createMilestoneTracker(): MilestoneTracker {
-  let seen: Solve[] = [];
-  let st = initReach();
-  let run: 'cached' | 'appended' | 'full' = 'full';
-  const ids = (): MilestoneId[] => MILESTONES.filter((id) => st.at[id] !== undefined);
-  return {
-    achieved(solves) {
-      if (solves === seen) {
-        run = 'cached';
-        return ids();
-      }
-      let prefix = solves.length >= seen.length;
-      for (let i = 0; prefix && i < seen.length; i++) prefix = solves[i] === seen[i];
-      if (prefix) {
-        run = seen.length === 0 ? 'full' : solves.length === seen.length ? 'cached' : 'appended';
-      } else {
-        st = initReach();
-        run = 'full';
-      }
-      for (let i = prefix ? seen.length : 0; i < solves.length; i++) stepReach(st, solves[i]);
-      seen = solves;
-      return ids();
-    },
-    lastRun: () => run,
-  };
-}
-
 export function milestoneProgress(solves: Solve[], nowTs: number): MilestoneStatus[] {
   const at = reachedAt(solves);
   const best = bestSingle(solves);
