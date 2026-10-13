@@ -231,6 +231,46 @@ describe('tela do Timer: solve, reação e nota', () => {
     watch.disconnect();
     expect(lifts[0]).toMatch(/^translate\(0 -/);
   });
+
+  it('um DNF no meio da reação troca os olhos do Centro na hora, antes de a reação acabar', async () => {
+    const { a } = await app();
+    await a.updateSettings({ inspection: false });
+    render(TimerScreen, { app: a });
+    const svg = () => document.querySelector('[data-centro-slot] svg.centro') as SVGElement;
+    await solveByKeys();
+    await waitFor(() => expect(document.body.dataset.cview).toBe('reaction'), { timeout: 3000 });
+    expect(svg().dataset.eyes).not.toBe('half');
+    key('keydown', 'KeyD', 'd');
+    await waitFor(() => expect(svg().dataset.eyes).toBe('half'), { timeout: 1500 });
+    expect(document.body.dataset.cview).toBe('reaction');
+  });
+
+  it('enquanto a gravação demora, o Centro fica parado (foco) até a reação começar', async () => {
+    const { a, repo } = await app();
+    await a.updateSettings({ inspection: false });
+    const gravar = repo.addSolve.bind(repo);
+    repo.addSolve = async (s) => {
+      await sleep(600);
+      return gravar(s);
+    };
+    render(TimerScreen, { app: a });
+    const svg = () => document.querySelector('[data-centro-slot] svg.centro') as SVGElement;
+    // Uma amostra por quadro (entre quadros o SVG pode ser refeito e repintado nas microtarefas) até a reação aparecer.
+    const vistos = new Set<string>();
+    let reagiu = false;
+    const amostra = (): void => {
+      if (document.body.dataset.cview === 'reaction') {
+        reagiu = true;
+        return;
+      }
+      vistos.add(`${document.body.dataset.cview}|${svg().dataset.eyes}`);
+      requestAnimationFrame(amostra);
+    };
+    await solveByKeys();
+    requestAnimationFrame(amostra);
+    await waitFor(() => expect(reagiu).toBe(true), { timeout: 4000 });
+    expect([...vistos]).toEqual(['running|focus']);
+  });
 });
 
 // Tempo controlado: o timer lê performance.now(), então a duração de cada solve é a que o teste manda, sem esperas reais.

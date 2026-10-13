@@ -280,22 +280,35 @@
     unstored = null;
     showResult = false;
     lastId = null;
-    live.clearReaction();
+    live.hold(); // o Centro segue parado (foco) enquanto grava: a reação só vem depois da gravação
     coach = null;
     closeNote();
     kick();
-    // O finally vale mesmo se a gravação lançar: sem ele, o tempo ficaria preso no resultado do timer.
-    const solve = await app.addSolve({ ms, penalty, at: now }).finally(() => {
-      if (mine === solveSeq) saving = false;
-    });
+    // Toda saída sem reação solta o Centro do parado; se um solve mais novo já tomou a tela, o Centro é dele e fica como está.
+    const release = (): void => {
+      if (mine === solveSeq) live.clearReaction();
+    };
+    // O finally vale mesmo se a gravação lançar: sem ele, o tempo ficaria preso no resultado do timer (e o Centro, parado).
+    const solve = await app
+      .addSolve({ ms, penalty, at: now })
+      .catch((err: unknown) => {
+        release();
+        kick();
+        throw err;
+      })
+      .finally(() => {
+        if (mine === solveSeq) saving = false;
+      });
     // Um solve mais novo já tomou a tela, ou ela fechou, ou a sessão mudou: nada disso é mais deste solve.
     if (destroyed || mine !== solveSeq || app.activeSession?.id !== sessionAtStart) {
+      release();
       kick();
       return;
     }
     // A gravação falhou: o solve ficou na fila e o aviso fixo aparece. O tempo fica na tela até o solve entrar nos dados.
     if (!solve) {
       unstored = now;
+      release();
       kick();
       return;
     }
@@ -303,6 +316,7 @@
     // A pessoa já armou de novo: o solve está gravado (e aparece nos dados), mas a reação não entra por cima. O tempo final
     // ainda é anunciado.
     if (timer.state !== 'done') {
+      release();
       app.announce(T.aria.final(formatSolve(solve)));
       kick();
       return;
@@ -312,8 +326,12 @@
     // O resultado e as ações já estão na tela. Os marcos e o coach vêm numa macrotarefa depois, para a conta não atrasar o quadro;
     // se a pessoa armou de novo ou outro solve tomou a tela nesse intervalo, a reação não entra.
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
-    if (destroyed || mine !== solveSeq) return;
+    if (destroyed || mine !== solveSeq) {
+      release();
+      return;
+    }
     if (timer.state !== 'done') {
+      release();
       app.announce(T.aria.final(formatSolve(solve)));
       kick();
       return;
@@ -361,6 +379,8 @@
     coach = null;
     kick();
     await app.setPenalty(solve.id, solve.penalty === p ? null : p);
+    live.setResult(kind); // no meio da reação, o Centro passa na hora para o +2 ou o DNF (sem novo salto)
+    kick();
     const updated = app.solves.find((s) => s.id === solve.id);
     if (updated) app.announce(T.aria.final(formatSolve(updated)));
   }

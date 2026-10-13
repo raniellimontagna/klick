@@ -48,6 +48,39 @@ describe('o Centro no Timer', () => {
     expect(live.view(REACTION_DELAY + 20).state).toBe('idle');
   });
 
+  it('uma penalidade no meio da reação troca o resultado na hora, sem novo salto; sem reação, não faz nada', () => {
+    const { animator, triggers } = fakeAnimator();
+    const live = createCentroLive(timerIn('done'), animator, 0);
+    live.setResult('dnf');
+    expect(live.view(0)).toEqual({ state: 'idle' });
+    live.react('pb', 0);
+    live.paint(REACTION_DELAY + 10);
+    expect(triggers).toEqual(['pb']);
+    live.setResult('dnf');
+    expect(live.view(REACTION_DELAY + 20)).toEqual({ state: 'reaction', result: 'dnf' });
+    live.paint(REACTION_DELAY + 30);
+    expect(triggers).toEqual(['pb']);
+    expect(live.reacting(REACTION_DELAY + REACTION_MS - 1)).toBe(true);
+  });
+
+  it('enquanto o solve grava, o Centro fica parado até a reação ou até limpar; o timer ocupado passa por cima', () => {
+    const { animator } = fakeAnimator();
+    const timer = timerIn('done');
+    const live = createCentroLive(timer, animator, 0);
+    live.hold();
+    expect(live.view(100000).state).toBe('running');
+    expect(live.reacting(100000)).toBe(false);
+    live.react('good', 1000);
+    expect(live.view(1000 + REACTION_DELAY).state).toBe('reaction');
+    expect(live.view(1000 + REACTION_DELAY + REACTION_MS).state).toBe('idle');
+    live.hold();
+    live.clearReaction();
+    expect(live.view(0).state).toBe('idle');
+    live.hold();
+    timer.state = 'arming';
+    expect(live.view(0).state).toBe('arming');
+  });
+
   it('o timer manda: inspeção, armando, pronto e resolvendo passam por cima da reação', () => {
     const timer = timerIn('arming', { armProgress: 0.5 });
     const live = createCentroLive(timer, fakeAnimator().animator, 0);
