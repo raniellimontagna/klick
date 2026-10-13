@@ -129,6 +129,11 @@ describe('formato Klick', () => {
       expect(parseKlickJson(withProfile({ currentSessionId: null })).profile).toEqual({ currentSessionId: null });
     });
 
+    it('o ajuste do Centro passa só com um valor conhecido', () => {
+      expect(parseKlickJson(withProfile({ settings: { centro: 'oculto' } })).profile).toEqual({ settings: { centro: 'oculto' } });
+      expect(parseKlickJson(withProfile({ settings: { centro: 'girando' } })).profile).toEqual({ settings: {} });
+    });
+
     it('trilha mais longa que a do Klick é cortada nas 9 etapas', () => {
       expect(parseKlickJson(withProfile({ trail: Array<boolean>(12).fill(true) })).profile).toEqual({ trail: Array<boolean>(9).fill(true) });
     });

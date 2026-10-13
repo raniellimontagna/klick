@@ -123,6 +123,10 @@ export const T = Object.freeze({
   // Nome acessível do Centro quando a tela não dá um mais específico (ui/centro.ts), e a tela do Centro (ui/centro/CentroScreen.svelte).
   centro: {
     label: 'Centro',
+    card: 'Centro',
+    mode: 'Animação do Centro',
+    modeHint: 'Estático não se mexe. Oculto tira o Centro do Timer; os avisos seguem no número e no som.',
+    modeOptions: Object.freeze([['animado', 'Animado'], ['estatico', 'Estático'], ['oculto', 'Oculto']] as const),
     progressLabel: (done: number, trailDone: number) => `Centro: ${done} de 9 marcos, ${trailDone} de 9 etapas`,
     finishes: 'Acabamentos',
     preview: (finish: string) => ` · prévia: ${finish}`,

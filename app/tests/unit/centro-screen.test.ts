@@ -84,6 +84,24 @@ describe('Centro: trilha, acabamento e modo silencioso', () => {
     expect((await repo.getProfile()).settings.silent).toBe(true);
     expect(modo.checked).toBe(true);
   });
+
+  it('o controle do Centro grava o ajuste e marca a opção escolhida', async () => {
+    const { a } = await app();
+    render(CentroScreen, { app: a });
+    const group = await screen.findByRole('group', { name: T.centro.mode });
+    expect(group.querySelector('[data-val="animado"]')).toHaveAttribute('aria-pressed', 'true');
+    (group.querySelector('[data-val="oculto"]') as HTMLButtonElement).click();
+    await waitFor(() => expect(a.profile.settings.centro).toBe('oculto'));
+    await waitFor(() => expect(group.querySelector('[data-val="oculto"]')).toHaveAttribute('aria-pressed', 'true'));
+  });
+
+  it('o Centro grande dá a volta no animado e fica parado no estático', async () => {
+    const { a } = await app();
+    render(CentroScreen, { app: a });
+    await waitFor(() => expect(document.querySelectorAll('.big .ring.lit')).toHaveLength(1));
+    await a.updateSettings({ centro: 'estatico' });
+    await waitFor(() => expect(document.querySelectorAll('.big .ring.lit')).toHaveLength(0));
+  });
 });
 
 // O modo silencioso ligado no Centro cala a mensagem que o coach está mostrando na tela do Timer.

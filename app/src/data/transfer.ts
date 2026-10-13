@@ -90,6 +90,7 @@ const SETTING_CHECKS: Record<keyof Omit<Settings, 'sound'>, Check> = {
   reducedMotion: oneOf(['system', 'always']),
   dailyGoal: (v) => Number.isInteger(v) && (v as number) >= 1,
   scrambleImage: isBool,
+  centro: oneOf(['animado', 'estatico', 'oculto']),
 };
 const SOUND_CHECKS: Record<keyof Settings['sound'], Check> = { klick: isBool, insp: isBool, pb: isBool };
 

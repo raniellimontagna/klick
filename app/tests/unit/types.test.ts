@@ -13,6 +13,7 @@ describe('ajustes padrão', () => {
       reducedMotion: 'system',
       dailyGoal: 20,
       scrambleImage: true,
+      centro: 'animado',
     });
   });
 

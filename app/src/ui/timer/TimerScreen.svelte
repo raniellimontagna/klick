@@ -113,6 +113,7 @@
     app.profile.settings.theme === 'system' ? (darkMq ? 'dark' : 'light') : app.profile.settings.theme === 'dark' ? 'dark' : 'light',
   );
   const reduced = (): boolean => app.profile.settings.reducedMotion === 'always' || reduceMq;
+  const mode = $derived(app.profile.settings.centro);
 
   // O solve que a tela mostra: o marcado, ou o último da sessão enquanto nenhum foi marcado (ou se o marcado sumiu).
   const last = $derived.by((): Solve | null => app.solves.find((s) => s.id === lastId) ?? app.sessionSolves.at(-1) ?? null);
@@ -722,9 +723,10 @@
 
   // O animador para com a página escondida, com o Centro fora da tela e fora da aba do Timer.
   $effect(() => {
-    animator.setPaused(!pageVisible || !onScreen || app.tab !== 'timer');
+    animator.setPaused(!pageVisible || !onScreen || app.tab !== 'timer' || mode === 'oculto');
   });
   $effect(() => {
+    void mode; // o espaço do Centro some e volta com o ajuste: o observador passa para o novo
     const slot = screenEl?.querySelector('[data-centro-slot]');
     if (!slot || typeof IntersectionObserver !== 'function') return;
     const io = new IntersectionObserver((entries) => {
@@ -733,9 +735,9 @@
     io.observe(slot);
     return () => io.disconnect();
   });
-  // Movimento reduzido: o Centro fica estático (a Task 12 junta o ajuste animado/estático/oculto).
+  // Animado, estático ou oculto (spec 6.5); movimento reduzido vale como estático.
   $effect(() => {
-    animator.setAnimated(!reduced());
+    animator.setAnimated(mode === 'animado' && !reduced());
   });
   // O SVG é refeito quando o tema, o acabamento ou as marcas mudam: o animador pinta nele o estado atual.
   $effect(() => {
@@ -810,7 +812,9 @@
 
   <aside class="t-side" aria-label={T.timer.side}>
     <div class="card t-coach">
-      <CentroView {theme} finish={app.profile.finish} topLit={topShown} {sideLit} />
+      {#if mode !== 'oculto'}
+        <CentroView {theme} finish={app.profile.finish} topLit={topShown} {sideLit} />
+      {/if}
       <div class="t-coachtext">
         <div class="label fade">{T.timer.coachLabel}</div>
         <p class="coach" class:quiet={coachShown === null}>{coachShown ?? ''}</p>

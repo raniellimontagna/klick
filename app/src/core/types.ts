@@ -30,6 +30,9 @@ export interface Session {
 
 export type Theme = 'system' | 'light' | 'dark';
 
+// O Centro no Timer (spec do sub-projeto 3, seção 6.5): animado, estático (sem movimento) ou oculto (fora do Timer).
+export type CentroMode = 'animado' | 'estatico' | 'oculto';
+
 export interface Settings {
   inspection: boolean;
   holdMs: number; // quanto tempo segurar para armar
@@ -40,6 +43,7 @@ export interface Settings {
   reducedMotion: 'system' | 'always';
   dailyGoal: number;
   scrambleImage: boolean;
+  centro: CentroMode;
 }
 
 export type FinishId = 'fosco' | 'brilho' | 'gelo' | 'carbono';
@@ -117,6 +121,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   reducedMotion: 'system',
   dailyGoal: 20,
   scrambleImage: true,
+  centro: 'animado',
 });
 
 // Cópia nova, profunda e mutável dos ajustes padrão, para montar um perfil ou um estado que a interface vá alterar.

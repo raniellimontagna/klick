@@ -271,6 +271,57 @@ describe('tela do Timer: solve, reação e nota', () => {
     await waitFor(() => expect(reagiu).toBe(true), { timeout: 4000 });
     expect([...vistos]).toEqual(['running|focus']);
   });
+
+  it('com o Centro oculto, o Timer não mostra o cubo, e o solve, a reação e o coach seguem', async () => {
+    const { a } = await app();
+    await a.updateSettings({ inspection: false, centro: 'oculto' });
+    render(TimerScreen, { app: a });
+    expect(document.querySelector('[data-centro-slot]')).toBeNull();
+    await solveByKeys();
+    await waitFor(() => expect(a.solves).toHaveLength(1));
+    await waitFor(() => expect(document.querySelector('.coach')?.textContent).toMatch(/Marco \d de 9/), { timeout: 3000 });
+  });
+
+  it('animado, o adesivo ocioso dá a volta; com movimento reduzido, o anel fica parado', async () => {
+    const { a } = await app();
+    render(TimerScreen, { app: a });
+    await waitFor(() => expect(document.querySelectorAll('[data-centro-slot] .ring.lit')).toHaveLength(1));
+    await a.updateSettings({ reducedMotion: 'always' });
+    await waitFor(() => expect(document.querySelectorAll('[data-centro-slot] .ring.lit')).toHaveLength(0));
+  });
+
+  it('ao voltar de oculto, o observador de tela segue o novo espaço do Centro (senão o animador ficaria parado)', async () => {
+    const observados: Element[] = [];
+    vi.stubGlobal(
+      'IntersectionObserver',
+      class {
+        observe(el: Element): void {
+          observados.push(el);
+        }
+        unobserve(): void {}
+        disconnect(): void {}
+        takeRecords(): [] {
+          return [];
+        }
+      },
+    );
+    try {
+      const { a } = await app();
+      render(TimerScreen, { app: a });
+      await waitFor(() => expect(observados).toHaveLength(1));
+      await a.updateSettings({ centro: 'oculto' });
+      await waitFor(() => expect(document.querySelector('[data-centro-slot]')).toBeNull());
+      await a.updateSettings({ centro: 'estatico' });
+      const slot = await waitFor(() => {
+        const el = document.querySelector('[data-centro-slot]');
+        expect(el).not.toBeNull();
+        return el;
+      });
+      await waitFor(() => expect(observados.at(-1)).toBe(slot));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
 
 // Tempo controlado: o timer lê performance.now(), então a duração de cada solve é a que o teste manda, sem esperas reais.

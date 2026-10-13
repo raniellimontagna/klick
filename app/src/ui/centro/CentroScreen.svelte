@@ -1,11 +1,13 @@
 <script lang="ts">
   // A tela do Centro: o cubo com a jornada, os acabamentos, os marcos da temporada atual (face de cima), a trilha (face lateral), o
   // histórico das temporadas e o modo silencioso. Os marcos valem só para os solves de 3×3. Os textos ficam em strings.ts.
+  import { tick } from 'svelte';
   import { finishUnlocked, type MarkStatus, markLabel, seasonFinish, seasonSolves } from '../../core/season';
   import { currentStreak, formatMs } from '../../core/stats';
   import type { SeasonRecord } from '../../core/types';
   import { FINISH_INFO, T, TRAIL } from '../../strings';
   import { type Palette, paletteFor, renderCentro, type CentroTheme } from '../centro';
+  import { createCentroAnimator } from '../centro/animator';
   import { fullDate, shortDate } from '../format';
   import type { AppState } from '../state/app.svelte';
 
@@ -72,6 +74,32 @@
     }),
   );
 
+  // O Centro grande segue o ajuste: animado ou estático (nesta tela, "oculto" vale como estático). Parado, só pisca, olha e orbita.
+  let bigEl = $state<HTMLElement>();
+  let reduceMq = $state(false);
+  const animator = createCentroAnimator({ svg: () => bigEl?.querySelector<SVGElement>('svg.centro') ?? null });
+  $effect(() => {
+    const s = app.profile.settings;
+    animator.setAnimated(s.centro === 'animado' && s.reducedMotion !== 'always' && !reduceMq);
+  });
+  // O SVG é refeito quando as marcas, o tema ou o acabamento mudam: o animador pinta nele o parado.
+  $effect(() => {
+    void svg;
+    void tick().then(() => {
+      animator.show({ state: 'idle' });
+      animator.repaint();
+    });
+  });
+  $effect(() => {
+    const sync = (): void => animator.setPaused(document.hidden);
+    sync();
+    document.addEventListener('visibilitychange', sync);
+    return () => {
+      document.removeEventListener('visibilitychange', sync);
+      animator.destroy();
+    };
+  });
+
   // O que falta num marco pendente: quantos, o melhor até agora, os dias seguidos de agora ou a menor variação.
   function progressText(m: MarkStatus): string | null {
     const { kind, target } = m.mark;
@@ -136,12 +164,15 @@
   $effect(() => {
     if (typeof matchMedia !== 'function') return;
     const dark = matchMedia('(prefers-color-scheme: dark)');
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)');
     const sync = (): void => {
       darkMq = dark.matches;
+      reduceMq = reduce.matches;
     };
     sync();
-    dark.addEventListener('change', sync);
-    return () => dark.removeEventListener('change', sync);
+    const all = [dark, reduce];
+    all.forEach((mq) => mq.addEventListener('change', sync));
+    return () => all.forEach((mq) => mq.removeEventListener('change', sync));
   });
 
   // Ao sair da tela, a prévia pendente não pode disparar depois.
@@ -156,7 +187,7 @@
 <section class="screen" data-screen="companion" aria-label={T.tabs.companion}>
   <div class="comp">
     <div class="stage">
-      <div class="big">{@html svg}</div>
+      <div class="big" bind:this={bigEl}>{@html svg}</div>
       <h2>{T.centro.label}</h2>
       <p>
         {T.season(season.n, done, finishName(app.profile.finish))}{#if preview}{T.centro.preview(FINISH_INFO[preview].label)}{/if}
@@ -213,25 +244,55 @@
         {/if}
       </div>
 
-      <div class="card silent-row">
-        <input
-          type="checkbox"
-          class="switch"
-          id="silent"
-          data-silent
-          checked={app.profile.settings.silent}
-          onchange={(e) => setSilent(e.currentTarget)}
-        />
-        <label for="silent">
-          <span class="label">{T.timer.coachLabel}</span>
-          <span class="silent-hint">{T.centro.silentHint}</span>
-        </label>
+      <div class="card">
+        <div class="label">{T.centro.card}</div>
+        <div class="seg" role="group" aria-label={T.centro.mode}>
+          {#each T.centro.modeOptions as [value, label] (value)}
+            <button
+              type="button"
+              data-set="centro"
+              data-val={value}
+              aria-pressed={app.profile.settings.centro === value ? 'true' : 'false'}
+              onclick={() => app.updateSettings({ centro: value })}>{label}</button
+            >
+          {/each}
+        </div>
+        <p class="silent-hint">{T.centro.modeHint}</p>
+        <div class="silent-row">
+          <input
+            type="checkbox"
+            class="switch"
+            id="silent"
+            data-silent
+            checked={app.profile.settings.silent}
+            onchange={(e) => setSilent(e.currentTarget)}
+          />
+          <label for="silent">
+            <span class="label">{T.timer.coachLabel}</span>
+            <span class="silent-hint">{T.centro.silentHint}</span>
+          </label>
+        </div>
       </div>
     </div>
   </div>
 </section>
 
 <style>
+  /* O cartão do Centro empilha o seletor, a dica e a linha do modo silencioso. */
+  .card > .seg {
+    margin-top: 10px;
+  }
+
+  .card > .silent-hint {
+    margin: 8px 0 0;
+    font-size: 13px;
+    color: var(--ink-2);
+  }
+
+  .card > .silent-row {
+    margin-top: 14px;
+  }
+
   /* Em toque, o rótulo do modo silencioso é o alvo da caixa: 44 px de altura. */
   @media (pointer: coarse) {
     .silent-row label {
