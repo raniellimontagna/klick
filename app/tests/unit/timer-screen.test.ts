@@ -277,9 +277,21 @@ describe('tela do Timer: solve, reação e nota', () => {
     await a.updateSettings({ inspection: false, centro: 'oculto' });
     render(TimerScreen, { app: a });
     expect(document.querySelector('[data-centro-slot]')).toBeNull();
+    // A reação segue sem o Centro: uma amostra por quadro, como no teste vizinho, até o estado dela aparecer.
+    let reagiu = false;
+    const amostra = (): void => {
+      if (document.body.dataset.cview === 'reaction') {
+        reagiu = true;
+        return;
+      }
+      requestAnimationFrame(amostra);
+    };
     await solveByKeys();
+    requestAnimationFrame(amostra);
     await waitFor(() => expect(a.solves).toHaveLength(1));
+    await waitFor(() => expect(reagiu).toBe(true), { timeout: 4000 });
     await waitFor(() => expect(document.querySelector('.coach')?.textContent).toMatch(/Marco \d de 9/), { timeout: 3000 });
+    expect(document.querySelector('[data-centro-slot]')).toBeNull();
   });
 
   it('animado, o adesivo ocioso dá a volta; com movimento reduzido, o anel fica parado', async () => {

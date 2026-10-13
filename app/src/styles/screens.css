@@ -139,6 +139,11 @@ body.solving .centro * {
   transition: background var(--t-state), border-color var(--t-state);
 }
 
+/* Sem o Centro (ajuste "Oculto"), o texto ocupa o cartão: sem isto ele cairia na faixa de 112 px que era do cubo. */
+.t-coach.sem-centro {
+  grid-template-columns: 1fr;
+}
+
 .coach {
   margin-top: 4px;
   min-height: 3em;

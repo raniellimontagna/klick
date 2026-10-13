@@ -811,7 +811,7 @@
   </div>
 
   <aside class="t-side" aria-label={T.timer.side}>
-    <div class="card t-coach">
+    <div class="card t-coach" class:sem-centro={mode === 'oculto'}>
       {#if mode !== 'oculto'}
         <CentroView {theme} finish={app.profile.finish} topLit={topShown} {sideLit} />
       {/if}
