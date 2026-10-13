@@ -56,6 +56,10 @@ export function eventInfo(id: EventId): EventInfo {
   return info;
 }
 
+// O solve conta para os marcos da temporada? Sem lançar: um id fora do catálogo (um solve de uma versão mais nova, depois de voltar a
+// esta) simplesmente não conta.
+export const countsForMilestones = (id: EventId): boolean => BY_ID.get(id)?.milestones ?? false;
+
 // scrType do csTimer. Sem tipo (ou vazio) é a sessão padrão do csTimer, o 3×3; tipo fora do catálogo (ZBLL etc.) é null.
 export function eventFromCsTimer(scrType: string | undefined): EventId | null {
   if (!scrType) return '333';

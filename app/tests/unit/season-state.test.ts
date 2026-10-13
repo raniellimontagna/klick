@@ -153,6 +153,41 @@ describe('temporada no AppState', () => {
     expect(a.profile.season.current.n).toBe(2);
   });
 
+  it('um solve de um evento que este app não conhece não impede a abertura, e a temporada não o conta', async () => {
+    const name = `season-${++n}`;
+    const repo = await repoNamed(name);
+    await repo.importAll(file(t1History()));
+    // Gravado direto no banco, sem a validação do repositório: um solve de "fto" de uma versão mais nova, depois de voltar a esta.
+    const db = await openKlickDb(name);
+    const at = END - 10 * DAY + 50 * 60000 + 1;
+    await db.put('solves', { id: 'alien', sessionId: 'hs', event: 'fto', ms: 1000, penalty: null, at, scramble: '', note: '', createdAt: at, updatedAt: at, deletedAt: null } as unknown as Solve);
+    db.close();
+    const a = make(repo);
+    await a.init();
+    expect(a.solves.some((s) => s.id === 'alien')).toBe(true);
+    expect(a.profile.season.current.n).toBe(2);
+    expect(a.profile.season.current.basis).toEqual({ single: 50000, ao5: 50000, ao12: 50000 });
+    expect(a.profile.season.past[0].solves).toBe(1000);
+  });
+
+  it('uma falha na conta da temporada não impede a abertura (a conferência seguinte tenta de novo)', async () => {
+    const repo = await repoNamed();
+    await repo.importAll(file(t1History()));
+    const a = make(repo);
+    const count = a.seasonStatus.bind(a);
+    let fail = true;
+    a.seasonStatus = (...args) => {
+      if (fail) throw new Error('bug');
+      return count(...args);
+    };
+    await a.init();
+    expect(a.profile.season.current.n).toBe(1);
+    expect(a.toast).toBeNull(); // uma falha de código, não do banco: sem aviso
+    fail = false;
+    await a.checkSeason();
+    expect(a.profile.season.current.n).toBe(2);
+  });
+
   it('importar um arquivo que completa a T1 vira a temporada no fim da importação', async () => {
     const repo = await repoNamed();
     const a = make(repo);

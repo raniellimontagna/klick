@@ -1,7 +1,7 @@
 // Temporadas do Centro (spec do sub-projeto 3, seção 5): a escada de degraus, os 9 marcos de cada temporada, a validação do que vem de
 // fora e os acabamentos. Tudo puro: quem chama passa os solves ativos em ordem de tempo.
 import { MILESTONE_INFO, T } from '../strings';
-import { eventInfo } from './events';
+import { countsForMilestones } from './events';
 import { bestAverage, bestSingle, dayKey, effectiveMs, MILESTONES, noon, trimmedMean } from './stats';
 import type { FinishId, MarkKind, SeasonBasis, SeasonMark, SeasonProgress, SeasonRecord, SeasonState, Solve } from './types';
 
@@ -146,7 +146,7 @@ export interface MarkStatus {
 
 // Os solves que contam para a temporada: os eventos com marcos no catálogo (o 3×3) e depois do início.
 export function seasonSolves(solves: Solve[], state: SeasonState): Solve[] {
-  return solves.filter((s) => s.at > state.startedAt && eventInfo(s.event).milestones);
+  return solves.filter((s) => s.at > state.startedAt && countsForMilestones(s.event));
 }
 
 // A conta como uma dobra, solve a solve: o estado guarda o que ela precisa para continuar.
@@ -311,7 +311,7 @@ export function planAdvance(
   const cur = progress.current;
   if (status.length === 0 || !status.every((m) => m.achieved)) return null;
   const record = closeRecord(cur, solves, status);
-  const basis = basisOf(solves.filter((s) => eventInfo(s.event).milestones));
+  const basis = basisOf(solves.filter((s) => countsForMilestones(s.event)));
   return { fromN: cur.n, record, next: { n: cur.n + 1, startedAt: Math.max(now, record.endedAt), marks: marksFor(basis), basis } };
 }
 

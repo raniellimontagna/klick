@@ -358,16 +358,22 @@ export class AppState {
 
   // Fecha a temporada atual quando os 9 marcos estão feitos (spec do sub-projeto 3, seção 5.5). Na fila: vê a lista e o perfil depois
   // das gravações que já estavam nela. A virada é condicional no repositório: se outra aba já virou, o perfil gravado volta e nada vira
-  // duas vezes. Uma falha mostra o aviso; os marcos continuam feitos, então a conferência seguinte tenta de novo.
+  // duas vezes. Uma falha mostra o aviso; os marcos continuam feitos, então a conferência seguinte tenta de novo. Não rejeita: a
+  // abertura espera por ela.
   // Dentro da fila, chame sem esperar (void): a fila espera o trabalho que está rodando.
   checkSeason(): Promise<void> {
     return this.serial(async () => {
-      const progress = $state.snapshot(this.profile.season);
-      const plan = planAdvance(progress, this.solves, this.now(), this.seasonStatus(this.solves, progress.current));
-      if (!plan) return;
-      await this.write(async () => {
-        this.profile = await this.repo.advanceSeason(plan.fromN, plan.record, plan.next);
-      });
+      try {
+        const progress = $state.snapshot(this.profile.season);
+        const plan = planAdvance(progress, this.solves, this.now(), this.seasonStatus(this.solves, progress.current));
+        if (!plan) return;
+        await this.write(async () => {
+          this.profile = await this.repo.advanceSeason(plan.fromN, plan.record, plan.next);
+        });
+      } catch {
+        // A conta falhou (um erro de código, não do banco): sem aviso, a pessoa não tem o que fazer. A temporada fica como está, e a
+        // próxima conferência (o próximo solve, uma edição, a próxima abertura) tenta de novo.
+      }
     });
   }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EVENTS, EVENT_IDS, eventFromCsTimer, eventInfo } from '../../src/core/events';
+import { EVENTS, EVENT_IDS, countsForMilestones, eventFromCsTimer, eventInfo } from '../../src/core/events';
 import type { EventId } from '../../src/core/types';
 
 describe('catálogo de eventos', () => {
@@ -19,6 +19,13 @@ describe('catálogo de eventos', () => {
 
   it('só o 3×3 tem marcos', () => {
     expect(EVENTS.filter((e) => e.milestones).map((e) => e.id)).toEqual(['333']);
+  });
+
+  it('countsForMilestones: o 3×3 conta; os outros e um id que o catálogo não conhece, não (sem lançar)', () => {
+    expect(countsForMilestones('333')).toBe(true);
+    expect(countsForMilestones('222')).toBe(false);
+    expect(() => countsForMilestones('fto' as EventId)).not.toThrow();
+    expect(countsForMilestones('fto' as EventId)).toBe(false);
   });
 
   it('ids do cubing.js, peças do twisty e tipos do csTimer batem', () => {

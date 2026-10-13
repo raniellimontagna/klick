@@ -278,6 +278,17 @@ describe('virada da temporada (spec 5.5)', () => {
     expect(planAdvance({ current: plan.next, past: [plan.record] }, list, now)).toBeNull();
   });
 
+  it('um solve de um evento que este app não conhece (de uma versão mais nova) não conta e não derruba a conta', () => {
+    const list = t1History();
+    const now = NOON + 20 * DAY;
+    const alien = sv(1000, list[500].at + 1, null, 'fto' as Solve['event']);
+    const withAlien = [...list.slice(0, 501), alien, ...list.slice(501)];
+    expect(seasonSolves(withAlien, defaultSeason().current)).toHaveLength(1000);
+    const plan = planAdvance(defaultSeason(), withAlien, now)!;
+    expect(plan.record.solves).toBe(1000);
+    expect(plan.next.basis).toEqual({ single: 50000, ao5: 50000, ao12: 50000 });
+  });
+
   it('o registro conta só os solves até o que fechou, e a melhor média de 12 até ali', () => {
     const state = { n: 2, startedAt: NOON, basis: { single: 20000, ao5: 21000, ao12: 22000 }, marks: Array.from({ length: 9 }, () => ({ kind: 'count' as const, target: 12 })) };
     const list = Array.from({ length: 15 }, (_, i) => sv(19000 + i * 100, NOON + 1 + i));
