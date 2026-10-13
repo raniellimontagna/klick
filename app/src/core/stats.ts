@@ -211,40 +211,88 @@ export function monthHeat(solves: Solve[], nowTs: number): HeatDay[] {
 // Quem chama passa só os solves do 3×3: os marcos não valem para os outros eventos.
 // Quando cada marco foi conquistado (o instante do solve que o acendeu), sobre a lista inteira. Só as contas que os marcos pedem:
 // os textos de progresso ficam em milestoneProgress.
-function reachedAt(solves: Solve[]): Partial<Record<MilestoneId, number>> {
-  const at: Partial<Record<MilestoneId, number>> = {};
-  const r5 = rollingAverages(solves, 5);
-  const r12 = rollingAverages(solves, 12);
-  let best: number | null = null;
-  let run = 0;
-  let bestRun = 0;
-  let prevDay: string | null = null;
-  for (const [i, x] of solves.entries()) {
-    const e = effectiveMs(x);
-    if (e !== Infinity && (best === null || e < best)) best = e;
-    const k = dayKey(x.at);
-    if (k !== prevDay) {
-      run = prevDay !== null && Math.round((noon(k) - noon(prevDay)) / DAY) === 1 ? run + 1 : 1;
-      bestRun = Math.max(bestRun, run);
-      prevDay = k;
-    }
-    const hit = (id: MilestoneId, ok: boolean): void => {
-      if (ok && at[id] === undefined) at[id] = x.at;
-    };
-    const count = i + 1;
-    const ao5 = r5[i];
-    const ao12 = r12[i];
-    hit('first', count >= 1);
-    hit('sub2', best !== null && best < 120000);
-    hit('n100', count >= 100);
-    hit('sub130', best !== null && best < 90000);
-    hit('ao5sub130', ao5 !== null && ao5 < 90000);
-    hit('sub1', best !== null && best < 60000);
-    hit('streak7', bestRun >= 7);
-    hit('ao12sub1', ao12 !== null && ao12 < 60000);
-    hit('n1000', count >= 1000);
+// A conta dos marcos como uma dobra, solve a solve: o estado guarda o que ela precisa para continuar (o melhor tempo, a sequência de
+// dias, os últimos 12 tempos para as médias). reachedAt dobra a lista inteira; o rastreador continua a dobra quando a lista só
+// ganhou solves no fim.
+interface ReachState {
+  at: Partial<Record<MilestoneId, number>>;
+  count: number;
+  best: number | null;
+  run: number;
+  bestRun: number;
+  prevDay: string | null;
+  last: number[]; // os últimos 12 tempos efetivos (Infinity = DNF), do mais antigo ao mais novo
+}
+
+const initReach = (): ReachState => ({ at: {}, count: 0, best: null, run: 0, bestRun: 0, prevDay: null, last: [] });
+
+function stepReach(st: ReachState, x: Solve): void {
+  const e = effectiveMs(x);
+  st.count += 1;
+  if (e !== Infinity && (st.best === null || e < st.best)) st.best = e;
+  const k = dayKey(x.at);
+  if (k !== st.prevDay) {
+    st.run = st.prevDay !== null && Math.round((noon(k) - noon(st.prevDay)) / DAY) === 1 ? st.run + 1 : 1;
+    st.bestRun = Math.max(st.bestRun, st.run);
+    st.prevDay = k;
   }
-  return at;
+  st.last.push(e);
+  if (st.last.length > 12) st.last.shift();
+  const ao5 = st.last.length >= 5 ? trimmedMean(st.last.slice(-5)) : null;
+  const ao12 = st.last.length >= 12 ? trimmedMean(st.last) : null;
+  const hit = (id: MilestoneId, ok: boolean): void => {
+    if (ok && st.at[id] === undefined) st.at[id] = x.at;
+  };
+  const best = st.best;
+  hit('first', st.count >= 1);
+  hit('sub2', best !== null && best < 120000);
+  hit('n100', st.count >= 100);
+  hit('sub130', best !== null && best < 90000);
+  hit('ao5sub130', ao5 !== null && ao5 < 90000);
+  hit('sub1', best !== null && best < 60000);
+  hit('streak7', st.bestRun >= 7);
+  hit('ao12sub1', ao12 !== null && ao12 < 60000);
+  hit('n1000', st.count >= 1000);
+}
+
+function reachedAt(solves: Solve[]): Partial<Record<MilestoneId, number>> {
+  const st = initReach();
+  for (const x of solves) stepReach(st, x);
+  return st.at;
+}
+
+export interface MilestoneTracker {
+  achieved(solves: Solve[]): MilestoneId[]; // o mesmo que achievedIds(solves), sem recontar o que já contou
+  lastRun(): 'cached' | 'appended' | 'full'; // como foi a última conta (para os testes e para medir)
+}
+
+// Guarda a última lista contada e o estado da dobra. Se a lista nova começa com os mesmos solves (os mesmos objetos, na mesma ordem),
+// só os novos do fim entram na conta. Qualquer outra mudança (um solve editado, excluído ou inserido no meio) refaz do zero.
+export function createMilestoneTracker(): MilestoneTracker {
+  let seen: Solve[] = [];
+  let st = initReach();
+  let run: 'cached' | 'appended' | 'full' = 'full';
+  const ids = (): MilestoneId[] => MILESTONES.filter((id) => st.at[id] !== undefined);
+  return {
+    achieved(solves) {
+      if (solves === seen) {
+        run = 'cached';
+        return ids();
+      }
+      let prefix = solves.length >= seen.length;
+      for (let i = 0; prefix && i < seen.length; i++) prefix = solves[i] === seen[i];
+      if (prefix) {
+        run = seen.length === 0 ? 'full' : solves.length === seen.length ? 'cached' : 'appended';
+      } else {
+        st = initReach();
+        run = 'full';
+      }
+      for (let i = prefix ? seen.length : 0; i < solves.length; i++) stepReach(st, solves[i]);
+      seen = solves;
+      return ids();
+    },
+    lastRun: () => run,
+  };
 }
 
 export function milestoneProgress(solves: Solve[], nowTs: number): MilestoneStatus[] {

@@ -5,7 +5,7 @@
   import { pickCoachMessage } from '../../core/coach';
   import { eventInfo } from '../../core/events';
   import {
-    achievedIds,
+    createMilestoneTracker,
     averageOf,
     bestSingleSolve,
     currentStreak,
@@ -175,11 +175,14 @@
 
   // Os marcos conquistados percorrem o histórico inteiro: a conta é guardada por lista (a mesma lista não se conta duas vezes) e
   // não roda no caminho do solve. A contagem do Centro é atualizada numa macrotarefa depois de cada mudança dos solves.
+  // O rastreador continua a conta de onde parou quando a lista só ganhou solves no fim (o caso de cada solve novo): com 50 mil solves
+  // isso deixa de percorrer o histórico inteiro a cada solve. O memo por lista evita até a conferência do começo da lista.
   const achievedMemo = new WeakMap<Solve[], MilestoneId[]>();
+  const tracker = createMilestoneTracker();
   const achievedOf = (list: Solve[]): MilestoneId[] => {
     let ids = achievedMemo.get(list);
     if (!ids) {
-      ids = achievedIds(milestoneSolves(list), Date.now());
+      ids = tracker.achieved(milestoneSolves(list));
       achievedMemo.set(list, ids);
     }
     return ids;
