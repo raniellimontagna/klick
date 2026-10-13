@@ -1,6 +1,7 @@
 // Temporadas do Centro (spec do sub-projeto 3, seção 5): a escada de degraus, os 9 marcos de cada temporada, a validação do que vem de
 // fora e os acabamentos. Tudo puro: quem chama passa os solves ativos em ordem de tempo.
-import { bestAverage, bestSingle } from './stats';
+import { eventInfo } from './events';
+import { bestAverage, bestSingle, dayKey, effectiveMs, noon, trimmedMean } from './stats';
 import type { FinishId, MarkKind, SeasonBasis, SeasonMark, SeasonProgress, SeasonRecord, SeasonState, Solve } from './types';
 
 // A T1 de hoje, na ordem de MILESTONES (stats.ts): os rótulos dela continuam os de MILESTONE_INFO.
@@ -125,3 +126,187 @@ export function seasonFrom(v: unknown): SeasonProgress | null {
 // A mais adiantada das duas: a de mais temporadas fechadas; no empate, a primeira (a daqui). Progresso nunca regride (spec 5.6).
 export const moreAdvanced = (mine: SeasonProgress, theirs: SeasonProgress | null | undefined): SeasonProgress =>
   theirs && theirs.past.length > mine.past.length ? theirs : mine;
+
+// --- Avaliação (spec 5.4) ---
+
+const DAY = 86400000;
+
+export interface MarkStatus {
+  mark: SeasonMark;
+  achieved: boolean;
+  at: number | null; // o at do solve que acendeu o marco
+  // count: solves da temporada; single, ao5 e ao12: o melhor até agora (ms); streak: a sequência que termina no último solve (dias);
+  // steady: a menor variação entre 5 seguidos sem DNF (ms). null enquanto não há o que medir.
+  current: number | null;
+}
+
+// Os solves que contam para a temporada: os eventos com marcos no catálogo (o 3×3) e depois do início.
+export function seasonSolves(solves: Solve[], state: SeasonState): Solve[] {
+  return solves.filter((s) => s.at > state.startedAt && eventInfo(s.event).milestones);
+}
+
+// A conta como uma dobra, solve a solve: o estado guarda o que ela precisa para continuar.
+interface Fold {
+  count: number;
+  best: number | null;
+  bestAo5: number | null;
+  bestAo12: number | null;
+  run: number;
+  bestRun: number;
+  prevDay: string | null;
+  bestSpread: number | null;
+  last: number[]; // os últimos 12 tempos efetivos (Infinity = DNF), do mais antigo ao mais novo
+  at: (number | null)[]; // por marco
+}
+
+const initFold = (n: number): Fold => ({
+  count: 0, best: null, bestAo5: null, bestAo12: null, run: 0, bestRun: 0, prevDay: null, bestSpread: null, last: [], at: Array<number | null>(n).fill(null),
+});
+
+// O menor entre o valor e o melhor até agora; DNF (Infinity) não conta.
+const lower = (v: number | null, best: number | null): number | null => (v !== null && v !== Infinity && (best === null || v < best) ? v : best);
+
+function met(mark: SeasonMark, f: Fold): boolean {
+  switch (mark.kind) {
+    case 'count':
+      return f.count >= mark.target;
+    case 'single':
+      return f.best !== null && f.best < mark.target;
+    case 'ao5':
+      return f.bestAo5 !== null && f.bestAo5 < mark.target;
+    case 'ao12':
+      return f.bestAo12 !== null && f.bestAo12 < mark.target;
+    case 'streak':
+      return f.bestRun >= mark.target;
+    case 'steady':
+      return f.bestSpread !== null && f.bestSpread <= mark.target;
+  }
+}
+
+function stepFold(f: Fold, marks: readonly SeasonMark[], x: Solve): void {
+  const e = effectiveMs(x);
+  f.count += 1;
+  f.best = lower(e, f.best);
+  const k = dayKey(x.at);
+  if (k !== f.prevDay) {
+    f.run = f.prevDay !== null && Math.round((noon(k) - noon(f.prevDay)) / DAY) === 1 ? f.run + 1 : 1;
+    f.bestRun = Math.max(f.bestRun, f.run);
+    f.prevDay = k;
+  }
+  f.last.push(e);
+  if (f.last.length > 12) f.last.shift();
+  if (f.last.length >= 5) {
+    const five = f.last.slice(-5);
+    f.bestAo5 = lower(trimmedMean(five), f.bestAo5);
+    if (five.every((v) => v !== Infinity)) f.bestSpread = lower(Math.max(...five) - Math.min(...five), f.bestSpread);
+  }
+  if (f.last.length >= 12) f.bestAo12 = lower(trimmedMean(f.last), f.bestAo12);
+  marks.forEach((m, i) => {
+    if (f.at[i] === null && met(m, f)) f.at[i] = x.at;
+  });
+}
+
+function currentOf(mark: SeasonMark, f: Fold): number | null {
+  switch (mark.kind) {
+    case 'count':
+      return f.count;
+    case 'single':
+      return f.best;
+    case 'ao5':
+      return f.bestAo5;
+    case 'ao12':
+      return f.bestAo12;
+    case 'streak':
+      return f.run;
+    case 'steady':
+      return f.bestSpread;
+  }
+}
+
+const statusOf = (marks: readonly SeasonMark[], f: Fold): MarkStatus[] =>
+  marks.map((mark, i) => ({ mark: { ...mark }, achieved: f.at[i] !== null, at: f.at[i], current: currentOf(mark, f) }));
+
+// Os marcos da temporada sobre a lista inteira (sem guardar nada). Para a conta de cada solve, use createSeasonTracker.
+export function evaluateSeason(state: SeasonState, solves: Solve[]): MarkStatus[] {
+  const f = initFold(state.marks.length);
+  for (const x of seasonSolves(solves, state)) stepFold(f, state.marks, x);
+  return statusOf(state.marks, f);
+}
+
+// A identidade de uma temporada para os rastreadores: o número, o início e as metas.
+export const seasonKey = (state: SeasonState): string =>
+  `${state.n}|${state.startedAt}|${state.marks.map((m) => `${m.kind}:${m.target}`).join(',')}`;
+
+export interface SeasonTracker {
+  evaluate(state: SeasonState, solves: Solve[]): MarkStatus[]; // o mesmo que evaluateSeason, sem recontar o que já contou
+  lastRun(): 'cached' | 'appended' | 'full'; // como foi a última conta (para os testes e para medir)
+}
+
+// Guarda a última lista contada e o estado da dobra. Mesma temporada e uma lista que começa com os mesmos solves (os mesmos objetos,
+// na mesma ordem): só os novos do fim entram na conta. Outra temporada, ou qualquer outra mudança na lista, refaz do zero.
+export function createSeasonTracker(): SeasonTracker {
+  let key = '';
+  let marks: SeasonMark[] = [];
+  let seen: Solve[] = [];
+  let fold = initFold(0);
+  let run: 'cached' | 'appended' | 'full' = 'full';
+  return {
+    evaluate(state, solves) {
+      const k = seasonKey(state);
+      const list = seasonSolves(solves, state);
+      let prefix = k === key && list.length >= seen.length;
+      for (let i = 0; prefix && i < seen.length; i++) prefix = list[i] === seen[i];
+      if (prefix) {
+        run = seen.length === 0 ? 'full' : list.length === seen.length ? 'cached' : 'appended';
+      } else {
+        key = k;
+        marks = state.marks.map((m) => ({ ...m }));
+        fold = initFold(marks.length);
+        run = 'full';
+      }
+      for (let i = prefix ? seen.length : 0; i < list.length; i++) stepFold(fold, marks, list[i]);
+      seen = list;
+      return statusOf(marks, fold);
+    },
+    lastRun: () => run,
+  };
+}
+
+// --- Virada (spec 5.5) ---
+
+export interface SeasonAdvance {
+  fromN: number; // a temporada que fecha: advanceSeason só grava se ela ainda for a atual
+  record: SeasonRecord;
+  next: SeasonState;
+}
+
+// O registro de uma temporada completa: fecha no solve que deu o último marco. A T1 começa no primeiro solve de 3×3.
+export function closeRecord(state: SeasonState, solves: Solve[], status: MarkStatus[]): SeasonRecord {
+  const endedAt = Math.max(...status.map((m) => m.at ?? -Infinity));
+  const inSeason = seasonSolves(solves, state);
+  const upToEnd = inSeason.filter((s) => s.at <= endedAt);
+  return {
+    n: state.n,
+    startedAt: state.n === 1 ? (inSeason[0]?.at ?? state.startedAt) : state.startedAt,
+    endedAt,
+    solves: upToEnd.length,
+    startAo12: state.basis.ao12,
+    endAo12: bestAverage(upToEnd, 12),
+  };
+}
+
+// A virada, quando os 9 marcos estão feitos; null se falta algum. A próxima começa no instante da conferência (na virada ao vivo, a
+// milissegundos do solve que fechou) e tira as metas das marcas de todo o histórico de 3×3: sem solve nenhum ainda, ela não fecha na
+// hora, e uma importação não vira temporadas em cascata.
+export function planAdvance(
+  progress: SeasonProgress,
+  solves: Solve[],
+  now: number,
+  status: MarkStatus[] = evaluateSeason(progress.current, solves),
+): SeasonAdvance | null {
+  const cur = progress.current;
+  if (status.length === 0 || !status.every((m) => m.achieved)) return null;
+  const record = closeRecord(cur, solves, status);
+  const basis = basisOf(solves.filter((s) => eventInfo(s.event).milestones));
+  return { fromN: cur.n, record, next: { n: cur.n + 1, startedAt: Math.max(now, record.endedAt), marks: marksFor(basis), basis } };
+}

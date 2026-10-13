@@ -61,7 +61,7 @@ export const trimCount = (n: number): number => Math.ceil(n * 0.05);
 // Médias e Mo3 valem ao centésimo (a WCA arredonda), então o cálculo arredonda para 10 ms antes de o display truncar.
 const toCentisecond = (ms: number): number => Math.round(ms / 10) * 10;
 
-function trimmedMean(values: number[]): number {
+export function trimmedMean(values: number[]): number {
   const t = trimCount(values.length);
   const kept = [...values].sort((a, b) => a - b).slice(t, values.length - t);
   if (kept.some((v) => v === Infinity)) return Infinity;
@@ -115,7 +115,7 @@ export function dayKey(ts: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-const noon = (key: string): number => new Date(`${key}T12:00:00`).getTime();
+export const noon = (key: string): number => new Date(`${key}T12:00:00`).getTime();
 
 export function solvesOnDay(solves: Solve[], ts: number): Solve[] {
   const k = dayKey(ts);

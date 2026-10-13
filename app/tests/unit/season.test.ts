@@ -2,15 +2,22 @@ import { describe, expect, it } from 'vitest';
 import {
   T1_MARKS,
   basisOf,
+  closeRecord,
+  createSeasonTracker,
   defaultSeason,
+  evaluateSeason,
   finishUnlocked,
   marksFor,
   moreAdvanced,
+  planAdvance,
   seasonFinish,
   seasonFrom,
+  seasonKey,
   seasonOne,
+  seasonSolves,
   stepBelow,
 } from '../../src/core/season';
+import { MILESTONES, milestoneProgress } from '../../src/core/stats';
 import type { SeasonProgress, Solve } from '../../src/core/types';
 
 let id = 0;
@@ -122,5 +129,107 @@ describe('temporada que vem de fora (spec 5.6)', () => {
     expect(moreAdvanced(fresh, null)).toBe(fresh);
     const tie = defaultSeason();
     expect(moreAdvanced(fresh, tie)).toBe(fresh);
+  });
+});
+
+const DAY = 86400000;
+const NOON = new Date(2026, 9, 1, 12).getTime();
+
+// 1.000 solves de 3×3 de 50 s, 100 por dia em 10 dias seguidos a partir de NOON: fecham os 9 marcos da T1.
+const t1History = (): Solve[] =>
+  Array.from({ length: 1000 }, (_, i) => sv(50000, NOON + Math.floor(i / 100) * DAY + (i % 100) * 60000));
+
+describe('avaliação da temporada (spec 5.4)', () => {
+  it('a T1 dá os mesmos marcos, nos mesmos solves, que a conta de hoje', () => {
+    // Tempos que descem devagar, com um DNF e um +2 no meio, em 12 dias.
+    const list = Array.from({ length: 1200 }, (_, i) =>
+      sv(130000 - i * 70, NOON + Math.floor(i / 100) * DAY + (i % 100) * 60000, i === 50 ? 'DNF' : i === 51 ? '+2' : null));
+    const status = evaluateSeason(seasonOne(), list);
+    const today = milestoneProgress(list, NOON + 13 * DAY);
+    expect(status.map((m) => m.at)).toEqual(MILESTONES.map((id) => today.find((x) => x.id === id)?.at ?? null));
+    expect(status.every((m) => m.achieved)).toBe(true);
+  });
+
+  it('só contam solves de 3×3, fora de outros eventos e depois do início', () => {
+    const state = { ...seasonOne(), n: 2, startedAt: NOON, marks: Array.from({ length: 9 }, () => ({ kind: 'count' as const, target: 2 })) };
+    const list = [sv(20000, NOON - 1), sv(20000, NOON), sv(20000, NOON + 1, null, '222'), sv(20000, NOON + 2)];
+    expect(seasonSolves(list, state).map((s) => s.at)).toEqual([NOON + 2]);
+    expect(evaluateSeason(state, list)[0]).toEqual({ mark: { kind: 'count', target: 2 }, achieved: false, at: null, current: 1 });
+  });
+
+  it('"abaixo" é estrito; a folga conta 5 seguidos sem DNF, com o +2', () => {
+    const state = {
+      n: 2, startedAt: 0, basis: { single: null, ao5: null, ao12: null },
+      marks: [
+        { kind: 'single' as const, target: 15000 },
+        { kind: 'steady' as const, target: 2000 },
+        ...Array.from({ length: 7 }, () => ({ kind: 'count' as const, target: 99 })),
+      ],
+    };
+    const even = [15000, 16000, 17000, 15500, 16500].map((ms, i) => sv(ms, i + 1));
+    let s = evaluateSeason(state, even);
+    expect(s[0].achieved).toBe(false); // 15.00 não é abaixo de 15 s
+    expect(s[1]).toMatchObject({ achieved: true, current: 2000, at: 5 }); // 17.00 - 15.00 = 2.00, dentro da folga
+    const withDnf = [sv(15000, 1), sv(15100, 2, 'DNF'), sv(15200, 3), sv(15300, 4), sv(15400, 5)];
+    expect(evaluateSeason(state, withDnf)[1].achieved).toBe(false);
+    // O +2 conta com os 2 s: 13.30 vira 15.30, e a variação dos 5 fica em 15.30 - 14.99.
+    const plus2 = [sv(15000, 1), sv(13300, 2, '+2'), sv(15200, 3), sv(15300, 4), sv(14990, 5)];
+    s = evaluateSeason(state, plus2);
+    expect(s[0]).toMatchObject({ achieved: true, at: 5 });
+    expect(s[1]).toMatchObject({ achieved: true, current: 310 });
+  });
+
+  it('o rastreador continua a conta quando a lista só ganhou solves no fim, e bate com a conta completa', () => {
+    const all = t1History();
+    const tracker = createSeasonTracker();
+    const state = seasonOne();
+    tracker.evaluate(state, all.slice(0, 500));
+    expect(tracker.lastRun()).toBe('full');
+    const grown = all.slice(0, 501);
+    expect(tracker.evaluate(state, grown)).toEqual(evaluateSeason(state, grown));
+    expect(tracker.lastRun()).toBe('appended');
+    expect(tracker.evaluate(state, grown)).toEqual(evaluateSeason(state, grown));
+    expect(tracker.lastRun()).toBe('cached');
+    const edited = [...grown.slice(0, 10), { ...grown[10], penalty: 'DNF' as const }, ...grown.slice(11)];
+    expect(tracker.evaluate(state, edited)).toEqual(evaluateSeason(state, edited));
+    expect(tracker.lastRun()).toBe('full');
+    const other = { ...state, n: 2 };
+    tracker.evaluate(other, edited);
+    expect(tracker.lastRun()).toBe('full');
+    expect(seasonKey(other)).not.toBe(seasonKey(state));
+  });
+});
+
+describe('virada da temporada (spec 5.5)', () => {
+  it('sem os 9 marcos, não vira', () => {
+    expect(planAdvance(defaultSeason(), t1History().slice(0, 999), NOON + 20 * DAY)).toBeNull();
+  });
+
+  it('a T1 fechada no passado vai para o histórico e a T2 começa na conferência, com metas das marcas de agora', () => {
+    const list = t1History();
+    const now = NOON + 20 * DAY;
+    const plan = planAdvance(defaultSeason(), list, now)!;
+    expect(plan.fromN).toBe(1);
+    expect(plan.record).toEqual({
+      n: 1,
+      startedAt: NOON,
+      endedAt: list[999].at,
+      solves: 1000,
+      startAo12: null,
+      endAo12: 50000,
+    });
+    expect(plan.next.n).toBe(2);
+    expect(plan.next.startedAt).toBe(now);
+    expect(plan.next.basis).toEqual({ single: 50000, ao5: 50000, ao12: 50000 });
+    expect(plan.next.marks[1]).toEqual({ kind: 'single', target: 48000 });
+    // Sem cascata: a T2 não tem solve nenhum ainda.
+    expect(planAdvance({ current: plan.next, past: [plan.record] }, list, now)).toBeNull();
+  });
+
+  it('o registro conta só os solves até o que fechou, e a melhor média de 12 até ali', () => {
+    const state = { n: 2, startedAt: NOON, basis: { single: 20000, ao5: 21000, ao12: 22000 }, marks: Array.from({ length: 9 }, () => ({ kind: 'count' as const, target: 12 })) };
+    const list = Array.from({ length: 15 }, (_, i) => sv(19000 + i * 100, NOON + 1 + i));
+    const status = evaluateSeason(state, list);
+    expect(closeRecord(state, list, status)).toEqual({ n: 2, startedAt: NOON, endedAt: NOON + 12, solves: 12, startAo12: 22000, endAo12: 19550 });
   });
 });
