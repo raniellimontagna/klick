@@ -21,7 +21,7 @@ import {
   stepBelow,
   targetText,
 } from '../../src/core/season';
-import { MILESTONES, milestoneProgress } from '../../src/core/stats';
+import { MILESTONES } from '../../src/core/stats';
 import type { SeasonProgress, Solve } from '../../src/core/types';
 import { MILESTONE_INFO } from '../../src/strings';
 
@@ -158,13 +158,11 @@ const t1Solves = (penalties: [number, Solve['penalty']][]): Solve[] => {
 };
 
 describe('avaliação da temporada (spec 5.4)', () => {
-  it('a T1 dá os mesmos marcos, nos mesmos solves, que a conta de hoje', () => {
+  it('a T1 acende os 9 marcos nos solves certos, com DNF e +2 nas janelas', () => {
     const list = t1Solves([[550, 'DNF'], [551, '+2'], [995, '+2'], [996, 'DNF']]);
     const status = evaluateSeason(seasonOne(), list);
-    const today = milestoneProgress(list, NOON + 13 * DAY);
-    expect(status.map((m) => m.at)).toEqual(MILESTONES.map((id) => today.find((x) => x.id === id)?.at ?? null));
     expect(status.every((m) => m.achieved)).toBe(true);
-    // Os índices fixam o solve que acende cada marco, na ordem da T1: a conta de hoje sai do código, mas estes números não mudam.
+    // Os índices fixam o solve que acende cada marco, na ordem da T1.
     expect(status.map((m) => list.findIndex((s) => s.at === m.at))).toEqual([0, 66, 99, 495, 553, 924, 600, 1006, 999]);
   });
 
@@ -226,6 +224,31 @@ describe('avaliação da temporada (spec 5.4)', () => {
     tracker.evaluate(other, edited);
     expect(tracker.lastRun()).toBe('full');
     expect(seasonKey(other)).not.toBe(seasonKey(state));
+  });
+});
+
+describe('marcos da T1 pela temporada', () => {
+  const NOW = new Date(2026, 9, 8, 20, 0, 0).getTime();
+
+  it('reconhece os marcos e mostra o progresso dos que faltam', () => {
+    const xs = [sv(130000, NOW - DAY), sv(119000, NOW - DAY), sv(89000, NOW)];
+    const status = evaluateSeason(seasonOne(), xs);
+    const byId = Object.fromEntries(MILESTONES.map((id, i) => [id, status[i]] as const));
+    expect(byId.first.achieved).toBe(true);
+    expect(byId.sub2.achieved).toBe(true);
+    expect(byId.sub130.achieved).toBe(true);
+    expect(byId.sub1.achieved).toBe(false);
+    expect(byId.sub1.current).toBe(89000); // era 'melhor 1:29.00'
+    expect(byId.n100.current).toBe(3); // era '3/100'
+    expect(byId.streak7.current).toBe(2); // era '2/7'
+    expect(MILESTONES.filter((_, i) => status[i].achieved)).toEqual(['first', 'sub2', 'sub130']);
+  });
+
+  it('streak7 exige sete dias seguidos', () => {
+    const streak7 = MILESTONES.indexOf('streak7');
+    const xs = Array.from({ length: 7 }, (_, i) => sv(70000, NOW - (6 - i) * DAY));
+    expect(evaluateSeason(seasonOne(), xs)[streak7].achieved).toBe(true);
+    expect(evaluateSeason(seasonOne(), xs.slice(1))[streak7].achieved).toBe(false);
   });
 });
 

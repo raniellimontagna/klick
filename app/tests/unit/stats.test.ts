@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  achievedIds, averageOf, bestAverage, bestMean, bestSingle, currentStreak, dayKey, effectiveMs, formatMs, formatSolve,
-  meanOf, milestoneProgress, monthHeat, officialAverage, officialAverageLabel, pbFlags, resultKind,
+  averageOf, bestAverage, bestMean, bestSingle, currentStreak, dayKey, effectiveMs, formatMs, formatSolve,
+  meanOf, monthHeat, officialAverage, officialAverageLabel, pbFlags, resultKind,
   rollingAverages, solveDeltas, stdDevMs, trimCount,
 } from '../../src/core/stats';
 import type { Solve } from '../../src/core/types';
@@ -113,25 +113,6 @@ describe('estatísticas', () => {
     expect(heat[8].level).toBe(0);
   });
 
-  it('milestoneProgress reconhece os marcos e mostra o progresso', () => {
-    const xs = [sv(130000, null, NOW - DAY), sv(119000, null, NOW - DAY), sv(89000, null, NOW)];
-    const m = Object.fromEntries(milestoneProgress(xs, NOW).map((x) => [x.id, x] as const));
-    expect(m.first.achieved).toBe(true);
-    expect(m.sub2.achieved).toBe(true);
-    expect(m.sub130.achieved).toBe(true);
-    expect(m.sub1.achieved).toBe(false);
-    expect(m.sub1.progress).toBe('melhor 1:29.00');
-    expect(m.n100.progress).toBe('3/100');
-    expect(m.streak7.progress).toBe('2/7');
-    expect(achievedIds(xs, NOW)).toEqual(['first', 'sub2', 'sub130']);
-  });
-
-  it('streak7 exige sete dias seguidos', () => {
-    const xs = Array.from({ length: 7 }, (_, i) => sv(70000, null, NOW - (6 - i) * DAY));
-    expect(achievedIds(xs, NOW)).toContain('streak7');
-    expect(achievedIds(xs.slice(1), NOW)).not.toContain('streak7');
-  });
-
   it('pbFlags marca só quem bateu o recorde da época', () => {
     const xs = [70000, 72000, 65000, 66000, 64000].map((ms) => sv(ms));
     expect(pbFlags(xs)).toEqual([false, false, true, false, true]);
@@ -142,7 +123,7 @@ describe('estatísticas', () => {
     expect(T.chips.vsAvg(-429, 5)).toBe('▼ 0.42 s vs média de 5');
     expect(T.coach.pbSingle(1999)).toBe('Novo recorde — 1.99 s mais rápido. Vale lembrar o que funcionou.');
     expect(T.progress.best('1:29.00')).toBe('melhor 1:29.00');
-    expect(T.progress.count(3, 100)).toBe('3/100');
+    expect(T.progress.of(3, 100)).toBe('3 de 100');
   });
 });
 

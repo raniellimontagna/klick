@@ -79,7 +79,6 @@ export const T = Object.freeze({
   },
   progress: {
     best: (text: string) => `melhor ${text}`,
-    count: (n: number, total: number) => `${n}/${total}`,
     of: (n: number, total: number) => `${n} de ${total}`,
     days: (n: number, total: number) => `${n} de ${total} dias`,
     spread: (text: string) => `menor variação ${text}`,

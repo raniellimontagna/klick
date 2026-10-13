@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openKlickDb } from '../../src/data/db';
 import { createRepository, type Repository } from '../../src/data/repository';
-import { achievedIds } from '../../src/core/stats';
+import { evaluateSeason, seasonOne } from '../../src/core/season';
 import { createScrambleQueue } from '../../src/scramble/queue';
 import { T } from '../../src/strings';
 import { AppState } from '../../src/ui/state/app.svelte';
@@ -359,7 +359,7 @@ describe('tela do Timer: espaço segurado antes da inspeção', () => {
     await waitFor(() => expect(a.solves).toHaveLength(1));
     await waitFor(() => expect(document.querySelector('[data-actions]')).not.toHaveAttribute('hidden'));
     // Um solve de menos de 1 s acende os marcos que ele cumpre (o primeiro, o sub-2, o sub-1:30 e o sub-1), contados pelo núcleo.
-    const expected = achievedIds(a.solves, Date.now()).length;
+    const expected = evaluateSeason(seasonOne(), a.solves).filter((m) => m.achieved).length;
     expect(expected).toBeGreaterThan(0);
     await waitFor(() => expect(litFaces()).toBe(expected));
   });
