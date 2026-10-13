@@ -386,13 +386,14 @@ export class AppState {
   private readKinds(kinds: readonly ReadKind[], deadline = true): Promise<void> {
     const want = new Set<ReadKind>(kinds);
     return this.serial(async () => {
+      const repo = this.repo;
       const reading = Promise.all([
-        want.has('sessions') ? this.repo.listSessions({ includeDeleted: true }) : undefined,
-        want.has('solves') ? this.repo.listSolves() : undefined,
-        want.has('profile') ? this.repo.getProfile() : undefined,
-        want.has('meta') ? this.repo.getMeta() : undefined,
+        want.has('sessions') ? repo.listSessions({ includeDeleted: true }) : undefined,
+        want.has('solves') ? repo.listSolves() : undefined,
+        want.has('profile') ? repo.getProfile() : undefined,
+        want.has('meta') ? repo.getMeta() : undefined,
       ] as const);
-      const [sessions, solves, profile, meta] = deadline ? await this.withReadDeadline(reading) : await reading;
+      const [sessions, solves, profile, meta] = deadline ? await this.withReadDeadline(reading, repo) : await reading;
       if (sessions) {
         this.allSessions = sessions;
         this.sessions = sessions.filter((s) => s.deletedAt === null);
@@ -412,23 +413,39 @@ export class AppState {
 
   // Uma leitura do banco com prazo e sondagem (READ_DEADLINE_MS, PROBE_MS). Banco vivo: espera a leitura, por lenta que seja. Banco
   // mudo: desiste (TimeoutError) e reabre; a resposta que chegar tarde é ignorada.
-  private async withReadDeadline<R>(reading: Promise<R>): Promise<R> {
-    if ((await settlesWithin(reading, READ_DEADLINE_MS)) === 'done') return reading;
-    const probe = this.repo.getMeta().then(
-      () => 'alive' as const,
-      () => 'dead' as const,
-    );
-    const answer = await Promise.race([probe, sleep(PROBE_MS).then(() => 'dead' as const)]);
-    if (answer === 'alive') return reading;
-    void this.reopenRepo();
-    throw Object.assign(new Error('leitura sem resposta'), { name: 'TimeoutError' });
+  //
+  // A sondagem é na conexão em que a leitura começou (readRepo). Se ela já foi trocada (uma gravação presa reabriu o banco), a leitura
+  // ficou na conexão velha e desiste: quem a substituiu relê pela nova. Banco vivo e lento: sonda de novo a cada prazo.
+  private async withReadDeadline<R>(reading: Promise<R>, readRepo: Repository): Promise<R> {
+    const timeout = (): Error => Object.assign(new Error('leitura sem resposta'), { name: 'TimeoutError' });
+    for (;;) {
+      if ((await settlesWithin(reading, READ_DEADLINE_MS)) === 'done') {
+        try {
+          return await reading;
+        } catch (err) {
+          if (isConnectionError(err)) void this.reopenRepo(); // falhou na hora com a conexão morta: reabre
+          throw err;
+        }
+      }
+      if (this.repo !== readRepo) throw timeout();
+      const probe = readRepo.getMeta().then(
+        () => 'alive' as const,
+        () => 'dead' as const,
+      );
+      const answer = await Promise.race([probe, sleep(PROBE_MS).then(() => 'dead' as const)]);
+      if (answer === 'dead') {
+        void this.reopenRepo();
+        throw timeout();
+      }
+    }
   }
 
   // Outra aba mudou estes solves: lê só eles e os encaixa na lista em memória, em vez de reler o histórico inteiro.
   private refreshSolveIds(solveIds: string[]): Promise<void> {
     const ids = [...new Set(solveIds)]; // um id repetido no aviso não põe o solve duas vezes
     return this.serial(async () => {
-      const fetched = await this.withReadDeadline(this.repo.getSolves(ids));
+      const repo = this.repo;
+      const fetched = await this.withReadDeadline(repo.getSolves(ids), repo);
       const changed = new Set(ids);
       const kept = this.solves.filter((s) => !changed.has(s.id));
       const active = fetched.filter((s): s is Solve => s !== undefined && s.deletedAt === null);
@@ -842,8 +859,10 @@ export class AppState {
   // as que ficam sem evento não entram. Os solves viram registros novos; os que já existem (até os da lixeira) não entram de novo.
   importCsTimer(sessions: CsTimerSession[], mapping: Record<string, EventId | undefined>): Promise<ImportSummary | null> {
     return this.importJob(async () => {
+      const repo = this.repo;
       const [existingSessions, existingSolves] = await this.withReadDeadline(
-        Promise.all([this.repo.listSessions({ includeDeleted: true }), this.repo.listSolves({ includeDeleted: true })]),
+        Promise.all([repo.listSessions({ includeDeleted: true }), repo.listSolves({ includeDeleted: true })]),
+        repo,
       );
       const now = this.now();
       const plan = csTimerToKlick(sessions, mapping, { now, newId: () => newId(now), existingSessions, existingSolves });
@@ -884,8 +903,10 @@ export class AppState {
       return null;
     }
     return this.importJob(async () => {
+      const repo = this.repo;
       const [existingSessions, existingSolves] = await this.withReadDeadline(
-        Promise.all([this.repo.listSessions({ includeDeleted: true }), this.repo.listSolves({ includeDeleted: true })]),
+        Promise.all([repo.listSessions({ includeDeleted: true }), repo.listSolves({ includeDeleted: true })]),
+        repo,
       );
       const now = this.now();
       const plan = v1ToKlick(v1, { now, existingSessions, existingSolves });
@@ -1068,6 +1089,7 @@ export class AppState {
   // Outra aba abriu o banco numa versão nova e esta largou a conexão (DbNotice pede para recarregar). Daqui em diante, reabrir só daria
   // erro de versão a cada tentativa, e cada leitura repetiria o aviso: as duas coisas param.
   private superseded = false;
+  private afterCountRunning: Promise<void> | null = null; // as cópias depois de um solve, enquanto rodam (talvez já fora da fila)
   supersede(): void {
     this.superseded = true;
   }
@@ -1200,8 +1222,15 @@ export class AppState {
       return;
     }
     void this.askPersistence();
+    // As cópias que demoram de verdade passam do prazo e continuam fora da fila, sem aviso (uma falha delas avisa sozinha, no
+    // afterCount). Enquanto uma ainda roda, o solve seguinte não começa outra por cima: a conta pede de novo no próximo.
     void this.serial(async () => {
-      if ((await settlesWithin(this.afterCount(counted), AFTER_COUNT_DEADLINE_MS)) === 'late') this.showToast(T.data.backupFailed);
+      if (this.afterCountRunning) return;
+      const run = this.afterCount(counted).finally(() => {
+        if (this.afterCountRunning === run) this.afterCountRunning = null;
+      });
+      this.afterCountRunning = run;
+      await settlesWithin(run, AFTER_COUNT_DEADLINE_MS);
     });
   }
 

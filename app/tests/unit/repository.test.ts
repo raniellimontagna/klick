@@ -2,7 +2,7 @@ import type { IDBPDatabase } from 'idb';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS } from '../../src/core/types';
 import { openKlickDb, type KlickDB } from '../../src/data/db';
-import { createRepository, type ChannelLike, type KlickExport, type Repository } from '../../src/data/repository';
+import { createRepository, createSender, type ChannelLike, type KlickExport, type Repository } from '../../src/data/repository';
 
 let dbn = 0;
 let t = 1_791_500_000_000;
@@ -600,6 +600,22 @@ describe('repositório: canal entre abas', () => {
     expect(typeof msgs[0].from).toBe('string');
     expect(new Set(msgs.map((m) => m.from)).size).toBe(1);
     expect(msgs.map((m) => m.seq)).toEqual([1, 2, 3]);
+  });
+
+  it('as conexões de uma mesma página continuam a mesma sequência: uma reabertura não parece um remetente novo', async () => {
+    const { channel, posted } = recordingChannel();
+    const sender = createSender(now);
+    const first = createRepository(await openKlickDb(dbName()), { now, channel, sender });
+    await first.saveMeta({ solvesSinceBackup: 1 });
+    first.close();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const { channel: channel2, posted: posted2 } = recordingChannel();
+    const second = createRepository(await openKlickDb(dbName()), { now, channel: channel2, sender });
+    await second.saveMeta({ solvesSinceBackup: 2 });
+    const a = posted[0] as { from: string; seq: number };
+    const b = posted2[0] as { from: string; seq: number };
+    expect(b.from).toBe(a.from);
+    expect(b.seq).toBe(a.seq + 1);
   });
 
   it('um número pulado na sequência de quem envia faz reler tudo', async () => {

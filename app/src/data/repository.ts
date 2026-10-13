@@ -200,14 +200,29 @@ async function reviveSession(sessions: SessionStore, sessionId: unknown, at: num
   return true;
 }
 
+// Quem assina os avisos entre abas: um id e uma sequência que sobe de um em um. A página cria um e o passa a cada conexão que abre
+// (boot.ts): uma reabertura continua a mesma sequência, e a outra aba não confunde a reabertura com um remetente novo.
+export interface ChangeSender {
+  id: string;
+  next(): number;
+}
+
+export function createSender(now: () => number = () => Date.now()): ChangeSender {
+  const id = newId(now());
+  let seq = 0;
+  return { id, next: () => ++seq };
+}
+
 export function createRepository(
   db: IDBPDatabase<KlickDB>,
   {
     now = () => Date.now(),
     channel = defaultChannel(),
     onError = rethrowLater,
+    sender = createSender(now),
   }: {
     now?: () => number;
+    sender?: ChangeSender; // omitido: um só desta conexão
     channel?: ChannelLike | null; // omitido: BroadcastChannel('klick-data') se o ambiente tiver; null: sem canal
     onError?: (err: unknown) => void; // erro de um ouvinte ou do envio ao canal; a gravação já foi confirmada. Se ele lançar, o erro sai por relançar-depois
   } = {},
@@ -217,13 +232,11 @@ export function createRepository(
   let channelClosed = false; // o canal fecha depois do close(), quando as gravações em andamento terminarem e avisarem
   let inflight = 0; // gravações em andamento (de write): o canal espera por elas
   // Cada aviso leva quem enviou e um número em sequência: quem ouve percebe um aviso perdido (um número pulado) e relê tudo.
-  const sender = newId(now());
-  let seq = 0;
   const lastSeq = new Map<string, number>();
   function post(message: { kind: ChangeKind; solveIds?: string[] }): void {
     if (channelClosed || !channel) return;
     try {
-      channel.postMessage({ ...message, from: sender, seq: ++seq });
+      channel.postMessage({ ...message, from: sender.id, seq: sender.next() });
     } catch (err) {
       reportError(err);
     }

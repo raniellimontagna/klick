@@ -766,6 +766,64 @@ describe('estado do app: fix round 1 (brief 9b)', () => {
     }
   }, 30_000);
 
+  // N1 da re-revisão: a sondagem tem de ser na conexão em que a leitura está presa. Trocada a conexão, a leitura antiga desiste.
+  it('uma leitura presa numa conexão que já foi trocada desiste no prazo, e a fila segue na conexão nova', async () => {
+    const repo = await freshRepo();
+    const replacement = await freshRepo();
+    const reopen = vi.fn(async () => replacement);
+    const app = await appWith(repo, { reopen });
+    repo.listSessions = () => new Promise<never>(() => {}); // a conexão antiga travou; a sondagem nela até responderia
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const reading = app.reload();
+      const failed = reading.then(() => null, (err: unknown) => err);
+      app.connectionLost(); // a gravação presa reabre: a conexão nova é a `replacement`
+      await vi.waitFor(() => expect(reopen).toHaveBeenCalled());
+      for (let i = 0; i < 8; i++) await vi.advanceTimersByTimeAsync(1_000);
+      expect(await failed).toMatchObject({ name: 'TimeoutError' });
+      const after = app.updateMeta({ installGuideDismissed: true }); // a fila não ficou presa
+      let done = false;
+      void after.then(() => { done = true; });
+      for (let i = 0; i < 10 && !done; i++) await vi.advanceTimersByTimeAsync(1_000);
+      expect(done).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('uma leitura que falha na hora com erro de conexão reabre o banco', async () => {
+    const repo = await freshRepo();
+    const reopen = vi.fn(async () => repo);
+    const app = await appWith(repo, { reopen });
+    repo.listSessions = async () => { throw dbError('InvalidStateError'); };
+    await app.reload().catch(() => undefined);
+    await vi.waitFor(() => expect(reopen).toHaveBeenCalled());
+  });
+
+  // N3: uma cópia automática lenta de verdade (histórico grande, celular lento) não é falha, e a próxima não corre junto com ela.
+  it('uma cópia automática mais lenta que o prazo não avisa falha, e o solve seguinte não começa outra por cima', async () => {
+    const repo = await freshRepo();
+    const app = await appWith(repo);
+    await app.updateMeta({ solvesSinceBackup: 49 }); // o próximo solve pede a cópia automática
+    const realSave = repo.saveBackup.bind(repo);
+    let saves = 0;
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      repo.saveBackup = (r) => { saves += 1; return new Promise((resolve) => setTimeout(() => resolve(realSave(r)), 90_000)); };
+      const toastText = (): string | undefined => app.toast?.text; // função: o TypeScript não estreita depois de app.toast = null
+      app.toast = null;
+      await app.addSolve(newSolve(61_000));
+      for (let i = 0; i < 14; i++) await vi.advanceTimersByTimeAsync(5_000); // passa dos 60 s com a cópia ainda gravando
+      expect(toastText()).not.toBe(T.data.backupFailed);
+      await app.addSolve(newSolve(62_000, t + 1)); // com a primeira ainda rodando, esta não começa outra
+      for (let i = 0; i < 10; i++) await vi.advanceTimersByTimeAsync(5_000);
+      expect(saves).toBe(1);
+      expect(toastText()).not.toBe(T.data.backupFailed);
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 30_000);
+
   it('a contagem das cópias que não responde não segura o solve: ele volta com o aviso da contagem', async () => {
     const repo = await freshRepo();
     const app = await appWith(repo);
