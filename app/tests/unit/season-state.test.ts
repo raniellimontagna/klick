@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import type { SeasonTracker } from '../../src/core/season';
 import type { SeasonState, Session, Solve } from '../../src/core/types';
 import { openKlickDb } from '../../src/data/db';
 import { createRepository, type KlickExport, type Repository } from '../../src/data/repository';
@@ -41,6 +42,11 @@ const pairT2 = (startedAt: number): SeasonState => ({
   marks: Array.from({ length: 9 }, () => ({ kind: 'count' as const, target: 2 })),
 });
 const rec1 = { n: 1, startedAt: END - 10 * DAY, endedAt: END - DAY, solves: 1000, startAo12: null, endAo12: 50000 };
+// Nove marcos de média de 5 abaixo de 30 s: dois DNFs na mesma janela de 5 seguram todos eles.
+const ao5T2 = (startedAt: number): SeasonState => ({
+  ...easyT2(startedAt),
+  marks: Array.from({ length: 9 }, () => ({ kind: 'ao5' as const, target: 30000 })),
+});
 
 describe('temporada no AppState', () => {
   it('quem já tem os 9 marcos da T1 abre na T2, com a T1 no histórico', async () => {
@@ -186,6 +192,84 @@ describe('temporada no AppState', () => {
     fail = false;
     await a.checkSeason();
     expect(a.profile.season.current.n).toBe(2);
+  });
+
+  it('excluir o DNF que segurava o último marco vira a temporada, sem esperar o próximo solve', async () => {
+    const repo = await repoNamed();
+    await repo.saveProfile({ season: { current: ao5T2(END), past: [rec1] } });
+    const a = make(repo, () => END + 10000);
+    await a.init();
+    const ids: string[] = [];
+    for (const [i, penalty] of ([null, null, null, 'DNF', 'DNF', null] as const).entries()) {
+      const s = await a.addSolve({ ms: 20000, penalty, at: END + 1000 + i * 1000 });
+      ids.push(s!.id);
+    }
+    await a.reload();
+    expect(a.profile.season.current.n).toBe(2); // toda janela de 5 tem os dois DNFs
+    await a.deleteSolve(ids[3]);
+    await a.reload(); // a conferência que a exclusão pôs na fila roda antes desta leitura
+    expect(a.profile.season.current.n).toBe(3);
+  });
+
+  it('excluir a sessão com os DNFs que seguravam o último marco vira a temporada', async () => {
+    const repo = await repoNamed();
+    await repo.saveProfile({ season: { current: ao5T2(END), past: [rec1] } });
+    const a = make(repo, () => END + 10000);
+    await a.init();
+    const main = a.activeSession!.id;
+    let at = END + 1000;
+    for (let i = 0; i < 2; i++) await a.addSolve({ ms: 20000, penalty: null, at: (at += 1000) });
+    await a.createSession('333', 'DNFs');
+    const other = a.activeSession!.id;
+    for (let i = 0; i < 2; i++) await a.addSolve({ ms: 20000, penalty: 'DNF', at: (at += 1000) });
+    await a.switchSession(main);
+    for (let i = 0; i < 3; i++) await a.addSolve({ ms: 20000, penalty: null, at: (at += 1000) });
+    await a.reload();
+    expect(a.profile.season.current.n).toBe(2);
+    await a.deleteSession(other);
+    await a.reload();
+    expect(a.profile.season.current.n).toBe(3);
+  });
+
+  it('a abertura conta a temporada na lista final: a tela não refaz a conta inteira depois', async () => {
+    const repo = await repoNamed();
+    await repo.importAll(file(t1History().slice(0, 30)));
+    await repo.saveProfile({ season: { current: strictT2(END), past: [rec1] } });
+    const a = make(repo);
+    await a.init();
+    const tracker = (a as unknown as { seasonTracker: SeasonTracker }).seasonTracker;
+    const evaluate = vi.spyOn(tracker, 'evaluate');
+    a.seasonStatus(); // o que a tela do Timer e a do Centro leem ao abrir
+    expect(evaluate).not.toHaveBeenCalled();
+  });
+
+  it('a virada que não responde desiste no prazo com aviso, sem prender a fila; a conferência seguinte vira', async () => {
+    const repo = await repoNamed();
+    await repo.saveProfile({ season: { current: easyT2(END), past: [rec1] } });
+    const a = make(repo, () => END + 2000);
+    await a.init();
+    await repo.addSolve({ sessionId: a.activeSession!.id, event: '333', ms: 20000, penalty: null, at: END + 1000, scramble: '' });
+    await a.reload();
+    const advance = repo.advanceSeason.bind(repo);
+    repo.advanceSeason = () => new Promise<never>(() => {});
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const checking = a.checkSeason();
+      let done = false;
+      void checking.then(() => {
+        done = true;
+      });
+      // O banco de teste também anda no relógio falso: avança em passos, bem além do prazo.
+      for (let i = 0; i < 20 && !done; i++) await vi.advanceTimersByTimeAsync(2_500);
+      expect(done).toBe(true);
+      expect(a.toast?.text).toBe(T.data.changeFailed);
+      expect(a.profile.season.current.n).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+    repo.advanceSeason = advance;
+    await a.checkSeason();
+    expect(a.profile.season.current.n).toBe(3);
   });
 
   it('importar um arquivo que completa a T1 vira a temporada no fim da importação', async () => {

@@ -358,8 +358,8 @@ export class AppState {
 
   // Fecha a temporada atual quando os 9 marcos estão feitos (spec do sub-projeto 3, seção 5.5). Na fila: vê a lista e o perfil depois
   // das gravações que já estavam nela. A virada é condicional no repositório: se outra aba já virou, o perfil gravado volta e nada vira
-  // duas vezes. Uma falha mostra o aviso; os marcos continuam feitos, então a conferência seguinte tenta de novo. Não rejeita: a
-  // abertura espera por ela.
+  // duas vezes. Uma falha ou uma virada sem resposta no prazo mostra o aviso; os marcos continuam feitos, então a conferência seguinte
+  // tenta de novo. Não rejeita: a abertura espera por ela.
   // Dentro da fila, chame sem esperar (void): a fila espera o trabalho que está rodando.
   checkSeason(): Promise<void> {
     return this.serial(async () => {
@@ -368,7 +368,7 @@ export class AppState {
         const plan = planAdvance(progress, this.solves, this.now(), this.seasonStatus(this.solves, progress.current));
         if (!plan) return;
         await this.write(async () => {
-          this.profile = await this.repo.advanceSeason(plan.fromN, plan.record, plan.next);
+          this.profile = await within(this.repo.advanceSeason(plan.fromN, plan.record, plan.next), COUNT_DEADLINE_MS);
         });
       } catch {
         // A conta falhou (um erro de código, não do banco): sem aviso, a pessoa não tem o que fazer. A temporada fica como está, e a
@@ -385,7 +385,6 @@ export class AppState {
     // Aberto instalado: pede a proteção, se o navegador ainda não a deu (uma vez por sessão).
     if (isStandalone()) void this.askPersistence();
     await this.ensureSession();
-    await this.checkSeason(); // quem já tinha os 9 marcos antes desta versão fecha a temporada ao abrir
     const meta = this.meta ?? (await this.repo.getMeta());
     const folder = await this.folderConfigured();
     const plan = planOnOpen(meta, this.now(), folder);
@@ -407,6 +406,9 @@ export class AppState {
     }
     this.queue.prefetch(this.event);
     await this.readKinds(ALL_READS, false);
+    // Quem já tinha os 9 marcos antes desta versão fecha a temporada ao abrir. Depois da última leitura: a conta fica guardada para a
+    // lista que a tela vai ler (contar antes dela refaria a conta inteira na tela, com os solves relidos).
+    await this.checkSeason();
     // As cópias do dia e da pasta vêm depois do primeiro embaralhamento e rodam em segundo plano: uma cópia grande não segura a
     // casca. backup() e copyToFolder() já tratam as próprias falhas (com aviso); o catch só evita uma rejeição sem dono.
     void this.openingCopies(plan).catch(() => undefined);
@@ -574,6 +576,7 @@ export class AppState {
       await this.serial(async () => this.removeSolve(id));
     });
     if (ok) {
+      void this.checkSeason(); // tirar um DNF pode completar uma média (ou a variação de 5 seguidos)
       const undoAction = () => void this.undoDelete();
       this.undo = { id, until: this.now() + UNDO_MS };
       this.undoAction = undoAction;
@@ -622,6 +625,7 @@ export class AppState {
     if (wasCurrent) this.clearScramble(); // antes da gravação, como em createSession e switchSession
     const ok = await this.write(() => this.repo.deleteSession(id));
     await this.refresh();
+    if (ok) void this.checkSeason(); // os solves dela saem da conta: tirar DNFs pode completar uma média
     const replaced = ok && !this.currentSession && (await this.write(() => this.replaceCurrent()));
     if (wasCurrent || replaced) await this.nextScramble();
   }
