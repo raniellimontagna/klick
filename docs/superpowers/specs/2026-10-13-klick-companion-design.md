@@ -213,9 +213,10 @@ O 2º degrau é o próximo abaixo do 1º. Nenhuma meta fica abaixo de 1 s.
 - **Sem mensagem no fechamento passado:** a T1 fechada no passado não gera mensagem do coach, porque nenhum solve a fechou. Ela aparece na tela do Centro.
 - **Sem cascata:** uma temporada nova tem metas abaixo das marcas atuais e nenhum solve, então nunca fecha na hora.
 - **Quando conferir:**
+  - ao abrir o app, depois da última leitura do banco;
   - depois de gravar um solve de 3×3;
-  - ao abrir o app, depois da primeira leitura;
-  - depois de importar ou restaurar.
+  - depois de editar, excluir ou restaurar um solve, e de excluir ou restaurar uma sessão;
+  - depois de importar ou restaurar uma cópia.
 - **Gravação:** o repositório ganha `advanceSeason(fromN, record, next)`. Ele lê e grava o perfil na mesma transação e só avança se `season.current.n` ainda for `fromN`. Se não for, não grava nada e devolve o perfil salvo.
   - Duas abas que tentam ao mesmo tempo fazem uma virada só.
   - As outras abas recebem a mudança pelo aviso de perfil que já existe.
@@ -242,7 +243,7 @@ O 2º degrau é o próximo abaixo do 1º. Nenhuma meta fica abaixo de 1 s.
 | `ui/centro/face.ts` (puro) | Parâmetros do rosto, tabela de expressões, `eyePath(face, lado)` e `approach(atual, alvo, dt)` | nada |
 | `ui/centro/behavior.ts` (puro, com relógio e sorteio injetados) | Piscar, olhadinhas, salto, piscada da face de cima, órbita e respiração. Dado o estado e o instante, diz o que acontece agora e quando é o próximo evento | `face.ts` |
 | `ui/centro/animator.ts` | Um por SVG. Aproxima o rosto do alvo, escreve no SVG e agenda o próximo quadro ou evento | os dois acima |
-| `ui/centro.ts` | Monta o SVG. Os olhos viram dois `<path class="eye">` e o corpo ganha um grupo com `transform`. `ringFor` e o estado viram a função pura `centroTarget(view) → { ring, face }` | `face.ts` |
+| `ui/centro.ts` | Monta o SVG. Os olhos viram dois `<path class="eye">` e o corpo ganha um grupo com `transform`. `ringFor(view)` e `eyesFor(view)` dão o anel e a expressão de cada estado | `face.ts` |
 
 O `TimerScreen.svelte` já passa de 750 linhas. A ligação do Centro com o timer (estado, reação, órbita, sono) sai dele para um controlador próprio, e a tela só repassa os eventos.
 
@@ -269,7 +270,7 @@ interface Face {
 - `open` 1 equivale às 12 unidades de altura do olho de hoje.
 - O mínimo, cerca de 0,22, equivale às 2,6 unidades de espessura do traço de hoje. Assim, foco, feliz e dormindo ficam com a cara que têm agora.
 
-- **Formato do olho:** cada olho é um único formato preenchido, com a borda de cima e a de baixo em curva quadrática. Como todas as expressões usam a mesma estrutura de comandos, dá para interpolar entre qualquer par.
+- **Formato do olho:** cada olho é o contorno de um traço de pontas redondas: um miolo (um segmento ou uma faixa curva) engordado por um raio. O caminho é uma polilinha com um número fixo de pontos, gerada dos parâmetros a cada quadro. A curva aparece aos poucos conforme o olho achata, sem salto. Como todas as expressões usam a mesma sequência de pontos, dá para interpolar entre qualquer par.
 - **Transição:** amortecimento exponencial que chega ao alvo em cerca de 200 ms, independente da taxa de quadros.
 - **Atributos:** o `data-eyes` do SVG guarda o nome da expressão-alvo, para os testes e para quem lê o DOM.
 
