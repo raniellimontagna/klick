@@ -212,7 +212,7 @@
       <div class="label">{distLabel}</div>
       <div class="bars" role="img" aria-label={barsLabel}>
         {#each bins as b, i (b.from)}
-          <i class:hl={i === hlIndex} style="height: {Math.max(2, (b.count / maxCount) * 100)}%" title="{formatMs(b.from)}–{formatMs(b.to)}: {b.count}"></i>
+          <i class:hl={i === hlIndex} style="height: {Math.max(2, (b.count / maxCount) * 100)}%" title="{b.open ? T.evolucao.binOpen(formatMs(b.from)) : `${formatMs(b.from)}–${formatMs(b.to)}`}: {b.count}"></i>
         {/each}
       </div>
       <div class="bars-x">

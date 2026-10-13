@@ -129,6 +129,7 @@ export const T = Object.freeze({
     delta: (d: number) => `${d < 0 ? '▼' : '▲'} ${sec(Math.abs(d))} s no período`,
     chartLabel: (n: number) => `Solves do período · média de ${n} · recordes`,
     distribution: 'Distribuição',
+    binOpen: (from: string): string => `${from} ou mais`, // a última barra, que junta os tempos fora da curva
     highlight: (n: number, time: string) => `em destaque, sua média de ${n} (${time})`,
     barsSummary: (count: number, from: string, to: string) =>
       `Distribuição dos tempos do período: ${count} ${count === 1 ? 'solve' : 'solves'}, mais comuns entre ${from} e ${to}`,

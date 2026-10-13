@@ -43,9 +43,53 @@ describe('gráficos com histórico grande', () => {
     expect(bins.reduce((total, b) => total + b.count, 0)).toBe(200_000);
   });
 
-  it('evolutionChart não estoura o limite de argumentos', () => {
+  it('evolutionChart não estoura o limite de argumentos e não desenha um círculo por solve', () => {
     const svg = evolutionChart({ times, ao5: times.map(() => null), pb: times.map(() => false) });
-    expect((svg.match(/class="dot"/g) || []).length).toBe(200_000);
+    const dots = (svg.match(/class="dot"/g) || []).length;
+    expect(dots).toBeGreaterThan(0);
+    expect(dots).toBeLessThanOrEqual(1200);
+  });
+});
+
+// "Tudo" num histórico grande: o SVG não pode ter um círculo por solve, e um tempo absurdo não pode criar centenas de barras.
+describe('gráficos: histórico grande e tempos fora da curva', () => {
+  it('com muitos solves, cada coluna guarda o menor e o maior tempo: a faixa do gráfico não muda', () => {
+    const times = Array.from({ length: 10_000 }, (_, i) => 15_000 + ((i * 7919) % 10_000));
+    times[4321] = 9_000; // o melhor
+    times[8765] = 40_000; // o pior
+    const svg = evolutionChart({ times, ao5: times.map(() => null), pb: times.map(() => false) }, { height: 160, pad: 10 });
+    expect((svg.match(/class="dot"/g) || []).length).toBeLessThanOrEqual(1200);
+    expect(svg).toMatch(/cy="150.0"/); // o melhor continua no chão
+    expect(svg).toMatch(/cy="10.0"/); // o pior continua no teto
+  });
+
+  it('a linha da média tem no máximo um ponto por coluna', () => {
+    const times = Array.from({ length: 5_000 }, (_, i) => 15_000 + (i % 100) * 10);
+    const svg = evolutionChart({ times, ao5: times, pb: times.map(() => false) });
+    const line = svg.match(/class="avg" d="M([^"]+)"/)![1];
+    expect(line.split(' L').length).toBeLessThanOrEqual(600);
+  });
+
+  it('os recordes continuam todos marcados', () => {
+    const times = Array.from({ length: 5_000 }, (_, i) => 30_000 - i);
+    const pb = times.map((_, i) => i % 1000 === 0);
+    const svg = evolutionChart({ times, ao5: times.map(() => null), pb });
+    expect((svg.match(/class="pb"/g) || []).length).toBe(5);
+  });
+
+  it('um tempo fora da curva vai para a última faixa, aberta, em vez de criar centenas de barras', () => {
+    const bins = histogramBins([15_000, 16_000, 21_000, 3_600_000]); // um timer esquecido ligado por uma hora
+    expect(bins.length).toBeLessThanOrEqual(24);
+    expect(bins.reduce((total, b) => total + b.count, 0)).toBe(4);
+    const last = bins[bins.length - 1];
+    expect(last.open).toBe(true);
+    expect(last.count).toBe(1);
+    expect(last.to).toBeGreaterThan(3_600_000);
+    expect(bins[0]).toMatchObject({ from: 15_000, to: 20_000, count: 2 });
+  });
+
+  it('sem tempo fora da curva, nenhuma faixa é aberta', () => {
+    expect(histogramBins([61000, 62000, 66000]).some((b) => b.open)).toBe(false);
   });
 });
 
