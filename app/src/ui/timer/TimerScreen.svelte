@@ -2,7 +2,7 @@
   // A tela do Timer (porte de prototype/scripts/app.js e ui/timer-view.js). Dona do timer, da entrada, da reação, do coach e da
   // pintura do tempo. O solve é gravado antes da reação: a reação só começa depois que o solve está em app.solves.
   import { tick, untrack } from 'svelte';
-  import { type CoachSeason, pickCoachMessage } from '../../core/coach';
+  import { type CoachMessage, type CoachSeason, pickCoachMessage } from '../../core/coach';
   import { eventInfo } from '../../core/events';
   import { closeRecord, seasonFinish, seasonSolves } from '../../core/season';
   import {
@@ -337,20 +337,28 @@
       kick();
       return;
     }
-    const season = eventInfo(solve.event).milestones ? seasonInput(seasonAtStart, listBefore) : undefined;
-    const seasonClosed = season?.end != null;
-    const s = app.profile.settings;
-    const msg = pickCoachMessage({
-      solve,
-      history: eventList,
-      sessionSolves: sessionList,
-      season,
-      dailyGoal: s.dailyGoal,
-      todayCount: solvesOnDay(app.solves, solve.at).length,
-      prevAnyAt,
-      silent: s.silent,
-      event: solve.event,
-    });
+    // Os marcos e o coach. Se a conta lançar (um erro de código), a reação entra assim mesmo, sem coach e sem o fim de temporada: sem
+    // isso o Centro ficaria preso no foco até o próximo solve, e a promessa rejeitaria sem dono. A temporada fecha na conferência.
+    let seasonClosed = false;
+    let msg: CoachMessage | null = null;
+    try {
+      const season = eventInfo(solve.event).milestones ? seasonInput(seasonAtStart, listBefore) : undefined;
+      const s = app.profile.settings;
+      msg = pickCoachMessage({
+        solve,
+        history: eventList,
+        sessionSolves: sessionList,
+        season,
+        dailyGoal: s.dailyGoal,
+        todayCount: solvesOnDay(app.solves, solve.at).length,
+        prevAnyAt,
+        silent: s.silent,
+        event: solve.event,
+      });
+      seasonClosed = season?.end != null;
+    } catch {
+      // seasonClosed e msg ficam como estão (false e null): a reação entra sem coach e sem o fim de temporada.
+    }
     const t0 = performance.now();
     live.react(kind, t0, seasonClosed);
     clearTimeout(topHoldTimer);

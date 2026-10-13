@@ -130,6 +130,15 @@ describe('temporada que vem de fora (spec 5.6)', () => {
     for (const v of bad) expect(seasonFrom(v)).toBeNull();
   });
 
+  it('aceita os tempos de 0 ms que o próprio app grava nas marcas de base e nos registros (as metas seguem acima de zero)', () => {
+    const zero: SeasonProgress = {
+      current: { ...ok.current, basis: { single: 0, ao5: 0, ao12: 0 } },
+      past: [{ ...ok.past[0], startAo12: 0, endAo12: 0 }],
+    };
+    expect(seasonFrom(structuredClone(zero))).toEqual(zero);
+    expect(seasonFrom({ ...zero, current: { ...zero.current, basis: { single: -1, ao5: null, ao12: null } } })).toBeNull();
+  });
+
   it('a mais adiantada é a de mais temporadas fechadas; no empate fica a daqui', () => {
     const fresh = defaultSeason();
     expect(moreAdvanced(fresh, ok)).toBe(ok);

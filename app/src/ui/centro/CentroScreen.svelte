@@ -90,14 +90,31 @@
       animator.repaint();
     });
   });
+  // O animador para com a página escondida ou com o Centro grande fora da área visível (spec 6.4).
+  let pageVisible = $state(true);
+  let onScreen = $state(true); // o Centro grande está na área visível (IntersectionObserver)
   $effect(() => {
-    const sync = (): void => animator.setPaused(document.hidden);
+    animator.setPaused(!pageVisible || !onScreen);
+  });
+  $effect(() => {
+    const sync = (): void => {
+      pageVisible = !document.hidden;
+    };
     sync();
     document.addEventListener('visibilitychange', sync);
     return () => {
       document.removeEventListener('visibilitychange', sync);
       animator.destroy();
     };
+  });
+  $effect(() => {
+    const el = bigEl;
+    if (!el || typeof IntersectionObserver !== 'function') return;
+    const io = new IntersectionObserver((entries) => {
+      onScreen = entries.some((e) => e.isIntersecting);
+    });
+    io.observe(el);
+    return () => io.disconnect();
   });
 
   // O que falta num marco pendente: quantos, o melhor até agora, os dias seguidos de agora ou a menor variação.

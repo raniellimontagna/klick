@@ -87,7 +87,8 @@ const isRec = (v: unknown): v is Record<string, unknown> => typeof v === 'object
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const isPos = (v: unknown): v is number => isNum(v) && v > 0;
 const isWhole = (v: unknown, min: number): v is number => Number.isInteger(v) && (v as number) >= min;
-const isTime = (v: unknown): v is number | null => v === null || isPos(v);
+// Marcas de base e médias dos registros: 0 ms vale (um solve pode ter 0 ms, e o app grava a marca dele). As metas seguem acima de zero.
+const isTime = (v: unknown): v is number | null => v === null || (isNum(v) && v >= 0);
 
 function markFrom(v: unknown): SeasonMark | null {
   if (!isRec(v)) return null;

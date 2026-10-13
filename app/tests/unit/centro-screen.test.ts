@@ -10,6 +10,25 @@ import { AppState } from '../../src/ui/state/app.svelte';
 import CentroScreen from '../../src/ui/centro/CentroScreen.svelte';
 import TimerScreen from '../../src/ui/timer/TimerScreen.svelte';
 
+// O animador de verdade, com as pausas anotadas: a tela não expõe o animador, e o que ela pede a ele é o que importa aqui.
+const pausas = vi.hoisted(() => [] as boolean[]);
+vi.mock('../../src/ui/centro/animator', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../../src/ui/centro/animator')>();
+  return {
+    ...mod,
+    createCentroAnimator: (opts: Parameters<typeof mod.createCentroAnimator>[0]) => {
+      const animator = mod.createCentroAnimator(opts);
+      return {
+        ...animator,
+        setPaused(p: boolean): void {
+          pausas.push(p);
+          animator.setPaused(p);
+        },
+      };
+    },
+  };
+});
+
 let n = 0;
 async function app() {
   const repo = createRepository(await openKlickDb(`ce-${++n}`), { channel: null });
@@ -177,5 +196,41 @@ describe('Centro: temporadas', () => {
     render(CentroScreen, { app: a });
     expect(await screen.findByText(T.centro.historyEmpty)).toBeInTheDocument();
     expect(screen.getByText('Face de cima · Temporada 1')).toBeInTheDocument();
+  });
+});
+
+describe('Centro: fora da tela', () => {
+  it('o Centro grande para quando sai da área visível e volta a andar quando entra', async () => {
+    let avisar: ((entries: { isIntersecting: boolean }[]) => void) | null = null;
+    const observados: Element[] = [];
+    vi.stubGlobal(
+      'IntersectionObserver',
+      class {
+        constructor(cb: (entries: { isIntersecting: boolean }[]) => void) {
+          avisar = cb;
+        }
+        observe(el: Element): void {
+          observados.push(el);
+        }
+        unobserve(): void {}
+        disconnect(): void {}
+        takeRecords(): [] {
+          return [];
+        }
+      },
+    );
+    try {
+      const { a } = await app();
+      pausas.length = 0;
+      render(CentroScreen, { app: a });
+      await waitFor(() => expect(observados).toContain(document.querySelector('.big')));
+      expect(pausas.at(-1)).toBe(false);
+      avisar!([{ isIntersecting: false }]);
+      await waitFor(() => expect(pausas.at(-1)).toBe(true));
+      avisar!([{ isIntersecting: true }]);
+      await waitFor(() => expect(pausas.at(-1)).toBe(false));
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

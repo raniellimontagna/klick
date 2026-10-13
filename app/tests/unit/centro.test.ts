@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { centroTarget, PALETTES, RING_ORDER, eyesFor, paintFace, paintRing, paintTop, paletteFor, renderCentro, ringFor, updateCentro } from '../../src/ui/centro';
+import { PALETTES, RING_ORDER, eyesFor, paintFace, paintRing, paintTop, paletteFor, renderCentro, ringFor, updateCentro } from '../../src/ui/centro';
 import { EXPRESSIONS, EYE_X, eyePath } from '../../src/ui/centro/face';
 
 const N = null;
@@ -148,9 +148,5 @@ describe('Centro no DOM', () => {
     expect(svg.querySelector('g.top')?.getAttribute('transform')).toBe('matrix(1,0,0.3,-0.3,0,30)');
     expect(svg.querySelector('g.side')?.getAttribute('transform')).toBe('matrix(0.3,-0.3,0,1,100,30)');
     expect(svg.querySelectorAll('g.top .lit')).toHaveLength(2);
-  });
-
-  it('centroTarget junta o anel e a expressão do estado', () => {
-    expect(centroTarget({ state: 'ready' })).toEqual({ ring: Array(8).fill('green'), eyes: 'focus' });
   });
 });

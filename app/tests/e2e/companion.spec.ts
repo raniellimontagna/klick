@@ -37,8 +37,13 @@ test('importar 1.000 solves fecha a T1, libera o Brilho e abre a T2 com metas da
   await expect(screen.getByText('Média de 5 abaixo de 48 s')).toBeVisible();
   await expect(screen.getByText(/^T1 · /)).toBeVisible();
   await expect(screen.getByRole('button', { name: 'Brilho', exact: true })).toBeVisible();
-  const r = await new AxeBuilder({ page }).analyze();
-  expect(r.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => v.id)).toEqual([]);
+  // A mesma tela nos dois temas (spec 9): o Centro segue o do sistema, e o SVG dele diz qual está valendo.
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await expect(screen.locator('.big svg.centro')).toHaveAttribute('data-theme', scheme);
+    const r = await new AxeBuilder({ page }).analyze();
+    expect(r.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${scheme}: ${v.id}`)).toEqual([]);
+  }
 });
 
 test('um solve que fecha a temporada mostra o fim de temporada e libera o Gelo', async ({ page }) => {

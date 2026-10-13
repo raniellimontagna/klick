@@ -235,11 +235,6 @@ export function paintTop(svg: SVGElement, dim: number): void {
   if (top) top.style.opacity = dim > 0 ? String(Number((1 - dim).toFixed(3))) : '';
 }
 
-// O anel e a expressão que um estado pede.
-export function centroTarget(view: CentroView): { ring: Ring; eyes: Eyes } {
-  return { ring: ringFor(view), eyes: eyesFor(view) };
-}
-
 // Atualiza anel e olhos de um <svg class="centro"> já no DOM, na hora, sem animação (o tour usa assim).
 export function updateCentro(svg: SVGElement | null | undefined, opts: UpdateOptions = {}): void {
   if (!svg) return;

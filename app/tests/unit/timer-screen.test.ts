@@ -9,6 +9,19 @@ import { AppState } from '../../src/ui/state/app.svelte';
 import TimerScreen from '../../src/ui/timer/TimerScreen.svelte';
 import { mockMedia } from './media';
 
+// O coach de verdade; um teste o faz lançar (um erro de código na conta dele) para ver que a reação entra mesmo assim.
+const coachFalha = vi.hoisted(() => ({ on: false }));
+vi.mock('../../src/core/coach', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../../src/core/coach')>();
+  return {
+    ...mod,
+    pickCoachMessage: (...args: Parameters<typeof mod.pickCoachMessage>) => {
+      if (coachFalha.on) throw new Error('coach');
+      return mod.pickCoachMessage(...args);
+    },
+  };
+});
+
 let n = 0;
 async function app() {
   const repo = createRepository(await openKlickDb(`ts-${++n}`), { channel: null });
@@ -243,6 +256,37 @@ describe('tela do Timer: solve, reação e nota', () => {
     key('keydown', 'KeyD', 'd');
     await waitFor(() => expect(svg().dataset.eyes).toBe('half'), { timeout: 1500 });
     expect(document.body.dataset.cview).toBe('reaction');
+  });
+
+  it('se a conta do coach lança, a reação entra sem coach (o Centro não fica preso no foco) e nada rejeita sem dono', async () => {
+    const { a } = await app();
+    await a.updateSettings({ inspection: false });
+    render(TimerScreen, { app: a });
+    const rejeicoes: unknown[] = [];
+    const anotar = (motivo: unknown): void => {
+      rejeicoes.push(motivo);
+    };
+    process.on('unhandledRejection', anotar);
+    coachFalha.on = true;
+    try {
+      let reagiu = false;
+      const amostra = (): void => {
+        if (document.body.dataset.cview === 'reaction') {
+          reagiu = true;
+          return;
+        }
+        requestAnimationFrame(amostra);
+      };
+      await solveByKeys();
+      requestAnimationFrame(amostra);
+      await waitFor(() => expect(reagiu).toBe(true), { timeout: 4000 });
+      expect(a.solves).toHaveLength(1);
+      await sleep(50);
+      expect(rejeicoes).toEqual([]);
+    } finally {
+      coachFalha.on = false;
+      process.off('unhandledRejection', anotar);
+    }
   });
 
   it('enquanto a gravação demora, o Centro fica parado (foco) até a reação começar', async () => {
