@@ -495,6 +495,9 @@ describe('tela do Timer: falhas, foco e ações', () => {
     render(TimerScreen, { app: a });
     solveComTempo(1000);
     await waitFor(() => expect(document.querySelector('[data-actions]')).not.toHaveAttribute('hidden'));
+    // O timer do finishSolve entrou na fila antes de as ações aparecerem: precisa disparar primeiro, para o react() já ter marcado t0.
+    // Sem isso, sob carga o cview 'running' do salvamento (live.hold) engana o waitFor e o relógio avança antes da reação começar.
+    await new Promise((r) => setTimeout(r, 0));
     // A reação já foi marcada (o Centro espera imóvel); o relógio passa do fim dela e do coach, e o laço de quadros para.
     await waitFor(() => expect(document.body.dataset.cview).toBe('running'));
     relogio += 10000;
