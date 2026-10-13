@@ -57,6 +57,19 @@ export interface AppDeps {
   share?: ShareFile | null; // exportar pela folha de compartilhar (padrão: a do sistema no iPhone e no iPad; nos outros, o download)
 }
 
+// 'done' se a promessa termina (com sucesso ou erro) dentro do prazo; 'late' se não.
+async function settlesWithin(promise: Promise<unknown>, ms: number): Promise<'done' | 'late'> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<'late'>((resolve) => {
+    timer = setTimeout(() => resolve('late'), ms);
+  });
+  try {
+    return await Promise.race([promise.then(() => 'done' as const, () => 'done' as const), late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // A sessão que recebe mais solves numa importação (no empate, a primeira que aparece). null quando não há solve.
 function busiestSession(solves: readonly { sessionId: string }[]): string | null {
   const counts = new Map<string, number>();
@@ -97,6 +110,11 @@ const STALL_MS = 5000;
 const SAVE_DEADLINE_MS = 8000;
 // Uma reabertura que não responde nesse prazo é desistida: o repositório atual segue e a próxima falha pode pedir outra.
 const REOPEN_DEADLINE_MS = 8000;
+// Uma leitura do banco que não responde em READ_DEADLINE_MS desiste (TimeoutError): a fila segue e o banco é reaberto. Sem isso, uma
+// leitura presa segurava a fila inteira (contas, meta, releituras) para sempre.
+const READ_DEADLINE_MS = 8000;
+// A restauração espera uma importação em andamento terminar, mas não para sempre.
+const IMPORT_WAIT_MS = 8000;
 // A restauração inteira (ler a cópia, trocar, recarregar). Passado o prazo, a chamada devolve false com o aviso, mas o portão segue
 // fechado até a troca terminar de verdade: as gravações ficam na memória, sem cair no meio de uma troca tardia.
 const RESTORE_DEADLINE_MS = 30000;
@@ -347,12 +365,26 @@ export class AppState {
   private readKinds(kinds: readonly ReadKind[]): Promise<void> {
     const want = new Set<ReadKind>(kinds);
     return this.serial(async () => {
-      const [sessions, solves, profile, meta] = await Promise.all([
+      const reading = Promise.all([
         want.has('sessions') ? this.repo.listSessions({ includeDeleted: true }) : undefined,
         want.has('solves') ? this.repo.listSolves() : undefined,
         want.has('profile') ? this.repo.getProfile() : undefined,
         want.has('meta') ? this.repo.getMeta() : undefined,
-      ]);
+      ] as const);
+      let deadline: ReturnType<typeof setTimeout> | undefined;
+      const expired = new Promise<never>((_, reject) => {
+        deadline = setTimeout(() => reject(Object.assign(new Error('leitura sem resposta'), { name: 'TimeoutError' })), READ_DEADLINE_MS);
+      });
+      let read: Awaited<typeof reading>;
+      try {
+        read = await Promise.race([reading, expired]);
+      } catch (err) {
+        if (isConnectionError(err)) void this.reopenRepo(); // a resposta que chegar tarde é ignorada
+        throw err;
+      } finally {
+        clearTimeout(deadline);
+      }
+      const [sessions, solves, profile, meta] = read;
       if (sessions) {
         this.allSessions = sessions;
         this.sessions = sessions.filter((s) => s.deletedAt === null);
@@ -507,7 +539,10 @@ export class AppState {
     if (this.reopening) await this.reopening;
     // Uma importação que já está gravando termina antes da troca: a cópia de segurança (a pre-restore) leva o que ela trouxe, e o
     // replaceAll não cai no meio dela. Imports que chegam agora são recusados (importJob).
-    if (this.importing) await this.importing;
+    if (this.importing && (await settlesWithin(this.importing, IMPORT_WAIT_MS)) === 'late') {
+      this.showToast(T.data.restoreImportBusy);
+      return false;
+    }
     if (!this.saveStalled) await this.saves.flush();
     if (this.saveStalled || this.saves.pending() > 0) {
       this.showToast(T.data.restoreBlocked);

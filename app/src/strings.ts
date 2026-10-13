@@ -224,6 +224,7 @@ export const T = Object.freeze({
     saved: 'Tudo salvo.',
     restoreBlocked: 'Ainda há solves sem salvar. Exporte antes de restaurar.',
     restoreTimeout: 'A restauração está demorando. Seus solves novos estão guardados na memória; exporte antes de recarregar.',
+    restoreImportBusy: 'Uma importação ainda está gravando. Tente restaurar daqui a pouco.',
     settingFailed: 'Não consegui guardar este ajuste. Tente de novo.',
     backupFailed: 'Não consegui fazer a cópia automática. Ela será tentada de novo.',
     countFailed: 'O solve está salvo, mas não consegui atualizar a contagem das cópias.',

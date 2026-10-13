@@ -693,6 +693,50 @@ describe('estado do app: fix round 1 (brief 9b)', () => {
     }
   });
 
+  // Uma leitura do banco que não responde prendia a fila inteira: as contas, as gravações do meta e as releituras paravam.
+  it('uma leitura que não responde desiste em 8 s, a fila segue e o banco é reaberto', async () => {
+    const repo = await freshRepo();
+    const replacement = await freshRepo(); // abre antes dos timers falsos
+    const reopen = vi.fn(async () => replacement);
+    const app = await appWith(repo, { reopen });
+    repo.listSessions = () => new Promise<never>(() => {});
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const reading = app.reload();
+      const failed = reading.then(() => null, (err: unknown) => err);
+      const after = app.updateMeta({ installGuideDismissed: true }); // passa pela mesma fila
+      let metaDone = false;
+      void after.then(() => { metaDone = true; });
+      await vi.advanceTimersByTimeAsync(7999);
+      expect(metaDone).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await failed).toMatchObject({ name: 'TimeoutError' });
+      await vi.waitFor(() => expect(metaDone).toBe(true));
+      await vi.waitFor(() => expect(reopen).toHaveBeenCalled());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('restaurar não espera para sempre uma importação que não termina: desiste com aviso', async () => {
+    const repo = await freshRepo();
+    const app = await appWith(repo);
+    await app.addSolve(newSolve(61000));
+    const backup = await createBackup(repo, 'manual', t);
+    repo.importAll = () => new Promise<never>(() => {});
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      void app.importKlick({ format: 'klick', version: 1, exportedAt: t, sessions: [], solves: [], profile: null });
+      await vi.advanceTimersByTimeAsync(0);
+      const restoring = app.restoreFromBackup(backup.id);
+      await vi.advanceTimersByTimeAsync(8000);
+      expect(await restoring).toBe(false);
+      expect(app.toast?.text).toBe(T.data.restoreImportBusy);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // Item 4 (M-4): só a tentativa mais recente mexe no aviso. Uma anterior que termina tarde não apaga o aviso de uma presa.
   it('uma tentativa anterior que termina tarde não apaga o aviso de uma tentativa mais nova que está presa', async () => {
     const repo = await freshRepo();
