@@ -3,10 +3,11 @@
 //
 // Duas coisas andam numa fila única, na ordem em que foram pedidas: as leituras do banco (reload) e as contas depois de cada
 // solve gravado (afterSave). Assim, uma leitura que começou antes de um solve gravado não volta a esconder esse solve.
-import { defaultSeason } from '../../core/season';
+import { eventInfo } from '../../core/events';
+import { createSeasonTracker, defaultSeason, type MarkStatus, planAdvance, seasonKey } from '../../core/season';
 import { dayKey } from '../../core/stats';
 import { defaultSettings } from '../../core/types';
-import type { EventId, Meta, Penalty, Profile, Session, Solve } from '../../core/types';
+import type { EventId, Meta, Penalty, Profile, SeasonState, Session, Solve } from '../../core/types';
 import type { BackupRecord } from '../../data/db';
 import { backupFileName, type DirHandleLike, folderGranted, pickFolder, saveToFolder } from '../../data/folder';
 import { newId } from '../../data/ids';
@@ -269,6 +270,8 @@ export class AppState {
   private readonly saves: SaveQueue;
   // Um por solve gravado: a fila entrega o mesmo objeto ao enqueue e ao onSaved, e a conta só acontece uma vez.
   private readonly afterSaves = new WeakMap<Solve, Promise<void>>();
+  private readonly seasonTracker = createSeasonTracker();
+  private readonly seasonMemo = new WeakMap<Solve[], { key: string; status: MarkStatus[] }>();
   private chain: Promise<void> = Promise.resolve();
   private undo: { id: string; until: number } | null = null;
   private undoAction: (() => void) | null = null;
@@ -342,6 +345,32 @@ export class AppState {
     return this.solves.filter((s) => s.event === event);
   }
 
+  // Os marcos de uma temporada (a atual, por padrão) sobre uma lista de solves (a de agora, por padrão). Guardado por lista: a mesma
+  // lista não se conta duas vezes, e uma lista que só ganhou solves no fim continua a conta de onde parou (createSeasonTracker).
+  seasonStatus(list: Solve[] = this.solves, state: SeasonState = this.profile.season.current): MarkStatus[] {
+    const key = seasonKey(state);
+    const hit = this.seasonMemo.get(list);
+    if (hit?.key === key) return hit.status;
+    const status = this.seasonTracker.evaluate(state, list);
+    this.seasonMemo.set(list, { key, status });
+    return status;
+  }
+
+  // Fecha a temporada atual quando os 9 marcos estão feitos (spec do sub-projeto 3, seção 5.5). Na fila: vê a lista e o perfil depois
+  // das gravações que já estavam nela. A virada é condicional no repositório: se outra aba já virou, o perfil gravado volta e nada vira
+  // duas vezes. Uma falha mostra o aviso; os marcos continuam feitos, então a conferência seguinte tenta de novo.
+  // Dentro da fila, chame sem esperar (void): a fila espera o trabalho que está rodando.
+  checkSeason(): Promise<void> {
+    return this.serial(async () => {
+      const progress = $state.snapshot(this.profile.season);
+      const plan = planAdvance(progress, this.solves, this.now(), this.seasonStatus(this.solves, progress.current));
+      if (!plan) return;
+      await this.write(async () => {
+        this.profile = await this.repo.advanceSeason(plan.fromN, plan.record, plan.next);
+      });
+    });
+  }
+
   async init(): Promise<void> {
     await this.readKinds(ALL_READS, false); // a abertura não desiste: um histórico grande num celular lento só demora
     // Assina antes do primeiro embaralhamento: a espera pelo cubing pode ser longa, e uma mudança de outra aba nesse tempo não
@@ -350,6 +379,7 @@ export class AppState {
     // Aberto instalado: pede a proteção, se o navegador ainda não a deu (uma vez por sessão).
     if (isStandalone()) void this.askPersistence();
     await this.ensureSession();
+    await this.checkSeason(); // quem já tinha os 9 marcos antes desta versão fecha a temporada ao abrir
     const meta = this.meta ?? (await this.repo.getMeta());
     const folder = await this.folderConfigured();
     const plan = planOnOpen(meta, this.now(), folder);
@@ -521,6 +551,7 @@ export class AppState {
       const updated = await change();
       await this.serial(async () => this.replaceSolve(updated));
     });
+    void this.checkSeason(); // tirar um DNF pode completar uma média
   }
 
   async setPenalty(id: string, penalty: Penalty): Promise<void> {
@@ -552,6 +583,7 @@ export class AppState {
     const ok = await this.write(() => this.repo.restoreSolve(undo.id));
     // Restaurar o solve pode reviver a sessão dele (se outra aba a mandou para a lixeira): relê as duas.
     await this.refreshKinds(['solves', 'sessions']);
+    if (ok) await this.checkSeason();
     return ok;
   }
 
@@ -668,6 +700,7 @@ export class AppState {
   private async replaceFromBackup(id: string): Promise<void> {
     await restoreBackup(this.repo, id, this.now());
     await this.reload();
+    await this.checkSeason();
   }
 
   // Exportação de emergência: o que está gravado no banco, mais o que a fila ainda segura (com os mesmos ids). Se o banco falha
@@ -734,6 +767,7 @@ export class AppState {
   async restoreFromTrash(item: { kind: 'solve' | 'session'; id: string }): Promise<boolean> {
     const ok = await this.write(() => (item.kind === 'solve' ? this.repo.restoreSolve(item.id) : this.repo.restoreSession(item.id)));
     await this.refresh();
+    if (ok) await this.checkSeason();
     return ok;
   }
 
@@ -833,6 +867,7 @@ export class AppState {
       if (this.importing === run) this.importing = null;
     }
     await this.refresh();
+    await this.checkSeason();
     const current = this.profile.currentSessionId;
     if (result?.adopt && !this.solves.some((s) => s.sessionId === current)) await this.switchSession(result.adopt);
     return result?.summary ?? null;
@@ -1218,6 +1253,8 @@ export class AppState {
   // pasta e o lembrete saem depois, em segundo plano na mesma fila: não seguram a reação. Não rejeita: cada falha vira aviso.
   private async afterSave(solve: Solve): Promise<void> {
     this.upsertSolve(solve);
+    // Este solve pode ter dado o 9º marco: a conferência entra na fila, depois desta conta.
+    if (eventInfo(solve.event).milestones) void this.checkSeason();
     // O repositório revive a sessão do solve se outra aba a mandou para a lixeira, e o aviso local não relê nada: relê as sessões
     // (na fila, depois deste trabalho) quando a sessão do solve não está na lista.
     if (!this.sessions.some((s) => s.id === solve.sessionId)) void this.refreshKinds(['sessions']);
