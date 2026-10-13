@@ -428,9 +428,9 @@ describe('Seus dados: cópias, exportar, lixeira e importar', () => {
     await fireEvent.click(await screen.findByRole('button', { name: /Exportar \(Klick\)/ }));
     failMetaWrite(repo, 'lastExportAt');
     await fireEvent.click(await screen.findByRole('button', { name: T.exportDialog.copy }));
-    // O aviso final vale depois do fechamento: a gravação falha mostra o aviso de salvar, não o de copiado.
+    // O aviso final vale depois do fechamento: a gravação falha mostra o aviso da data da exportação, não o de copiado.
     await vi.waitFor(() => expect(a.dialog).toBeNull());
-    expect(a.toast?.text).toBe(T.data.saveFailed);
+    expect(a.toast?.text).toBe(T.data.exportMarkFailed);
   });
 
   it('o pedido automático de proteção sai uma vez, mesmo com solves gravados antes da resposta', async () => {

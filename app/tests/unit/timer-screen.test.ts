@@ -311,7 +311,7 @@ describe('tela do Timer: falhas, foco e ações', () => {
     await waitFor(() => expect(document.querySelector('[data-actions]')).not.toHaveAttribute('hidden'));
     repo.deleteSolve = async () => { throw new Error('io'); };
     key('keydown', 'Backspace', 'Backspace');
-    await waitFor(() => expect(a.toast?.text).toBe(T.data.saveFailed));
+    await waitFor(() => expect(a.toast?.text).toBe(T.data.changeFailed));
     expect(document.querySelector('[data-actions]')).not.toHaveAttribute('hidden');
     expect(a.solves).toHaveLength(1);
   });

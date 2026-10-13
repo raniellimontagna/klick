@@ -214,7 +214,10 @@ export const T = Object.freeze({
   // Avisos de dados (ui/state/app.svelte.ts e a casca). saveFailed é o aviso fixo: enquanto houver solve pendente, fica na tela.
   data: {
     dbUnavailable: 'O navegador bloqueou o armazenamento do Klick. Sem ele, os solves não ficam salvos neste aparelho. Libere o armazenamento para este site e recarregue a página.',
-    saveFailed: 'Não consegui salvar. Exporte seus dados agora.',
+    saveFailed: 'Não consegui salvar. Exporte seus dados agora.', // só para solve: é o alarme de solve perdido
+    changeFailed: 'Não consegui guardar esta mudança. Tente de novo.',
+    folderSaveFailed: 'Não consegui guardar a pasta escolhida. Tente de novo.',
+    exportMarkFailed: 'O arquivo saiu, mas não consegui guardar a data da exportação.',
     exportNow: 'Exportar agora',
     readFailed: 'Não consegui ler seus dados. Recarregue a página.',
     saved: 'Tudo salvo.',

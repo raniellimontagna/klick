@@ -1033,6 +1033,43 @@ describe('estado do app: fix round 3 (brief 9b)', () => {
   });
 });
 
+// O aviso "Não consegui salvar. Exporte seus dados agora." é o alarme de solve perdido: uma mudança que falha tem o aviso dela.
+describe('estado do app: textos de falha das gravações que não são de solve', () => {
+  beforeEach(() => { t = 1_791_500_000_000; });
+
+  it('renomear, trocar de sessão e mudar o perfil que falham avisam a mudança, não a perda de solve', async () => {
+    const { app, repo } = await setup();
+    const toastText = (): string | undefined => app.toast?.text; // função: o TypeScript não estreita depois de app.toast = null
+    const s = app.sessions[0];
+    repo.renameSession = async () => { throw new Error('io'); };
+    await app.renameSession(s.id, 'Nova');
+    expect(toastText()).toBe(T.data.changeFailed);
+
+    await app.createSession('222');
+    repo.saveProfile = async () => { throw new Error('io'); };
+    app.toast = null;
+    await app.switchSession(s.id);
+    expect(toastText()).toBe(T.data.changeFailed);
+
+    app.toast = null;
+    await app.updateProfile({ finish: 'fosco' });
+    expect(toastText()).toBe(T.data.changeFailed);
+  });
+
+  it('guardar a pasta escolhida que falha diz que a pasta não ficou guardada', async () => {
+    const { app, repo } = await setup();
+    repo.saveFolderHandle = async () => { throw new Error('io'); };
+    const handle = { name: 'Cópias', kind: 'directory' } as unknown as FileSystemDirectoryHandle;
+    (globalThis as unknown as { showDirectoryPicker: () => Promise<unknown> }).showDirectoryPicker = async () => handle;
+    try {
+      expect(await app.chooseBackupFolder()).toBe(false);
+      expect(app.toast?.text).toBe(T.data.folderSaveFailed);
+    } finally {
+      delete (globalThis as unknown as Record<string, unknown>).showDirectoryPicker;
+    }
+  });
+});
+
 // Arquivo do Klick num aparelho novo: os ajustes, o progresso e a sessão de lá vêm junto (decisão de 10/10).
 describe('estado do app: importar o Klick traz os ajustes', () => {
   beforeEach(() => { t = 1_791_500_000_000; });

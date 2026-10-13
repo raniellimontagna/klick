@@ -672,10 +672,12 @@ export class AppState {
   // diz "copiado" só deve dizer isso se deu (a falha já saiu como aviso de salvar).
   async markExported(): Promise<boolean> {
     this.exportReminder = false;
-    return this.write(() =>
-      this.serial(async () => {
-        this.meta = await this.repo.saveMeta({ solvesSinceExport: 0, lastExportAt: this.now() });
-      }),
+    return this.write(
+      () =>
+        this.serial(async () => {
+          this.meta = await this.repo.saveMeta({ solvesSinceExport: 0, lastExportAt: this.now() });
+        }),
+      T.data.exportMarkFailed,
     );
   }
 
@@ -695,7 +697,7 @@ export class AppState {
     }
     if (!handle) return false;
     const chosen = handle;
-    if (!(await this.write(() => this.repo.saveFolderHandle(chosen)))) return false;
+    if (!(await this.write(() => this.repo.saveFolderHandle(chosen), T.data.folderSaveFailed))) return false;
     await this.copyToFolder();
     await this.refreshKinds(['meta']);
     return true;
@@ -907,7 +909,9 @@ export class AppState {
 
   // Uma escrita pedida pela pessoa: se falha, o aviso aparece e a operação não é dada como feita. Nada some em silêncio. O aviso
   // de salvar (o de exportar) fica para solves; cada outra escrita diz o que falhou.
-  private async write(action: () => Promise<unknown>, failure: string = T.data.saveFailed): Promise<boolean> {
+  // Uma mudança (nota, penalidade, sessão, ajuste, perfil) que não grava. O aviso de solve perdido (saveFailed) fica para o solve
+  // novo, que vai pela fila de gravação, e para quem passar o texto dele de propósito.
+  private async write(action: () => Promise<unknown>, failure: string = T.data.changeFailed): Promise<boolean> {
     try {
       await action();
       return true;
