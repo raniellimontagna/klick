@@ -108,18 +108,21 @@ function stateFrom(v: unknown): SeasonState | null {
 function recordFrom(v: unknown): SeasonRecord | null {
   if (!isRec(v)) return null;
   const { n, startedAt, endedAt, solves, startAo12, endAo12 } = v;
-  if (!isWhole(n, 1) || !isNum(startedAt) || !isNum(endedAt) || !isWhole(solves, 0) || !isTime(startAo12) || !isTime(endAo12)) return null;
+  if (!isWhole(n, 1) || !isNum(startedAt) || startedAt < 0 || !isNum(endedAt) || endedAt < startedAt) return null;
+  if (!isWhole(solves, 0) || !isTime(startAo12) || !isTime(endAo12)) return null;
   return { n, startedAt, endedAt, solves, startAo12, endAo12 };
 }
 
-// Uma temporada que veio de fora: só passa inteira e bem formada (os números das temporadas não se repetem); senão, null.
+// Uma temporada que veio de fora: só passa inteira e bem formada, com a numeração que o app grava (as fechadas são a 1, a 2, a 3… em
+// ordem, e a atual é a seguinte: assim as fechadas contam as temporadas de verdade e um arquivo adulterado não libera acabamento) e
+// cada registro fechando depois de começar; senão, null.
 export function seasonFrom(v: unknown): SeasonProgress | null {
   if (!isRec(v) || !Array.isArray(v.past)) return null;
   const current = stateFrom(v.current);
   const past = v.past.map(recordFrom);
   if (!current || past.some((r) => r === null)) return null;
   const records = past as SeasonRecord[];
-  if (new Set([...records.map((r) => r.n), current.n]).size !== records.length + 1) return null;
+  if (records.some((r, i) => r.n !== i + 1) || current.n !== records.length + 1) return null;
   return { current, past: records };
 }
 

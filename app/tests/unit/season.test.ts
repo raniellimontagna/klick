@@ -118,6 +118,9 @@ describe('temporada que vem de fora (spec 5.6)', () => {
       { ...ok, past: [{ ...ok.past[0], solves: -1 }] },
       { ...ok, past: [ok.past[0], ok.past[0]] },
       { ...ok, past: [{ ...ok.past[0], n: 2 }] },
+      { ...ok, current: { ...ok.current, n: 3 } }, // current.n precisa ser past.length + 1
+      { ...ok, past: [{ ...ok.past[0], startedAt: -1 }] },
+      { ...ok, past: [{ ...ok.past[0], endedAt: 0 }] }, // fecha antes de começar
     ];
     for (const v of bad) expect(seasonFrom(v)).toBeNull();
   });
