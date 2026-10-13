@@ -618,6 +618,18 @@ describe('repositório: canal entre abas', () => {
     expect(b.seq).toBe(a.seq + 1);
   });
 
+  it('um aviso com o próprio remetente (da conexão velha desta mesma aba) é ignorado', async () => {
+    const b = bus();
+    const sender = createSender(now);
+    const echo = b.make();
+    const repo = createRepository(await openKlickDb(dbName()), { now, channel: b.make(), sender });
+    const seen: string[] = [];
+    repo.onChange((k) => seen.push(k));
+    echo.postMessage({ kind: 'solves', solveIds: ['a'], from: sender.id, seq: 40 });
+    echo.postMessage({ kind: 'meta', from: 'outra-aba', seq: 1 });
+    expect(seen).toEqual(['meta']);
+  });
+
   it('um número pulado na sequência de quem envia faz reler tudo', async () => {
     const b = bus();
     const sender = b.make();

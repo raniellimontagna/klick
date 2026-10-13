@@ -134,6 +134,9 @@ const PROBE_MS = 3000;
 const COUNT_DEADLINE_MS = 8000;
 // As cópias depois de um solve podem demorar de verdade com um histórico grande; o prazo largo só impede que prendam a fila para sempre.
 const AFTER_COUNT_DEADLINE_MS = 60000;
+// Uma leitura que falha na hora com erro de conexão reabre o banco, mas no máximo uma vez neste intervalo: se as leituras falham sempre
+// (um registro estragado) e o banco abre, sem o limite o app reabriria em laço, com um aviso a cada volta.
+const READ_REOPEN_EVERY_MS = 10000;
 // A restauração espera uma importação em andamento terminar, mas não para sempre.
 const IMPORT_WAIT_MS = 8000;
 // A restauração inteira (ler a cópia, trocar, recarregar). Passado o prazo, a chamada devolve false com o aviso, mas o portão segue
@@ -423,7 +426,11 @@ export class AppState {
         try {
           return await reading;
         } catch (err) {
-          if (isConnectionError(err)) void this.reopenRepo(); // falhou na hora com a conexão morta: reabre
+          // Falhou na hora com a conexão morta: reabre (no máximo uma vez por READ_REOPEN_EVERY_MS).
+          if (isConnectionError(err) && this.now() - this.lastReadReopen >= READ_REOPEN_EVERY_MS) {
+            this.lastReadReopen = this.now();
+            void this.reopenRepo();
+          }
           throw err;
         }
       }
@@ -1089,7 +1096,8 @@ export class AppState {
   // Outra aba abriu o banco numa versão nova e esta largou a conexão (DbNotice pede para recarregar). Daqui em diante, reabrir só daria
   // erro de versão a cada tentativa, e cada leitura repetiria o aviso: as duas coisas param.
   private superseded = false;
-  private afterCountRunning: Promise<void> | null = null; // as cópias depois de um solve, enquanto rodam (talvez já fora da fila)
+  private afterCountRunning: Promise<void> | null = null;
+  private lastReadReopen = -Infinity; // a última reabertura pedida por uma leitura que falhou na hora // as cópias depois de um solve, enquanto rodam (talvez já fora da fila)
   supersede(): void {
     this.superseded = true;
   }

@@ -292,6 +292,8 @@ export function createRepository(
       const data = ev?.data as { kind?: unknown; solveIds?: unknown; from?: unknown; seq?: unknown } | null | undefined;
       const kind = data?.kind;
       if (!isChangeKind(kind)) return;
+      // O próprio remetente: a conexão velha desta mesma aba terminando uma gravação. O que ela gravou esta aba já tem na memória.
+      if (data?.from === sender.id) return;
       // Um número pulado de quem enviou: algum aviso se perdeu, então tudo é relido (o 'all' cobre este aviso também).
       if (typeof data?.from === 'string' && typeof data.seq === 'number') {
         const prev = lastSeq.get(data.from);

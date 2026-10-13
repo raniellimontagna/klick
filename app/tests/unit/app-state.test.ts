@@ -800,6 +800,22 @@ describe('estado do app: fix round 1 (brief 9b)', () => {
     await vi.waitFor(() => expect(reopen).toHaveBeenCalled());
   });
 
+  it('leituras que falham sempre na hora não viram um laço de reaberturas: no máximo uma a cada 10 s', async () => {
+    const repo = await freshRepo();
+    let opened = 0;
+    const reopen = vi.fn(async () => {
+      opened += 1;
+      return repo; // abre de novo, mas as leituras continuam falhando (um registro estragado, por exemplo)
+    });
+    const app = await appWith(repo, { reopen });
+    repo.listSessions = async () => { throw dbError('UnknownError'); };
+    await app.reload().catch(() => undefined);
+    await app.reload().catch(() => undefined);
+    await app.reload().catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(opened).toBe(1);
+  });
+
   // N3: uma cópia automática lenta de verdade (histórico grande, celular lento) não é falha, e a próxima não corre junto com ela.
   it('uma cópia automática mais lenta que o prazo não avisa falha, e o solve seguinte não começa outra por cima', async () => {
     const repo = await freshRepo();
