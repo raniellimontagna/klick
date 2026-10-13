@@ -10,6 +10,7 @@
 
 html {
   -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent; /* Safari do iPhone: sem o retângulo cinza no toque; o botão apertado responde abaixo */
 }
 
 body {
@@ -45,6 +46,10 @@ select {
 
 button {
   cursor: pointer;
+}
+
+button:active:not(:disabled) {
+  opacity: 0.7;
 }
 
 kbd {
