@@ -25,7 +25,10 @@
   import type { EventId, SeasonState, Solve } from '../../core/types';
   import { T } from '../../strings';
   import { daysAgoLabel, monthLabel } from '../format';
-  import { type CentroView as Vista, eyesFor, ringFor, updateCentro } from '../centro';
+  import type { CentroView as Vista } from '../centro';
+  import { createCentroAnimator } from '../centro/animator';
+  import { TIMING } from '../centro/behavior';
+  import { createCentroLive, REACTION_DELAY, SLEEP_AFTER } from './centro-live';
   import { createSound } from '../sound';
   import { createWakeLock } from '../wakelock';
   import type { AppState, Tab } from '../state/app.svelte';
@@ -36,12 +39,8 @@
   import { type ActionName, createInputController, type InputController } from './input';
   import { createTimeLoop, paintTime } from './TimeDisplay';
 
-  // Números do protótipo: a reação começa meio segundo depois da gravação e dura 2,5 s; o coach fala por 6 s.
-  const REACTION_DELAY = 500;
-  const REACTION_MS = 2500;
+  // O coach fala por 6 s (a reação e o sono ficam em centro-live.ts).
   const COACH_MS = 6000;
-  const SLEEP_AFTER = 5 * 60000; // parado com o timer desligado por 5 min: o Centro dorme
-  const ORBIT_MS = 950; // o adesivo ocioso dá uma volta no anel a cada passo
 
   const TAB_OF: Readonly<Record<'tab1' | 'tab2' | 'tab3' | 'tab4', Tab>> = {
     tab1: 'timer',
@@ -77,8 +76,13 @@
   });
   const wake = createWakeLock();
   const loop = createTimeLoop(paint);
+  // O Centro do Timer: o animador desenha (sob demanda, nada no solve) e o controlador diz o estado de cada quadro.
+  const animator = createCentroAnimator({ svg: () => screenEl?.querySelector<SVGElement>('[data-centro-slot] svg.centro') ?? null });
+  const live = createCentroLive(timer, animator, Date.now());
+  let onScreen = $state(true); // o Centro está na área visível (IntersectionObserver)
+  let sleepTimer: ReturnType<typeof setTimeout> | undefined;
 
-  // Elementos e estado que a tela desenha de novo. Os que mudam a cada quadro (tempo, anel, coach) são pintados à mão.
+  // Elementos e estado que a tela desenha de novo. Os que mudam a cada quadro (tempo, coach) são pintados à mão; o Centro, pelo animador.
   let screenEl = $state<HTMLElement>();
   let zonesEl = $state<HTMLElement>();
   let noteInput = $state<HTMLInputElement>();
@@ -91,7 +95,6 @@
   let noteOpen = $state(false);
   let noteValue = $state('');
   let coachShown = $state<string | null>(null);
-  let sleeping = $state(false);
   let reloadHint = $state(false);
   let pageVisible = $state(true);
   let darkMq = $state(false);
@@ -99,14 +102,9 @@
   let coarseMq = $state(false);
 
   let noteId: string | null = null; // o solve que o formulário da nota está editando
-  let reaction: { from: number; until: number } | null = null;
   let coach: { text: string; from: number; until: number } | null = null;
-  let orbit = 0;
-  let lastInput = Date.now();
   let chordTimer: ReturnType<typeof setTimeout> | undefined;
   let destroyed = false;
-  let lastSvg: SVGElement | null = null;
-  let lastSig = '';
   let failStreak = 0; // falhas seguidas do gerador de embaralhamentos
   let solveSeq = 0; // o último solve que a tela acompanha: uma gravação mais antiga que termina depois não mexe na tela
   let controller: InputController | null = null;
@@ -197,16 +195,6 @@
     return one ? T.coach.idleOne : T.coach.idleTouch;
   }
 
-  function centroView(now: number): Vista {
-    if (sleeping) return { state: 'sleep' };
-    if (timer.state === 'inspect') return { state: 'inspect', inspectElapsed: timer.inspectElapsed };
-    if (timer.state === 'arming') return { state: 'arming', armProgress: timer.armProgress };
-    if (timer.state === 'ready' || timer.state === 'running') return { state: timer.state };
-    if (reaction && now < reaction.from) return { state: 'running' }; // ainda imóvel: a reação vem depois
-    if (reaction && now < reaction.until) return { state: 'reaction', result: kind ?? undefined };
-    return { state: 'idle', orbit: reduced() ? null : orbit };
-  }
-
   function coachFor(view: Vista, now: number): string | null {
     if (coach && now >= coach.from && now < coach.until) return coach.text;
     if (timer.state === 'inspect') return T.coach.inspect;
@@ -233,22 +221,9 @@
     return last ? formatSolve(last) : T.timer.zero;
   }
 
-  function paintCentro(view: Vista): void {
-    const svg = screenEl?.querySelector<SVGElement>('[data-centro-slot] svg.centro') ?? null;
-    if (!svg) return;
-    const ring = ringFor(view);
-    const eyes = eyesFor(view);
-    const sig = `${ring.join()}|${eyes}`;
-    // Um SVG novo (o tema ou as marcas mudaram) sempre recebe o anel atual, mesmo que a assinatura seja a mesma.
-    if (svg === lastSvg && sig === lastSig) return;
-    updateCentro(svg, { ring, eyes, theme, finish: app.profile.finish });
-    lastSvg = svg;
-    lastSig = sig;
-  }
-
   function needsFrame(now: number): boolean {
     if (['inspect', 'arming', 'ready', 'running'].includes(timer.state)) return true;
-    if (reaction && now < reaction.until) return true;
+    if (live.reacting(now)) return true;
     return coach !== null && now < coach.until;
   }
 
@@ -258,14 +233,13 @@
     if (destroyed) return false;
     timer.tick();
     const now = performance.now();
-    const view = centroView(now);
+    const view = live.paint(now);
     const body = document.body;
     body.dataset.cview = view.state;
     body.dataset.result = timer.state === 'done' && showResult && kind ? kind : '';
     const e = timer.inspectElapsed;
     body.dataset.insp = timer.state === 'inspect' ? (e > 15000 ? 'over' : e >= 12000 ? '12' : e >= 8000 ? '8' : '') : '';
     if (timeEl) paintTime(timeEl, timeText());
-    paintCentro(view);
     coachShown = coachFor(view, now);
     return needsFrame(now);
   }
@@ -306,7 +280,7 @@
     unstored = null;
     showResult = false;
     lastId = null;
-    reaction = null;
+    live.clearReaction();
     coach = null;
     closeNote();
     kick();
@@ -359,19 +333,19 @@
       event: solve.event,
     });
     const t0 = performance.now();
-    reaction = { from: t0 + REACTION_DELAY, until: t0 + REACTION_DELAY + REACTION_MS };
+    live.react(kind, t0, seasonClosed);
     clearTimeout(topHoldTimer);
     if (seasonClosed) {
       topHold = 9;
       topHoldTimer = setTimeout(() => {
         topHold = null;
-      }, REACTION_DELAY + REACTION_MS);
+      }, REACTION_DELAY + TIMING.flash);
     }
     coach = msg ? { text: msg.text, from: t0 + REACTION_DELAY, until: t0 + REACTION_DELAY + COACH_MS } : null;
     clearTimeout(chordTimer);
     if (kind === 'pb') {
       chordTimer = setTimeout(() => {
-        if (reaction && kind === 'pb' && timer.state === 'done') sound.chord();
+        if (live.reacting(performance.now()) && kind === 'pb' && timer.state === 'done') sound.chord();
       }, REACTION_DELAY);
     }
     app.announce(`${T.aria.final(formatSolve(solve))}${msg ? ` ${msg.text}` : ''}`);
@@ -396,7 +370,7 @@
     if (!solve || timer.state !== 'done' || !showResult || deleting) return;
     const hadFocus = focusInside(); // as ações vão sumir: se o foco estava nelas, ele volta para a tela do Timer
     deleting = true;
-    reaction = null;
+    live.clearReaction();
     coach = null;
     closeNote();
     kick();
@@ -493,14 +467,24 @@
     }
   }
 
-  // Qualquer entrada da pessoa acorda o Centro (e destrava o áudio, que o navegador só libera num gesto).
+  // Qualquer entrada da pessoa acorda o Centro, conta a inatividade de novo (e destrava o áudio, que o navegador só libera num gesto).
   function onWake(): void {
-    lastInput = Date.now();
+    const wasSleeping = live.sleeping;
+    live.wake(Date.now());
+    armSleep();
     sound.unlock();
-    if (sleeping) {
-      sleeping = false;
-      paint();
-    }
+    if (wasSleeping) paint();
+  }
+
+  // O sono depois de 5 min parado: um temporizador só, refeito a cada entrada (sem laço contínuo). Se o timer estiver ocupado na hora,
+  // confere de novo em 1 s.
+  function armSleep(ms: number = SLEEP_AFTER): void {
+    clearTimeout(sleepTimer);
+    sleepTimer = setTimeout(() => {
+      if (destroyed) return;
+      if (live.sleepIfIdle(Date.now())) paint();
+      else armSleep(1000);
+    }, ms);
   }
 
   // Ao armar ou abrir a inspeção, a reação, o coach e a nota da solve anterior saem da tela.
@@ -510,11 +494,12 @@
     app.timerBusy = next === 'inspect' || next === 'arming' || next === 'ready' || next === 'running';
     document.body.dataset.tstate = next;
     document.body.classList.toggle('solving', next === 'running');
+    if (next === 'running') animator.freeze(); // nada do Centro roda no solve (spec 6.4), já neste quadro
     if (next === 'ready') sound.klick();
     if (next === 'inspect' || next === 'arming') {
       // As ações somem agora: se o foco estava nelas (ou na nota), ele vai para a tela, e não se perde no corpo do documento.
       if (focusInside()) screenEl?.focus({ preventScroll: true });
-      reaction = null;
+      live.clearReaction();
       coach = null;
       showResult = false;
       unstored = null;
@@ -537,7 +522,7 @@
     showResult = false;
     unstored = null;
     closeNote();
-    reaction = null;
+    live.clearReaction();
     coach = null;
     if (timer.state !== 'running') timer.reset();
     kick();
@@ -574,6 +559,16 @@
     });
   });
 
+  // A tela parada não tem laço: o tempo, o resultado no body e o texto do coach leem dados que mudam fora dele (penalidade, desfazer,
+  // outra aba, ajustes, toque). Quando eles mudam, um quadro novo.
+  $effect(() => {
+    void timeText();
+    void idleText();
+    void kind;
+    void showResult;
+    untrack(() => kick());
+  });
+
   // Estado inicial do body e a limpeza na saída: o CSS da tela lê estes atributos.
   $effect(() => {
     untrack(() => {
@@ -584,8 +579,10 @@
     return () => {
       destroyed = true;
       loop.stop();
+      animator.destroy();
       clearTimeout(chordTimer);
       clearTimeout(topHoldTimer);
+      clearTimeout(sleepTimer);
       const body = document.body;
       body.classList.remove('solving');
       for (const k of ['tstate', 'cview', 'result', 'insp']) delete body.dataset[k];
@@ -698,14 +695,35 @@
     return () => all.forEach((mq) => mq.removeEventListener('change', sync));
   });
 
-  // Órbita do adesivo ocioso e sono depois de 5 min parado.
   $effect(() => {
-    const id = setInterval(() => {
-      if (!sleeping && Date.now() - lastInput > SLEEP_AFTER && (timer.state === 'idle' || timer.state === 'done')) sleeping = true;
-      if (!document.hidden && centroView(performance.now()).state === 'idle' && !reduced()) orbit += 1;
-      paint();
-    }, ORBIT_MS);
-    return () => clearInterval(id);
+    untrack(() => armSleep());
+    return () => clearTimeout(sleepTimer);
+  });
+
+  // O animador para com a página escondida, com o Centro fora da tela e fora da aba do Timer.
+  $effect(() => {
+    animator.setPaused(!pageVisible || !onScreen || app.tab !== 'timer');
+  });
+  $effect(() => {
+    const slot = screenEl?.querySelector('[data-centro-slot]');
+    if (!slot || typeof IntersectionObserver !== 'function') return;
+    const io = new IntersectionObserver((entries) => {
+      onScreen = entries.some((e) => e.isIntersecting);
+    });
+    io.observe(slot);
+    return () => io.disconnect();
+  });
+  // Movimento reduzido: o Centro fica estático (a Task 12 junta o ajuste animado/estático/oculto).
+  $effect(() => {
+    animator.setAnimated(!reduced());
+  });
+  // O SVG é refeito quando o tema, o acabamento ou as marcas mudam: o animador pinta nele o estado atual.
+  $effect(() => {
+    void theme;
+    void app.profile.finish;
+    void topShown;
+    void sideLit;
+    void tick().then(() => animator.repaint());
   });
 
   // Duas falhas seguidas do gerador: a tela sugere recarregar a página.

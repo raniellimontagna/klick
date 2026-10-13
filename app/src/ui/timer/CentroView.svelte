@@ -12,7 +12,7 @@
 
   let { theme, finish, topLit, sideLit }: Props = $props();
 
-  // O SVG é refeito só quando tema, acabamento ou marcas mudam. O anel e os olhos mudam a cada quadro, pela tela (updateCentro).
+  // O SVG é refeito só quando tema, acabamento ou marcas mudam. O anel, os olhos e o corpo mudam pelo animador (centro/animator.ts).
   const markup = $derived(renderCentro({ theme, finish, topLit, sideLit, label: T.centro.label }));
 </script>
 

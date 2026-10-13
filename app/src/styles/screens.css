@@ -16,31 +16,14 @@
   transition: fill var(--t-state) var(--ease);
 }
 
-.centro .eye {
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: blink 5.5s infinite;
+/* O anel troca de cor com transição (cor não é movimento) e respira no sono: o animador alterna a classe breath-off a cada 2 s
+   (o ciclo é de 4 s), e a transição de opacidade faz o resto. */
+.centro .ring {
+  transition: fill var(--t-state) var(--ease), opacity 2s ease-in-out;
 }
 
-@keyframes blink {
-  0%, 94%, 100% { transform: scaleY(1); }
-  96.5% { transform: scaleY(0.1); }
-}
-
-[data-cview='sleep'] .centro .ring.lit {
-  animation: breathe 4s ease-in-out infinite;
-}
-
-@keyframes breathe {
-  50% { opacity: 0.35; }
-}
-
-[data-cview='reaction'][data-result='pb'] .t-centro .centro {
-  animation: lift 450ms cubic-bezier(0.34, 1.56, 0.64, 1) 2;
-}
-
-@keyframes lift {
-  45% { transform: translateY(-6%); }
+.centro.breath-off .ring.lit {
+  opacity: 0.35;
 }
 
 /* Durante o solve nenhuma animação do Centro roda. */

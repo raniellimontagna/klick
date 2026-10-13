@@ -194,6 +194,43 @@ describe('tela do Timer: solve, reação e nota', () => {
     await waitFor(() => expect(a.profile.season.current.n).toBe(3));
     await waitFor(() => expect(litFaces()).toBe(0), { timeout: 4000 });
   });
+
+  it('durante o solve o Centro não muda: nenhum atributo dele é reescrito', async () => {
+    const { a } = await app();
+    await a.updateSettings({ inspection: false });
+    render(TimerScreen, { app: a });
+    const svg = () => document.querySelector('[data-centro-slot] svg.centro') as SVGElement;
+    key('keydown', 'Space', ' ');
+    await sleep(320);
+    key('keyup', 'Space', ' ');
+    expect(document.body.dataset.tstate).toBe('running');
+    await sleep(50);
+    const changes: string[] = [];
+    const watch = new MutationObserver((list) => list.forEach((m) => changes.push(m.attributeName ?? m.type)));
+    watch.observe(svg(), { attributes: true, subtree: true });
+    await sleep(1500);
+    watch.disconnect();
+    key('keydown', 'KeyA', 'a');
+    expect(changes).toEqual([]);
+    expect(svg().dataset.eyes).toBe('focus');
+  });
+
+  it('no recorde, o corpo do Centro salta durante a reação', async () => {
+    const { a } = await app();
+    await a.updateSettings({ inspection: false });
+    await a.addSolve({ ms: 60000, penalty: null, at: Date.now() - 60000 });
+    render(TimerScreen, { app: a });
+    const lifts: string[] = [];
+    const watch = new MutationObserver(() => {
+      const t = document.querySelector('[data-centro-slot] g.cbody')?.getAttribute('transform');
+      if (t) lifts.push(t);
+    });
+    watch.observe(document.querySelector('[data-centro-slot]')!, { attributes: true, subtree: true, childList: true });
+    await solveByKeys();
+    await waitFor(() => expect(lifts.length).toBeGreaterThan(0), { timeout: 3000 });
+    watch.disconnect();
+    expect(lifts[0]).toMatch(/^translate\(0 -/);
+  });
 });
 
 // Tempo controlado: o timer lê performance.now(), então a duração de cada solve é a que o teste manda, sem esperas reais.
@@ -297,6 +334,30 @@ describe('tela do Timer: falhas, foco e ações', () => {
     expect(document.querySelector('[data-heat] .today')).not.toHaveClass('pop');
     solveComTempo(1000);
     await waitFor(() => expect(document.querySelector('[data-heat] .today')).toHaveClass('pop'));
+  });
+
+  it('com a tela parada (reação e coach já acabaram), o +2 aparece no tempo grande', async () => {
+    const { a, repo } = await app();
+    await a.updateSettings({ inspection: false });
+    // A penalidade entra nos dados depois do quadro que o clique pede: só um quadro pedido pela mudança dos dados mostra o +2.
+    const atualizar = repo.updateSolve.bind(repo);
+    repo.updateSolve = async (id, patch) => {
+      await sleep(50);
+      return atualizar(id, patch);
+    };
+    render(TimerScreen, { app: a });
+    solveComTempo(1000);
+    await waitFor(() => expect(document.querySelector('[data-actions]')).not.toHaveAttribute('hidden'));
+    // A reação já foi marcada (o Centro espera imóvel); o relógio passa do fim dela e do coach, e o laço de quadros para.
+    await waitFor(() => expect(document.body.dataset.cview).toBe('running'));
+    relogio += 10000;
+    await doisQuadros();
+    await doisQuadros();
+    expect(document.body.dataset.cview).toBe('idle');
+    expect(document.querySelector('[data-time]')?.textContent).toBe('0:01.00');
+    document.querySelector<HTMLButtonElement>('[data-act="plus2"]')!.click();
+    await waitFor(() => expect(a.solves[0].penalty).toBe('+2'));
+    await waitFor(() => expect(document.querySelector('[data-time]')?.textContent).toBe('0:03.00+'));
   });
 
   it('um solve que ficou na fila ganha as ações quando a fila grava', async () => {
