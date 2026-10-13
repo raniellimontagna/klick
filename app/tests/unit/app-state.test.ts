@@ -1033,6 +1033,37 @@ describe('estado do app: fix round 3 (brief 9b)', () => {
   });
 });
 
+// Um arquivo do Klick editado à mão pode repetir o id de um solve: entra a versão mais nova de cada um, e o resumo conta os repetidos.
+describe('estado do app: arquivo do Klick com o mesmo solve repetido', () => {
+  beforeEach(() => { t = 1_791_500_000_000; });
+
+  it('entra uma vez só, na versão mais nova, e o resumo diz quantos repetidos ficaram de fora', async () => {
+    const { app, repo } = await setup();
+    const sessionId = app.sessions[0].id;
+    const base = { sessionId, event: '333' as const, penalty: null, scramble: 'R', createdAt: t, deletedAt: null };
+    const file = {
+      format: 'klick' as const, version: 1 as const, exportedAt: t, sessions: [], profile: null,
+      solves: [
+        { ...base, id: 'x', ms: 10_000, at: t, note: 'velho', updatedAt: t },
+        { ...base, id: 'x', ms: 10_000, at: t, note: 'novo', updatedAt: t + 5 },
+        { ...base, id: 'y', ms: 11_000, at: t + 1, note: '', updatedAt: t },
+      ],
+    };
+    const summary = await app.importKlick(file);
+    expect(summary).toMatchObject({ solves: 2, existing: 0, repeated: 1 });
+    expect(summaryLines(summary!)).toContain(T.importDialog.repeated(1));
+    const stored = await repo.listSolves();
+    expect(stored.map((x) => [x.id, x.note])).toEqual([['x', 'novo'], ['y', '']]);
+  });
+
+  it('sem repetidos, o resumo não fala deles', async () => {
+    const { app } = await setup();
+    const summary = await app.importKlick({ format: 'klick', version: 1, exportedAt: t, sessions: [], solves: [], profile: null });
+    expect(summary?.repeated ?? 0).toBe(0);
+    expect(summaryLines(summary!).some((l) => l.includes('repetid'))).toBe(false);
+  });
+});
+
 // O aviso "Não consegui salvar. Exporte seus dados agora." é o alarme de solve perdido: uma mudança que falha tem o aviso dela.
 describe('estado do app: textos de falha das gravações que não são de solve', () => {
   beforeEach(() => { t = 1_791_500_000_000; });

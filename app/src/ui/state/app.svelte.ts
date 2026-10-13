@@ -81,6 +81,7 @@ export interface ImportSummary {
   missed: number; // solves que a conta do arquivo tinha como novos e o repositório deixou de fora (um id repetido): o resumo diz quantos
   offerNotMarked?: boolean; // os solves entraram, mas a marca "oferta feita" não foi gravada (a importação pode ser refeita)
   settingsApplied?: boolean; // o arquivo do Klick trouxe perfil: os ajustes e o progresso dele valem agora
+  repeated?: number; // solves com o mesmo id repetido no arquivo do Klick: entrou a versão mais nova, e estes ficaram de fora
 }
 
 const DEFAULT_EVENT: EventId = '333';
@@ -739,7 +740,14 @@ export class AppState {
   // por cima do daqui (o repositório diz como).
   importKlick(data: KlickExport): Promise<ImportSummary | null> {
     return this.importJob(async () => {
-      const report = await this.repo.importAll(data);
+      // Um arquivo editado à mão pode repetir um id: fica a versão mais nova (a maior updatedAt; no empate, a última do arquivo).
+      const latest = new Map<string, Solve>();
+      for (const s of data.solves) {
+        const seen = latest.get(s.id);
+        if (!seen || s.updatedAt >= seen.updatedAt) latest.set(s.id, s);
+      }
+      const repeated = data.solves.length - latest.size;
+      const report = await this.repo.importAll(repeated > 0 ? { ...data, solves: [...latest.values()] } : data);
       // No Klick, `skipped` são os solves que já existiam (com a mesma ou mais nova edição): não há conta prévia a conferir.
       const summary: ImportSummary = {
         solves: report.solvesAdded + report.solvesUpdated,
@@ -748,6 +756,7 @@ export class AppState {
         unreadable: 0,
         missed: 0,
         settingsApplied: data.profile !== null,
+        repeated,
       };
       return { summary, adopt: null }; // no Klick, a sessão atual vem do perfil do arquivo (o repositório decide)
     });
