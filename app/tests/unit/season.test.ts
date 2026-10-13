@@ -139,15 +139,36 @@ const NOON = new Date(2026, 9, 1, 12).getTime();
 const t1History = (): Solve[] =>
   Array.from({ length: 1000 }, (_, i) => sv(50000, NOON + Math.floor(i / 100) * DAY + (i % 100) * 60000));
 
+// Os 1.200 solves de 12 dias da equivalência da T1: os tempos oscilam enquanto descem (130 s - 70 ms × i, com até 6 s para cima ou para
+// baixo). Os solves 551 a 553 são forçados: com o DNF do 550 e o +2 do 551, a janela que acende o ao5 é a do 553. O DNF do 996 e o +2
+// do 995 fazem o mesmo com o ao12, que acende no 1006.
+const T1_FORCED = new Map<number, number>([[551, 83390], [552, 61000], [553, 60000]]);
+const t1Times = (i: number): number => T1_FORCED.get(i) ?? 130000 - i * 70 + ((i * 7) % 11 - 5) * 1200;
+const t1Solves = (penalties: [number, Solve['penalty']][]): Solve[] => {
+  const pen = new Map(penalties);
+  return Array.from({ length: 1200 }, (_, i) => sv(t1Times(i), NOON + Math.floor(i / 100) * DAY + (i % 100) * 60000, pen.get(i) ?? null));
+};
+
 describe('avaliação da temporada (spec 5.4)', () => {
   it('a T1 dá os mesmos marcos, nos mesmos solves, que a conta de hoje', () => {
-    // Tempos que descem devagar, com um DNF e um +2 no meio, em 12 dias.
-    const list = Array.from({ length: 1200 }, (_, i) =>
-      sv(130000 - i * 70, NOON + Math.floor(i / 100) * DAY + (i % 100) * 60000, i === 50 ? 'DNF' : i === 51 ? '+2' : null));
+    const list = t1Solves([[550, 'DNF'], [551, '+2'], [995, '+2'], [996, 'DNF']]);
     const status = evaluateSeason(seasonOne(), list);
     const today = milestoneProgress(list, NOON + 13 * DAY);
     expect(status.map((m) => m.at)).toEqual(MILESTONES.map((id) => today.find((x) => x.id === id)?.at ?? null));
     expect(status.every((m) => m.achieved)).toBe(true);
+    // Os índices fixam o solve que acende cada marco, na ordem da T1: a conta de hoje sai do código, mas estes números não mudam.
+    expect(status.map((m) => list.findIndex((s) => s.at === m.at))).toEqual([0, 66, 99, 495, 553, 924, 600, 1006, 999]);
+  });
+
+  it('o DNF e o +2 dentro das janelas mudam quando o ao5 e o ao12 acendem', () => {
+    const acendeEm = (penalties: [number, Solve['penalty']][]) => {
+      const list = t1Solves(penalties);
+      return evaluateSeason(seasonOne(), list).map((m) => list.findIndex((s) => s.at === m.at));
+    };
+    expect(acendeEm([[551, '+2'], [995, '+2'], [996, 'DNF']])[4]).toBe(550); // sem o DNF do 550, o ao5 acende no 550
+    expect(acendeEm([[550, 'DNF'], [995, '+2'], [996, 'DNF']])[4]).toBe(552); // sem o +2 do 551, o ao5 acende no 552
+    expect(acendeEm([[550, 'DNF'], [551, '+2'], [995, '+2']])[7]).toBe(1001); // sem o DNF do 996, o ao12 acende no 1001
+    expect(acendeEm([[550, 'DNF'], [551, '+2'], [996, 'DNF']])[7]).toBe(1001); // sem o +2 do 995, o ao12 acende no 1001
   });
 
   it('só contam solves de 3×3, fora de outros eventos e depois do início', () => {
