@@ -17,6 +17,7 @@ export interface Face {
 const EYE_H = 12;
 const W_OPEN = 6.4;
 const W_LINE = 9.4; // o traço de 6,8 de hoje com as pontas redondas de 2,6
+const CW_LINE = W_LINE - 2.6; // a largura do miolo do traço (6,8)
 // O traço curvado de hoje: no feliz as pontas ficam 1,5 abaixo da linha e o meio 1,3 acima (a curva sobe 2,8); no dormindo as pontas
 // ficam 0,5 acima e o meio 1,2 abaixo (a curva desce 1,7).
 const BEND_UP = 2.8;
@@ -53,8 +54,9 @@ export function eyePath(face: Face, cx: number): string {
   const cw = w - 2 * r;
   const ch = h - 2 * r;
   const c = clamp(face.curve, -1, 1);
-  const bend = c * (c > 0 ? BEND_UP : BEND_DOWN);
-  const ends = c * (c > 0 ? ENDS_UP : ENDS_DOWN);
+  const k = clamp(cw / CW_LINE, 0, 1); // o arco só aparece conforme o olho achata (sem salto quando o miolo deixa de ser vertical)
+  const bend = k * c * (c > 0 ? BEND_UP : BEND_DOWN);
+  const ends = k * c * (c > 0 ? ENDS_UP : ENDS_DOWN);
   const base = EYE_Y + (DROP * (1 - o)) / (1 - OPEN_MIN) + face.lookY;
   const x0 = cx + face.lookX;
   const left = x0 - cw / 2;

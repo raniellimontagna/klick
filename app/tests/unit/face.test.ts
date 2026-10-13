@@ -78,6 +78,21 @@ describe('rosto do Centro', () => {
     expect(w(OPEN_MIN)).toBeCloseTo(9.4, 2);
   });
 
+  it('abrir e fechar com o olho curvado não dá salto: nenhuma borda anda mais de 0,2 entre dois passos de 0,001', () => {
+    const steps = Math.ceil((1 - OPEN_MIN) / 0.001);
+    for (const curve of [1, -1, 0.5]) {
+      let prev = box(eyePath({ ...EXPRESSIONS.open, curve, open: 1 }, EYE_X.l));
+      for (let i = 1; i <= steps; i++) {
+        const open = Math.max(OPEN_MIN, 1 - i * 0.001);
+        const cur = box(eyePath({ ...EXPRESSIONS.open, curve, open }, EYE_X.l));
+        for (const edge of ['minX', 'maxX', 'minY', 'maxY'] as const) {
+          expect(Math.abs(cur[edge] - prev[edge]), `curve ${curve}, open ${open.toFixed(4)}, ${edge}`).toBeLessThan(0.2);
+        }
+        prev = cur;
+      }
+    }
+  });
+
   it('a aproximação chega a 95% em 200 ms, igual em qualquer taxa de quadros', () => {
     const from = EXPRESSIONS.open;
     const to = EXPRESSIONS.focus;
