@@ -371,20 +371,7 @@ export class AppState {
         want.has('profile') ? this.repo.getProfile() : undefined,
         want.has('meta') ? this.repo.getMeta() : undefined,
       ] as const);
-      let deadline: ReturnType<typeof setTimeout> | undefined;
-      const expired = new Promise<never>((_, reject) => {
-        deadline = setTimeout(() => reject(Object.assign(new Error('leitura sem resposta'), { name: 'TimeoutError' })), READ_DEADLINE_MS);
-      });
-      let read: Awaited<typeof reading>;
-      try {
-        read = await Promise.race([reading, expired]);
-      } catch (err) {
-        if (isConnectionError(err)) void this.reopenRepo(); // a resposta que chegar tarde é ignorada
-        throw err;
-      } finally {
-        clearTimeout(deadline);
-      }
-      const [sessions, solves, profile, meta] = read;
+      const [sessions, solves, profile, meta] = await this.withReadDeadline(reading);
       if (sessions) {
         this.allSessions = sessions;
         this.sessions = sessions.filter((s) => s.deletedAt === null);
@@ -399,6 +386,41 @@ export class AppState {
       if (profile) this.applyPrefs();
       // O embaralhamento da tela é de outro evento (outra aba trocou de sessão, ou a atual foi excluída): pede o do evento certo.
       if (this.scrambleEvent !== null && this.scrambleEvent !== this.event) void this.nextScramble();
+    });
+  }
+
+  // Uma leitura do banco com prazo: sem resposta em READ_DEADLINE_MS, desiste (TimeoutError) e o banco é reaberto. A resposta que
+  // chegar tarde é ignorada.
+  private async withReadDeadline<R>(reading: Promise<R>): Promise<R> {
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<never>((_, reject) => {
+      deadline = setTimeout(() => reject(Object.assign(new Error('leitura sem resposta'), { name: 'TimeoutError' })), READ_DEADLINE_MS);
+    });
+    try {
+      return await Promise.race([reading, expired]);
+    } catch (err) {
+      if (isConnectionError(err)) void this.reopenRepo();
+      throw err;
+    } finally {
+      clearTimeout(deadline);
+    }
+  }
+
+  // Outra aba mudou estes solves: lê só eles e os encaixa na lista em memória, em vez de reler o histórico inteiro.
+  private refreshSolveIds(ids: string[]): Promise<void> {
+    return this.serial(async () => {
+      const fetched = await this.withReadDeadline(this.repo.getSolves(ids));
+      const changed = new Set(ids);
+      const kept = this.solves.filter((s) => !changed.has(s.id));
+      const active = fetched.filter((s): s is Solve => s !== undefined && s.deletedAt === null);
+      if (active.length > 32) {
+        this.solves = [...kept, ...active].sort(bySolveTime);
+        return;
+      }
+      for (const s of active) kept.splice(lowerBound(kept, s), 0, s);
+      this.solves = kept;
+    }).catch(() => {
+      this.showToast(T.data.readFailed);
     });
   }
 
@@ -1079,9 +1101,10 @@ export class AppState {
   // memória (quem grava a atualiza); só o que outra aba gravou é relido, e só o tipo que mudou.
   private subscribe(): void {
     this.unsubscribe?.();
-    this.unsubscribe = this.repo.onChange((kind, origin) => {
+    this.unsubscribe = this.repo.onChange((kind, origin, solveIds) => {
       if (origin === 'local') return;
-      void this.refreshKinds(readsOf(kind));
+      if (kind === 'solves' && solveIds) void this.refreshSolveIds(solveIds);
+      else void this.refreshKinds(readsOf(kind));
     });
   }
 

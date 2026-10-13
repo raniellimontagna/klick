@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { openKlickDb } from '../../src/data/db';
-import { createRepository, type Repository } from '../../src/data/repository';
+import { createRepository, type ChannelLike, type Repository } from '../../src/data/repository';
 import { parseCsTimer } from '../../src/data/transfer';
 import { summaryLines } from '../../src/ui/import-flow';
 import { createBackup } from '../../src/data/safety';
@@ -1142,6 +1142,48 @@ describe('estado do app: textos de falha das gravações que não são de solve'
     } finally {
       delete (globalThis as unknown as Record<string, unknown>).showDirectoryPicker;
     }
+  });
+});
+
+// Duas abas no mesmo banco: o que uma grava chega à outra lendo só os solves que mudaram, não o histórico inteiro.
+describe('estado do app: outra aba grava solves', () => {
+  beforeEach(() => { t = 1_791_500_000_000; });
+
+  function bus() {
+    const members: ChannelLike[] = [];
+    return {
+      make(): ChannelLike {
+        const ch: ChannelLike = {
+          onmessage: null,
+          postMessage(data) {
+            for (const m of members) if (m !== ch) m.onmessage?.({ data });
+          },
+        };
+        members.push(ch);
+        return ch;
+      },
+    };
+  }
+
+  it('gravar, editar e excluir na outra aba chega aqui sem reler todos os solves', async () => {
+    const name = `app-${++n}`;
+    const b = bus();
+    const repoA = createRepository(await openKlickDb(name), { now, channel: b.make() });
+    const repoB = createRepository(await openKlickDb(name), { now, channel: b.make() });
+    const a = new AppState({ repo: repoA, queue: fakeQueue(), now, storage: null, storageManager: null });
+    await a.init();
+    const bApp = new AppState({ repo: repoB, queue: fakeQueue(), now, storage: null, storageManager: null });
+    await bApp.init();
+    const fullReads = vi.spyOn(repoB, 'listSolves');
+
+    const first = (await a.addSolve({ ms: 60_000, penalty: null, at: t }))!;
+    const second = (await a.addSolve({ ms: 59_000, penalty: null, at: t - 5_000 }))!; // mais antigo: entra antes na ordem
+    await vi.waitFor(() => expect(bApp.solves.map((x) => x.id)).toEqual([second.id, first.id]));
+    await a.setPenalty(first.id, '+2');
+    await vi.waitFor(() => expect(bApp.solves.find((x) => x.id === first.id)?.penalty).toBe('+2'));
+    await a.deleteSolve(second.id);
+    await vi.waitFor(() => expect(bApp.solves.map((x) => x.id)).toEqual([first.id]));
+    expect(fullReads).not.toHaveBeenCalled();
   });
 });
 

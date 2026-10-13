@@ -20,6 +20,11 @@ import { newId } from './ids';
 export type ChangeKind = 'solves' | 'sessions' | 'profile' | 'meta' | 'all';
 // De onde veio o aviso: 'local' é desta aba (já está na memória de quem gravou); 'remote' é de outra aba (o canal).
 export type ChangeOrigin = 'local' | 'remote';
+// `solveIds` vem só nos avisos de solves: quais mudaram (gravados, editados, excluídos, restaurados ou apagados de vez). Sem ele (aviso
+// de uma versão antiga do app, ou mudança grande demais), quem ouve relê todos os solves.
+export type ChangeListener = (kind: ChangeKind, origin: ChangeOrigin, solveIds?: string[]) => void;
+// Acima disso o aviso vai sem ids: ler tantos por id já não sai mais barato que reler tudo.
+const MAX_NOTIFY_IDS = 500;
 
 // O que o repositório usa de um BroadcastChannel; testes passam um canal falso.
 export interface ChannelLike {
@@ -86,7 +91,8 @@ export interface Repository {
   exportAll(o?: { includeDeleted?: boolean }): Promise<KlickExport>; // includeDeleted padrão true
   importAll(data: KlickExport): Promise<ImportReport>; // junta por id; fica o de updatedAt maior. Sessão da lixeira que recebe solve ativo do arquivo volta (sem entrar no relatório; avisa sessions). O perfil do arquivo vale por cima do daqui (ver importAll)
   replaceAll(data: KlickExport): Promise<void>; // limpa solves, sessões e perfil e grava os do arquivo, como vieram
-  onChange(fn: (kind: ChangeKind, origin: ChangeOrigin) => void): () => void; // mudanças locais e de outras abas, com a origem
+  onChange(fn: ChangeListener): () => void; // mudanças locais e de outras abas, com a origem (e, nos solves, os ids que mudaram)
+  getSolves(ids: readonly string[]): Promise<(Solve | undefined)[]>; // vários solves por id numa leitura; o que não existe vem undefined
   close(): void; // fecha a conexão do banco e o canal; depois disso o repositório não responde mais (usado ao trocar pela conexão reaberta)
 }
 
@@ -206,7 +212,7 @@ export function createRepository(
     onError?: (err: unknown) => void; // erro de um ouvinte ou do envio ao canal; a gravação já foi confirmada. Se ele lançar, o erro sai por relançar-depois
   } = {},
 ): Repository {
-  const listeners = new Set<{ fn: (kind: ChangeKind, origin: ChangeOrigin) => void }>();
+  const listeners = new Set<{ fn: ChangeListener }>();
   let closed = false; // depois de close(), nada mais sai pelo canal (um post aqui lançaria, e o erro iria para onError)
 
   // O onError é de quem usa o repositório. Se ele mesmo lançar, o erro não pode rejeitar uma gravação já confirmada (a fila
@@ -219,11 +225,11 @@ export function createRepository(
     }
   }
 
-  function emit(kind: ChangeKind, origin: ChangeOrigin): void {
+  function emit(kind: ChangeKind, origin: ChangeOrigin, solveIds?: string[]): void {
     for (const entry of [...listeners]) {
       if (!listeners.has(entry)) continue; // saiu durante este aviso
       try {
-        entry.fn(kind, origin);
+        entry.fn(kind, origin, solveIds);
       } catch (err) {
         reportError(err);
       }
@@ -243,10 +249,26 @@ export function createRepository(
     }
   }
 
+  // O aviso de solves, com os ids que mudaram (até MAX_NOTIFY_IDS; acima disso vai sem, e quem ouve relê tudo).
+  function announceSolves(ids: readonly string[]): void {
+    const solveIds = ids.length <= MAX_NOTIFY_IDS ? [...ids] : undefined;
+    emit('solves', 'local', solveIds);
+    if (closed) return;
+    try {
+      channel?.postMessage(solveIds ? { kind: 'solves', solveIds } : { kind: 'solves' });
+    } catch (err) {
+      reportError(err);
+    }
+  }
+
   if (channel) {
     channel.onmessage = (ev) => {
-      const kind = (ev?.data as { kind?: unknown } | null | undefined)?.kind;
-      if (isChangeKind(kind)) emit(kind, 'remote');
+      const data = ev?.data as { kind?: unknown; solveIds?: unknown } | null | undefined;
+      const kind = data?.kind;
+      if (!isChangeKind(kind)) return;
+      const ids = data?.solveIds;
+      const solveIds = kind === 'solves' && Array.isArray(ids) && ids.every((id) => typeof id === 'string') ? (ids as string[]) : undefined;
+      emit(kind, 'remote', solveIds);
     };
   }
 
@@ -296,7 +318,7 @@ export function createRepository(
       if (next) await store.put(next);
       return { solve: next ?? current, changed: next !== null };
     });
-    if (changed) announce('solves');
+    if (changed) announceSolves([id]);
     return solve;
   }
 
@@ -355,11 +377,11 @@ export function createRepository(
         const solves = tx.objectStore('solves');
         const live = (await solves.index('bySession').getAll(keyRange(id))).filter((s) => s.deletedAt === null);
         await each(live, (s) => solves.put({ ...s, deletedAt: at, updatedAt: at }));
-        return live.length;
+        return live.map((s) => s.id);
       });
       if (touched === null) return;
       announce('sessions');
-      if (touched > 0) announce('solves');
+      if (touched.length > 0) announceSolves(touched);
     },
 
     async restoreSession(id) {
@@ -374,11 +396,11 @@ export function createRepository(
         const solves = tx.objectStore('solves');
         const together = (await solves.index('bySession').getAll(keyRange(id))).filter((s) => s.deletedAt === session.deletedAt);
         await each(together, (s) => solves.put({ ...s, deletedAt: null, updatedAt: at }));
-        return together.length;
+        return together.map((s) => s.id);
       });
       if (touched === null) return;
       announce('sessions');
-      if (touched > 0) announce('solves');
+      if (touched.length > 0) announceSolves(touched);
     },
 
     async listSolves({ sessionId, event, includeDeleted = false } = {}) {
@@ -421,7 +443,7 @@ export function createRepository(
         const back = solve.deletedAt === null && (await reviveSession(tx.objectStore('sessions'), solve.sessionId, stamp));
         return { solve, sessionBack: back };
       });
-      announce('solves');
+      announceSolves([solve.id]);
       if (sessionBack) announce('sessions');
       return solve;
     },
@@ -455,8 +477,15 @@ export function createRepository(
         return { session: await reviveSession(tx.objectStore('sessions'), solve.sessionId, at) };
       });
       if (restored === null) return;
-      announce('solves');
+      announceSolves([id]);
       if (restored.session) announce('sessions');
+    },
+
+    async getSolves(ids) {
+      return read(['solves'], (tx) => {
+        const store = tx.objectStore('solves');
+        return Promise.all(ids.map((id) => store.get(id)));
+      });
     },
 
     async listTrash() {
@@ -479,11 +508,11 @@ export function createRepository(
         const oldSolves = (await solves.getAll()).filter(expired);
         await each(oldSessions, (s) => sessions.delete(s.id));
         await each(oldSolves, (s) => solves.delete(s.id));
-        return { sessions: oldSessions.length, solves: oldSolves.length };
+        return { sessions: oldSessions.length, solves: oldSolves.map((s) => s.id) };
       });
-      if (removed.solves > 0) announce('solves');
+      if (removed.solves.length > 0) announceSolves(removed.solves);
       if (removed.sessions > 0) announce('sessions');
-      return removed.sessions + removed.solves;
+      return removed.sessions + removed.solves.length;
     },
 
     async getProfile() {

@@ -269,7 +269,7 @@ describe('repositório: falha de gravação', () => {
     const solve = await repo.addSolve(ns('s', 60000, 1000));
     expect((await other.listSolves({ includeDeleted: true })).map((x) => x.id)).toEqual([solve.id]);
     expect(seen).toEqual(['solves']);
-    expect(posted).toEqual([{ kind: 'solves' }]);
+    expect(posted).toEqual([{ kind: 'solves', solveIds: [solve.id] }]);
   });
 
   it('erro no meio de uma gravação em várias partes desfaz tudo: substituir tudo com um registro inválido deixa os dados como estavam', async () => {
@@ -546,6 +546,52 @@ describe('repositório: canal entre abas', () => {
     sender.postMessage({ kind: 'profile' });
     sender.postMessage({ kind: 'all', extra: 1 });
     expect(seen).toEqual(['profile', 'all']);
+  });
+
+  // A outra aba lê só os solves que mudaram, em vez de reler o histórico inteiro a cada solve gravado aqui.
+  it('o aviso de solves leva os ids que mudaram, aqui e para a outra aba', async () => {
+    const b = bus();
+    const mine = createRepository(await openKlickDb(dbName()), { now, channel: b.make() });
+    const other = b.make();
+    const remote: Array<[string, string[] | undefined]> = [];
+    other.onmessage = (ev) => {
+      const data = ev.data as { kind: string; solveIds?: string[] };
+      remote.push([data.kind, data.solveIds]);
+    };
+    const local: Array<[string, string[] | undefined]> = [];
+    mine.onChange((k, _origin, ids) => local.push([k, ids]));
+
+    const s = await mine.createSession({ event: '333' });
+    const a = await mine.addSolve(ns(s.id, 60000, 1000));
+    const c = await mine.addSolve(ns(s.id, 61000, 2000));
+    await mine.updateSolve(a.id, { penalty: '+2' });
+    await mine.deleteSolve(c.id);
+    await mine.restoreSolve(c.id);
+    await mine.deleteSession(s.id);
+    await mine.restoreSession(s.id);
+    const solvesOnly = (list: Array<[string, string[] | undefined]>) => list.filter(([k]) => k === 'solves').map(([, ids]) => ids?.slice().sort());
+    const expected = [[a.id], [c.id], [a.id], [c.id], [c.id], [a.id, c.id].sort(), [a.id, c.id].sort()];
+    expect(solvesOnly(remote)).toEqual(expected);
+    expect(solvesOnly(local)).toEqual(expected);
+  });
+
+  it('um aviso de solves vindo de outra aba entrega os ids; sem ids (versão antiga do app), entrega sem', async () => {
+    const b = bus();
+    const sender = b.make();
+    const repo = createRepository(await openKlickDb(dbName()), { now, channel: b.make() });
+    const seen: Array<[string, string[] | undefined]> = [];
+    repo.onChange((k, _origin, ids) => seen.push([k, ids]));
+    sender.postMessage({ kind: 'solves', solveIds: ['x', 'y'] });
+    sender.postMessage({ kind: 'solves' });
+    sender.postMessage({ kind: 'solves', solveIds: ['x', 7] }); // ids estragados: vale como sem ids
+    expect(seen).toEqual([['solves', ['x', 'y']], ['solves', undefined], ['solves', undefined]]);
+  });
+
+  it('getSolves lê vários solves por id numa leitura; o que não existe vem undefined', async () => {
+    const repo = await fresh();
+    const s = await repo.createSession({ event: '333' });
+    const a = await repo.addSolve(ns(s.id, 60000, 1000));
+    expect((await repo.getSolves([a.id, 'nao-existe'])).map((x) => x?.id)).toEqual([a.id, undefined]);
   });
 
   it('o aviso que chega de outra aba vai aos ouvintes daqui e não volta ao canal', async () => {
