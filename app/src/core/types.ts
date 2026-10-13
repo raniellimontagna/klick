@@ -44,6 +44,42 @@ export interface Settings {
 
 export type FinishId = 'fosco' | 'brilho' | 'gelo' | 'carbono';
 
+// Temporadas (spec do sub-projeto 3, seção 5). As metas de tempo são em ms e valem estritamente abaixo.
+export type MarkKind = 'count' | 'single' | 'ao5' | 'ao12' | 'streak' | 'steady';
+
+export interface SeasonMark {
+  kind: MarkKind;
+  target: number; // count: solves; single, ao5 e ao12: ms; streak: dias; steady: folga em ms
+}
+
+// As marcas que geraram as metas de uma temporada (nulas na T1, que tem metas fixas).
+export interface SeasonBasis {
+  single: number | null;
+  ao5: number | null;
+  ao12: number | null;
+}
+
+export interface SeasonState {
+  n: number; // 1, 2, 3…
+  startedAt: number; // contam os solves com at > startedAt (a T1 começa em 0)
+  marks: SeasonMark[]; // sempre 9, na ordem da lista
+  basis: SeasonBasis;
+}
+
+export interface SeasonRecord {
+  n: number;
+  startedAt: number;
+  endedAt: number; // o momento do solve que fechou a temporada
+  solves: number; // solves de 3×3 da temporada
+  startAo12: number | null; // basis.ao12 (nula na T1)
+  endAo12: number | null; // a melhor média de 12 dentro da temporada
+}
+
+export interface SeasonProgress {
+  current: SeasonState;
+  past: SeasonRecord[];
+}
+
 export interface Profile {
   settings: Settings;
   trail: boolean[];
