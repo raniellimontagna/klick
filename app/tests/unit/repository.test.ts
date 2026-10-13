@@ -269,7 +269,7 @@ describe('repositório: falha de gravação', () => {
     const solve = await repo.addSolve(ns('s', 60000, 1000));
     expect((await other.listSolves({ includeDeleted: true })).map((x) => x.id)).toEqual([solve.id]);
     expect(seen).toEqual(['solves']);
-    expect(posted).toEqual([{ kind: 'solves', solveIds: [solve.id] }]);
+    expect(posted).toEqual([expect.objectContaining({ kind: 'solves', solveIds: [solve.id] })]);
   });
 
   it('erro no meio de uma gravação em várias partes desfaz tudo: substituir tudo com um registro inválido deixa os dados como estavam', async () => {
@@ -587,6 +587,49 @@ describe('repositório: canal entre abas', () => {
     expect(seen).toEqual([['solves', ['x', 'y']], ['solves', undefined], ['solves', undefined]]);
   });
 
+  // Um aviso perdido deixaria a outra aba errada até recarregar (ela lê só os ids de cada aviso). Cada aviso leva quem enviou e um
+  // número em sequência; um número pulado faz quem ouve reler tudo.
+  it('cada aviso leva quem enviou e a sequência, que sobe de um em um', async () => {
+    const { channel, posted } = recordingChannel();
+    const repo = createRepository(await openKlickDb(dbName()), { now, channel });
+    const s = await repo.createSession({ event: '333' });
+    await repo.addSolve(ns(s.id, 60000, 1000));
+    await repo.saveMeta({ solvesSinceBackup: 1 });
+    const msgs = posted as { from: unknown; seq: unknown }[];
+    expect(msgs).toHaveLength(3);
+    expect(typeof msgs[0].from).toBe('string');
+    expect(new Set(msgs.map((m) => m.from)).size).toBe(1);
+    expect(msgs.map((m) => m.seq)).toEqual([1, 2, 3]);
+  });
+
+  it('um número pulado na sequência de quem envia faz reler tudo', async () => {
+    const b = bus();
+    const sender = b.make();
+    const repo = createRepository(await openKlickDb(dbName()), { now, channel: b.make() });
+    const seen: Array<[string, string[] | undefined]> = [];
+    repo.onChange((k, _origin, ids) => seen.push([k, ids]));
+    sender.postMessage({ kind: 'solves', solveIds: ['a'], from: 'x', seq: 1 });
+    sender.postMessage({ kind: 'solves', solveIds: ['b'], from: 'x', seq: 2 });
+    sender.postMessage({ kind: 'solves', solveIds: ['d'], from: 'x', seq: 4 }); // o 3 se perdeu
+    sender.postMessage({ kind: 'meta', from: 'y', seq: 7 }); // outro remetente: o primeiro que se ouve dele vale
+    expect(seen).toEqual([['solves', ['a']], ['solves', ['b']], ['all', undefined], ['meta', undefined]]);
+  });
+
+  it('uma gravação em andamento quando a conexão é trocada ainda avisa a outra aba', async () => {
+    const b = bus();
+    const heard: unknown[] = [];
+    const other = b.make();
+    other.onmessage = (ev) => heard.push(ev.data);
+    const repo = createRepository(await openKlickDb(dbName()), { now, channel: b.make() });
+    const s = await repo.createSession({ event: '333' });
+    heard.length = 0;
+    const adding = repo.addSolve(ns(s.id, 60000, 1000));
+    repo.close(); // a reabertura troca a conexão com o solve ainda gravando
+    const solve = await adding;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(heard).toEqual([expect.objectContaining({ kind: 'solves', solveIds: [solve.id] })]);
+  });
+
   it('getSolves lê vários solves por id numa leitura; o que não existe vem undefined', async () => {
     const repo = await fresh();
     const s = await repo.createSession({ event: '333' });
@@ -609,7 +652,7 @@ describe('repositório: canal entre abas', () => {
     await tabA.createSession({ event: '333' });
     expect(onA).toEqual(['sessions']); // o aviso local, sem eco
     expect(onB).toEqual(['sessions']);
-    expect(heard).toEqual([{ kind: 'sessions' }]); // a aba B não repostou
+    expect(heard).toEqual([expect.objectContaining({ kind: 'sessions' })]); // a aba B não repostou
   });
 
   describe('canal padrão', () => {
@@ -664,7 +707,7 @@ describe('repositório: canal entre abas', () => {
       const seen: string[] = [];
       repo.onChange((k) => seen.push(k));
       await repo.createSession({ event: '333' });
-      expect(made[0].posted).toEqual([{ kind: 'sessions' }]);
+      expect(made[0].posted).toEqual([expect.objectContaining({ kind: 'sessions' })]);
       made[0].onmessage?.({ data: { kind: 'solves' } });
       expect(seen).toEqual(['sessions', 'solves']);
     });
@@ -1469,6 +1512,7 @@ describe('repositório: id estável do solve', () => {
     const channel: ChannelLike = { onmessage: null, postMessage() {}, close: closed };
     const repo = createRepository(await openKlickDb(dbName()), { now, channel });
     repo.close();
+    await new Promise((resolve) => setTimeout(resolve, 0)); // o canal fecha na tarefa seguinte, depois dos avisos que ainda saem
     expect(closed).toHaveBeenCalledTimes(1);
     expect(channel.onmessage).toBeNull();
     await expect(repo.listSolves()).rejects.toMatchObject({ name: 'InvalidStateError' });
@@ -1509,7 +1553,7 @@ describe('repositório: fechado não anuncia (fix round 2)', () => {
     t = 1_791_500_000_000;
   });
 
-  it('uma escrita que termina depois do close não posta no canal e não chama onError', async () => {
+  it('uma escrita que termina depois do close ainda avisa a outra aba, e não chama onError', async () => {
     const posts: unknown[] = [];
     let open = true;
     const channel: ChannelLike = {
@@ -1527,9 +1571,14 @@ describe('repositório: fechado não anuncia (fix round 2)', () => {
     const s = await repo.createSession({ event: '333' });
     const writing = repo.addSolve(ns(s.id, 60000, 1000)); // a transação já começou
     repo.close();
-    await writing;
+    const solve = await writing;
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(onError).not.toHaveBeenCalled();
-    expect(posts).toEqual([{ kind: 'sessions' }]);
+    expect(posts).toEqual([
+      expect.objectContaining({ kind: 'sessions' }),
+      expect.objectContaining({ kind: 'solves', solveIds: [solve.id] }),
+    ]);
+    expect(open).toBe(false); // e o canal fechou depois
   });
 });
 

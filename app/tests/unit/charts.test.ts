@@ -88,6 +88,16 @@ describe('gráficos: histórico grande e tempos fora da curva', () => {
     expect(bins[0]).toMatchObject({ from: 15_000, to: 20_000, count: 2 });
   });
 
+  it('num evento lento (3 a 10 minutos), a largura da faixa cresce e a distribuição cabe sem faixa aberta', () => {
+    const times = Array.from({ length: 200 }, (_, i) => 180_000 + i * 2_100); // 3:00 a ~10:00
+    const bins = histogramBins(times);
+    expect(bins.length).toBeLessThanOrEqual(24);
+    expect(bins.some((b) => b.open)).toBe(false);
+    expect(bins[0].to - bins[0].from).toBeGreaterThan(5_000);
+    expect((bins[0].to - bins[0].from) % 5_000).toBe(0); // passos redondos: múltiplos de 5 s
+    expect(bins.reduce((total, b) => total + b.count, 0)).toBe(200);
+  });
+
   it('sem tempo fora da curva, nenhuma faixa é aberta', () => {
     expect(histogramBins([61000, 62000, 66000]).some((b) => b.open)).toBe(false);
   });

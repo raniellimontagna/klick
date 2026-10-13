@@ -2,7 +2,6 @@
 // Os nomes acessíveis ficam em strings.ts, em T.chart.
 import { T } from '../strings';
 
-const STEP = 5000;
 // "Tudo" num histórico grande: até MAX_COLUMNS colunas de pontos (cada uma guarda o menor e o maior tempo) e até MAX_BINS barras.
 const MAX_COLUMNS = 600;
 const MAX_BINS = 24;
@@ -78,17 +77,25 @@ export function evolutionChart({ times, ao5, pb }: EvolutionData, { width = 600,
   return `<svg class="chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="${T.chart.evolution}">${dots}${line}${diamonds}</svg>`;
 }
 
-// Faixas de 5 s do menor ao maior tempo (sem DNF). Até MAX_BINS faixas: um tempo fora da curva (o timer esquecido ligado) vai para a
-// última, aberta, que vai até o maior tempo, em vez de criar centenas de barras vazias.
+// Larguras possíveis de faixa, em ms: múltiplos de 5 s, para os rótulos ficarem redondos.
+const STEPS = [5, 10, 15, 20, 30, 60, 120, 300, 600, 1200, 1800, 3600].map((s) => s * 1000);
+
+// Faixas do menor ao maior tempo (sem DNF), até MAX_BINS. A largura é a menor da lista em que cabe a parte típica da distribuição
+// (até quatro vezes a mediana): 5 s no 3×3, mais larga num 7×7 ou num iniciante. Um tempo além disso (o timer esquecido ligado) vai
+// para a última faixa, aberta, que vai até o maior tempo, em vez de esticar a escala ou criar centenas de barras vazias.
 export function histogramBins(values: number[]): Bin[] {
   const v = values.filter(valid);
   if (!v.length) return [];
   const { min, max } = extent(v);
-  const lo = Math.floor(min / STEP) * STEP;
-  const needed = Math.floor((max - lo) / STEP) + 1;
+  const sorted = [...v].sort((a, b) => a - b);
+  const median = sorted[Math.floor((sorted.length - 1) / 2)];
+  const typicalMax = Math.min(max, median * 4);
+  const step = STEPS.find((s) => Math.floor((typicalMax - Math.floor(min / s) * s) / s) + 1 <= MAX_BINS) ?? STEPS[STEPS.length - 1];
+  const lo = Math.floor(min / step) * step;
+  const needed = Math.floor((max - lo) / step) + 1;
   const count = Math.min(needed, MAX_BINS);
-  const bins = Array.from({ length: count }, (_, i): Bin => ({ from: lo + i * STEP, to: lo + (i + 1) * STEP, count: 0 }));
+  const bins = Array.from({ length: count }, (_, i): Bin => ({ from: lo + i * step, to: lo + (i + 1) * step, count: 0 }));
   if (needed > MAX_BINS) Object.assign(bins[count - 1], { to: max + 1, open: true });
-  for (const x of v) bins[Math.min(Math.floor((x - lo) / STEP), count - 1)].count++;
+  for (const x of v) bins[Math.min(Math.floor((x - lo) / step), count - 1)].count++;
   return bins;
 }

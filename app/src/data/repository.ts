@@ -213,7 +213,30 @@ export function createRepository(
   } = {},
 ): Repository {
   const listeners = new Set<{ fn: ChangeListener }>();
-  let closed = false; // depois de close(), nada mais sai pelo canal (um post aqui lançaria, e o erro iria para onError)
+  let closed = false; // depois de close(), os ouvintes daqui não recebem mais nada
+  let channelClosed = false; // o canal fecha depois do close(), quando as gravações em andamento terminarem e avisarem
+  let inflight = 0; // gravações em andamento (de write): o canal espera por elas
+  // Cada aviso leva quem enviou e um número em sequência: quem ouve percebe um aviso perdido (um número pulado) e relê tudo.
+  const sender = newId(now());
+  let seq = 0;
+  const lastSeq = new Map<string, number>();
+  function post(message: { kind: ChangeKind; solveIds?: string[] }): void {
+    if (channelClosed || !channel) return;
+    try {
+      channel.postMessage({ ...message, from: sender, seq: ++seq });
+    } catch (err) {
+      reportError(err);
+    }
+  }
+  // Fecha o canal numa tarefa seguinte: o aviso de uma gravação que acabou de terminar sai antes (ele vem logo depois do commit).
+  function closeChannelSoon(): void {
+    setTimeout(() => {
+      if (channelClosed || inflight > 0) return;
+      channelClosed = true;
+      if (channel) channel.onmessage = null;
+      channel?.close?.();
+    }, 0);
+  }
 
   // O onError é de quem usa o repositório. Se ele mesmo lançar, o erro não pode rejeitar uma gravação já confirmada (a fila
   // gravaria de novo e duplicaria o solve): o erro que ele recebia e o que ele lançou saem juntos pelo relançar-depois.
@@ -239,33 +262,32 @@ export function createRepository(
   // Só depois do commit. Aviso que chega de outra aba vai aos ouvintes daqui e não volta ao canal.
   function announce(...kinds: ChangeKind[]): void {
     for (const kind of kinds) {
-      emit(kind, 'local');
-      if (closed) continue;
-      try {
-        channel?.postMessage({ kind });
-      } catch (err) {
-        reportError(err);
-      }
+      if (!closed) emit(kind, 'local');
+      post({ kind });
     }
   }
 
   // O aviso de solves, com os ids que mudaram (até MAX_NOTIFY_IDS; acima disso vai sem, e quem ouve relê tudo).
   function announceSolves(ids: readonly string[]): void {
     const solveIds = ids.length <= MAX_NOTIFY_IDS ? [...ids] : undefined;
-    emit('solves', 'local', solveIds);
-    if (closed) return;
-    try {
-      channel?.postMessage(solveIds ? { kind: 'solves', solveIds } : { kind: 'solves' });
-    } catch (err) {
-      reportError(err);
-    }
+    if (!closed) emit('solves', 'local', solveIds);
+    post(solveIds ? { kind: 'solves', solveIds } : { kind: 'solves' });
   }
 
   if (channel) {
     channel.onmessage = (ev) => {
-      const data = ev?.data as { kind?: unknown; solveIds?: unknown } | null | undefined;
+      const data = ev?.data as { kind?: unknown; solveIds?: unknown; from?: unknown; seq?: unknown } | null | undefined;
       const kind = data?.kind;
       if (!isChangeKind(kind)) return;
+      // Um número pulado de quem enviou: algum aviso se perdeu, então tudo é relido (o 'all' cobre este aviso também).
+      if (typeof data?.from === 'string' && typeof data.seq === 'number') {
+        const prev = lastSeq.get(data.from);
+        lastSeq.set(data.from, data.seq);
+        if (prev !== undefined && data.seq !== prev + 1) {
+          emit('all', 'remote');
+          return;
+        }
+      }
       const ids = data?.solveIds;
       const solveIds = kind === 'solves' && Array.isArray(ids) && ids.every((id) => typeof id === 'string') ? (ids as string[]) : undefined;
       emit(kind, 'remote', solveIds);
@@ -277,6 +299,7 @@ export function createRepository(
     work: (tx: IDBPTransaction<KlickDB, S, 'readwrite'>) => Promise<R>,
   ): Promise<R> {
     const tx = db.transaction(stores, 'readwrite', { durability: 'strict' });
+    inflight += 1;
     try {
       const result = await work(tx);
       await tx.done;
@@ -289,6 +312,9 @@ export function createRepository(
       }
       tx.done.catch(() => {}); // o abort faz o tx.done rejeitar; quem recebe o erro é o chamador
       throw err;
+    } finally {
+      inflight -= 1;
+      if (closed && inflight === 0) closeChannelSoon();
     }
   }
 
@@ -702,12 +728,13 @@ export function createRepository(
       };
     },
 
+    // A conexão fecha já (as transações em andamento ainda confirmam). O canal fecha depois que elas terminarem e avisarem a outra aba:
+    // sem isso, um solve gravado no meio de uma reabertura não chegaria à outra aba.
     close() {
       closed = true;
       listeners.clear();
-      if (channel) channel.onmessage = null;
-      channel?.close?.();
       db.close();
+      if (inflight === 0) closeChannelSoon();
     },
   };
 }

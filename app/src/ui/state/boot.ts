@@ -5,17 +5,13 @@ import { createRepository } from '../../data/repository';
 import { generateScramble } from '../../scramble/cubing-loader';
 import { createScrambleQueue } from '../../scramble/queue';
 import { AppState } from './app.svelte';
-import { dbEvents, dbNotice, setDbNotice } from './db-notice.svelte';
+import { clearingCloseOthers, dbEvents } from './db-notice.svelte';
 
 export async function boot(): Promise<AppState> {
   let app: AppState | undefined;
   const events = dbEvents(() => app);
-  // Uma abertura que esperou outra aba largar o banco tira o aviso quando termina.
-  const open = async () => {
-    const db = await openKlickDb(DB_NAME, events);
-    if (dbNotice() === 'closeOthers') setDbNotice(null);
-    return db;
-  };
+  // Uma abertura que esperou outra aba largar o banco tira o aviso quando termina (também se falhar).
+  const open = () => clearingCloseOthers(openKlickDb(DB_NAME, events));
   const repo = createRepository(await open());
   const queue = createScrambleQueue({ generate: (event) => generateScramble(event) });
   // A conexão nova para quando o iOS derruba a antiga (o AppState chama isto ao receber um erro de conexão).

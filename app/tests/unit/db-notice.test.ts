@@ -5,7 +5,7 @@ import { createRepository } from '../../src/data/repository';
 import { createScrambleQueue } from '../../src/scramble/queue';
 import { T } from '../../src/strings';
 import { AppState } from '../../src/ui/state/app.svelte';
-import { dbEvents, dbNotice, setDbNotice } from '../../src/ui/state/db-notice.svelte';
+import { clearingCloseOthers, dbEvents, dbNotice, setDbNotice } from '../../src/ui/state/db-notice.svelte';
 import DbNotice from '../../src/ui/dialogs/DbNotice.svelte';
 
 let n = 0;
@@ -29,6 +29,25 @@ describe('eventos do banco', () => {
     expect(dbNotice()).toBe('updated');
     events.terminated?.();
     expect(lost).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocking também avisa o app, que para de reabrir o banco', async () => {
+    const a = await app();
+    const supersede = vi.spyOn(a, 'supersede');
+    dbEvents(() => a).blocking?.();
+    expect(supersede).toHaveBeenCalledTimes(1);
+  });
+
+  it('o "feche as outras abas" sai quando a abertura termina, com sucesso ou com erro', async () => {
+    setDbNotice('closeOthers');
+    await clearingCloseOthers(Promise.resolve(1));
+    expect(dbNotice()).toBeNull();
+    setDbNotice('closeOthers');
+    await expect(clearingCloseOthers(Promise.reject(new Error('cota')))).rejects.toThrow('cota');
+    expect(dbNotice()).toBeNull();
+    setDbNotice('updated'); // outro aviso não é tirado
+    await clearingCloseOthers(Promise.resolve(1));
+    expect(dbNotice()).toBe('updated');
   });
 
   it('terminated antes do app existir não quebra', () => {

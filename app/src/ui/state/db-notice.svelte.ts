@@ -17,10 +17,24 @@ export function setDbNotice(next: DbNoticeKind): void {
   notice = next;
 }
 
-// Os eventos que o boot passa ao abrir o banco. `getApp` porque o AppState nasce depois da primeira abertura.
+// Uma abertura do banco que pode ter esperado outras abas: o "feche as outras abas" sai quando ela termina, com sucesso ou com erro
+// (com erro, a casca mostra o aviso de banco indisponível no lugar).
+export async function clearingCloseOthers<R>(opening: Promise<R>): Promise<R> {
+  try {
+    return await opening;
+  } finally {
+    if (notice === 'closeOthers') notice = null;
+  }
+}
+
+// Os eventos que o boot passa ao abrir o banco. `getApp` porque o AppState nasce depois da primeira abertura. Depois de `blocking`
+// esta aba não grava mais (o banco é da versão nova): o app para de tentar reabrir e de repetir avisos de leitura.
 export function dbEvents(getApp: () => AppState | null | undefined): DbEvents {
   return {
-    blocking: () => setDbNotice('updated'),
+    blocking: () => {
+      setDbNotice('updated');
+      getApp()?.supersede();
+    },
     blocked: () => setDbNotice('closeOthers'),
     terminated: () => getApp()?.connectionLost(),
   };

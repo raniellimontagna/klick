@@ -425,7 +425,8 @@ export class AppState {
   }
 
   // Outra aba mudou estes solves: lê só eles e os encaixa na lista em memória, em vez de reler o histórico inteiro.
-  private refreshSolveIds(ids: string[]): Promise<void> {
+  private refreshSolveIds(solveIds: string[]): Promise<void> {
+    const ids = [...new Set(solveIds)]; // um id repetido no aviso não põe o solve duas vezes
     return this.serial(async () => {
       const fetched = await this.withReadDeadline(this.repo.getSolves(ids));
       const changed = new Set(ids);
@@ -438,14 +439,14 @@ export class AppState {
       for (const s of active) kept.splice(lowerBound(kept, s), 0, s);
       this.solves = kept;
     }).catch(() => {
-      this.showToast(T.data.readFailed);
+      if (!this.superseded) this.showToast(T.data.readFailed);
     });
   }
 
-  // Leitura que falha não pode virar uma promessa sem dono: a pessoa vê o aviso.
+  // Leitura que falha não pode virar uma promessa sem dono: a pessoa vê o aviso (menos quando esta aba já foi substituída).
   private refreshKinds(kinds: readonly ReadKind[]): Promise<void> {
     return this.readKinds(kinds).catch(() => {
-      this.showToast(T.data.readFailed);
+      if (!this.superseded) this.showToast(T.data.readFailed);
     });
   }
 
@@ -1064,6 +1065,13 @@ export class AppState {
     }
   }
 
+  // Outra aba abriu o banco numa versão nova e esta largou a conexão (DbNotice pede para recarregar). Daqui em diante, reabrir só daria
+  // erro de versão a cada tentativa, e cada leitura repetiria o aviso: as duas coisas param.
+  private superseded = false;
+  supersede(): void {
+    this.superseded = true;
+  }
+
   // O navegador derrubou a conexão (evento terminated do banco): reabre, como num erro de conexão de uma gravação.
   connectionLost(): void {
     void this.reopenRepo();
@@ -1079,7 +1087,7 @@ export class AppState {
   // repositório antigo segue: a fila tenta de novo com ele e o aviso fixo continua. Uma conexão que responde depois do prazo é fechada.
   private reopenRepo(): Promise<void> {
     const open = this.reopenDb;
-    if (!open) return Promise.resolve();
+    if (!open || this.superseded) return Promise.resolve();
     if (!this.reopening) {
       let deadline: ReturnType<typeof setTimeout> | undefined;
       const late = new Promise<'late'>((resolve) => {

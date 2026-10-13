@@ -786,6 +786,20 @@ describe('estado do app: fix round 1 (brief 9b)', () => {
     }
   });
 
+  it('depois que outra aba abriu uma versão nova, esta não tenta reabrir o banco nem repete avisos de leitura', async () => {
+    const repo = await freshRepo();
+    const reopen = vi.fn(async () => repo);
+    const app = await appWith(repo, { reopen });
+    app.supersede();
+    app.connectionLost();
+    repo.listSessions = async () => { throw Object.assign(new Error('versão'), { name: 'InvalidStateError' }); };
+    app.toast = null;
+    await app.reload().catch(() => undefined);
+    await (app as unknown as { refresh(): Promise<void> }).refresh();
+    expect(reopen).not.toHaveBeenCalled();
+    expect(app.toast).toBeNull();
+  });
+
   it('restaurar não espera para sempre uma importação que não termina: desiste com aviso', async () => {
     const repo = await freshRepo();
     const app = await appWith(repo);
@@ -1252,6 +1266,18 @@ describe('estado do app: outra aba grava solves', () => {
     await a.deleteSolve(second.id);
     await vi.waitFor(() => expect(bApp.solves.map((x) => x.id)).toEqual([first.id]));
     expect(fullReads).not.toHaveBeenCalled();
+  });
+
+  it('um aviso com o mesmo id repetido não põe o solve duas vezes', async () => {
+    const name = `app-${++n}`;
+    const b = bus();
+    const repo = createRepository(await openKlickDb(name), { now, channel: b.make() });
+    const app = new AppState({ repo, queue: fakeQueue(), now, storage: null, storageManager: null });
+    await app.init();
+    const writer = createRepository(await openKlickDb(name), { now, channel: null });
+    const solve = await writer.addSolve({ sessionId: app.sessions[0].id, event: '333', ms: 60_000, penalty: null, at: t, scramble: 'R' });
+    b.make().postMessage({ kind: 'solves', solveIds: [solve.id, solve.id] });
+    await vi.waitFor(() => expect(app.solves.map((x) => x.id)).toEqual([solve.id]));
   });
 });
 
