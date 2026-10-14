@@ -137,8 +137,14 @@
   async function remove(): Promise<void> {
     if (!last || !canFix) return;
     if (await app.deletePractice(last.id)) {
+      // O cartão some com o botão: o foco vai para a rodada (como depois de marcar), não cai no body.
+      const refocus = isLost(document.activeElement) || (screenEl?.contains(document.activeElement) ?? false);
       last = null;
       app.announce(T.trilha.round.removed);
+      if (refocus) {
+        await tick();
+        if (!destroyed) screenEl?.focus({ preventScroll: true });
+      }
     }
   }
 

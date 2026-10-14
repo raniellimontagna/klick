@@ -133,6 +133,16 @@ describe('aula: andar pelos passos (spec 6.1)', () => {
     expect(cube.log).toEqual(['step 1']);
   });
 
+  it('Voltar até o primeiro passo desliga o botão: o foco vai para Próximo, não cai no body', async () => {
+    await lesson(0, (x) => x.setLessonAt(0, 1));
+    const back = screen.getByRole('button', { name: 'Voltar' });
+    back.focus();
+    await fireEvent.click(back);
+    await screen.findByRole('heading', { name: 'Segure assim' });
+    expect(back).toBeDisabled();
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Próximo' })));
+  });
+
   it('a troca de passo é anunciada ("passo N de M" e o título)', async () => {
     const { a } = await lesson(0);
     await next();

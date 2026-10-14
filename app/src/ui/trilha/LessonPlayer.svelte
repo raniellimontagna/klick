@@ -88,6 +88,16 @@
     navEl?.querySelector<HTMLElement>('button')?.focus();
   }
 
+  // Voltar ao primeiro passo desliga o botão Voltar: o foco, se estava nele, passa para o Próximo (não cai no body).
+  async function back(): Promise<void> {
+    const button = document.activeElement;
+    const target = part - 1;
+    void goTo(target);
+    if (target !== 0) return;
+    await tick();
+    if (button === document.body || navEl?.contains(button)) navEl?.querySelector<HTMLElement>('.primary')?.focus();
+  }
+
   // Avançar e concluir são o mesmo botão (o rótulo e a ação mudam no último passo): o foco não cai quando o passo muda.
   function forward(): void {
     if (part < last) void goTo(part + 1);
@@ -189,7 +199,7 @@
       {/if}
       <button type="button" class="btn" onclick={() => app.openTrail()}>{T.trilha.lesson.exit}</button>
     {:else}
-      <button type="button" class="btn" disabled={part === 0} onclick={() => goTo(part - 1)}>{T.trilha.lesson.prev}</button>
+      <button type="button" class="btn" disabled={part === 0} onclick={back}>{T.trilha.lesson.prev}</button>
       <button type="button" class="btn primary" onclick={forward}>{part < last ? T.trilha.lesson.next : marked ? T.trilha.lesson.finish : T.trilha.lesson.done}</button>
     {/if}
   </div>

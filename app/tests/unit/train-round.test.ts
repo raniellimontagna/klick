@@ -205,9 +205,13 @@ describe('rodada do treino (spec 7.2)', () => {
     await fireEvent.click(ok);
     // Os botões de marcar somem com o caso seguinte: o foco vai para a rodada, não para o body.
     await waitFor(() => expect(document.activeElement).toBe(document.querySelector('[data-round]')));
-    await fireEvent.click(await screen.findByRole('button', { name: 'Apagar' }));
+    const apagar = await screen.findByRole('button', { name: 'Apagar' });
+    apagar.focus();
+    await fireEvent.click(apagar);
     await waitFor(() => expect(document.querySelector('[data-last-attempt]')).toBeNull());
     expect(await repo.listPractice()).toEqual([]);
+    // O cartão sumiu com o botão: o foco volta para a rodada, não cai no body.
+    await waitFor(() => expect(document.activeElement).toBe(document.querySelector('[data-round]')));
   });
 
   it('o treino não vira solve: nada em solves, sessões, temporada; o body e o app voltam ao que eram ao sair', async () => {
