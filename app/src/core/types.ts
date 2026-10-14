@@ -28,6 +28,17 @@ export interface Session {
   deletedAt: number | null;
 }
 
+// Uma tentativa do treino de algoritmos (spec 9.1). Fica fora dos solves: nada do treino entra nas estatísticas, nos recordes, nas
+// temporadas nem nos marcos.
+export interface Practice {
+  id: string; // newId()
+  caseId: string; // id de um TrainCase (core/trail/cases.ts)
+  ms: number; // o tempo do timer
+  ok: boolean;
+  helped: boolean; // a pessoa viu o algoritmo antes de começar
+  at: number;
+}
+
 export type Theme = 'system' | 'light' | 'dark';
 
 // O Centro no Timer (spec do sub-projeto 3, seção 6.5): animado, estático (sem movimento) ou oculto (fora do Timer).
