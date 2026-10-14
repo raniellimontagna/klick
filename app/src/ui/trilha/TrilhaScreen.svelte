@@ -4,7 +4,9 @@
   import { T } from '../../strings';
   import type { AppState } from '../state/app.svelte';
   import LessonPlayer from './LessonPlayer.svelte';
+  import SetView from './SetView.svelte';
   import TrailHome from './TrailHome.svelte';
+  import TrainRound from './TrainRound.svelte';
 
   let { app }: { app: AppState } = $props();
 </script>
@@ -16,6 +18,12 @@
     <!-- Uma aula por vez: trocar de etapa desmonta a anterior (e o cubo dela). -->
     {#key app.trailView.step}
       <LessonPlayer {app} step={app.trailView.step} />
+    {/key}
+  {:else if app.trailView.kind === 'set'}
+    <SetView {app} set={app.trailView.set} />
+  {:else}
+    {#key app.trailView.set}
+      <TrainRound {app} set={app.trailView.set} />
     {/key}
   {/if}
 </section>

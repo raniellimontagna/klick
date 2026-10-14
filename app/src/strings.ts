@@ -185,6 +185,42 @@ export const T = Object.freeze({
       flat: 'O cubo 3D não abriu neste aparelho. A figura mostra o estado, e o algoritmo está escrito abaixo.',
       completed: (name: string) => `${name}: etapa feita.`,
     }),
+    // Um conjunto do treino (ui/trilha/SetView.svelte): os casos do mais fraco ao mais firme, o sorteio e a escolha de algoritmo.
+    set: Object.freeze({
+      start: 'Começar',
+      noneIncluded: 'Inclua ao menos um caso no sorteio para começar.',
+      cases: 'Do mais fraco ao mais firme',
+      level: Object.freeze({ novo: 'novo', aprendendo: 'aprendendo', firme: 'firme', dominado: 'dominado' }),
+      // "4 tentativas · 75% de acerto · média 2.41": sem tentativa, só "nenhuma tentativa"; sem certa sem ajuda, sem a média.
+      stats: (attempts: number, okRate: number | null, avg: string | null) =>
+        attempts === 0
+          ? 'nenhuma tentativa'
+          : [`${attempts} ${attempts === 1 ? 'tentativa' : 'tentativas'}`, okRate === null ? null : `${Math.round(okRate * 100)}% de acerto`, avg ? `média ${avg}` : null]
+              .filter((part) => part !== null)
+              .join(' · '),
+      include: (name: string) => `${name} no sorteio`,
+      recog: 'Como reconhecer',
+      algs: (name: string) => `Algoritmo de ${name}`,
+    }),
+    // A rodada do treino (ui/trilha/TrainRound.svelte, spec 7.2).
+    round: Object.freeze({
+      end: 'Encerrar',
+      setup: 'Monte o caso',
+      setupHint: 'Do cubo resolvido, com amarelo em cima e verde na frente, faça o embaralhamento e confira pela figura.',
+      help: 'Ver o algoritmo',
+      helped: 'com ajuda',
+      hint: 'espaço armar · qualquer tecla para · Enter acertei',
+      ok: 'Acertei',
+      miss: 'Errei',
+      last: 'Última tentativa',
+      outcome: (ok: boolean, helped: boolean) => `${ok ? 'acerto' : 'erro'}${helped ? ' · com ajuda' : ''}`,
+      caseAvg: (avg: string | null) => (avg ? `média do caso ${avg}` : 'sem média ainda'),
+      fixToOk: 'Era acerto',
+      fixToMiss: 'Era erro',
+      remove: 'Apagar',
+      removed: 'Tentativa apagada.',
+      empty: 'Todos os casos deste conjunto estão fora do sorteio.',
+    }),
   }),
   // Tela da Evolução (ui/evolucao/EvolucaoScreen.svelte). Os nomes dos períodos e as colunas da tabela ficam aqui.
   evolucao: {

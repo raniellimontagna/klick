@@ -506,6 +506,8 @@
   }
 
   function onAction(name: ActionName): void {
+    // O timer do treino (aba Trilha) está rodando: a tecla que o para chega aqui também, e não pode trocar de aba nem abrir os atalhos.
+    if (app.trainerRunning) return;
     switch (name) {
       case 'plus2':
         void penalize('+2');
