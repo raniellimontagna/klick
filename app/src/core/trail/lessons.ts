@@ -26,7 +26,7 @@ export const LESSONS: readonly Lesson[] = Object.freeze([
       {
         title: 'A margarida',
         text: 'A primeira meta é juntar as quatro arestas brancas em volta do centro amarelo, com o branco para cima. Parece uma flor: o miolo é amarelo e as pétalas são brancas.',
-        cube: { setup: 'F2 R2 B2 L2', view: '3D', mask: 'daisy' },
+        cube: { setup: 'F2 R2 B2 L2', view: '3D', mask: 'daisy', from: 'daisy' },
       },
       {
         title: 'Pétala por pétala',
@@ -62,7 +62,7 @@ export const LESSONS: readonly Lesson[] = Object.freeze([
       {
         title: 'Leve até em cima do lugar',
         text: 'Gire U até o canto ficar em cima do lugar dele, na frente e à direita. Os outros cantos podem esperar.',
-        cube: { setup: 'U\' U R U\' R\'', alg: 'U\'', view: '3D', mask: 'firstLayer', from: 'cross' },
+        cube: { setup: 'R U\' R\' U\'', alg: 'U', view: '3D', mask: 'firstLayer', from: 'cross' },
       },
       {
         title: 'Repita R U R\' U\'',
@@ -151,12 +151,12 @@ export const LESSONS: readonly Lesson[] = Object.freeze([
     parts: [
       {
         title: 'Arestas no lugar',
-        text: 'Gire U até duas arestas combinarem com os centros dos lados. Se forem vizinhas, deixe uma atrás e a outra à direita e faça R U R\' U R U2 R\'. Depois gire U para alinhar.',
+        text: 'Gire U até duas arestas combinarem com os centros dos lados. Se forem vizinhas, deixe uma atrás e a outra à direita e faça R U R\' U R U2 R\'. Se forem opostas, faça o algoritmo uma vez de qualquer lado e procure de novo. Depois gire U para alinhar.',
         cube: { setup: 'U\' R U2\' R\' U\' R U\' R\' U', alg: 'U\' R U R\' U R U2 R\' U', view: '3D', mask: 'll', from: 'yellowCross', ends: 'llEdges' },
       },
       {
         title: 'Cantos no lugar',
-        text: 'Ache um canto que já está no lugar certo, mesmo girado. Segure-o na frente à direita e faça U R U\' L\' U R\' U\' L até os quatro estarem no lugar.',
+        text: 'Ache um canto que já está no lugar certo, mesmo girado. Segure-o na frente à direita e faça U R U\' L\' U R\' U\' L até os quatro estarem no lugar. Se nenhum canto estiver no lugar, faça o algoritmo uma vez e procure de novo.',
         cube: { setup: 'L\' U R U\' L U R\' U\'', alg: 'U R U\' L\' U R\' U\' L', view: '3D', mask: 'll', from: 'llEdges', ends: 'llCorners' },
       },
       {
@@ -180,8 +180,8 @@ export const LESSONS: readonly Lesson[] = Object.freeze([
         cube: { setup: 'R U R\' U\'', alg: 'U R U\' R\'', view: '3D', mask: 'f2l', from: 'cross', ends: 'f2l' },
       },
       {
-        title: 'Par pronto: insira',
-        text: 'Quando o par já está montado em cima, um R U R\' coloca tudo. Do outro lado é F\' U\' F.',
+        title: 'Inserção direta',
+        text: 'Com o canto em cima, na frente à direita, o branco olhando para a direita, e a aresta atrás, um R U R\' junta os dois e já coloca no lugar. O espelho, do outro lado, é F\' U\' F.',
         cube: { setup: 'R U\' R\'', alg: 'R U R\'', view: '3D', mask: 'f2l', from: 'cross', ends: 'f2l' },
       },
       {
@@ -191,7 +191,7 @@ export const LESSONS: readonly Lesson[] = Object.freeze([
       },
       {
         title: 'Tire de onde está preso',
-        text: 'Se o canto ou a aresta está num lugar errado embaixo, tire-o com R U R\' (ou com o lado vazio) e trate como um caso de cima.',
+        text: 'Às vezes uma peça do par já está embaixo, como a aresta aqui, e o canto está em cima. Tire a aresta com R U R\' U\', junte o par em cima e insira: R U R\' U\' R U R\' U\' R U R\'.',
         cube: { setup: 'R U\' R\' U R U\' R\' U R U\' R\'', alg: 'R U R\' U\' R U R\' U\' R U R\'', view: '3D', mask: 'f2l', from: 'cross', ends: 'f2l' },
       },
       {
@@ -212,7 +212,7 @@ export const LESSONS: readonly Lesson[] = Object.freeze([
       },
       {
         title: 'A cruz em um passo',
-        text: 'A linha sai com F R U R\' U\' F\'. O L sai com f R U R\' U\' f\', em que f gira as duas camadas da frente juntas. O ponto é os dois seguidos.',
+        text: 'A linha sai com F R U R\' U\' F\'. O L sai com f R U R\' U\' f\', segurando o L na frente e à direita; f gira as duas camadas da frente juntas. O ponto é os dois seguidos.',
         cube: { setup: 'f U R U\' R\' f\'', alg: 'f R U R\' U\' f\'', view: 'top', mask: 'oll', from: 'f2l', ends: 'yellowCross' },
       },
       {
@@ -222,7 +222,7 @@ export const LESSONS: readonly Lesson[] = Object.freeze([
       },
       {
         title: 'Anti-Sune',
-        text: 'O espelho do Sune: R U2 R\' U\' R U\' R\'. Os outros cinco (H, Pi, Faróis, T e Gravata) estão no treino, cada um com a figura do caso.',
+        text: 'Com o canto amarelo para cima atrás à direita, faça R U2 R\' U\' R U\' R\'. Os outros cinco (H, Pi, Faróis, T e Gravata) estão no treino, cada um com a figura do caso.',
         cube: { setup: 'R U R\' U R U2\' R\'', alg: 'R U2 R\' U\' R U\' R\'', view: 'top', mask: 'oll', from: 'yellowCross', ends: 'oll' },
       },
       {
@@ -238,12 +238,12 @@ export const LESSONS: readonly Lesson[] = Object.freeze([
     parts: [
       {
         title: 'Cantos primeiro',
-        text: 'Procure faróis: dois cantos do mesmo lado com a mesma cor. Com faróis, deixe-os atrás e faça a T-perm. Sem faróis, a Y-perm.',
+        text: 'Procure faróis: dois cantos do mesmo lado com a mesma cor. Com faróis, deixe-os à esquerda e faça a T-perm. Sem faróis, a Y-perm. Se os cantos ainda não estiverem certos depois, procure os faróis de novo e repita.',
         cube: { setup: 'F R U\' R\' U R U R2\' F\' R U R U\' R\'', view: '3D', mask: 'pll', from: 'oll' },
       },
       {
         title: 'T-perm',
-        text: 'R U R\' U\' R\' F R2 U\' R\' U\' R U R\' F\'. Ela troca os dois cantos da direita e também duas arestas, o que não atrapalha: as arestas vêm no próximo passo.',
+        text: 'R U R\' U\' R\' F R2 U\' R\' U\' R U R\' F\'. Ela troca os dois cantos da direita e também duas arestas. Se depois as arestas ainda estiverem fora do lugar, elas vêm no próximo passo.',
         cube: { setup: 'F R U\' R\' U R U R2\' F\' R U R U\' R\'', alg: 'R U R\' U\' R\' F R2 U\' R\' U\' R U R\' F\'', view: '3D', mask: 'pll', from: 'oll', ends: 'solved' },
       },
       {
@@ -284,7 +284,7 @@ export const LESSONS: readonly Lesson[] = Object.freeze([
       },
       {
         title: 'Os dois no lugar, errados',
-        text: 'Canto e aresta já no lugar, mas virados. São 5 casos, os mais longos.',
+        text: 'Canto e aresta já no lugar, mas pelo menos um deles girado ou invertido, como o canto aqui. São 5 casos, os mais longos.',
         cube: { setup: 'R U2\' R U R\' U R U2\' R2\'', alg: 'R2 U2 R\' U\' R U\' R\' U2 R\'', view: '3D', mask: 'f2l', from: 'cross', ends: 'f2l' },
       },
       {
