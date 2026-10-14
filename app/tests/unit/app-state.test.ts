@@ -1513,7 +1513,9 @@ describe('estado do app: importação sem perda', () => {
     const stored = await repo.listSolves();
     expect(stored).toHaveLength(5000);
     expect(new Set(stored.map((s) => s.id)).size).toBe(5000);
-  });
+    // 5000 gravações no banco falso são só conta: ~0,5 s sozinho, mas com a suíte inteira em paralelo (e a máquina ocupada) passa dos
+    // 5 s do padrão. Os 5000 ficam: o contador do newId estoura em 1296, e o teste precisa passar por mais de um estouro.
+  }, 30_000);
 
   it('um solve que o repositório deixa de fora (id repetido) conta em missed e o resumo diz quantos não entraram', async () => {
     const { app, repo } = await setup();

@@ -45,7 +45,9 @@ describe('casca do app', () => {
     } finally {
       scrollTo.mockRestore();
     }
-  });
+    // O primeiro teste do arquivo paga a primeira montagem do app inteiro e das telas do Evolução e do Ajustes: ~1,5 s com a suíte em
+    // paralelo, e mais de 5 s com a máquina ocupada.
+  }, 15_000);
 
   it('abrir o app não mexe na rolagem (só a troca de aba volta ao topo)', async () => {
     const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
