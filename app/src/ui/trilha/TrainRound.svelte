@@ -257,9 +257,11 @@
         <p class="scramble" data-train-scramble>{scramble}</p>
         <p class="muted hint">{T.trilha.round.setupHint}</p>
         {#if helped}
-          <p class="help-alg"><span class="chip">{T.trilha.round.helped}</span> <span class="mono" data-help-alg>{alg}</span></p>
-          <!-- Como segurar o caso para este algoritmo: o inverso dele, sem o giro de cima do embaralhamento. -->
-          <CaseFigure setup={invertAlg(alg)} {...figureOf(current)} />
+          <!-- Ao lado do algoritmo, como segurar o caso para ele: o inverso dele, sem o giro de cima do embaralhamento. -->
+          <div class="help">
+            <p class="help-alg"><span class="chip">{T.trilha.round.helped}</span> <span class="mono" data-help-alg>{alg}</span></p>
+            <CaseFigure small setup={invertAlg(alg)} {...figureOf(current)} />
+          </div>
         {:else if phase === 'setup'}
           <button type="button" class="btn" onclick={help}>{T.trilha.round.help}</button>
         {/if}
@@ -374,6 +376,13 @@
   .help-alg {
     margin: 6px 0;
     font-size: 13px;
+  }
+
+  .help {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 12px;
   }
 
   .mono {
