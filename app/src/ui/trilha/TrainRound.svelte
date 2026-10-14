@@ -17,6 +17,7 @@
   import { createInputController } from '../timer/input';
   import { createTimeLoop, paintTime } from '../timer/TimeDisplay';
   import Zones from '../timer/Zones.svelte';
+  import { createWakeLock } from '../wakelock';
   import CaseFigure from './CaseFigure.svelte';
   import MiniCentro from './MiniCentro.svelte';
 
@@ -50,6 +51,8 @@
   let zonesEl = $state<HTMLElement>();
   let timeEl = $state<HTMLElement>();
   let coarseMq = $state(false);
+  let tstate = $state<TimerState>('idle'); // o estado do timer do treino: as cores do tempo vêm dele, não do body (que a tela do Timer pinta)
+  let pageVisible = $state(true);
   let destroyed = false;
   const before = typeof document === 'undefined' ? undefined : document.body.dataset.tstate; // o que a tela do Timer tinha no body
 
@@ -67,6 +70,7 @@
     getInspection: () => false,
   });
   const loop = createTimeLoop(paint);
+  const wake = createWakeLock(); // a tela acesa durante a rodada, como no Timer
 
   const avgOf = (caseId: string): number | null => caseStats(caseId, byCase(app.practice).get(caseId) ?? []).avg5;
   const lastAvg = $derived(last ? avgOf(last.caseId) : null);
@@ -134,6 +138,7 @@
     if (destroyed) return;
     app.timerBusy = next === 'arming' || next === 'ready' || next === 'running';
     app.trainerRunning = next === 'running';
+    tstate = next;
     document.body.dataset.tstate = next;
     document.body.classList.toggle('solving', next === 'running');
     if (next === 'ready') sound.klick();
@@ -144,15 +149,18 @@
 
   function onDone(r: TimerResult): void {
     if (destroyed) return;
+    // O dedo que parou pode não mandar o soltar (a zona some com o resultado): o toque esquece o gesto, e o caso seguinte arma de novo.
+    touch.cancelAll();
     sound.klick();
     resultMs = r.ms;
     phase = 'mark';
     loop.kick();
   }
 
-  // Enter marca "Acertei" depois de parar. Num botão focado, o Enter é do botão (não marca as duas coisas).
+  // Enter marca "Acertei" depois de parar. Num botão focado, o Enter é do botão (não marca as duas coisas); com um diálogo aberto, é dele.
   function onKey(e: KeyboardEvent): void {
     if (e.key !== 'Enter' || phase !== 'mark' || e.repeat) return;
+    if (document.querySelector('dialog[open]')) return;
     if (e.target instanceof Element && e.target.closest('button, a, input, select, textarea')) return;
     e.preventDefault();
     void mark(true);
@@ -208,6 +216,24 @@
     };
   });
 
+  // A tela acesa fica pedida enquanto a rodada está aberta e a página visível; sai ao esconder a página e ao sair da rodada.
+  $effect(() => {
+    void wake.want(app.tab === 'trilha' && pageVisible);
+  });
+  $effect(() => {
+    return () => {
+      void wake.want(false);
+    };
+  });
+  $effect(() => {
+    const sync = (): void => {
+      pageVisible = !document.hidden;
+    };
+    sync();
+    document.addEventListener('visibilitychange', sync);
+    return () => document.removeEventListener('visibilitychange', sync);
+  });
+
   $effect(() => {
     if (typeof matchMedia !== 'function') return;
     const coarse = matchMedia('(pointer: coarse)');
@@ -220,7 +246,7 @@
   });
 </script>
 
-<div class="round" data-round={set} bind:this={screenEl}>
+<div class="round" data-round={set} data-tstate={tstate} bind:this={screenEl}>
   <header class="round-top fade">
     <MiniCentro {app} view={centro} />
     <h2>{T.trilha.sets[set]}</h2>
@@ -230,7 +256,7 @@
   {#if current}
     <div class="case fade">
       <CaseFigure setup={scramble} {...figureOf(current)} />
-      <div>
+      <div class="case-text">
         <div class="label">{T.trilha.round.setup}</div>
         <p class="scramble" data-train-scramble>{scramble}</p>
         <p class="muted hint">{T.trilha.round.setupHint}</p>
@@ -242,7 +268,8 @@
       </div>
     </div>
 
-    <div class="time" data-time aria-hidden="true" bind:this={timeEl}></div>
+    <!-- Classe própria, não a .time do Timer: as regras dele (o recorde, a inspeção, a ordem e o tamanho no celular) não pegam aqui. -->
+    <div class="train-time" data-time aria-hidden="true" bind:this={timeEl}></div>
 
     {#if phase !== 'setup'}
       <div class="marks" data-marks>
@@ -250,7 +277,7 @@
         <button type="button" class="btn" disabled={phase === 'saving'} onclick={() => mark(false)}>{T.trilha.round.miss}</button>
       </div>
     {:else}
-      <p class="muted fade">{T.trilha.round.hint}</p>
+      <p class="muted fade kbd-hint">{T.trilha.round.hint}</p>
     {/if}
   {:else}
     <p data-round-empty>{T.trilha.round.empty}</p>
@@ -305,6 +332,40 @@
     align-items: flex-start;
   }
 
+  /* O texto cresce ao lado da figura quando cabe; sem a base, ele ia sempre para baixo dela. */
+  .case-text {
+    flex: 1 1 240px;
+    min-width: 0;
+  }
+
+  /* O tempo do treino: o tamanho do Timer no desktop, e as cores do armar e do pronto pelo estado do próprio treino. */
+  .train-time {
+    margin: 14px 0 14px -0.04em;
+    font-weight: 600;
+    font-size: clamp(96px, 15vw, 220px);
+    line-height: 1;
+    letter-spacing: -0.05em;
+    font-variant-numeric: tabular-nums;
+    transition: color var(--t-state) var(--ease);
+  }
+
+  .train-time :global(.dec) {
+    font-size: 0.6em;
+    letter-spacing: -0.02em;
+    color: var(--dec);
+    transition: color var(--t-state) var(--ease);
+  }
+
+  .round[data-tstate='arming'] .train-time,
+  .round[data-tstate='arming'] .train-time :global(.dec) {
+    color: var(--arm);
+  }
+
+  .round[data-tstate='ready'] .train-time,
+  .round[data-tstate='ready'] .train-time :global(.dec) {
+    color: var(--go);
+  }
+
   .scramble {
     margin: 4px 0 0;
     font-family: var(--mono);
@@ -321,8 +382,29 @@
     font-family: var(--mono);
   }
 
+  /* As zonas ficam no fluxo da rodada (uma linha da grade, na largura toda). A área nomeada e a ordem que o Timer dá a elas no celular
+     não valem aqui: a área criava uma segunda coluna e empurrava a zona da direita para fora da tela. */
   .zones-host {
     display: contents;
+  }
+
+  .zones-host :global(.zones) {
+    grid-area: auto;
+    order: 0;
+  }
+
+  /* Com o dedo, a dica de teclado não serve (como as teclas dos botões). */
+  @media (pointer: coarse) {
+    .kbd-hint {
+      display: none;
+    }
+  }
+
+  @media (max-width: 639px) {
+    .train-time {
+      margin: 4px 0;
+      font-size: 21vw;
+    }
   }
 
   .marks,

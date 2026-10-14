@@ -13,6 +13,6 @@ export default defineConfig({
   webServer: { command: `pnpm build && pnpm preview --port ${PORT} --strictPort --host 127.0.0.1`, url: ORIGIN, reuseExistingServer: false, timeout: 180_000 },
   projects: [
     { name: 'desktop', use: { ...devices['Desktop Chrome'] } },
-    { name: 'mobile', use: { ...devices['Pixel 7'] }, testMatch: /(timer|sessions)\.spec\.ts/ },
+    { name: 'mobile', use: { ...devices['Pixel 7'] }, testMatch: /(timer|sessions|trilha)\.spec\.ts/ },
   ],
 });

@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import { formatMs } from '../../src/core/stats';
@@ -343,5 +346,124 @@ describe('toque na rodada (spec 7.2: o espaço e os polegares só armam na monta
     await thumbs();
     expect(a.timerBusy).toBe(false);
     expect(a.trainerRunning).toBe(false);
+  });
+});
+
+// A rodada no celular (revisão final, grupo A): o tempo do treino tem classe própria, e o toque e o Enter não ficam presos.
+const SCREENS_CSS = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/styles/screens.css'), 'utf8');
+
+// Os seletores de todas as regras da folha, também as de dentro de @media.
+function selectorsOf(rules: CSSRuleList): string[] {
+  return [...rules].flatMap((r) => (r instanceof CSSStyleRule ? [r.selectorText] : 'cssRules' in r ? selectorsOf((r as CSSGroupingRule).cssRules) : []));
+}
+// Um seletor que o jsdom não entende (:has) não pega nada aqui: as regras com ele são da tela de Ajustes.
+const hits = (el: Element, selector: string): boolean => {
+  try {
+    return el.matches(selector);
+  } catch {
+    return false;
+  }
+};
+
+describe('a rodada no celular e o que vem da tela do Timer', () => {
+  it('o tempo do treino não usa as regras do Timer: o recorde, a inspeção e o armar da tela do Timer não o pintam', async () => {
+    const { a } = await app();
+    document.body.dataset.result = 'pb';
+    document.body.dataset.insp = '8';
+    const style = document.createElement('style');
+    style.textContent = SCREENS_CSS;
+    document.head.append(style);
+    try {
+      round(a);
+      await sleep(50); // o primeiro quadro escreve o tempo (as partes .int e .dec)
+      const time = document.querySelector('[data-round] [data-time]') as HTMLElement;
+      expect(time).not.toHaveClass('time');
+      expect(time.querySelector('.dec')).not.toBeNull();
+      const selectors = selectorsOf(style.sheet!.cssRules);
+      // O controle: o tempo da tela do Timer é pego pela regra do recorde.
+      const timerTime = document.createElement('div');
+      timerTime.className = 'time';
+      document.body.append(timerTime);
+      expect(selectors.filter((s) => s.includes('data-result')).some((s) => hits(timerTime, s))).toBe(true);
+      timerTime.remove();
+      // Nenhuma regra de screens.css pega o tempo do treino nem as partes dele.
+      expect(selectors.filter((s) => [time, ...time.children].some((el) => hits(el, s)))).toEqual([]);
+    } finally {
+      style.remove();
+      delete document.body.dataset.result;
+      delete document.body.dataset.insp;
+    }
+  });
+
+  it('as cores do tempo seguem o estado do próprio treino (armando, pronto, correndo, parado)', async () => {
+    const { a } = await app();
+    round(a);
+    const roundEl = document.querySelector('[data-round]') as HTMLElement;
+    expect(roundEl.dataset.tstate).toBe('idle');
+    key('keydown', 'Space', ' ');
+    await waitFor(() => expect(roundEl.dataset.tstate).toBe('arming'));
+    await waitFor(() => expect(roundEl.dataset.tstate).toBe('ready'));
+    key('keyup', 'Space', ' ');
+    await waitFor(() => expect(roundEl.dataset.tstate).toBe('running'));
+    key('keydown', 'KeyA', 'a');
+    await waitFor(() => expect(roundEl.dataset.tstate).toBe('done'));
+  });
+
+  it('parar com o polegar sem o soltar chegar à janela (a zona some com o resultado): o caso seguinte arma com dois polegares', async () => {
+    const { a } = await app();
+    round(a);
+    await thumbs();
+    expect(a.trainerRunning).toBe(true);
+    pointer('pointerdown', zone('left')!, 3); // para; o pointerup deste dedo nunca chega
+    await screen.findByRole('button', { name: 'Acertei' });
+    key('keydown', 'Enter', 'Enter');
+    await waitFor(() => expect(document.querySelector('[data-zones]')).not.toBeNull()); // o caso seguinte, na montagem
+    await thumbs();
+    expect(a.trainerRunning).toBe(true);
+  });
+
+  it('Enter com um diálogo aberto não marca', async () => {
+    const { a, repo } = await app();
+    round(a);
+    await solve();
+    await screen.findByRole('button', { name: 'Acertei' });
+    const dialog = document.createElement('dialog');
+    dialog.setAttribute('open', '');
+    document.body.append(dialog);
+    try {
+      key('keydown', 'Enter', 'Enter');
+      await sleep(50);
+      expect(await repo.listPractice()).toEqual([]);
+      expect(screen.getByRole('button', { name: 'Acertei', hidden: true })).toBeInTheDocument();
+    } finally {
+      dialog.remove();
+    }
+  });
+
+  it('a rodada pede a tela acesa e a solta ao sair', async () => {
+    let requests = 0;
+    let released = 0;
+    Object.defineProperty(navigator, 'wakeLock', {
+      configurable: true,
+      value: {
+        request: async () => {
+          requests++;
+          return {
+            release: async () => {
+              released++;
+            },
+          };
+        },
+      },
+    });
+    try {
+      const { a } = await app();
+      const r = round(a);
+      await waitFor(() => expect(requests).toBe(1));
+      r.unmount();
+      await waitFor(() => expect(released).toBe(1));
+    } finally {
+      Reflect.deleteProperty(navigator, 'wakeLock');
+    }
   });
 });

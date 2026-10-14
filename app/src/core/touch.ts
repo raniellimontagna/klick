@@ -42,8 +42,9 @@ export function createTouchArm(
       const st = getState();
       active.set(pointerId, zone);
       if (st === 'running') {
-        press(at);
+        // Marca o gesto antes de parar: quem reage ao fim dentro do press (o treino chama cancelAll) consegue esquecê-lo.
         stopping = true;
+        press(at);
         return;
       }
       if (stopping) return;

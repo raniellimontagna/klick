@@ -84,6 +84,61 @@ test('depois da primeira visita, a aula e o treino abrem sem rede', async ({ pag
   await expect(page.locator('[data-train-scramble]')).not.toBeEmpty();
 });
 
+// Nada da Trilha passa da largura da tela: o começo, uma aula e a rodada de cada conjunto. Na tela estreita (a barra de abas embaixo),
+// a rodada também tem as duas zonas de polegar inteiras na largura e o tempo acima da barra de abas, sem rolar.
+async function fitsWidth(page: Page, where: string): Promise<void> {
+  const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }));
+  expect(scrollWidth, `${where}: scrollWidth ${scrollWidth} > clientWidth ${clientWidth}`).toBeLessThanOrEqual(clientWidth);
+}
+
+async function roundFits(page: Page, set: string): Promise<void> {
+  await fitsWidth(page, `rodada ${set}`);
+  const tabbar = page.locator('nav.tabbar');
+  if (!(await tabbar.isVisible())) return;
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const width = await page.evaluate(() => document.documentElement.clientWidth);
+  for (const side of ['left', 'right']) {
+    const box = (await page.locator(`[data-round] [data-zone="${side}"]`).boundingBox())!;
+    expect(box.x, `rodada ${set}: zona ${side}`).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width, `rodada ${set}: zona ${side}`).toBeLessThanOrEqual(width);
+  }
+  const time = (await page.locator('[data-round] [data-time]').boundingBox())!;
+  const bar = (await tabbar.boundingBox())!;
+  expect(time.y + time.height, `rodada ${set}: o tempo acima da barra de abas`).toBeLessThanOrEqual(bar.y);
+}
+
+async function layout(page: Page): Promise<void> {
+  await fresh(page);
+  await openTrilha(page);
+  await fitsWidth(page, 'começo');
+  await page.getByRole('button', { name: 'Começar a aula' }).click();
+  await expect(page.getByRole('heading', { name: 'Segure assim' })).toBeVisible();
+  await fitsWidth(page, 'aula');
+  await page.getByRole('button', { name: 'Voltar à trilha' }).first().click();
+  for (const set of ['oll2', 'pll2', 'f2l']) {
+    await page.locator(`[data-train-set="${set}"]`).click();
+    await page.getByRole('button', { name: 'Começar', exact: true }).click();
+    await expect(page.locator('[data-train-scramble]')).not.toBeEmpty();
+    await roundFits(page, set);
+    await page.getByRole('button', { name: 'Encerrar' }).click();
+    await page.getByRole('button', { name: 'Voltar à trilha' }).first().click();
+  }
+}
+
+test('a Trilha cabe na largura da tela: começo, aula e a rodada de cada conjunto', async ({ page }) => {
+  await layout(page);
+});
+
+test.describe('num iPhone 13 (390 × 844)', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+  test('a Trilha cabe na largura da tela: começo, aula e a rodada de cada conjunto', async ({ page }) => {
+    await layout(page);
+  });
+});
+
 for (const scheme of ['light', 'dark'] as const) {
   test(`Trilha sem violações sérias de acessibilidade no tema ${scheme}: começo, aula, conjunto e rodada`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme });

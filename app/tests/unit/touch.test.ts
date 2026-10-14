@@ -121,6 +121,24 @@ describe('armar no toque', () => {
     touch.up(6);
     expect(timer.state).toBe(STATES.INSPECT);
   });
+
+  it('cancelAll no fim do timer (dentro do toque que para) esquece o gesto de parar: dois polegares armam de novo sem o soltar dele', () => {
+    const { timer, touch, at } = rig();
+    timer.on('done', () => touch.cancelAll()); // como o treino faz: a zona some com o resultado, e o soltar pode não chegar
+    touch.down(1, 'left');
+    touch.down(2, 'right');
+    at(400);
+    touch.up(1);
+    touch.up(2);
+    expect(timer.state).toBe(STATES.RUNNING);
+    at(1000);
+    touch.down(3, 'left');
+    expect(timer.state).toBe(STATES.DONE);
+    touch.down(4, 'left');
+    touch.down(5, 'right');
+    at(1500);
+    expect(timer.state).toBe(STATES.READY);
+  });
 });
 
 // O toque leva o horário do evento (event.timeStamp) até o timer. Nestes testes o handler de cada toque roda depois do
