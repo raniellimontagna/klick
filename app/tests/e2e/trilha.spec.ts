@@ -64,8 +64,33 @@ test('uma rodada de treino pelo teclado: mede, Enter marca acerto, e nada entra 
   await expect(page.locator('[data-screen="companion"]').getByText(/Temporada 1 · 0 de 9 marcos/)).toBeVisible();
 });
 
+// Fechar o tour grava que a primeira vez passou (profile.onboarded) logo depois do clique. Recarregar antes de a gravação terminar abre o
+// tour de novo, por cima da casca: os testes que recarregam esperam o perfil gravado.
+async function onboardedSaved(page: Page): Promise<void> {
+  await page.waitForFunction(
+    () =>
+      new Promise<boolean>((resolve) => {
+        const req = indexedDB.open('klick');
+        req.onerror = () => resolve(false);
+        req.onsuccess = () => {
+          const db = req.result;
+          const get = db.transaction('profile').objectStore('profile').get('current');
+          get.onsuccess = () => {
+            resolve(get.result?.onboarded === true);
+            db.close();
+          };
+          get.onerror = () => {
+            resolve(false);
+            db.close();
+          };
+        };
+      }),
+  );
+}
+
 test('depois da primeira visita, a aula e o treino abrem sem rede', async ({ page, context }) => {
   await fresh(page);
+  await onboardedSaved(page);
   await page.evaluate(async () => {
     await navigator.serviceWorker.ready;
   });
