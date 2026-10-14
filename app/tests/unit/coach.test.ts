@@ -197,7 +197,7 @@ describe('gatilhos novos do coach (spec do sub-projeto 3, seção 7)', () => {
     expect(T.coach.seasonEnd(4, 1, '0:15.00', '0:14.00', null)).toBe('Temporada 4 completa: 1 solve, melhor média de 12 de 0:15.00 para 0:14.00.');
   });
 
-  it('quase lá na média de 5, uma vez por sessão', () => {
+  it('quase lá na média de 5, uma vez por sessão e por dia', () => {
     const state = t2(pending({ kind: 'ao5', target: 18000 }));
     const prior = many([18300, 18400, 18200, 18500]);
     const solve = sv(18350);
@@ -209,6 +209,9 @@ describe('gatilhos novos do coach (spec do sub-projeto 3, seção 7)', () => {
     const next = sv(18300, null, NOW + 60000);
     expect(pick({ solve: next, history: all, sessionSolves: all, season: seasonIn(state, [], [], all) })?.id).not.toBe('near');
     expect(pick({ solve: next, history: all, sessionSolves: [], season: seasonIn(state, [], [], all) })?.id).toBe('near');
+    // Uma vez por dia: no dia seguinte, a mesma sessão volta a ouvir o quase lá.
+    const tomorrow = sv(18300, null, NOW + DAY);
+    expect(pick({ solve: tomorrow, history: all, sessionSolves: all, season: seasonIn(state, [], [], all) })?.id).toBe('near');
   });
 
   it('quase lá no single, no volume e na sequência de dias', () => {
@@ -234,7 +237,7 @@ describe('gatilhos novos do coach (spec do sub-projeto 3, seção 7)', () => {
     expect(pick({ solve: sv(30000), history: history.slice(1) })?.id).not.toBe('week'); // só 11 solves na semana mais antiga
   });
 
-  it('fora da curva: o primeiro solve da sessão acima de 1,25 vez a média de 12, sem DNF', () => {
+  it('fora da curva: o primeiro solve da sessão no dia acima de 1,25 vez a média de 12, sem DNF', () => {
     const session = many(Array.from({ length: 12 }, (_, i) => 20000 + i * 100));
     // Ao12 dos 12 = 20550. 26 s passa de 1,25 × 20,55 s; com ele, a média de 12 fica em 20,65 s.
     const msg = pick({ solve: sv(26000), history: session, sessionSolves: session });
@@ -242,6 +245,8 @@ describe('gatilhos novos do coach (spec do sub-projeto 3, seção 7)', () => {
     expect(msg?.text).toBe('Esse escapou. A média de 12 segue em 0:20.65.');
     const after = [...session, sv(26000)];
     expect(pick({ solve: sv(27000, null, NOW + 60000), history: after, sessionSolves: after })?.id).not.toBe('outlier');
+    // Uma vez por dia: no dia seguinte, a mesma sessão volta a ouvir o fora da curva.
+    expect(pick({ solve: sv(27000, null, NOW + DAY), history: after, sessionSolves: after })?.id).toBe('outlier');
     expect(pick({ solve: sv(26000, 'DNF'), history: session, sessionSolves: session })?.id).toBe('first-dnf');
   });
 });

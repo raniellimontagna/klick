@@ -3,7 +3,7 @@
 // novos: fim de temporada, quase lá, semana melhor e fora da curva. Tudo sai do histórico, sem estado guardado.
 import { FINISH_INFO, T } from '../strings';
 import { eventInfo } from './events';
-import { firstNearInSession, type MarkStatus, markMessage, type NearMark, targetText } from './season';
+import { firstNearToday, type MarkStatus, markMessage, type NearMark, targetText } from './season';
 import {
   averageOf,
   bestAverage,
@@ -145,12 +145,14 @@ function outlierAt(list: Solve[], end: number): number | null {
   return withIt === Infinity ? null : withIt;
 }
 
-// Só o primeiro da sessão: nenhum solve anterior da sessão foi fora da curva.
+// Só o primeiro da sessão no dia: nenhum solve anterior da sessão, no mesmo dia, foi fora da curva (sessões duram semanas). A média de
+// 12 de cada um olha a sessão inteira, também os dias anteriores.
 function outlier(session: Solve[]): number | null {
   const end = session.length - 1;
   const value = outlierAt(session, end);
   if (value === null) return null;
-  for (let i = 12; i < end; i++) if (outlierAt(session, i) !== null) return null;
+  const today = dayStart(session[end].at);
+  for (let i = 12; i < end; i++) if (session[i].at >= today && outlierAt(session, i) !== null) return null;
   return value;
 }
 
@@ -193,7 +195,7 @@ export function pickCoachMessage({
       const count = season.after.filter((m) => m.achieved).length;
       return { id: 'milestone', text: T.coach.milestone(markMessage(season.state.n, lit, season.state.marks[lit]), count) };
     }
-    const near = firstNearInSession(season.state.marks, season.after.map((m) => m.achieved), season.prior, sessionSolves, solve);
+    const near = firstNearToday(season.state.marks, season.after.map((m) => m.achieved), season.prior, sessionSolves, solve);
     if (near) return { id: 'near', text: nearText(season.state.n, near) };
   }
 

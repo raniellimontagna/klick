@@ -405,9 +405,10 @@ function nearGap(mark: SeasonMark, list: Solve[], end: number): number | null {
   }
 }
 
-// O primeiro marco pendente que este solve deixou perto e que nenhum solve anterior da sessão já tinha deixado: uma vez por marco por
-// sessão, sem memória (a conta refaz os anteriores). `prior` são os solves da temporada antes dele; `sessionPrior`, os da sessão.
-export function firstNearInSession(
+// O primeiro marco pendente que este solve deixou perto e que nenhum solve anterior da sessão, no mesmo dia, já tinha deixado: uma vez
+// por marco por sessão e por dia (sessões duram semanas), sem memória (a conta refaz os anteriores). `prior` são os solves da temporada
+// antes dele; `sessionPrior`, os da sessão.
+export function firstNearToday(
   marks: readonly SeasonMark[],
   achieved: readonly boolean[],
   prior: Solve[],
@@ -416,7 +417,8 @@ export function firstNearInSession(
 ): NearMark | null {
   const list = [...prior, solve];
   const end = prior.length;
-  const inSession = new Set(sessionPrior.map((s) => s.id));
+  const today = dayKey(solve.at);
+  const inSession = new Set(sessionPrior.filter((s) => dayKey(s.at) === today).map((s) => s.id));
   for (let index = 0; index < marks.length; index++) {
     if (achieved[index]) continue;
     const mark = marks[index];

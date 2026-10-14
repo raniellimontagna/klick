@@ -201,6 +201,7 @@ O 2º degrau é o próximo abaixo do 1º. Nenhuma meta fica abaixo de 1 s.
 - **Quando fecha:** quando os 9 marcos estão feitos.
 - **O que acontece:** a temporada vira um `SeasonRecord` em `past`, e a próxima começa com `startedAt` igual ao `endedAt` e metas novas.
 - **Definitiva:** apagar ou mudar a penalidade de um solve depois não desfaz a virada.
+- **Por penalidade no Timer:** tirar ou pôr +2 ou DNF no resultado também pode fechar a temporada. Na tela, aparece como depois de um solve: o fim de temporada no coach, a face de cima cheia e a piscada. O Centro reage de novo, mas sem o salto do recorde (decidido em 14/10).
 - **Fechada ao vivo** (um solve fechou):
   - `endedAt` é o `at` desse solve;
   - `basis` da próxima sai de todo o histórico de 3×3, incluindo esse solve.
@@ -318,7 +319,7 @@ O ajuste fica em `settings.centro` (`'animado' | 'estatico' | 'oculto'`, padrão
 
 O coach continua puro e sem estado guardado: tudo sai do histórico. Fala no máximo uma mensagem por solve, a de maior prioridade. O modo silencioso desliga só o texto.
 
-Cada gatilho novo dispara ao entrar na condição, ou uma vez por sessão ou por dia, nunca a cada solve. "Uma vez por sessão" quer dizer que este é o primeiro solve da sessão em que a condição vale. Isso se calcula pelos solves anteriores da sessão, sem memória.
+Cada gatilho novo dispara ao entrar na condição, ou uma vez por sessão e por dia, nunca a cada solve. "Uma vez por sessão e por dia" quer dizer que este é o primeiro solve da sessão, no dia local de hoje, em que a condição vale. Isso se calcula pelos solves anteriores da sessão, sem memória. O dia entra porque sessões duram semanas: só "uma vez por sessão" viraria quase uma vez por temporada (decidido em 14/10).
 
 | # | Gatilho | Situação |
 |---|---|---|
@@ -342,7 +343,7 @@ Cada gatilho novo dispara ao entrar na condição, ou uma vez por sessão ou por
 - Na T1, sem a média: "Temporada 1 completa: 1.204 solves. Brilho liberado."
 - Da T4 em diante, sem a frase do acabamento.
 
-**Quase lá:** o primeiro solve da sessão em que um marco pendente fica perto. Uma vez por marco por sessão; se houver mais de um, vale o primeiro da lista.
+**Quase lá:** o primeiro solve da sessão, no dia, em que um marco pendente fica perto. Uma vez por marco por sessão e por dia; se houver mais de um, vale o primeiro da lista.
 
 | Tipo do marco | Perto quando | Exemplo |
 |---|---|---|
@@ -359,7 +360,7 @@ Cada gatilho novo dispara ao entrar na condição, ou uma vez por sessão ou por
 
 **Fora da curva**
 - Vale para um solve sem DNF, numa sessão com pelo menos 12 solves antes dele.
-- Dispara quando o solve passa de 1,25 vez a média de 12 desses 12 anteriores, e a média de 12 com ele continua válida. Só o primeiro da sessão.
+- Dispara quando o solve passa de 1,25 vez a média de 12 desses 12 anteriores, e a média de 12 com ele continua válida. Só o primeiro da sessão no dia; a média de 12 olha a sessão inteira, também os dias anteriores.
 - Exemplo: "Esse escapou. A média de 12 segue em 18.40." A frase é verdadeira porque a média de 12 descarta o pior tempo.
 
 ### 7.3 Entrada
@@ -405,7 +406,7 @@ Todos os textos ficam em `strings.ts`, na voz da spec 5.7: calma, sem emoji e se
 | Camada | O que cobre |
 |---|---|
 | `core/season.ts` | Degraus nas fronteiras (60, 30 e 10 s) e o piso de 1 s; "abaixo" estrito; a folga mínima de 1 s; as quedas na falta de média; só conta solve de 3×3, fora da lixeira e depois do início; a T1 equivale aos marcos de hoje (os testes de `stats` seguem passando); o fechamento no passado da T1; nenhuma cascata; a avaliação incremental bate com a completa |
-| `core/coach.ts` | Cada gatilho novo, a prioridade dos 12, as regras de uma vez por sessão, por marco ou por dia, a média de 12 inválida no fora da curva, o modo silencioso |
+| `core/coach.ts` | Cada gatilho novo, a prioridade dos 12, as regras de uma vez por sessão e por dia ou por marco, a média de 12 inválida no fora da curva, o modo silencioso |
 | `face`, `behavior`, `animator` | Intervalos do piscar entre 2 e 7 s e taxa de duplas perto de 10%, com sorteio fixo; olhadinha só no parado; `approach` converge em cerca de 200 ms; o `freeze` cancela laço e temporizadores; o laço para quando o rosto assenta; o estático não agenda nada; a página escondida pausa |
 | Repositório | `advanceSeason` condicional, com duas chamadas concorrentes; importar e restaurar não regridem; a validação do `profileOf`; perfil antigo sem `season` vira o padrão |
 | Telas (`@testing-library/svelte`) | Cartão da temporada com progresso, histórico, liberação de acabamento por `past`, controle animado/estático/oculto, Timer sem o Centro quando oculto, `data-eyes` nos estados |
