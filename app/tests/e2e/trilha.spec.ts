@@ -109,8 +109,9 @@ test('depois da primeira visita, a aula e o treino abrem sem rede', async ({ pag
   await expect(page.locator('[data-train-scramble]')).not.toBeEmpty();
 });
 
-// Nada da Trilha passa da largura da tela: o começo, uma aula e a rodada de cada conjunto. Na tela estreita (a barra de abas embaixo),
-// a rodada também tem as duas zonas de polegar inteiras na largura e o tempo acima da barra de abas, sem rolar.
+// Nada da Trilha passa da largura da tela: o começo, uma aula e a rodada de cada conjunto. Na tela estreita, com a página no topo, a
+// rodada também tem o tempo acima da barra de abas e as duas zonas de polegar inteiras na largura e acima da barra (que é fixa: um
+// polegar na parte escondida cairia numa aba). Com "Ver o algoritmo" aberto, basta 3/4 de cada zona à vista, com o rótulo dela.
 async function fitsWidth(page: Page, where: string): Promise<void> {
   const { scrollWidth, clientWidth } = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
@@ -119,20 +120,32 @@ async function fitsWidth(page: Page, where: string): Promise<void> {
   expect(scrollWidth, `${where}: scrollWidth ${scrollWidth} > clientWidth ${clientWidth}`).toBeLessThanOrEqual(clientWidth);
 }
 
-async function roundFits(page: Page, set: string): Promise<void> {
-  await fitsWidth(page, `rodada ${set}`);
+async function roundFits(page: Page, where: string, minVisible = 1): Promise<void> {
+  await fitsWidth(page, `rodada ${where}`);
   const tabbar = page.locator('nav.tabbar');
   if (!(await tabbar.isVisible())) return;
   await page.evaluate(() => window.scrollTo(0, 0));
-  const width = await page.evaluate(() => document.documentElement.clientWidth);
-  for (const side of ['left', 'right']) {
-    const box = (await page.locator(`[data-round] [data-zone="${side}"]`).boundingBox())!;
-    expect(box.x, `rodada ${set}: zona ${side}`).toBeGreaterThanOrEqual(0);
-    expect(box.x + box.width, `rodada ${set}: zona ${side}`).toBeLessThanOrEqual(width);
+  const m = await page.evaluate(() => {
+    const bar = document.querySelector('nav.tabbar')!.getBoundingClientRect().top;
+    const time = document.querySelector('[data-round] [data-time]')!.getBoundingClientRect();
+    const zones = [...document.querySelectorAll<HTMLElement>('[data-round] [data-zone]')].map((zone) => {
+      const box = zone.getBoundingClientRect();
+      const text = document.createRange();
+      text.selectNodeContents(zone);
+      return { side: zone.dataset.zone, left: box.left, right: box.right, top: box.top, bottom: box.bottom, label: text.getBoundingClientRect().bottom };
+    });
+    return { bar, width: document.documentElement.clientWidth, time: time.bottom, zones };
+  });
+  expect(m.time, `rodada ${where}: o tempo acima da barra de abas`).toBeLessThanOrEqual(m.bar);
+  expect(m.zones).toHaveLength(2);
+  for (const z of m.zones) {
+    const what = `rodada ${where}: zona ${z.side}`;
+    expect(z.left, what).toBeGreaterThanOrEqual(0);
+    expect(z.right, what).toBeLessThanOrEqual(m.width);
+    const visible = (Math.min(z.bottom, m.bar) - z.top) / (z.bottom - z.top);
+    expect(visible, `${what}: parte à vista acima da barra de abas`).toBeGreaterThanOrEqual(minVisible);
+    expect(z.label, `${what}: o rótulo acima da barra de abas`).toBeLessThanOrEqual(m.bar);
   }
-  const time = (await page.locator('[data-round] [data-time]').boundingBox())!;
-  const bar = (await tabbar.boundingBox())!;
-  expect(time.y + time.height, `rodada ${set}: o tempo acima da barra de abas`).toBeLessThanOrEqual(bar.y);
 }
 
 async function layout(page: Page): Promise<void> {
@@ -148,10 +161,16 @@ async function layout(page: Page): Promise<void> {
     await page.getByRole('button', { name: 'Começar', exact: true }).click();
     await expect(page.locator('[data-train-scramble]')).not.toBeEmpty();
     await roundFits(page, set);
-    // "Ver o algoritmo" põe a figura de como segurar o caso ao lado do algoritmo: o tempo continua acima da barra.
+    // "Ver o algoritmo" põe a figura de como segurar o caso ao lado do algoritmo.
     await page.getByRole('button', { name: 'Ver o algoritmo' }).click();
     await expect(page.locator('[data-round] [data-case-figure]')).toHaveCount(2);
-    await roundFits(page, `${set} com o algoritmo`);
+    await roundFits(page, `${set} com o algoritmo`, 0.75);
+    // O caso seguinte, com o cartão da última tentativa: ele fica depois das zonas e não as empurra.
+    await run(page);
+    await page.keyboard.press('Enter');
+    await expect(page.locator('[data-last-attempt]')).toBeVisible();
+    await expect(page.locator('[data-round] [data-zone="left"]')).toBeAttached(); // o caso seguinte, na montagem (no desktop largo, sem zonas à vista)
+    await roundFits(page, `${set} com a última tentativa`);
     await page.getByRole('button', { name: 'Encerrar' }).click();
     await page.getByRole('button', { name: 'Voltar à trilha' }).first().click();
   }

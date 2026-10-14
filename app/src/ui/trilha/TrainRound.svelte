@@ -266,8 +266,10 @@
     <div class="case fade">
       <CaseFigure setup={scramble} {...figureOf(current)} />
       <div class="case-text">
-        <div class="label">{T.trilha.round.setup}</div>
-        <p class="scramble" data-train-scramble>{scramble}</p>
+        <div class="case-head">
+          <div class="label">{T.trilha.round.setup}</div>
+          <p class="scramble" data-train-scramble>{scramble}</p>
+        </div>
         <p class="muted hint">{T.trilha.round.setupHint}</p>
         {#if helped}
           <!-- Ao lado do algoritmo, como segurar o caso para ele: o inverso dele, sem o giro de cima do embaralhamento. -->
@@ -276,7 +278,7 @@
             <CaseFigure small setup={invertAlg(alg)} {...figureOf(current)} />
           </div>
         {:else if phase === 'setup'}
-          <button type="button" class="btn" onclick={help}>{T.trilha.round.help}</button>
+          <button type="button" class="btn help-btn" onclick={help}>{T.trilha.round.help}</button>
         {/if}
       </div>
     </div>
@@ -296,6 +298,16 @@
     <p data-round-empty>{T.trilha.round.empty}</p>
   {/if}
 
+  <!-- O invólucro fica sempre: a entrada (teclado, parar com um toque, engolir o clique que vem depois) segue ligada nele. As zonas só
+       existem enquanto o caso pode ser armado (a montagem, com um caso, e a execução, que nasce dela); sem elas o toque não arma. -->
+  <div class="zones-host" bind:this={zonesEl}>
+    {#if phase === 'setup' && current}
+      <Zones one={app.profile.settings.mobileArm === 'one'} />
+    {/if}
+  </div>
+
+  <!-- A última tentativa vem depois das zonas: no celular, em cima delas, ela empurrava as zonas para trás da barra de abas. No desktop as
+       zonas não aparecem, e a ordem fica a mesma de antes. -->
   {#if last}
     <div class="card last fade" data-last-attempt>
       <div class="label">{T.trilha.round.last}</div>
@@ -309,14 +321,6 @@
       {/if}
     </div>
   {/if}
-
-  <!-- O invólucro fica sempre: a entrada (teclado, parar com um toque, engolir o clique que vem depois) segue ligada nele. As zonas só
-       existem enquanto o caso pode ser armado (a montagem, com um caso, e a execução, que nasce dela); sem elas o toque não arma. -->
-  <div class="zones-host" bind:this={zonesEl}>
-    {#if phase === 'setup' && current}
-      <Zones one={app.profile.settings.mobileArm === 'one'} />
-    {/if}
-  </div>
 </div>
 
 <style>
@@ -430,10 +434,61 @@
     }
   }
 
+  /* No celular a rodada fica compacta, para as zonas de polegar caberem inteiras acima da barra de abas (que é fixa: um polegar na parte
+     escondida cairia numa aba). A figura encolhe e fica ao lado do rótulo e do embaralhamento; a dica e o botão de ajuda ocupam a
+     largura toda embaixo; com a ajuda aberta, o algoritmo divide a linha com a figura pequena. */
   @media (max-width: 639px) {
+    .round {
+      gap: 10px;
+    }
+
+    .case {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 0 12px;
+    }
+
+    .case-text {
+      display: contents;
+    }
+
+    .case-head {
+      grid-column: 2;
+      grid-row: 1;
+    }
+
+    .hint,
+    .help,
+    .help-btn {
+      grid-column: 1 / -1;
+    }
+
+    .help-btn {
+      justify-self: start;
+    }
+
+    .help-alg {
+      flex: 1 1 0;
+      min-width: 0;
+    }
+
+    .case :global(.case-fig:not(.small)) {
+      width: 128px;
+      height: 96px;
+    }
+
+    .case :global(.case-fig.top:not(.small)) {
+      width: 104px;
+      height: 104px;
+    }
+
+    .scramble {
+      font-size: 18px;
+    }
+
     .train-time {
-      margin: 4px 0;
-      font-size: 21vw;
+      margin: 0;
+      font-size: 18vw;
     }
   }
 
