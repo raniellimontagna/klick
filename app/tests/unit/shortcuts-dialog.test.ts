@@ -28,7 +28,9 @@ describe('Atalhos', () => {
     expect(document.querySelector('dialog')).toHaveAttribute('open');
     expect(screen.getByText('Armar (segure) e largar (solte)')).toBeInTheDocument();
     expect(screen.getByText('Trocar de aba')).toBeInTheDocument();
-    expect(document.querySelectorAll('tbody tr')).toHaveLength(10);
+    expect(screen.getByText('1–5')).toBeInTheDocument();
+    expect(screen.getByText('No treino: marcar acerto')).toBeInTheDocument();
+    expect(document.querySelectorAll('tbody tr')).toHaveLength(12);
   });
 
   it('o fechar pelo botão libera app.dialog e devolve o foco ao botão que abriu', async () => {

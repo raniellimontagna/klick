@@ -214,10 +214,10 @@ describe('atalhos', () => {
     const s = setup();
     const keys: Array<[string, string]> = [
       ['KeyP', 'p'], ['KeyD', 'd'], ['KeyM', 'm'], ['Backspace', 'Backspace'], ['KeyZ', 'z'],
-      ['KeyN', 'n'], ['Slash', '?'], ['Digit1', '1'], ['Digit2', '2'], ['Digit3', '3'], ['Digit4', '4'],
+      ['KeyN', 'n'], ['Slash', '?'], ['Digit1', '1'], ['Digit2', '2'], ['Digit3', '3'], ['Digit4', '4'], ['Digit5', '5'],
     ];
     keys.forEach(([code, k]) => key('keydown', code, k));
-    expect(s.actions).toEqual(['plus2', 'dnf', 'note', 'delete', 'undo', 'next', 'shortcuts', 'tab1', 'tab2', 'tab3', 'tab4']);
+    expect(s.actions).toEqual(['plus2', 'dnf', 'note', 'delete', 'undo', 'next', 'shortcuts', 'tab1', 'tab2', 'tab3', 'tab4', 'tab5']);
   });
 
   it('M segura o padrão do navegador', () => {
@@ -231,7 +231,7 @@ describe('atalhos', () => {
     expect(s.actions).toEqual([]);
   });
 
-  it('fora da aba do Timer, letras não atuam, mas 1–4 e ? seguem', () => {
+  it('fora da aba do Timer, letras não atuam, mas 1–5 e ? seguem', () => {
     const s = setup({ tab: false });
     key('keydown', 'KeyP', 'p');
     key('keydown', 'Digit2', '2');
@@ -239,7 +239,7 @@ describe('atalhos', () => {
     expect(s.actions).toEqual(['tab2', 'shortcuts']);
   });
 
-  it('durante a inspeção, letras não atuam; 1–4 seguem como no protótipo', () => {
+  it('durante a inspeção, letras não atuam; 1–5 seguem como no protótipo', () => {
     const s = setup({ inspection: true });
     key('keydown', 'Space', ' ');
     key('keyup', 'Space', ' ');
@@ -249,7 +249,7 @@ describe('atalhos', () => {
     expect(s.actions).toEqual(['tab1']);
   });
 
-  it('digitando num campo de texto, ? e 1–4 também não disparam', () => {
+  it('digitando num campo de texto, ? e 1–5 também não disparam', () => {
     const s = setup();
     const input = document.querySelector('[data-note]') as HTMLInputElement;
     key('keydown', 'Slash', '?', { target: input });

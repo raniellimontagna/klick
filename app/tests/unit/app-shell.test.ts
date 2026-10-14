@@ -61,12 +61,28 @@ describe('casca do app', () => {
     }
   });
 
-  it('mostra as quatro abas e a tela do Timer', async () => {
+  it('mostra as cinco abas, na ordem do atalho, e a tela do Timer', async () => {
     render(App);
     expect(await screen.findByRole('button', { name: 'Timer' })).toHaveAttribute('aria-current', 'page');
-    for (const name of ['Evolução', 'Centro', 'Ajustes']) expect(screen.getAllByRole('button', { name }).length).toBeGreaterThan(0);
+    const names = [...document.querySelectorAll<HTMLButtonElement>('nav.tabs button')].map((b) => b.textContent?.trim());
+    expect(names).toEqual(['Timer', 'Evolução', 'Trilha', 'Centro', 'Ajustes']);
+    expect(document.querySelectorAll('nav.tabbar button')).toHaveLength(5);
     expect(document.querySelector('[data-screen="timer"]')).not.toBeNull();
     expect(document.querySelector('[aria-live="polite"]')).not.toBeNull();
+  });
+});
+
+describe('a aba Trilha', () => {
+  it('a tecla 3 abre a Trilha (carregada na hora) e a 4 o Centro', async () => {
+    render(App);
+    await screen.findByRole('button', { name: 'Timer' });
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'Digit3', key: '3', bubbles: true }));
+    // A aba Trilha carrega sob demanda (spec 9.5): na primeira vez do arquivo, o pedaço dela ainda passa pelo Vite.
+    expect(await screen.findByText('0 de 9 etapas', {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(document.querySelector('[data-screen="trilha"]')).not.toBeNull();
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'Digit4', key: '4', bubbles: true }));
+    await waitFor(() => expect(document.querySelector('[data-screen="companion"]')).not.toBeNull());
+    expect(document.querySelector('[data-screen="trilha"]')).toBeNull();
   });
 });
 

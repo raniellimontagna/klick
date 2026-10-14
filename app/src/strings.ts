@@ -139,12 +139,32 @@ export const T = Object.freeze({
       [`T${n}`, `${from} a ${to}`, `${solves.toLocaleString('pt-BR')} ${solves === 1 ? 'solve' : 'solves'}`, ao12 ? `média de 12 em ${ao12}` : null, finish]
         .filter((part) => part !== null)
         .join(' · '),
-    sideFace: 'Face lateral · trilha',
-    know: 'já sei',
-    undo: 'desfazer',
-    trailAria: (name: string, marked: boolean) => `${name}: ${marked ? 'desfazer' : 'já sei'}`,
+    // A linha que leva à aba Trilha: "Trilha: 3 de 9 · próxima: Segunda camada" (sem a próxima quando as 9 estão feitas).
+    trailSummary: (done: number, next: string | null) => `Trilha: ${done} de 9${next ? ` · próxima: ${next}` : ''}`,
     silentHint: 'Modo silencioso — o Centro continua reagindo, mas sem texto.',
   },
+  // Aba Trilha (ui/trilha/*, spec do sub-projeto 4): o começo da aba, as aulas e o treino de algoritmos.
+  trilha: Object.freeze({
+    progress: (done: number) => `${done} de 9 etapas`,
+    prompt: 'Já resolve? Marque o que já sabe.',
+    promptOpen: 'Marcar etapas',
+    promptDismiss: 'Agora não',
+    promptPick: 'O que você já sabe',
+    promptSave: 'Marcar',
+    promptCancel: 'Cancelar',
+    next: 'Próxima etapa',
+    start: 'Começar a aula',
+    resume: (part: number) => `Continuar do passo ${part}`,
+    steps: 'As 9 etapas',
+    state: Object.freeze({ done: 'feita', current: 'atual', ahead: 'à frente' }),
+    know: 'já sei',
+    undo: 'desfazer',
+    knowAria: (name: string, marked: boolean) => `${name}: ${marked ? 'desfazer' : 'já sei'}`,
+    train: 'Treino',
+    trainHint: 'Cada caso aparece montado por um embaralhamento curto. O tempo do treino não entra nas suas estatísticas.',
+    sets: Object.freeze({ oll2: 'OLL em 2 passos', pll2: 'PLL em 2 passos', f2l: 'F2L com algoritmos' }),
+    firm: (n: number, total: number) => `${n} de ${total} firmes`,
+  }),
   // Tela da Evolução (ui/evolucao/EvolucaoScreen.svelte). Os nomes dos períodos e as colunas da tabela ficam aqui.
   evolucao: {
     eventLabel: 'Evento',
@@ -176,7 +196,7 @@ export const T = Object.freeze({
     orphanSession: 'Sem sessão', // a sessão do csTimer que leva os solves vivos cuja sessão não existe mais (exportação do csTimer)
   },
   // Casca (ui/App.svelte): nomes das abas, rótulo das duas barras de navegação e o atalho para o conteúdo.
-  tabs: { timer: 'Timer', evolucao: 'Evolução', companion: 'Centro', ajustes: 'Ajustes' },
+  tabs: { timer: 'Timer', evolucao: 'Evolução', trilha: 'Trilha', companion: 'Centro', ajustes: 'Ajustes' },
   shell: { nav: 'Seções', skip: 'Pular para o conteúdo' },
   // Aviso de nova versão (ui/dialogs/UpdatePrompt.svelte): o service worker já baixou a versão nova, e a página recarrega ao aceitar.
   update: { ready: 'Nova versão disponível.', reload: 'Recarregar' },
@@ -225,7 +245,9 @@ export const T = Object.freeze({
       ['Z', 'Desfazer a exclusão'],
       ['N', 'Novo embaralhamento'],
       ['?', 'Mostrar atalhos'],
-      ['1–4', 'Trocar de aba'],
+      ['1–5', 'Trocar de aba'],
+      ['← →', 'Na aula: um movimento para trás ou para a frente (espaço toca e pausa)'],
+      ['Enter', 'No treino: marcar acerto'],
     ] as const),
   }),
   // Guia de instalação (ui/dialogs/InstallGuide.svelte).

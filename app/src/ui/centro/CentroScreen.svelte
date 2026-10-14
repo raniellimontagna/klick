@@ -1,6 +1,6 @@
 <script lang="ts">
-  // A tela do Centro: o cubo com a jornada, os acabamentos, os marcos da temporada atual (face de cima), a trilha (face lateral), o
-  // histórico das temporadas e o modo silencioso. Os marcos valem só para os solves de 3×3. Os textos ficam em strings.ts.
+  // A tela do Centro: o cubo com a jornada, os acabamentos, os marcos da temporada atual (face de cima), o resumo da trilha (face lateral,
+  // que leva à aba Trilha), o histórico das temporadas e o modo silencioso. Os marcos valem só para os solves de 3×3. Os textos ficam em strings.ts.
   import { tick } from 'svelte';
   import { finishUnlocked, type MarkStatus, markLabel, seasonFinish, seasonSolves } from '../../core/season';
   import { currentStreak, formatMs } from '../../core/stats';
@@ -40,8 +40,6 @@
   let preview = $state<FinishKey | null>(null); // a prévia de um acabamento bloqueado, por PREVIEW_MS
   let previewGen = 0; // só o temporizador da prévia mais recente apaga a prévia
   let previewTimer: ReturnType<typeof setTimeout> | undefined;
-  // Escritas da trilha em fila: cada toque lê o perfil depois da gravação anterior, então toques seguidos não se perdem.
-  let trailWrites: Promise<void> = Promise.resolve();
 
   const finishName = (f: string): string => (isFinishKey(f) ? FINISH_INFO[f].label : FINISH_INFO.fosco.label);
   const unlocked = (f: FinishKey): boolean => finishUnlocked(f, app.profile.season.past.length);
@@ -160,18 +158,6 @@
     }, PREVIEW_MS);
   }
 
-  function toggleTrail(i: number): void {
-    trailWrites = trailWrites
-      .then(() => {
-        const trail = [...app.profile.trail];
-        trail[i] = !trail[i];
-        return app.updateProfile({ trail });
-      })
-      // updateProfile não rejeita (AppState.write já mostra o aviso). Este catch só evita que uma rejeição inesperada deixe a
-      // fila rejeitada, o que faria todos os toques seguintes sumirem sem aviso.
-      .catch(() => app.showToast(T.data.saveFailed));
-  }
-
   // Se a gravação falha, a caixa volta ao que está salvo (o aviso já saiu pela casca).
   async function setSilent(box: HTMLInputElement): Promise<void> {
     await app.updateSettings({ silent: box.checked });
@@ -233,20 +219,10 @@
         </ul>
       </div>
 
-      <div class="card">
-        <div class="label">{T.centro.sideFace}</div>
-        <ul class="mlist trail">
-          {#each TRAIL as name, i (name)}
-            {@const marked = Boolean(app.profile.trail[i])}
-            <li class:done={marked} class:next={!marked && i === nextStep}>
-              <i></i>{name}
-              <button type="button" class="link" data-trail={i} aria-label={T.centro.trailAria(name, marked)} onclick={() => toggleTrail(i)}>
-                {marked ? T.centro.undo : T.centro.know}
-              </button>
-            </li>
-          {/each}
-        </ul>
-      </div>
+      <!-- A trilha mora na aba dela (spec do sub-projeto 4, seção 8.3): aqui fica só o resumo, que leva até lá. -->
+      <button type="button" class="card trail-summary" data-trail-summary onclick={() => app.openTrail()}>
+        {T.centro.trailSummary(trailDone, nextStep >= 0 ? TRAIL[nextStep] : null)}
+      </button>
 
       <div class="card">
         <div class="label">{T.centro.history}</div>
@@ -295,6 +271,13 @@
 </section>
 
 <style>
+  .trail-summary {
+    font: inherit;
+    color: var(--ink);
+    text-align: left;
+    cursor: pointer;
+  }
+
   /* O cartão do Centro empilha o seletor, a dica e a linha do modo silencioso. */
   .card > .seg {
     margin-top: 10px;

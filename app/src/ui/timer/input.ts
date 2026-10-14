@@ -8,7 +8,7 @@
 import type { Timer } from '../../core/timer';
 import type { TouchArm } from '../../core/touch';
 
-export type ActionName = 'plus2' | 'dnf' | 'note' | 'delete' | 'undo' | 'next' | 'shortcuts' | 'tab1' | 'tab2' | 'tab3' | 'tab4';
+export type ActionName = 'plus2' | 'dnf' | 'note' | 'delete' | 'undo' | 'next' | 'shortcuts' | 'tab1' | 'tab2' | 'tab3' | 'tab4' | 'tab5';
 
 export interface InputTarget {
   timer: Timer;
@@ -31,6 +31,7 @@ const TAB_KEYS = new Map<string, ActionName>([
   ['2', 'tab2'],
   ['3', 'tab3'],
   ['4', 'tab4'],
+  ['5', 'tab5'],
 ]);
 
 // Horário do evento na base de performance.now(), ou undefined (o timer usa o próprio relógio). Um timeStamp de época

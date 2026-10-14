@@ -27,9 +27,13 @@
   const TABS: readonly { id: Tab; label: string }[] = [
     { id: 'timer', label: T.tabs.timer },
     { id: 'evolucao', label: T.tabs.evolucao },
+    { id: 'trilha', label: T.tabs.trilha },
     { id: 'companion', label: T.tabs.companion },
     { id: 'ajustes', label: T.tabs.ajustes },
   ];
+
+  // A aba Trilha carrega na primeira vez que abre: as aulas ficam fora do código da abertura (spec 9.5). O service worker guarda o pedaço.
+  const loadTrilha = () => import('./trilha/TrilhaScreen.svelte');
 
   let app = $state.raw<AppState | null>(null);
   let failed = $state(false);
@@ -167,6 +171,8 @@
       <circle cx="12" cy="13" r="8" /><path d="M12 9v4l2 2M9 2h6" />
     {:else if id === 'evolucao'}
       <path d="M3 3v18h18" /><path d="m7 14 4-4 4 4 5-6" />
+    {:else if id === 'trilha'}
+      <path d="M3 21h5v-5h5v-5h5V6h3" /><circle cx="20" cy="3.5" r="1.5" />
     {:else if id === 'companion'}
       <rect x="3" y="3" width="18" height="18" rx="3" /><path d="M9 3v18M15 3v18M3 9h18M3 15h18" />
     {:else}
@@ -199,6 +205,11 @@
            voltam ao padrão ao trocar de aba. -->
       {#if app.tab === 'evolucao'}
         <EvolucaoScreen {app} />
+      {/if}
+      {#if app.tab === 'trilha'}
+        {#await loadTrilha() then { default: TrilhaScreen }}
+          <TrilhaScreen {app} />
+        {/await}
       {/if}
       {#if app.tab === 'companion'}
         <CentroScreen {app} />

@@ -51,28 +51,29 @@ describe('Centro', () => {
     expect(await screen.findByText(/1 de 9 marcos/)).toBeInTheDocument();
   });
 
-  it('marcar uma etapa da trilha grava no perfil', async () => {
-    const { a, repo } = await app();
+  it('a trilha aparece só como resumo, que leva à aba Trilha (spec do sub-projeto 4, seção 8.3)', async () => {
+    const { a } = await app();
+    await a.setTrail([0, 1], true);
     render(CentroScreen, { app: a });
-    (await screen.findByRole('button', { name: /Cruz branca: já sei/ })).click();
-    await new Promise((r) => setTimeout(r, 50));
-    expect((await repo.getProfile()).trail[0]).toBe(true);
+    const summary = await screen.findByRole('button', { name: 'Trilha: 2 de 9 · próxima: Segunda camada' });
+    expect(screen.queryByRole('button', { name: /já sei/ })).toBeNull();
+    a.trailView = { kind: 'set', set: 'pll2' };
+    summary.click();
+    expect(a.tab).toBe('trilha');
+    expect(a.trailView).toEqual({ kind: 'home' });
+  });
+
+  it('com as 9 etapas feitas, o resumo não fala da próxima', async () => {
+    const { a } = await app();
+    await a.setTrail([0, 1, 2, 3, 4, 5, 6, 7, 8], true);
+    render(CentroScreen, { app: a });
+    expect(await screen.findByRole('button', { name: 'Trilha: 9 de 9' })).toBeInTheDocument();
   });
 });
 
 describe('Centro: trilha, acabamento e modo silencioso', () => {
   afterEach(() => {
     vi.useRealTimers();
-  });
-
-  it('"desfazer" tira a etapa marcada e grava o perfil', async () => {
-    const { a, repo } = await app();
-    render(CentroScreen, { app: a });
-    (await screen.findByRole('button', { name: /Cruz branca: já sei/ })).click();
-    await new Promise((r) => setTimeout(r, 50));
-    (await screen.findByRole('button', { name: /Cruz branca: desfazer/ })).click();
-    await new Promise((r) => setTimeout(r, 50));
-    expect((await repo.getProfile()).trail[0]).toBe(false);
   });
 
   it('acabamento bloqueado mostra a prévia por 3 s, volta depois e não grava', async () => {

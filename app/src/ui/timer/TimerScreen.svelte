@@ -42,11 +42,12 @@
   // O coach fala por 6 s (a reação e o sono ficam em centro-live.ts).
   const COACH_MS = 6000;
 
-  const TAB_OF: Readonly<Record<'tab1' | 'tab2' | 'tab3' | 'tab4', Tab>> = {
+  const TAB_OF: Readonly<Record<'tab1' | 'tab2' | 'tab3' | 'tab4' | 'tab5', Tab>> = {
     tab1: 'timer',
     tab2: 'evolucao',
-    tab3: 'companion',
-    tab4: 'ajustes',
+    tab3: 'trilha',
+    tab4: 'companion',
+    tab5: 'ajustes',
   };
 
   type Chip = { text: string; pb: boolean };
@@ -531,6 +532,7 @@
       case 'tab2':
       case 'tab3':
       case 'tab4':
+      case 'tab5':
         app.tab = TAB_OF[name];
         return;
     }
