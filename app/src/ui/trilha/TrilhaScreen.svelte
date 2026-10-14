@@ -3,6 +3,7 @@
   // o treino de um conjunto. Onde ela está fica em app.trailView: trocar de aba e voltar cai no mesmo lugar.
   import { T } from '../../strings';
   import type { AppState } from '../state/app.svelte';
+  import LessonPlayer from './LessonPlayer.svelte';
   import TrailHome from './TrailHome.svelte';
 
   let { app }: { app: AppState } = $props();
@@ -11,5 +12,10 @@
 <section class="screen" data-screen="trilha" aria-label={T.tabs.trilha}>
   {#if app.trailView.kind === 'home'}
     <TrailHome {app} />
+  {:else if app.trailView.kind === 'lesson'}
+    <!-- Uma aula por vez: trocar de etapa desmonta a anterior (e o cubo dela). -->
+    {#key app.trailView.step}
+      <LessonPlayer {app} step={app.trailView.step} />
+    {/key}
   {/if}
 </section>

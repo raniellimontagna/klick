@@ -164,6 +164,27 @@ export const T = Object.freeze({
     trainHint: 'Cada caso aparece montado por um embaralhamento curto. O tempo do treino não entra nas suas estatísticas.',
     sets: Object.freeze({ oll2: 'OLL em 2 passos', pll2: 'PLL em 2 passos', f2l: 'F2L com algoritmos' }),
     firm: (n: number, total: number) => `${n} de ${total} firmes`,
+    // O leitor de aula (ui/trilha/LessonPlayer.svelte).
+    lesson: Object.freeze({
+      exit: 'Voltar à trilha',
+      partOf: (i: number, n: number) => `passo ${i} de ${n}`,
+      alg: 'Algoritmo',
+      tip: 'Dica',
+      controls: 'Controles do cubo',
+      play: 'Tocar',
+      pause: 'Pausar',
+      back: 'Movimento anterior',
+      forward: 'Próximo movimento',
+      restart: 'Recomeçar',
+      prev: 'Voltar',
+      next: 'Próximo',
+      done: 'Consegui no meu cubo',
+      finish: 'Concluir',
+      nextStep: 'Próxima etapa',
+      train: 'Treinar os casos',
+      flat: 'O cubo 3D não abriu neste aparelho. A figura mostra o estado, e o algoritmo está escrito abaixo.',
+      completed: (name: string) => `${name}: etapa feita.`,
+    }),
   }),
   // Tela da Evolução (ui/evolucao/EvolucaoScreen.svelte). Os nomes dos períodos e as colunas da tabela ficam aqui.
   evolucao: {
