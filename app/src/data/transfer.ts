@@ -6,6 +6,7 @@
 // O que fica de fora por falta de dados (sessão sem evento) também volta contado no resultado.
 import { EVENT_IDS, eventFromCsTimer, eventInfo } from '../core/events';
 import { seasonFrom } from '../core/season';
+import { algChoiceFrom, lessonAtFrom, practiceFrom, trainOffFrom } from '../core/trail/validate';
 import type { EventId, FinishId, Penalty, Session, Settings, Solve } from '../core/types';
 import { T, TRAIL } from '../strings';
 import type { KlickExport, ProfilePatch } from './repository';
@@ -112,14 +113,27 @@ function profileOf(v: Record<string, unknown>): ProfilePatch {
   if (v.currentSessionId === null || typeof v.currentSessionId === 'string') profile.currentSessionId = v.currentSessionId;
   const season = seasonFrom(v.season);
   if (season) profile.season = season;
+  // Trilha e treino: fica o que vale (escolha dentro dos algoritmos do caso, casos conhecidos, passos inteiros); o resto vira o padrão.
+  const lessonAt = lessonAtFrom(v.lessonAt);
+  if (lessonAt) profile.lessonAt = lessonAt;
+  const algChoice = algChoiceFrom(v.algChoice);
+  if (algChoice) profile.algChoice = algChoice;
+  const trainOff = trainOffFrom(v.trainOff);
+  if (trainOff) profile.trainOff = trainOff;
   return profile;
 }
 
 export function parseKlickJson(text: string): KlickExport {
   const data = tryParse(text);
   if (!isKlickExport(data)) throw new Error(T.transfer.klickInvalid);
-  const profile: unknown = data.profile;
-  return { ...data, profile: isRecord(profile) ? profileOf(profile) : null };
+  const { practice, ...rest } = data;
+  const profile: unknown = rest.profile;
+  const out: KlickExport = { ...rest, profile: isRecord(profile) ? profileOf(profile) : null };
+  // O treino (spec do sub-projeto 4, seção 9.3): só as tentativas válidas, e o arquivo não é recusado por elas. Sem a lista (um arquivo de
+  // antes do treino), o arquivo entra como veio.
+  const list: unknown = practice;
+  if (Array.isArray(list)) out.practice = practiceFrom(list);
+  return out;
 }
 
 // --- csTimer ---

@@ -12,6 +12,7 @@
 // Leitura: o que sai do IndexedDB já é cópia. Os padrões (perfil e meta) são montados novos a cada chamada, nunca compartilhados.
 import type { IDBPDatabase, IDBPObjectStore, IDBPTransaction, StoreNames } from 'idb';
 import { defaultSeason, finishUnlocked, moreAdvanced, seasonFrom } from '../core/season';
+import { practiceFrom } from '../core/trail/validate';
 import { defaultSettings } from '../core/types';
 import type { EventId, Meta, Penalty, Practice, Profile, SeasonRecord, SeasonState, Session, Settings, Solve } from '../core/types';
 import { T } from '../strings';
@@ -51,6 +52,7 @@ export interface KlickExport {
   sessions: Session[];
   solves: Solve[];
   profile: ProfilePatch | null; // o export sai completo; o que vem de um arquivo pode faltar campo (quem grava junta com o perfil daqui)
+  practice?: Practice[]; // o treino (spec do sub-projeto 4, seção 9.3); um arquivo de antes do treino não tem
 }
 
 export interface ImportReport {
@@ -93,8 +95,8 @@ export interface Repository {
   getBackup(id: string): Promise<BackupRecord | undefined>;
   deleteBackup(id: string): Promise<void>;
   exportAll(o?: { includeDeleted?: boolean }): Promise<KlickExport>; // includeDeleted padrão true
-  importAll(data: KlickExport): Promise<ImportReport>; // junta por id; fica o de updatedAt maior. Sessão da lixeira que recebe solve ativo do arquivo volta (sem entrar no relatório; avisa sessions). O perfil do arquivo vale por cima do daqui (ver importAll)
-  replaceAll(data: KlickExport): Promise<void>; // limpa solves, sessões e perfil e grava os do arquivo; a temporada fica a mais adiantada (a daqui ou a do arquivo)
+  importAll(data: KlickExport): Promise<ImportReport>; // junta por id; fica o de updatedAt maior. Sessão da lixeira que recebe solve ativo do arquivo volta (sem entrar no relatório; avisa sessions). O perfil do arquivo vale por cima do daqui (ver importAll). O treino junta pelo id, sem duplicar (fora do relatório)
+  replaceAll(data: KlickExport): Promise<void>; // limpa solves, sessões e perfil e grava os do arquivo; a temporada fica a mais adiantada (a daqui ou a do arquivo). O treino troca junto, se o arquivo o tiver
   onChange(fn: ChangeListener): () => void; // mudanças locais e de outras abas, com a origem (e, nos solves, os ids que mudaram)
   getSolves(ids: readonly string[]): Promise<(Solve | undefined)[]>; // vários solves por id numa leitura; o que não existe vem undefined
   // O treino (spec do sub-projeto 4, seção 9.1). Cada escrita avisa 'practice'. A tela só usa update e delete na correção da última.
@@ -658,9 +660,14 @@ export function createRepository(
     },
 
     async exportAll({ includeDeleted = true } = {}) {
-      // Uma transação só, para sessões, solves e perfil virem do mesmo instante.
-      const [sessions, solves, profile] = await read(['sessions', 'solves', 'profile'], (tx) =>
-        Promise.all([tx.objectStore('sessions').getAll(), tx.objectStore('solves').getAll(), tx.objectStore('profile').get('current')]),
+      // Uma transação só, para sessões, solves, perfil e treino virem do mesmo instante.
+      const [sessions, solves, profile, practice] = await read(['sessions', 'solves', 'profile', 'practice'], (tx) =>
+        Promise.all([
+          tx.objectStore('sessions').getAll(),
+          tx.objectStore('solves').getAll(),
+          tx.objectStore('profile').get('current'),
+          tx.objectStore('practice').getAll(),
+        ]),
       );
       const kept = <V extends { deletedAt: number | null }>(list: V[]): V[] => (includeDeleted ? list : list.filter((x) => x.deletedAt === null));
       return {
@@ -670,15 +677,17 @@ export function createRepository(
         sessions: kept(sessions).sort(bySessionOrder),
         solves: kept(solves).sort(bySolveTime),
         profile: profile ? profileOrDefault(profile) : null,
+        practice: practice.sort(byPracticeTime),
       };
     },
 
     async importAll(data) {
       const report: ImportReport = { sessionsAdded: 0, solvesAdded: 0, solvesUpdated: 0, skipped: 0 };
-      const outcome = await write(['sessions', 'solves', 'profile'], async (tx) => {
+      const outcome = await write(['sessions', 'solves', 'profile', 'practice'], async (tx) => {
         const sessions = tx.objectStore('sessions');
         const solves = tx.objectStore('solves');
         const profile = tx.objectStore('profile');
+        const practice = tx.objectStore('practice');
 
         // Sessão que já existe fica como está (e não conta); só entram as novas.
         const knownSessions = new Set(await sessions.getAllKeys());
@@ -740,6 +749,11 @@ export function createRepository(
             trail: theirs.trail ? base.trail.map((done, i) => done || theirs.trail?.[i] === true) : base.trail,
             onboarded: base.onboarded || theirs.onboarded === true,
             currentSessionId,
+            // Treino: a escolha de algoritmo e o passo das aulas juntam caso a caso (vale o do arquivo); os casos fora do sorteio são os do
+            // arquivo, quando ele os traz.
+            algChoice: { ...base.algChoice, ...theirs.algChoice },
+            lessonAt: { ...base.lessonAt, ...theirs.lessonAt },
+            trainOff: theirs.trainOff ?? base.trainOff,
           });
           // Mesma ordem de chaves nos dois (mergeProfile monta ambos), então o JSON compara o conteúdo.
           if (!stored || JSON.stringify(merged) !== JSON.stringify(base)) {
@@ -747,33 +761,45 @@ export function createRepository(
             profileSaved = true;
           }
         }
-        return { profileSaved, sessionBack };
+
+        // O treino junta pelo id (spec do sub-projeto 4, seção 9.3): entra o que não existe; o que já existe fica como está.
+        const knownPractice = new Set(await practice.getAllKeys());
+        const newPractice = practiceFrom(data.practice).filter((p) => !knownPractice.has(p.id));
+        await each(newPractice, (p) => practice.put(p));
+        return { profileSaved, sessionBack, practiceAdded: newPractice.length };
       });
-      if (outcome.profileSaved || report.sessionsAdded + report.solvesAdded + report.solvesUpdated > 0) announce('all');
+      const changed = report.sessionsAdded + report.solvesAdded + report.solvesUpdated + outcome.practiceAdded > 0;
+      if (outcome.profileSaved || changed) announce('all');
       if (outcome.sessionBack) announce('sessions');
       return report;
     },
 
     async replaceAll(data) {
       const { sessions, solves, profile } = data;
-      await write(['sessions', 'solves', 'profile'], async (tx) => {
+      // Uma cópia de antes do treino (sem `practice`) não apaga o treino daqui; com a lista, mesmo vazia, o treino é o dela.
+      const practice = data.practice === undefined ? null : practiceFrom(data.practice);
+      await write(['sessions', 'solves', 'profile', 'practice'], async (tx) => {
         const sessionStore = tx.objectStore('sessions');
         const solveStore = tx.objectStore('solves');
         const profileStore = tx.objectStore('profile');
+        const practiceStore = tx.objectStore('practice');
         // O perfil daqui é lido antes de limpar: a restauração fica com a temporada mais adiantada (spec 5.6), mesmo que a cópia não
         // tenha perfil, e uma cópia sem perfil também não tira o acabamento que a pessoa escolheu.
         const local = profileOrDefault(await profileStore.get('current'));
         const mine = local.season;
-        await Promise.all([sessionStore.clear(), solveStore.clear(), profileStore.clear()]);
+        await Promise.all([sessionStore.clear(), solveStore.clear(), profileStore.clear(), ...(practice ? [practiceStore.clear()] : [])]);
         await each(sessions, (s) => sessionStore.put(s));
         await each(solves, (s) => solveStore.put(s));
-        const restored = profile ? mergeProfile(defaultProfile(), profile) : null;
+        if (practice) await each(practice, (p) => practiceStore.put(p));
+        // O que é do treino e a cópia não traz (uma cópia de antes do treino) fica o daqui.
+        const kept: ProfilePatch = { lessonAt: local.lessonAt, algChoice: local.algChoice, trainOff: local.trainOff };
+        const restored = profile ? mergeProfile(defaultProfile(), { ...kept, ...profile }) : null;
         const season = moreAdvanced(mine, seasonFrom(profile?.season));
         // Sem perfil na cópia e sem temporada a guardar, o perfil fica vazio (os padrões), como sempre foi. Sem perfil na cópia e com
         // temporada a guardar, o perfil é o padrão com o acabamento daqui; com perfil, vale o acabamento da cópia. Nos dois, só se
         // estiver liberado pelas temporadas fechadas.
         if (restored || season.past.length > 0) {
-          const base = restored ?? { ...defaultProfile(), finish: local.finish };
+          const base = restored ?? mergeProfile(defaultProfile(), { ...kept, finish: local.finish });
           const finish = finishUnlocked(base.finish, season.past.length) ? base.finish : 'fosco';
           await profileStore.put({ ...base, season, finish }, 'current');
         }
