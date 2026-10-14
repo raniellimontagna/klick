@@ -56,7 +56,7 @@ describe('diálogos', () => {
     const { a, repo } = await app();
     a.v1Available = true;
     render(OnboardingDialog, { app: a, open: true, skipPractice: true });
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < 3; i++) {
       const next = screen.queryByRole('button', { name: 'Continuar' });
       if (next && !(next as HTMLButtonElement).disabled) await fireEvent.click(next);
       else break;

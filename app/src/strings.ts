@@ -525,10 +525,11 @@ export const T = Object.freeze({
     remove: 'Excluir',
     removeAria: (name: string): string => `Excluir ${name}`,
   }),
-  // Primeira vez (ui/dialogs/OnboardingDialog.svelte): o tour do protótipo em três passos, e as opções do fim. Não há dados de exemplo.
+  // Primeira vez (ui/dialogs/OnboardingDialog.svelte): o tour do protótipo em três passos, a pergunta da trilha e as opções do fim. Não há
+  // dados de exemplo.
   onboarding: Object.freeze({
     title: 'Apresentação do Klick',
-    stepOf: (n: number): string => `${n} de 3`,
+    stepOf: (n: number): string => `${n} de 4`,
     steps: Object.freeze([
       {
         title: 'Esse é o Centro',
@@ -544,6 +545,10 @@ export const T = Object.freeze({
         text: 'Pare com qualquer tecla. O primeiro solve já acende um adesivo dourado em cima do Centro.',
         touchText: 'Pare com um toque na tela. O primeiro solve já acende um adesivo dourado em cima do Centro.',
       },
+      {
+        title: 'Já resolve o cubo?',
+        text: 'Se ainda não, a trilha ensina do zero, com o cubo na mão: são 9 etapas, da cruz branca ao CFOP.',
+      },
     ] as const),
     skip: 'Pular apresentação',
     next: 'Continuar',
@@ -551,6 +556,8 @@ export const T = Object.freeze({
     holdIdle: 'Segure aqui',
     holdReady: 'Agora solte',
     holdDone: 'É assim que larga.',
+    notYet: 'Ainda não',
+    already: 'Já resolvo',
     end: 'Você pode trazer solves de outro lugar ou começar do zero.',
     importCsTimer: 'Importar do csTimer',
     importFileTour: 'Importar arquivo do csTimer', // o rótulo do seletor escondido do tour (o de Seus dados tem o seu)

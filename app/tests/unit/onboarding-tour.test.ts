@@ -32,14 +32,16 @@ afterEach(() => {
 });
 
 describe('primeira vez: o tour', () => {
-  it('Pular apresentação no passo 1 vai direto ao último passo', async () => {
+  it('Pular apresentação no passo 1 vai direto ao último passo: a pergunta, com as opções de quem já resolve', async () => {
     const { a } = await app();
     render(OnboardingDialog, { app: a, open: true });
     expect(await screen.findByRole('heading', { name: 'Esse é o Centro' })).toBeInTheDocument();
     await fireEvent.click(screen.getByRole('button', { name: 'Pular apresentação' }));
-    expect(await screen.findByRole('button', { name: 'Começar do zero' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Já resolve o cubo?' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ainda não' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Começar do zero' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Continuar' })).toBeNull();
-    expect(screen.getByText('3 de 3')).toBeInTheDocument();
+    expect(screen.getByText('4 de 4')).toBeInTheDocument();
   });
 
   it('Pular apresentação no passo 2 (sem ter segurado) também vai ao último passo', async () => {
@@ -160,8 +162,9 @@ describe('o tour numa tela de toque', () => {
     const restore = mockMedia(['(pointer: coarse)']);
     try {
       const { a } = await app();
-      render(OnboardingDialog, { app: a, open: true });
-      await fireEvent.click(await screen.findByRole('button', { name: 'Pular apresentação' }));
+      render(OnboardingDialog, { app: a, open: true, skipPractice: true });
+      await fireEvent.click(await screen.findByRole('button', { name: 'Continuar' }));
+      await fireEvent.click(await screen.findByRole('button', { name: 'Continuar' }));
       expect(await screen.findByText(T.onboarding.steps[2].touchText)).toBeInTheDocument();
       expect(screen.queryByText(/tecla/)).toBeNull();
     } finally {
@@ -171,8 +174,47 @@ describe('o tour numa tela de toque', () => {
 
   it('com teclado, os passos continuam falando de espaço e de tecla', async () => {
     const { a } = await app();
+    render(OnboardingDialog, { app: a, open: true, skipPractice: true });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Continuar' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Continuar' }));
+    expect(await screen.findByText(T.onboarding.steps[2].text)).toBeInTheDocument();
+  });
+});
+
+describe('a pergunta da trilha (spec do sub-projeto 4, seção 8.5)', () => {
+  it('do passo 3, Continuar leva à pergunta; Voltar volta ao passo 2', async () => {
+    const { a } = await app();
+    render(OnboardingDialog, { app: a, open: true, skipPractice: true });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Continuar' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Continuar' }));
+    expect(await screen.findByRole('heading', { name: 'Seu primeiro marco' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Começar do zero' })).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
+    expect(await screen.findByRole('heading', { name: 'Já resolve o cubo?' })).toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Ainda não' }));
+  });
+
+  it('"Ainda não" fecha o tour e abre a aba Trilha direto na aula 1', async () => {
+    const { a, repo } = await app();
+    a.dialog = 'onboarding';
     render(OnboardingDialog, { app: a, open: true });
     await fireEvent.click(await screen.findByRole('button', { name: 'Pular apresentação' }));
-    expect(await screen.findByText(T.onboarding.steps[2].text)).toBeInTheDocument();
+    await fireEvent.click(await screen.findByRole('button', { name: 'Ainda não' }));
+    expect(a.tab).toBe('trilha');
+    expect(a.trailView).toEqual({ kind: 'lesson', step: 0 });
+    expect(a.dialog).toBeNull();
+    await vi.waitFor(async () => expect((await repo.getProfile()).onboarded).toBe(true), { timeout: 3000 });
+  });
+
+  it('"Já resolvo" segue como antes: Começar do zero fecha no Timer, e a Trilha vai mostrar o aviso de marcar o que já sabe', async () => {
+    const { a } = await app();
+    a.dialog = 'onboarding';
+    render(OnboardingDialog, { app: a, open: true });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Pular apresentação' }));
+    expect(screen.getByText('Já resolvo')).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: 'Começar do zero' }));
+    expect(a.tab).toBe('timer');
+    expect(a.dialog).toBeNull();
+    expect(a.trailPromptShown).toBe(true);
   });
 });

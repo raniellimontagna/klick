@@ -1,8 +1,9 @@
 <script lang="ts">
-  // A primeira vez: o tour do protótipo, em três passos. No passo 2 a pessoa segura (espaço ou o botão) até o anel ficar verde e solta;
-  // Continuar só libera depois disso (skipPractice libera de cara, para os testes). Pular apresentação vai ao último passo, que oferece
-  // importar (do csTimer ou da versão anterior) ou começar do zero. Não há dados de exemplo. Fechar por qualquer caminho grava que a
-  // primeira vez já passou (profile.onboarded), e o tour não volta sozinho.
+  // A primeira vez: o tour do protótipo, em três passos, e a pergunta "Já resolve o cubo?" (spec do sub-projeto 4, seção 8.5). No passo 2
+  // a pessoa segura (espaço ou o botão) até o anel ficar verde e solta; Continuar só libera depois disso (skipPractice libera de cara,
+  // para os testes). Pular apresentação vai à pergunta. "Ainda não" fecha o tour e abre a aba Trilha na aula 1; quem já resolve segue
+  // como antes: importar (do csTimer ou da versão anterior) ou começar do zero. Não há dados de exemplo. Fechar por qualquer caminho grava
+  // que a primeira vez já passou (profile.onboarded), e o tour não volta sozinho.
   //
   // "Importar do csTimer" pede o seletor de arquivo que a casca mantém montada (onpickfile): o clique no seletor precisa vir de dentro
   // do toque (no iOS, fora dele o seletor não abre), então o pedido é a primeira coisa do toque, antes de fechar o tour.
@@ -20,11 +21,13 @@
     onpickfile,
   }: { app: AppState; open: boolean; skipPractice?: boolean; onpickfile?: () => void } = $props();
 
-  // O Centro de cada passo, como no protótipo: o anel e os olhos do passo, e os marcos acesos no último.
-  const STEP_CENTRO: readonly { ring: Ring; eyes: Eyes; topLit: number }[] = [
-    { ring: [null, null, 'idle', null, null, null, null, null], eyes: 'open', topLit: 0 },
-    { ring: Array<null>(8).fill(null), eyes: 'open', topLit: 0 },
-    { ring: ['U', 'R', 'F', 'D', 'L', 'B', 'R', 'F'], eyes: 'happy', topLit: 1 },
+  // O Centro de cada passo, como no protótipo: o anel e os olhos do passo, o marco aceso no terceiro e a primeira etapa da trilha na
+  // pergunta.
+  const STEP_CENTRO: readonly { ring: Ring; eyes: Eyes; topLit: number; sideLit: number }[] = [
+    { ring: [null, null, 'idle', null, null, null, null, null], eyes: 'open', topLit: 0, sideLit: 0 },
+    { ring: Array<null>(8).fill(null), eyes: 'open', topLit: 0, sideLit: 0 },
+    { ring: ['U', 'R', 'F', 'D', 'L', 'B', 'R', 'F'], eyes: 'happy', topLit: 1, sideLit: 0 },
+    { ring: Array<null>(8).fill(null), eyes: 'open', topLit: 0, sideLit: 1 },
   ];
 
   let dialogEl = $state<HTMLDialogElement>();
@@ -195,6 +198,12 @@
     close();
   }
 
+  // "Ainda não": a aba Trilha abre direto na aula 1, e o tour fecha.
+  function notYet(): void {
+    app.openTrail({ kind: 'lesson', step: 0 });
+    close();
+  }
+
   // A importação da versão anterior mostra o resumo na seção Ajustes, então a tela vai para lá.
   function importV1(): void {
     close();
@@ -221,23 +230,29 @@
           }}>{holdLabel}</button
         >
       {/if}
-      {#if step === 3}
-        <p>{T.onboarding.end}</p>
+      {#if step === 4}
+        <div class="actions">
+          <button type="button" class="btn primary" onclick={notYet}>{T.onboarding.notYet}</button>
+        </div>
+        <p class="already"><strong>{T.onboarding.already}</strong> · {T.onboarding.end}</p>
       {/if}
       <div class="actions">
         {#if step === 1}
-          <button type="button" class="btn" onclick={() => goTo(3)}>{T.onboarding.skip}</button>
+          <button type="button" class="btn" onclick={() => goTo(4)}>{T.onboarding.skip}</button>
           <button type="button" class="btn primary" onclick={() => goTo(2)}>{T.onboarding.next}</button>
         {:else if step === 2}
           <button type="button" class="btn" onclick={() => goTo(1)}>{T.onboarding.back}</button>
-          <button type="button" class="btn" onclick={() => goTo(3)}>{T.onboarding.skip}</button>
+          <button type="button" class="btn" onclick={() => goTo(4)}>{T.onboarding.skip}</button>
           <button type="button" class="btn primary" disabled={!practiced && !skipPractice} onclick={() => goTo(3)}>{T.onboarding.next}</button>
+        {:else if step === 3}
+          <button type="button" class="btn" onclick={() => goTo(2)}>{T.onboarding.back}</button>
+          <button type="button" class="btn primary" onclick={() => goTo(4)}>{T.onboarding.next}</button>
         {:else}
           <button type="button" class="btn" onclick={importCsTimer}>{T.onboarding.importCsTimer}</button>
           {#if app.v1Available}
             <button type="button" class="btn" onclick={importV1}>{T.onboarding.importV1}</button>
           {/if}
-          <button type="button" class="btn primary" onclick={close}>{T.onboarding.fresh}</button>
+          <button type="button" class="btn" onclick={close}>{T.onboarding.fresh}</button>
         {/if}
       </div>
     </div>

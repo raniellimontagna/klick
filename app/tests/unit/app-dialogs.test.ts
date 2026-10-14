@@ -16,6 +16,8 @@ const hooks = vi.hoisted(() => ({ boot: null as null | (() => Promise<unknown>) 
 vi.mock('../../src/ui/state/boot', () => ({
   boot: async () => (hooks.boot ? hooks.boot() : new Promise<never>(() => {})),
 }));
+// O cubo da aula não carrega o cubing.js nos testes: a aula aparece com o texto e o algoritmo escrito.
+vi.mock('../../src/ui/trilha/cube-view', () => ({ mountCube: async () => null, drawFigure: async () => {} }));
 
 import App from '../../src/ui/App.svelte';
 
@@ -68,6 +70,18 @@ describe('ligação dos diálogos na casca', () => {
     render(App);
     expect(await screen.findByRole('heading', { name: 'Esse é o Centro' })).toBeInTheDocument();
     expect(a.dialog).toBe('onboarding');
+  });
+
+  it('na primeira vez, "Ainda não" fecha o tour e mostra a aula 1 na aba Trilha', async () => {
+    const { a } = await makeApp({ onboarded: false });
+    hooks.boot = async () => a;
+    render(App);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Pular apresentação' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Ainda não' }));
+    // A aba Trilha carrega sob demanda (spec 9.5): na primeira vez do arquivo, o pedaço dela ainda passa pelo Vite.
+    expect(await screen.findByRole('heading', { name: 'Segure assim' }, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Cruz branca' })).toBeInTheDocument();
+    expect(document.querySelector('nav.tabs [data-tab="trilha"]')).toHaveAttribute('aria-current', 'page');
   });
 
   it('com o perfil já marcado, o tour não abre (controle: o perfil foi lido como visto)', async () => {
