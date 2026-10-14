@@ -55,16 +55,22 @@ describe('nível de um caso pelo histórico (spec 7.3)', () => {
 describe('números por caso (spec 7.4)', () => {
   it('tentativas, % de acerto, média das últimas 5 certas sem ajuda e o melhor tempo', () => {
     const id = 'pll2-t';
+    // A tentativa com ajuda e a errada ficam DENTRO das 5 últimas tentativas, para a média só bater se elas forem mesmo descartadas
+    // (as 5 últimas, de qualquer tipo, dariam 2700 ms; as certas com ajuda contadas, 4200 ms; as erradas contadas, 4100 ms).
     const list = [
+      p(id, { ms: 12000 }), // certa, mas a sexta mais recente entre as certas: fora das 5 últimas
       p(id, { ms: 9000 }),
-      p(id, { ms: 1000, helped: true }), // com ajuda: fora da média e do melhor
+      p(id, { ms: 8000 }),
+      p(id, { ms: 6000 }),
+      p(id, { ms: 1000, helped: true }), // certa com ajuda: fora da média e do melhor
+      p(id, { ms: 4000 }),
       p(id, { ms: 500, ok: false }), // errada: fora da média e do melhor
-      ...[6000, 5000, 4000, 3000, 2000].map((ms) => p(id, { ms })),
+      p(id, { ms: 2000 }),
     ];
     const s = caseStats(id, list);
     expect(s.attempts).toBe(8);
-    expect(s.okRate).toBeCloseTo(7 / 8);
-    expect(s.avg5).toBe(4000); // as 5 últimas certas sem ajuda: 6, 5, 4, 3 e 2 s
+    expect(s.okRate).toBeCloseTo(7 / 8); // acertar com ajuda ainda é acertar; só a errada baixa a taxa
+    expect(s.avg5).toBe(5800); // as 5 últimas certas sem ajuda: 9, 8, 6, 4 e 2 s
     expect(s.best).toBe(2000);
     expect(caseStats(id, [])).toEqual({ id, level: null, attempts: 0, okRate: null, avg5: null, best: null });
   });
