@@ -1052,11 +1052,17 @@ export class AppState {
   }
 
   // Uma escrita do perfil pela trilha, na fila. Se não grava, o aviso sai e a memória volta ao que está gravado (spec 9.4).
+  // Antes, espera uma restauração em curso (o remendo não parte da memória de antes da troca nem cai no meio do replaceAll). O
+  // remendo é calculado e gravado dentro da fila das leituras (serial): uma leitura em voo termina antes e deixa o perfil que leu na
+  // memória, e a gravação parte dele; uma que entra depois lê o que acabou de ser gravado. Assim nenhuma leitura velha desfaz a marca.
   private trailJob(job: () => Partial<Omit<Profile, 'settings'>>): Promise<boolean> {
     const run = this.trailWrites.then(async () => {
-      const ok = await this.write(async () => {
-        this.profile = await this.repo.saveProfile(job());
-      });
+      while (this.restoring) await this.restoring;
+      const ok = await this.write(() =>
+        this.serial(async () => {
+          this.profile = await this.repo.saveProfile(job());
+        }),
+      );
       if (!ok) await this.refreshKinds(['profile']);
       return ok;
     });
@@ -1124,6 +1130,7 @@ export class AppState {
   // Grava uma tentativa do treino. Não é solve: não passa pela fila nem pelas contas dos solves. Se não grava, o aviso sai e a resposta
   // é null (o resultado continua na tela de quem chamou).
   async addPractice(r: Omit<Practice, 'id'>): Promise<Practice | null> {
+    while (this.restoring) await this.restoring; // a tentativa cai depois do replaceAll, não no meio (como a gravação de um solve)
     try {
       const saved = await this.repo.addPractice({ id: newId(this.now()), ...r });
       await this.serial(async () => {

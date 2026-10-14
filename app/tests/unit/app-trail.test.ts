@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { openKlickDb } from '../../src/data/db';
 import { createRepository, type ChannelLike, type Repository } from '../../src/data/repository';
+import { createBackup } from '../../src/data/safety';
 import { createScrambleQueue } from '../../src/scramble/queue';
 import { T } from '../../src/strings';
 import { AppState } from '../../src/ui/state/app.svelte';
@@ -69,6 +70,14 @@ describe('treino no AppState (spec 7 e 9)', () => {
     await app.addPractice(attempt());
     await new Promise((r) => setTimeout(r, 20));
     expect((await repo.getMeta()).solvesSinceBackup).toBe(1);
+    // Com solves já contados (acima de 1), a tentativa do treino não mexe no contador: não adianta a cópia dos 50 solves.
+    await repo.saveMeta({ solvesSinceBackup: 7 });
+    await app.reload();
+    expect(app.meta?.solvesSinceBackup).toBe(7);
+    await app.addPractice(attempt());
+    await new Promise((r) => setTimeout(r, 20));
+    expect((await repo.getMeta()).solvesSinceBackup).toBe(7);
+    expect(app.meta?.solvesSinceBackup).toBe(7);
   });
 
   it('uma tentativa que não grava mostra o aviso e devolve null; o treino na memória não muda', async () => {
@@ -122,6 +131,72 @@ describe('trilha no AppState (spec 6.2, 8.2 e 8.4)', () => {
     await app.setTrail([2, 3, 4], true); // várias de uma vez: uma piscada
     expect(app.trailFlashes).toBe(2);
     expect((await repo.getProfile()).trail.slice(0, 5)).toEqual([false, false, true, true, true]);
+  });
+
+  it('uma leitura completa em voo não desfaz a marca: a gravação da trilha espera a leitura e parte do perfil que ela trouxe', async () => {
+    const { app, repo } = await setup();
+    // A leitura lê o perfil antigo logo e fica presa em outra leitura mais lenta (os solves).
+    let release!: () => void;
+    const slow = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const listSolves = repo.listSolves.bind(repo);
+    repo.listSolves = async () => {
+      await slow;
+      return listSolves();
+    };
+    let profileRead!: () => void;
+    const read = new Promise<void>((resolve) => {
+      profileRead = resolve;
+    });
+    const getProfile = repo.getProfile.bind(repo);
+    repo.getProfile = async () => {
+      const p = await getProfile();
+      profileRead();
+      return p;
+    };
+    const reading = app.reload();
+    await read;
+    const first = app.setTrail([0], true);
+    await new Promise((r) => setTimeout(r, 20)); // tempo de sobra para a gravação (sem a fila) já ter ido ao banco
+    release();
+    expect(await first).toBe(true);
+    await reading;
+    expect(app.profile.trail[0]).toBe(true);
+    expect((await repo.getProfile()).trail[0]).toBe(true);
+    // A próxima gravação parte do perfil certo: a marca anterior não se perde.
+    expect(await app.setTrail([1], true)).toBe(true);
+    expect((await repo.getProfile()).trail.slice(0, 2)).toEqual([true, true]);
+    expect(app.profile.trail.slice(0, 2)).toEqual([true, true]);
+  });
+
+  it('uma gravação da trilha e uma tentativa do treino que chegam durante a restauração esperam e sobrevivem a ela', async () => {
+    const { app, repo } = await setup();
+    const backup = await createBackup(repo, 'manual', t);
+    let inside = false;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const replaceAll = repo.replaceAll.bind(repo);
+    repo.replaceAll = async (data) => {
+      inside = true;
+      await gate;
+      return replaceAll(data);
+    };
+    const restoring = app.restoreFromBackup(backup.id);
+    await vi.waitFor(() => expect(inside).toBe(true));
+    const marking = app.setTrail([0], true); // chega com a restauração no meio do replaceAll
+    const practicing = app.addPractice(attempt());
+    await new Promise((r) => setTimeout(r, 20)); // tempo de sobra para as duas já estarem no banco (sem o portão)
+    release();
+    expect(await restoring).toBe(true);
+    expect(await marking).toBe(true);
+    expect(await practicing).not.toBeNull();
+    expect((await repo.getProfile()).trail[0]).toBe(true);
+    expect(app.profile.trail[0]).toBe(true);
+    expect(await repo.listPractice()).toHaveLength(1);
+    expect(app.practice).toHaveLength(1);
   });
 
   it('dois toques seguidos em etapas diferentes não se perdem (a fila lê o perfil depois da gravação anterior)', async () => {
