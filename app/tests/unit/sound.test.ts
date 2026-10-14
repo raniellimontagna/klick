@@ -71,4 +71,103 @@ describe('sons', () => {
       vi.unstubAllGlobals();
     }
   });
+
+  // O iOS limita quantos AudioContext uma página abre: quem cria um som por tela (o treino) precisa devolvê-lo ao sair.
+  describe('close', () => {
+    function fakeAudio() {
+      const made = { contexts: 0, closed: 0 };
+      class FakeCtx {
+        state = 'running';
+        currentTime = 0;
+        sampleRate = 8000;
+        destination = {};
+        constructor() {
+          made.contexts++;
+        }
+        resume() {
+          return Promise.resolve();
+        }
+        close() {
+          made.closed++;
+          this.state = 'closed';
+          return Promise.resolve();
+        }
+        createBuffer(_channels: number, length: number) {
+          return { getChannelData: () => new Float32Array(length) };
+        }
+        createBufferSource() {
+          return { buffer: null, connect: (n: unknown) => n, start() {} };
+        }
+        createBiquadFilter() {
+          return { type: '', frequency: {}, Q: {}, connect: (n: unknown) => n };
+        }
+        createGain() {
+          return { gain: { value: 0 }, connect: (n: unknown) => n };
+        }
+      }
+      return { made, FakeCtx };
+    }
+
+    it('fecha o AudioContext que o som abriu, uma vez só, mesmo chamado duas vezes', () => {
+      const { made, FakeCtx } = fakeAudio();
+      vi.stubGlobal('window', { AudioContext: FakeCtx });
+      try {
+        const s = createSound();
+        s.klick(); // abre o contexto
+        expect(made.contexts).toBe(1);
+        s.close();
+        s.close();
+        expect(made.closed).toBe(1);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('sem contexto aberto, close não faz nada (nem abre um só para fechar)', () => {
+      const { made, FakeCtx } = fakeAudio();
+      vi.stubGlobal('window', { AudioContext: FakeCtx });
+      try {
+        const s = createSound();
+        expect(() => s.close()).not.toThrow();
+        expect(made).toEqual({ contexts: 0, closed: 0 });
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('depois de fechado, o som fica em silêncio e não abre outro contexto', () => {
+      const { made, FakeCtx } = fakeAudio();
+      vi.stubGlobal('window', { AudioContext: FakeCtx });
+      try {
+        const s = createSound();
+        s.unlock();
+        s.close();
+        s.unlock();
+        s.klick();
+        s.tick();
+        s.chord();
+        expect(made.contexts).toBe(1);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('um close que falha não derruba quem sai da tela', async () => {
+      const { FakeCtx } = fakeAudio();
+      class Broken extends FakeCtx {
+        close(): Promise<void> {
+          return Promise.reject(new Error('já fechado'));
+        }
+      }
+      vi.stubGlobal('window', { AudioContext: Broken });
+      try {
+        const s = createSound();
+        s.unlock();
+        expect(() => s.close()).not.toThrow();
+        await Promise.resolve(); // o catch da promessa roda; nada vaza como rejeição não tratada
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+  });
 });

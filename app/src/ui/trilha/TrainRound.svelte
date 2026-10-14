@@ -56,7 +56,11 @@
   const timer = createTimer({ now: () => performance.now() });
   const sound = createSound();
   const touch = createTouchArm({
-    press: (at) => timer.press(at),
+    // O toque só arma na montagem do caso (ou para o timer que corre): com o resultado na tela, ou sem caso no sorteio, ele não
+    // arma por cima. O soltar que vem depois de um press barrado não faz nada (o timer parado ignora o release).
+    press: (at) => {
+      if (timer.state === 'running' || (phase === 'setup' && current)) timer.press(at);
+    },
     release: (at) => timer.release(at),
     cancel: () => timer.cancel(),
     getState: () => timer.state,
@@ -163,6 +167,7 @@
       offs.forEach((off) => off());
       document.removeEventListener('keydown', onKey);
       loop.stop();
+      sound.close(); // um AudioContext por rodada aberta: o iOS limita quantos a página abre
       const body = document.body;
       body.classList.remove('solving');
       if (before === undefined) delete body.dataset.tstate;
@@ -265,7 +270,13 @@
     </div>
   {/if}
 
-  <Zones bind:el={zonesEl} one={app.profile.settings.mobileArm === 'one'} />
+  <!-- O invólucro fica sempre: a entrada (teclado, parar com um toque, engolir o clique que vem depois) segue ligada nele. As zonas só
+       existem enquanto o caso pode ser armado (a montagem, com um caso, e a execução, que nasce dela); sem elas o toque não arma. -->
+  <div class="zones-host" bind:this={zonesEl}>
+    {#if phase === 'setup' && current}
+      <Zones one={app.profile.settings.mobileArm === 'one'} />
+    {/if}
+  </div>
 </div>
 
 <style>
@@ -308,6 +319,10 @@
 
   .mono {
     font-family: var(--mono);
+  }
+
+  .zones-host {
+    display: contents;
   }
 
   .marks,

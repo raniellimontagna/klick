@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
+import { formatMs } from '../../src/core/stats';
 import { openKlickDb } from '../../src/data/db';
 import { createRepository } from '../../src/data/repository';
 import { createScrambleQueue } from '../../src/scramble/queue';
@@ -35,6 +36,24 @@ async function solve(stop: [string, string] = ['KeyA', 'a']): Promise<void> {
   key('keydown', stop[0], stop[1]);
 }
 const round = (a: AppState) => render(TrainRound, { app: a, set: 'oll2', rng: () => 0 });
+
+// Toque: o mesmo que o navegador manda nas zonas (o soltar é ouvido na janela, como no Timer).
+const pointer = (type: 'pointerdown' | 'pointerup', target: EventTarget, id: number, primary = true) =>
+  target.dispatchEvent(new PointerEvent(type, { pointerId: id, bubbles: true, cancelable: true, pointerType: 'touch', isPrimary: primary }));
+const zone = (side: 'left' | 'right') => document.querySelector(`[data-zone="${side}"]`);
+// Dois polegares: segura as duas zonas além do tempo de armar e solta (corre). Sem as zonas na tela, não há o que tocar.
+async function thumbs(): Promise<void> {
+  const left = zone('left');
+  const right = zone('right');
+  if (!left || !right) return;
+  pointer('pointerdown', left, 1);
+  pointer('pointerdown', right, 2, false);
+  await sleep(320);
+  pointer('pointerup', window, 1);
+  pointer('pointerup', window, 2);
+  await sleep(30);
+}
+const shownTime = () => document.querySelector('[data-time]')?.textContent;
 
 describe('conjunto do treino (spec 7.1 e 7.4)', () => {
   it('lista do mais fraco ao mais firme, com nível e números; Começar abre a rodada', async () => {
@@ -173,14 +192,50 @@ describe('rodada do treino (spec 7.2)', () => {
     expect(a.solves).toEqual([]);
     expect(await repo.listSolves()).toEqual([]);
     expect(JSON.stringify(a.seasonStatus())).toBe(season);
+    // Sai no meio de uma execução (o timer rodando): é aí que trainerRunning e o solving ficam acesos e precisam ser desfeitos.
     key('keydown', 'Space', ' ');
-    await sleep(50);
+    await sleep(320);
+    key('keyup', 'Space', ' ');
+    await waitFor(() => expect(a.trainerRunning).toBe(true));
     expect(a.timerBusy).toBe(true);
+    expect(document.body.dataset.tstate).toBe('running');
+    expect(document.body.classList.contains('solving')).toBe(true);
     r.unmount();
     expect(a.timerBusy).toBe(false);
     expect(a.trainerRunning).toBe(false);
     expect(document.body.dataset.tstate).toBe('idle');
     expect(document.body.classList.contains('solving')).toBe(false);
+  });
+
+  it('ao sair, a rodada devolve o AudioContext que abriu (o iOS limita quantos a página abre)', async () => {
+    const opened: Array<{ closed: boolean }> = [];
+    class FakeCtx {
+      state = 'running';
+      closed = false;
+      constructor() {
+        opened.push(this);
+      }
+      resume() {
+        return Promise.resolve();
+      }
+      close() {
+        this.closed = true;
+        return Promise.resolve();
+      }
+    }
+    Object.assign(window, { AudioContext: FakeCtx });
+    try {
+      const { a } = await app();
+      const r = round(a);
+      key('keydown', 'Space', ' '); // o primeiro gesto acorda o som e abre o contexto
+      await sleep(20);
+      expect(opened).toHaveLength(1);
+      expect(opened[0].closed).toBe(false);
+      r.unmount();
+      expect(opened[0].closed).toBe(true);
+    } finally {
+      Reflect.deleteProperty(window, 'AudioContext');
+    }
   });
 
   it('a tentativa que não grava: o aviso de sempre e o resultado continua para marcar', async () => {
@@ -218,5 +273,75 @@ describe('rodada do treino (spec 7.2)', () => {
     await solve(['Slash', '?']);
     await screen.findByRole('button', { name: 'Acertei' });
     expect(a.dialog).toBeNull();
+  });
+});
+
+// O toque só arma na montagem do caso: com o resultado na tela (ou sem caso), as zonas não armam o timer por cima dele.
+describe('toque na rodada (spec 7.2: o espaço e os polegares só armam na montagem do caso)', () => {
+  it('dois polegares na montagem armam e medem; um toque para e leva à marcação', async () => {
+    const { a } = await app();
+    round(a);
+    await thumbs();
+    expect(a.trainerRunning).toBe(true);
+    pointer('pointerdown', zone('left')!, 3);
+    pointer('pointerup', window, 3);
+    await screen.findByRole('button', { name: 'Acertei' });
+    expect(a.trainerRunning).toBe(false);
+  });
+
+  it('na marcação, dois polegares não armam de novo e o resultado continua para marcar', async () => {
+    const { a, repo } = await app();
+    round(a);
+    await solve();
+    await screen.findByRole('button', { name: 'Acertei' });
+    await sleep(50); // o tempo do resultado é pintado no quadro seguinte
+    const shown = shownTime();
+    expect(shown).not.toBe('');
+    expect(document.querySelector('[data-zones]')).toBeNull(); // as zonas só existem enquanto o caso pode ser armado
+    await thumbs();
+    expect(a.timerBusy).toBe(false);
+    expect(a.trainerRunning).toBe(false);
+    expect(document.body.dataset.tstate).toBe('done');
+    expect(shownTime()).toBe(shown);
+    expect(screen.getByRole('button', { name: 'Acertei' })).not.toBeDisabled();
+    await fireEvent.click(screen.getByRole('button', { name: 'Acertei' }));
+    await waitFor(async () => expect(await repo.listPractice()).toHaveLength(1));
+    expect(formatMs((await repo.listPractice())[0].ms)).toBe(shown);
+  });
+
+  it('modo de um toque: tocar na tela na marcação não arma', async () => {
+    const original = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query === '(pointer: coarse)',
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })) as unknown as typeof window.matchMedia;
+    try {
+      const { a } = await app();
+      await a.updateSettings({ mobileArm: 'one' });
+      round(a);
+      await solve();
+      await screen.findByRole('button', { name: 'Acertei' });
+      const screenEl = document.querySelector('[data-round]')!;
+      pointer('pointerdown', screenEl, 1);
+      await sleep(320);
+      pointer('pointerup', window, 1);
+      await sleep(30);
+      expect(a.timerBusy).toBe(false);
+      expect(a.trainerRunning).toBe(false);
+      expect(screen.getByRole('button', { name: 'Acertei' })).not.toBeDisabled();
+    } finally {
+      window.matchMedia = original;
+    }
+  });
+
+  it('com todos os casos fora do sorteio, o toque não arma um timer que ninguém marca', async () => {
+    const { a } = await app();
+    for (const id of ['pll2-t', 'pll2-y', 'pll2-ua', 'pll2-ub', 'pll2-h', 'pll2-z']) await a.setCaseOff(id, true);
+    render(TrainRound, { app: a, set: 'pll2', rng: () => 0 });
+    expect(document.querySelector('[data-zones]')).toBeNull();
+    await thumbs();
+    expect(a.timerBusy).toBe(false);
+    expect(a.trainerRunning).toBe(false);
   });
 });

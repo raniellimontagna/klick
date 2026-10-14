@@ -10,6 +10,7 @@ export interface Sound {
   tick(): void; // aviso da inspeção
   chord(): void; // recorde
   unlock(): void; // chamar num gesto da pessoa: o navegador só libera o áudio depois de um
+  close(): void; // devolve o AudioContext ao navegador (o iOS limita quantos a página abre); depois disso o som fica em silêncio
   setEnabled(group: SoundGroup, on: boolean): void;
 }
 
@@ -26,9 +27,10 @@ export function createSound(initial: SoundGroups = { klick: true, insp: true, pb
   const enabled: SoundGroups = { ...initial };
   const AC = audioContextClass();
   let ctx: AudioContext | null = null;
+  let closed = false;
 
   function ensure(): AudioContext | null {
-    if (!AC) return null;
+    if (!AC || closed) return null;
     try {
       if (!ctx) ctx = new AC();
       if (ctx.state === 'suspended') Promise.resolve(ctx.resume()).catch(() => {});
@@ -93,6 +95,18 @@ export function createSound(initial: SoundGroups = { klick: true, insp: true, pb
     },
     unlock() {
       ensure();
+    },
+    // Fecha o contexto, se algum foi aberto; chamar de novo não faz nada, e um som fechado não abre outro.
+    close() {
+      closed = true;
+      const c = ctx;
+      ctx = null;
+      if (!c) return;
+      try {
+        Promise.resolve(c.close()).catch(() => {});
+      } catch {
+        /* já fechado: nada a devolver */
+      }
     },
     setEnabled(group, on) {
       enabled[group] = on;
