@@ -208,6 +208,32 @@ describe('tela do Timer: solve, reação e nota', () => {
     await waitFor(() => expect(litFaces()).toBe(0), { timeout: 4000 });
   });
 
+  it('uma penalidade que fecha a temporada mostra o fim de temporada no coach e pisca a face de cima, como depois de um solve', async () => {
+    const { a, repo } = await app();
+    await a.updateSettings({ inspection: false });
+    const startedAt = Date.now() - 60000;
+    await repo.saveProfile({
+      season: {
+        // Constância: os 5 seguidos variam no máximo 8 s. Quatro solves de 10 s e um rápido (~0,3 s) variam ~9,7 s; com +2, ~7,7 s.
+        current: { n: 2, startedAt, marks: Array.from({ length: 9 }, () => ({ kind: 'steady' as const, target: 8000 })), basis: { single: 10000, ao5: 10000, ao12: 10000 } },
+        past: [{ n: 1, startedAt: 1, endedAt: 2, solves: 1000, startAo12: null, endAo12: 50000 }],
+      },
+    });
+    await a.reload();
+    for (let i = 0; i < 4; i++) await a.addSolve({ ms: 10000, penalty: null, at: startedAt + 1000 * (i + 1) });
+    render(TimerScreen, { app: a });
+    const litFaces = () => document.querySelectorAll('[data-centro-slot] svg.centro g[transform="matrix(1,0,0.3,-0.3,0,30)"] .lit').length;
+    await solveByKeys();
+    await waitFor(() => expect(document.querySelector('[data-actions]')).not.toHaveAttribute('hidden'));
+    await sleep(100);
+    expect(a.profile.season.current.n).toBe(2);
+    await fireEvent.click(document.querySelector('[data-act="plus2"]') as HTMLButtonElement);
+    expect(await screen.findByText('Temporada 2 completa: 5 solves. Gelo liberado.', {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(litFaces()).toBe(9);
+    await waitFor(() => expect(a.profile.season.current.n).toBe(3));
+    await waitFor(() => expect(litFaces()).toBe(0), { timeout: 4000 });
+  });
+
   it('durante o solve o Centro não muda: nenhum atributo dele é reescrito', async () => {
     const { a } = await app();
     await a.updateSettings({ inspection: false });

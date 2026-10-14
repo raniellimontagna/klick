@@ -154,6 +154,13 @@ function outlier(session: Solve[]): number | null {
   return value;
 }
 
+// O fim de temporada vale depois de um solve e depois de uma penalidade que fecha a temporada (a troca não passa pelos outros gatilhos).
+export function seasonEndMessage(end: SeasonEnd): CoachMessage {
+  const from = end.startAo12 === null ? null : formatMs(end.startAo12);
+  const to = end.endAo12 === null ? null : formatMs(end.endAo12);
+  return { id: 'season-end', text: T.coach.seasonEnd(end.n, end.solves, from, to, end.finish ? FINISH_INFO[end.finish].label : null) };
+}
+
 export function pickCoachMessage({
   solve,
   history,
@@ -170,11 +177,7 @@ export function pickCoachMessage({
   const all = [...history, solve];
 
   const end = season?.end;
-  if (end) {
-    const from = end.startAo12 === null ? null : formatMs(end.startAo12);
-    const to = end.endAo12 === null ? null : formatMs(end.endAo12);
-    return { id: 'season-end', text: T.coach.seasonEnd(end.n, end.solves, from, to, end.finish ? FINISH_INFO[end.finish].label : null) };
-  }
+  if (end) return seasonEndMessage(end);
 
   const prevBest = bestSingle(history);
   if (prevBest !== null && e !== Infinity && e < prevBest) return { id: 'pb-single', text: T.coach.pbSingle(prevBest - e) };

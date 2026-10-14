@@ -24,6 +24,7 @@ export interface CentroLive {
   hold(): void; // o solve parou e está gravando: o Centro fica parado (como no solve) até react() ou clearReaction()
   react(result: ResultKind | null, t0: number, seasonEnd?: boolean): void; // a reação ao solve, de t0 + 0,5 s a t0 + 3 s
   setResult(result: ResultKind | null): void; // uma penalidade no meio da reação: o anel e os olhos seguem, sem novo salto
+  seasonEnd(result: ResultKind | null, t0: number): void; // uma penalidade fechou a temporada: reage de novo, com a piscada e sem salto
   clearReaction(): void; // tira a reação e o parado da gravação
   reacting(now: number): boolean; // a reação ainda está na tela (o laço precisa de quadro)
   wake(wallNow: number): void; // uma entrada da pessoa (Date.now): acorda e conta a inatividade de novo
@@ -31,7 +32,7 @@ export interface CentroLive {
 }
 
 export function createCentroLive(timer: TimerLike, animator: CentroAnimator, wallNow: number): CentroLive {
-  let reaction: { from: number; until: number; result: ResultKind | null; seasonEnd: boolean; triggered: boolean } | null = null;
+  let reaction: { from: number; until: number; result: ResultKind | null; jump: boolean; seasonEnd: boolean; triggered: boolean } | null = null;
   let held = false; // gravando o solve: parado até a reação
   let sleeping = false;
   let lastInput = wallNow;
@@ -57,7 +58,7 @@ export function createCentroLive(timer: TimerLike, animator: CentroAnimator, wal
       animator.show(v);
       if (reaction && v.state === 'reaction' && !reaction.triggered) {
         reaction.triggered = true;
-        if (reaction.result === 'pb') animator.trigger('pb');
+        if (reaction.jump && reaction.result === 'pb') animator.trigger('pb');
         if (reaction.seasonEnd) animator.trigger('seasonEnd');
       }
       return v;
@@ -68,10 +69,14 @@ export function createCentroLive(timer: TimerLike, animator: CentroAnimator, wal
     },
     react(result, t0, seasonEnd = false) {
       held = false;
-      reaction = { from: t0 + REACTION_DELAY, until: t0 + REACTION_DELAY + REACTION_MS, result, seasonEnd, triggered: false };
+      reaction = { from: t0 + REACTION_DELAY, until: t0 + REACTION_DELAY + REACTION_MS, result, jump: true, seasonEnd, triggered: false };
     },
     setResult(result) {
       if (reaction) reaction.result = result;
+    },
+    seasonEnd(result, t0) {
+      held = false;
+      reaction = { from: t0 + REACTION_DELAY, until: t0 + REACTION_DELAY + REACTION_MS, result, jump: false, seasonEnd: true, triggered: false };
     },
     clearReaction() {
       held = false;

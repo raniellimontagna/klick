@@ -63,6 +63,20 @@ describe('o Centro no Timer', () => {
     expect(live.reacting(REACTION_DELAY + REACTION_MS - 1)).toBe(true);
   });
 
+  it('a virada por penalidade reage de novo com a piscada da face de cima, mas sem salto, mesmo num recorde', () => {
+    const { animator, triggers } = fakeAnimator();
+    const live = createCentroLive(timerIn('done'), animator, 0);
+    live.react('pb', 0);
+    live.paint(REACTION_DELAY + 10);
+    expect(triggers).toEqual(['pb']);
+    live.seasonEnd('pb', 1000);
+    expect(live.paint(1000 + REACTION_DELAY - 1).state).toBe('running');
+    expect(live.paint(1000 + REACTION_DELAY)).toEqual({ state: 'reaction', result: 'pb' });
+    live.paint(1000 + REACTION_DELAY + 100);
+    expect(triggers).toEqual(['pb', 'seasonEnd']);
+    expect(live.reacting(1000 + REACTION_DELAY + REACTION_MS - 1)).toBe(true);
+  });
+
   it('enquanto o solve grava, o Centro fica parado até a reação ou até limpar; o timer ocupado passa por cima', () => {
     const { animator } = fakeAnimator();
     const timer = timerIn('done');
