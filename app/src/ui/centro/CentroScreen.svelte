@@ -276,6 +276,8 @@
     color: var(--ink);
     text-align: left;
     cursor: pointer;
+    /* Uma linha de resumo (spec 8.3): na grade de duas colunas, sem isto o cartão esticaria até a altura do vizinho. */
+    align-self: start;
   }
 
   /* O cartão do Centro empilha o seletor, a dica e a linha do modo silencioso. */
