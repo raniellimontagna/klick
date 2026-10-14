@@ -4,12 +4,14 @@ import { fileURLToPath } from 'node:url';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import { formatMs } from '../../src/core/stats';
+import { invertAlg } from '../../src/core/trail/frame';
 import { openKlickDb } from '../../src/data/db';
 import { createRepository } from '../../src/data/repository';
 import { createScrambleQueue } from '../../src/scramble/queue';
 import { T } from '../../src/strings';
 import { AppState } from '../../src/ui/state/app.svelte';
 import TimerScreen from '../../src/ui/timer/TimerScreen.svelte';
+import { drawFigure } from '../../src/ui/trilha/cube-view';
 import SetView from '../../src/ui/trilha/SetView.svelte';
 import TrainRound from '../../src/ui/trilha/TrainRound.svelte';
 
@@ -98,6 +100,18 @@ describe('conjunto do treino (spec 7.1 e 7.4)', () => {
     await waitFor(async () => expect((await repo.getProfile()).algChoice).toEqual({ 'oll2-h': 1 }));
   });
 
+  it('o caso aberto mostra como segurar: a figura do inverso do algoritmo escolhido, sem giro de cima, e ela segue a troca', async () => {
+    const { a } = await app();
+    render(SetView, { app: a, set: 'oll2' });
+    const lastSpec = () => vi.mocked(drawFigure).mock.calls.at(-1)?.[1];
+    await fireEvent.click(screen.getByRole('button', { name: 'H' }));
+    const item = document.querySelector('[data-case="oll2-h"]') as HTMLElement;
+    expect(item.querySelector('[data-case-figure]')).not.toBeNull();
+    await waitFor(() => expect(lastSpec()).toEqual({ setup: invertAlg("R U R' U R U' R' U R U2 R'"), view: 'top', mask: 'oll' }));
+    await fireEvent.click(screen.getAllByRole('radio')[1]);
+    await waitFor(() => expect(lastSpec()).toEqual({ setup: invertAlg("F R U R' U' R U R' U' R U R' U' F'"), view: 'top', mask: 'oll' }));
+  });
+
   it('se a gravação falha, a caixa e o algoritmo voltam ao que está salvo (spec 9.4)', async () => {
     const { a, repo } = await app();
     render(SetView, { app: a, set: 'oll2' });
@@ -141,6 +155,9 @@ describe('rodada do treino (spec 7.2)', () => {
     round(a);
     await fireEvent.click(screen.getByRole('button', { name: 'Ver o algoritmo' }));
     expect(document.querySelector('[data-help-alg]')).toHaveTextContent("F R U R' U' F'");
+    // Com o algoritmo, a figura de como segurar o caso para ele (sem giro de cima).
+    expect(document.querySelectorAll('[data-round] [data-case-figure]')).toHaveLength(2);
+    await waitFor(() => expect(vi.mocked(drawFigure).mock.calls.at(-1)?.[1]).toEqual({ setup: invertAlg("F R U R' U' F'"), view: 'top', mask: 'eoll' }));
     await solve();
     await fireEvent.click(await screen.findByRole('button', { name: 'Errei' }));
     await waitFor(async () => expect(await repo.listPractice()).toHaveLength(1));

@@ -1,13 +1,16 @@
 <script lang="ts">
   // Um conjunto do treino (spec do sub-projeto 4, seções 7.1 e 7.4): os casos do mais fraco ao mais firme, com nível, tentativas, % de
   // acerto e a média das últimas 5 certas. Cada caso pode sair do sorteio (profile.trainOff); tocar no nome mostra como reconhecer e os
-  // algoritmos, e deixa trocar o que a pessoa usa (profile.algChoice). Com todos fora, o treino não começa.
-  import { casesOf, choiceOf } from '../../core/trail/cases';
+  // algoritmos, e deixa trocar o que a pessoa usa (profile.algChoice). A figura mostra como segurar o caso para o algoritmo escolhido (o
+  // inverso dele, sem giro de cima). Com todos fora, o treino não começa.
+  import { casesOf, choiceOf, chosenAlg, figureOf } from '../../core/trail/cases';
+  import { invertAlg } from '../../core/trail/frame';
   import { formatMs } from '../../core/stats';
   import { firmCount, levelName, setStats, weakestFirst } from '../../core/trail/train';
   import type { CaseSet, TrainCase } from '../../core/trail/types';
   import { T } from '../../strings';
   import type { AppState } from '../state/app.svelte';
+  import CaseFigure from './CaseFigure.svelte';
 
   let { app, set }: { app: AppState; set: CaseSet } = $props();
 
@@ -63,6 +66,7 @@
           <p class="muted case-stats">{T.trilha.set.stats(s.attempts, s.okRate, s.avg5 === null ? null : formatMs(s.avg5))}</p>
           {#if open === c.id}
             <div class="case-more">
+              <CaseFigure setup={invertAlg(chosenAlg(c, app.profile.algChoice))} {...figureOf(c)} />
               <p><strong>{T.trilha.set.recog}:</strong> {c.recog}</p>
               <fieldset>
                 <legend class="sr-only">{T.trilha.set.algs(c.name)}</legend>

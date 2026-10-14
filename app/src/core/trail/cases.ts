@@ -4,17 +4,17 @@
 //
 // F2L: a numeração é a do app, por grupos (o par é sempre o da frente-direita): 1 a 24 com canto e aresta em cima, 25 a 30 com o canto em
 // cima e a aresta no lugar, 31 a 36 com o canto no lugar e a aresta em cima, 37 a 41 com os dois no lugar.
-import type { CaseSet, TrainCase } from './types';
+import type { CaseSet, CubeAngle, MaskKind, TrainCase } from './types';
 
 export const CASE_SETS: readonly CaseSet[] = Object.freeze(['oll2', 'pll2', 'f2l']);
 
 export const CASES: readonly TrainCase[] = Object.freeze([
-  { id: 'oll2-linha', set: 'oll2', name: 'Linha', recog: 'Duas arestas amarelas em linha, de um lado ao outro.', algs: ["F R U R' U' F'"] },
+  { id: 'oll2-linha', set: 'oll2', name: 'Linha', recog: 'Duas arestas amarelas em linha, de um lado ao outro. Segure a linha deitada, da esquerda para a direita.', algs: ["F R U R' U' F'"] },
   { id: 'oll2-l', set: 'oll2', name: 'L', recog: 'Duas arestas amarelas vizinhas, formando um L.', algs: ["f R U R' U' f'"] },
   { id: 'oll2-ponto', set: 'oll2', name: 'Ponto', recog: 'Nenhuma aresta amarela em cima: só o centro.', algs: ["F R U R' U' F' f R U R' U' f'"] },
   { id: 'oll2-sune', set: 'oll2', name: 'Sune', recog: 'Um canto amarelo para cima; os outros três giram no mesmo sentido.', algs: ["R U R' U R U2 R'"] },
   { id: 'oll2-antisune', set: 'oll2', name: 'Anti-Sune', recog: 'Um canto amarelo para cima; os outros três giram no sentido contrário ao do Sune.', algs: ["R U2 R' U' R U' R'"] },
-  { id: 'oll2-h', set: 'oll2', name: 'H', recog: 'Nenhum canto para cima; os amarelos dos cantos olham aos pares para a frente e para trás.', algs: ["R U R' U R U' R' U R U2 R'", "F R U R' U' R U R' U' R U R' U' F'"] },
+  { id: 'oll2-h', set: 'oll2', name: 'H', recog: 'Nenhum canto para cima; os amarelos dos cantos olham aos pares para dois lados opostos.', algs: ["R U R' U R U' R' U R U2 R'", "F R U R' U' R U R' U' R U R' U' F'"] },
   { id: 'oll2-pi', set: 'oll2', name: 'Pi', recog: 'Nenhum canto para cima; dois amarelos olham para o mesmo lado e os outros dois para lados opostos.', algs: ["R U2 R2 U' R2 U' R2 U2 R"] },
   { id: 'oll2-farois', set: 'oll2', name: 'Faróis', recog: 'Dois cantos para cima, vizinhos; os outros dois olham para o mesmo lado, como faróis.', algs: ["R2 D R' U2 R D' R' U2 R'"] },
   { id: 'oll2-t', set: 'oll2', name: 'T', recog: 'Dois cantos para cima, vizinhos; os outros dois olham para lados opostos.', algs: ["r U R' U' r' F R F'"] },
@@ -80,3 +80,8 @@ export function choiceOf(c: TrainCase, algChoice: Readonly<Record<string, number
 }
 
 export const chosenAlg = (c: TrainCase, algChoice: Readonly<Record<string, number>>): string => c.algs[choiceOf(c, algChoice)];
+
+const EDGE_CASES: readonly string[] = ['oll2-linha', 'oll2-l', 'oll2-ponto'];
+// A figura de cada caso (spec 7.2): a camada de cima na OLL (só as arestas nos 3 casos da cruz) e na PLL; o par da frente-direita no F2L.
+export const figureOf = (c: TrainCase): { view: CubeAngle; mask: MaskKind } =>
+  c.set === 'f2l' ? { view: '3D', mask: 'pair' } : { view: 'top', mask: c.set === 'pll2' ? 'pll' : EDGE_CASES.includes(c.id) ? 'eoll' : 'oll' };

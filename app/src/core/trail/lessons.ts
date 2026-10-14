@@ -10,7 +10,7 @@ export const LESSONS: readonly Lesson[] = Object.freeze([
     parts: [
       {
         title: 'Segure assim',
-        text: 'Amarelo em cima, branco embaixo e verde de frente para você. Nas aulas o cubo fica sempre nessa posição, e é assim que você deve segurar o seu.',
+        text: 'Amarelo em cima, branco embaixo e verde de frente para você. Nas aulas o cubo aparece sempre nessa posição. Para trabalhar num lugar, gire o cubo inteiro na mão, sem tirar o amarelo de cima, até esse lugar ficar de frente para você.',
         cube: { setup: '', view: '3D' },
       },
       {
@@ -61,7 +61,7 @@ export const LESSONS: readonly Lesson[] = Object.freeze([
       },
       {
         title: 'Leve até em cima do lugar',
-        text: 'Gire U até o canto ficar em cima do lugar dele, na frente e à direita. Os outros cantos podem esperar.',
+        text: 'Gire U até o canto ficar em cima do lugar dele. Se o lugar não for o da frente à direita, gire o cubo inteiro, sem tirar o amarelo de cima, até ele ficar ali. Os outros cantos podem esperar.',
         cube: { setup: 'R U\' R\' U\'', alg: 'U', view: '3D', mask: 'firstLayer', from: 'cross' },
       },
       {
@@ -91,7 +91,7 @@ export const LESSONS: readonly Lesson[] = Object.freeze([
     parts: [
       {
         title: 'Ache uma aresta sem amarelo',
-        text: 'Na camada de cima, procure uma aresta sem amarelo. Gire U até a cor da frente dela combinar com o centro da frente: forma um T de cabeça para baixo.',
+        text: 'Na camada de cima, procure uma aresta sem amarelo. Gire o cubo inteiro, sem tirar o amarelo de cima, até o centro da cor do lado dela ficar de frente para você. Depois gire U até a aresta ficar em cima desse centro: forma um T de cabeça para baixo.',
         cube: { setup: 'F\' U\' F U R U R\' U\'', view: '3D', mask: 'f2l', from: 'firstLayer' },
       },
       {
@@ -191,7 +191,7 @@ export const LESSONS: readonly Lesson[] = Object.freeze([
       },
       {
         title: 'Tire de onde está preso',
-        text: 'Às vezes uma peça do par já está embaixo, como a aresta aqui, e o canto está em cima. Tire a aresta com R U R\' U\', junte o par em cima e insira: R U R\' U\' R U R\' U\' R U R\'.',
+        text: 'Às vezes uma peça do par já está embaixo, como a aresta aqui. Assim não dá para juntar o par: primeiro tire a peça de baixo e depois resolva como os casos de cima. Aqui, R U R\' U\' R U R\' U\' R U R\' faz tudo isso de uma vez.',
         cube: { setup: 'R U\' R\' U R U\' R\' U R U\' R\'', alg: 'R U R\' U\' R U R\' U\' R U R\'', view: '3D', mask: 'f2l', from: 'cross', ends: 'f2l' },
       },
       {
@@ -212,7 +212,7 @@ export const LESSONS: readonly Lesson[] = Object.freeze([
       },
       {
         title: 'A cruz em um passo',
-        text: 'A linha sai com F R U R\' U\' F\'. O L sai com f R U R\' U\' f\', segurando o L na frente e à direita; f gira as duas camadas da frente juntas. O ponto é os dois seguidos.',
+        text: 'A linha, deitada da esquerda para a direita, sai com F R U R\' U\' F\'. O L sai com f R U R\' U\' f\', segurando o L na frente e à direita; f gira as duas camadas da frente juntas. O ponto é os dois seguidos.',
         cube: { setup: 'f U R U\' R\' f\'', alg: 'f R U R\' U\' f\'', view: 'top', mask: 'oll', from: 'f2l', ends: 'yellowCross' },
       },
       {

@@ -4,12 +4,13 @@
   // mostra o caso, o algoritmo, o tempo e a média do caso, e o próximo caso vem em seguida. A última tentativa pode ser corrigida até a
   // próxima rodada começar. Nada daqui vira solve: o núcleo do timer é reaproveitado, e a gravação é a do treino (app.addPractice).
   import { untrack } from 'svelte';
-  import { chosenAlg } from '../../core/trail/cases';
+  import { chosenAlg, figureOf } from '../../core/trail/cases';
   import { formatMs } from '../../core/stats';
   import { createTimer, type TimerResult, type TimerState } from '../../core/timer';
+  import { invertAlg } from '../../core/trail/frame';
   import { createTouchArm } from '../../core/touch';
   import { byCase, caseScramble, caseStats, nextCase } from '../../core/trail/train';
-  import type { CaseSet, CubeAngle, MaskKind, TrainCase } from '../../core/trail/types';
+  import type { CaseSet, TrainCase } from '../../core/trail/types';
   import { T } from '../../strings';
   import type { CentroView } from '../centro';
   import { createSound } from '../sound';
@@ -22,11 +23,6 @@
   import MiniCentro from './MiniCentro.svelte';
 
   let { app, set, rng = Math.random }: { app: AppState; set: CaseSet; rng?: () => number } = $props();
-
-  const EDGE_CASES: readonly string[] = ['oll2-linha', 'oll2-l', 'oll2-ponto'];
-  // A figura de cada conjunto: a camada de cima na OLL (só as arestas nos 3 casos da cruz) e na PLL; o par da frente-direita no F2L.
-  const figureOf = (c: TrainCase): { view: CubeAngle; mask: MaskKind } =>
-    c.set === 'f2l' ? { view: '3D', mask: 'pair' } : { view: 'top', mask: c.set === 'pll2' ? 'pll' : EDGE_CASES.includes(c.id) ? 'eoll' : 'oll' };
 
   interface Last {
     id: string;
@@ -262,6 +258,8 @@
         <p class="muted hint">{T.trilha.round.setupHint}</p>
         {#if helped}
           <p class="help-alg"><span class="chip">{T.trilha.round.helped}</span> <span class="mono" data-help-alg>{alg}</span></p>
+          <!-- Como segurar o caso para este algoritmo: o inverso dele, sem o giro de cima do embaralhamento. -->
+          <CaseFigure setup={invertAlg(alg)} {...figureOf(current)} />
         {:else if phase === 'setup'}
           <button type="button" class="btn" onclick={help}>{T.trilha.round.help}</button>
         {/if}

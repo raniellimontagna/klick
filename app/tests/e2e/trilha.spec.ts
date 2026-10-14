@@ -148,6 +148,10 @@ async function layout(page: Page): Promise<void> {
     await page.getByRole('button', { name: 'Começar', exact: true }).click();
     await expect(page.locator('[data-train-scramble]')).not.toBeEmpty();
     await roundFits(page, set);
+    // "Ver o algoritmo" põe a figura de como segurar o caso ao lado do algoritmo: o tempo continua acima da barra.
+    await page.getByRole('button', { name: 'Ver o algoritmo' }).click();
+    await expect(page.locator('[data-round] [data-case-figure]')).toHaveCount(2);
+    await roundFits(page, `${set} com o algoritmo`);
     await page.getByRole('button', { name: 'Encerrar' }).click();
     await page.getByRole('button', { name: 'Voltar à trilha' }).first().click();
   }
