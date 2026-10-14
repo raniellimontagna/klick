@@ -228,6 +228,7 @@ O 2º degrau é o próximo abaixo do 1º. Nenhuma meta fica abaixo de 1 s.
 - **Importar um arquivo do Klick e restaurar uma cópia:** fica com a temporada que tiver mais itens em `past`. No empate, fica a daqui.
   - Isso muda o `replaceAll`, que hoje troca o perfil inteiro pelo da cópia.
   - O resto do perfil segue a regra de hoje.
+  - Um export antigo, de antes das temporadas, importado num aparelho novo deixa o acabamento em Fosco, mesmo que a importação libere o Brilho logo depois. Fica assim: é raro, e um toque na tela do Centro escolhe o Brilho (decidido em 14/10).
 - **Validação:** o `profileOf` da importação confere a forma da temporada:
   - `n` inteiro de 1 para cima;
   - 9 marcos de tipos conhecidos, com metas finitas e positivas;
