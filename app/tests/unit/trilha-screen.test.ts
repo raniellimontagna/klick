@@ -64,6 +64,13 @@ describe('aba Trilha: o começo (spec 8.2)', () => {
     expect(a.trailView).toEqual({ kind: 'lesson', step: 0 });
   });
 
+  it('um passo guardado além do fim aparece como o último passo da aula (como o leitor abre)', async () => {
+    const { a } = await app();
+    await a.setLessonAt(0, 40);
+    render(TrilhaScreen, { app: a });
+    expect(await screen.findByRole('button', { name: 'Continuar do passo 8' })).toBeInTheDocument();
+  });
+
   it('tocar no nome de uma etapa abre a aula dela, feita ou não', async () => {
     const { a } = await app();
     render(TrilhaScreen, { app: a });
@@ -116,6 +123,11 @@ describe('aba Trilha: para quem já resolve (spec 8.2)', () => {
     render(TrilhaScreen, { app: a });
     expect(await screen.findByText('Já resolve? Marque o que já sabe.')).toBeInTheDocument();
     await fireEvent.click(screen.getByRole('button', { name: 'Marcar etapas' }));
+    // O foco não cai no body: abrir a lista leva à primeira caixa; Cancelar volta a "Marcar etapas".
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('checkbox', { name: 'Cruz branca' })));
+    await fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Marcar etapas' })));
+    await fireEvent.click(screen.getByRole('button', { name: 'Marcar etapas' }));
     const save = screen.getByRole('button', { name: 'Marcar' });
     expect(save).toBeDisabled();
     for (const name of ['Cruz branca', 'Cantos brancos', 'Segunda camada', 'Cruz amarela', 'Orientar e permutar']) {
@@ -126,6 +138,8 @@ describe('aba Trilha: para quem já resolve (spec 8.2)', () => {
     await waitFor(() => expect(document.querySelector('[data-trail-prompt]')).toBeNull());
     expect(spy.triggers).toEqual(['trailStep']);
     expect(screen.getByText('5 de 9 etapas')).toBeInTheDocument();
+    // O aviso sumiu com o botão: o foco vai para a ação principal, a próxima etapa.
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Começar a aula' })));
   });
 
   it('"Agora não" dispensa o aviso neste aparelho (meta), sem marcar nada', async () => {
@@ -133,6 +147,7 @@ describe('aba Trilha: para quem já resolve (spec 8.2)', () => {
     render(TrilhaScreen, { app: a });
     await fireEvent.click(await screen.findByRole('button', { name: 'Agora não' }));
     await waitFor(() => expect(document.querySelector('[data-trail-prompt]')).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Começar a aula' })));
     expect((await repo.getMeta()).trailPromptDismissed).toBe(true);
     expect((await repo.getProfile()).trail.some(Boolean)).toBe(false);
   });

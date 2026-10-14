@@ -69,13 +69,21 @@ const FORWARDS = 1; // Direction.Forwards do cubing.js
 const BACKWARDS = -1; // Direction.Backwards
 const ONE_MOVE = 'move'; // BoundaryType.Move
 
+// O teste de WebGL roda uma vez por abertura: a resposta fica guardada, e o contexto do teste é solto na hora (o navegador limita quantos
+// contextos WebGL a página tem; cada aula abria mais um).
+let webgl: boolean | null = null;
+
 export function hasWebGL(): boolean {
+  if (webgl !== null) return webgl;
   try {
     const canvas = document.createElement('canvas');
-    return (canvas.getContext('webgl2') ?? canvas.getContext('webgl')) !== null;
+    const gl = canvas.getContext('webgl2') ?? canvas.getContext('webgl');
+    webgl = gl !== null;
+    gl?.getExtension('WEBGL_lose_context')?.loseContext();
   } catch {
-    return false;
+    webgl = false;
   }
+  return webgl;
 }
 
 // A figura 2D de um estado: a camada de cima chapada na vista 'top', a planificação do cubo nas outras. Lança se o cubing.js falha.

@@ -3,7 +3,7 @@
   // (o mesmo espaço e os mesmos dois polegares), sem inspeção. Marcar: "Acertei" (o padrão, por Enter ou toque) e "Errei". O resultado
   // mostra o caso, o algoritmo, o tempo e a média do caso, e o próximo caso vem em seguida. A última tentativa pode ser corrigida até a
   // próxima rodada começar. Nada daqui vira solve: o núcleo do timer é reaproveitado, e a gravação é a do treino (app.addPractice).
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { chosenAlg, figureOf } from '../../core/trail/cases';
   import { formatMs } from '../../core/stats';
   import { createTimer, type TimerResult, type TimerState } from '../../core/timer';
@@ -97,6 +97,9 @@
     if (phase === 'setup' && timer.state === 'idle') helped = true;
   }
 
+  // O foco caiu no body (ou em nada): o elemento que o tinha sumiu ou foi desligado.
+  const isLost = (el: Element | null): boolean => el === null || el === document.body;
+
   async function mark(ok: boolean): Promise<void> {
     const c = current;
     if (phase !== 'mark' || !c) return;
@@ -107,6 +110,9 @@
     if (destroyed) return;
     if (!saved) {
       phase = 'mark'; // o aviso já saiu; o resultado continua na tela para marcar de novo
+      // Os botões voltam a valer (desligados durante a gravação, o foco pode ter saído deles): o foco volta para "Acertei".
+      await tick();
+      if (isLost(document.activeElement)) screenEl?.querySelector<HTMLElement>('[data-marks] .primary')?.focus();
       return;
     }
     last = { id: saved.id, caseId: c.id, name: c.name, alg, ms, ok, helped };
@@ -114,7 +120,13 @@
     // O Centro reage sem texto (spec 7.5): olho entreaberto no erro, feliz (sem salto) quando bate o melhor tempo do caso.
     centro = !ok ? { state: 'reaction', result: 'plus2' } : !helped && best !== null && ms < best ? { state: 'reaction', result: 'pb' } : { state: 'idle' };
     app.announce(`${c.name}: ${T.trilha.round.outcome(ok, helped)}, ${formatMs(ms)}`);
+    const refocus = isLost(document.activeElement) || (screenEl?.contains(document.activeElement) ?? false);
     nextRound();
+    // Os botões de marcar somem com o caso seguinte: o foco vai para a rodada (como a tela do Timer quando uma ação some).
+    if (refocus) {
+      await tick();
+      if (!destroyed) screenEl?.focus({ preventScroll: true });
+    }
   }
 
   async function fix(ok: boolean): Promise<void> {
@@ -150,6 +162,7 @@
     sound.klick();
     resultMs = r.ms;
     phase = 'mark';
+    app.announce(T.trilha.round.stopped(formatMs(r.ms)));
     loop.kick();
   }
 
@@ -242,7 +255,7 @@
   });
 </script>
 
-<div class="round" data-round={set} data-tstate={tstate} bind:this={screenEl}>
+<div class="round" data-round={set} data-tstate={tstate} tabindex="-1" bind:this={screenEl}>
   <header class="round-top fade">
     <MiniCentro {app} view={centro} />
     <h2>{T.trilha.sets[set]}</h2>
@@ -311,6 +324,16 @@
     display: grid;
     gap: 14px;
     max-width: 640px;
+  }
+
+  /* A rodada recebe o foco quando os botões de marcar somem: ele continua visível, com o contorno dos controles. */
+  .round:focus {
+    outline: none;
+  }
+
+  .round:focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 4px;
   }
 
   .round-top {

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { openKlickDb } from '../../src/data/db';
 import { createRepository } from '../../src/data/repository';
 import { createScrambleQueue } from '../../src/scramble/queue';
+import { T } from '../../src/strings';
 import { AppState } from '../../src/ui/state/app.svelte';
 import type { CubeSpec, CubeState } from '../../src/ui/trilha/cube-view';
 import TrilhaScreen from '../../src/ui/trilha/TrilhaScreen.svelte';
@@ -54,7 +55,8 @@ async function lesson(step: number, prep?: (a: AppState) => Promise<unknown>) {
   return { a, repo, r };
 }
 const next = () => fireEvent.click(screen.getByRole('button', { name: 'Próximo' }));
-const key = (k: string, code = k) => document.body.dispatchEvent(new KeyboardEvent('keydown', { key: k, code, bubbles: true, cancelable: true }));
+const key = (k: string, code = k, repeat = false) =>
+  document.body.dispatchEvent(new KeyboardEvent('keydown', { key: k, code, repeat, bubbles: true, cancelable: true }));
 
 beforeEach(() => {
   Object.assign(cube, { log: [], specs: [], listener: null, moving: true, fail: false, gate: null });
@@ -98,6 +100,7 @@ describe('aula: andar pelos passos (spec 6.1)', () => {
     await lesson(0);
     await next();
     key('ArrowRight');
+    cube.listener?.({ move: 1, playing: false, atStart: false, atEnd: false }); // o cubo andou: ← volta
     key('ArrowLeft');
     key(' ', 'Space');
     expect(cube.log.slice(-3)).toEqual(['step 1', 'step -1', 'play']);
@@ -108,6 +111,44 @@ describe('aula: andar pelos passos (spec 6.1)', () => {
     await next();
     cube.listener?.({ move: 2, playing: false, atStart: false, atEnd: false });
     await waitFor(() => expect(document.querySelector('[data-alg] .now')?.textContent).toBe("R'"));
+  });
+
+  it('← no começo e → no fim não fazem nada; a tecla segurada (repetição) não anda', async () => {
+    await lesson(0);
+    await next();
+    cube.log = [];
+    cube.listener?.({ move: 0, playing: false, atStart: true, atEnd: false });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Movimento anterior' })).toBeDisabled());
+    key('ArrowLeft');
+    cube.listener?.({ move: 1, playing: false, atStart: false, atEnd: true });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Próximo movimento' })).toBeDisabled());
+    key('ArrowRight');
+    expect(cube.log).toEqual([]);
+    cube.listener?.({ move: 0, playing: false, atStart: false, atEnd: false });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Próximo movimento' })).not.toBeDisabled());
+    key('ArrowRight', 'ArrowRight', true);
+    key('ArrowLeft', 'ArrowLeft', true);
+    expect(cube.log).toEqual([]);
+    key('ArrowRight');
+    expect(cube.log).toEqual(['step 1']);
+  });
+
+  it('a troca de passo é anunciada ("passo N de M" e o título)', async () => {
+    const { a } = await lesson(0);
+    await next();
+    await waitFor(() => expect(a.live).toBe('passo 2 de 8: As faces têm letras'));
+    await fireEvent.click(screen.getByRole('button', { name: 'Voltar' }));
+    await waitFor(() => expect(a.live).toBe('passo 1 de 8: Segure assim'));
+  });
+
+  it('o último Próximo não deixa o foco cair: ele fica no botão, que vira "Consegui no meu cubo"', async () => {
+    await lesson(0, (x) => x.setLessonAt(0, 6));
+    const button = screen.getByRole('button', { name: 'Próximo' });
+    button.focus();
+    await fireEvent.click(button);
+    await screen.findByRole('heading', { name: 'Sua vez' });
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Consegui no meu cubo' }));
   });
 
   it('volta de onde parou; um passo guardado além do fim cai no último', async () => {
@@ -175,6 +216,8 @@ describe('aula: concluir (spec 6.2)', () => {
     await waitFor(async () => expect((await repo.getProfile()).trail[0]).toBe(true));
     expect((await repo.getProfile()).lessonAt).toEqual({});
     expect(a.trailFlashes).toBe(1);
+    // O foco vai para a ação principal nova (o botão de concluir sumiu).
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Próxima etapa' })));
     await fireEvent.click(await screen.findByRole('button', { name: 'Próxima etapa' }));
     expect(a.trailView).toEqual({ kind: 'lesson', step: 1 });
     expect(await screen.findByRole('heading', { name: 'Cantos brancos' })).toBeInTheDocument();
@@ -230,7 +273,10 @@ describe('aula: sem o cubo 3D (spec 6.4)', () => {
     await a.setLessonAt(0, 6);
     a.openTrail({ kind: 'lesson', step: 0 });
     render(TrilhaScreen, { app: a });
-    expect(await screen.findByText(/O cubo 3D não abriu neste aparelho/)).toBeInTheDocument();
+    // Sem figura nenhuma: a caixa do cubo recolhe, e o aviso não fala de figura.
+    expect(await screen.findByText(T.trilha.lesson.noCube)).toBeInTheDocument();
+    expect(screen.queryByText(/A figura mostra/)).toBeNull();
+    expect(document.querySelector('[data-cube]')).not.toBeVisible();
     await next();
     await fireEvent.click(screen.getByRole('button', { name: 'Consegui no meu cubo' }));
     await waitFor(async () => expect((await repo.getProfile()).trail[0]).toBe(true));

@@ -1,7 +1,9 @@
 <script lang="ts">
   // O começo da aba Trilha (spec do sub-projeto 4, seção 8.2): o Centro pequeno com as etapas feitas, o aviso para quem já resolve, a
   // próxima etapa, as 9 etapas (tocar abre a aula; "já sei" e "desfazer" ao lado) e os 3 conjuntos do treino.
+  import { tick } from 'svelte';
   import { CASE_SETS } from '../../core/trail/cases';
+  import { LESSONS } from '../../core/trail/lessons';
   import { firmCount, setStats } from '../../core/trail/train';
   import type { TrailStep } from '../../core/trail/types';
   import { T, TRAIL } from '../../strings';
@@ -12,9 +14,36 @@
 
   const done = $derived(app.profile.trail.filter(Boolean).length);
   const nextStep = $derived(app.profile.trail.findIndex((marked) => !marked)); // -1 com as 9 feitas
-  const resumeAt = $derived(nextStep >= 0 ? (app.profile.lessonAt[nextStep as TrailStep] ?? 0) : 0);
+  // O passo guardado da próxima aula, no intervalo dela (um passo além do fim abre no último, como o leitor faz).
+  const resumeAt = $derived(
+    nextStep >= 0 ? Math.min(Math.max(app.profile.lessonAt[nextStep as TrailStep] ?? 0, 0), LESSONS[nextStep as TrailStep].parts.length - 1) : 0,
+  );
   let picking = $state(false);
   let picked = $state(TRAIL.map(() => false));
+  let homeEl = $state<HTMLElement>();
+
+  // O foco não cai no body quando o botão que o tinha some: ele vai para o que se usa a seguir.
+  async function focusOn(selector: string): Promise<void> {
+    await tick();
+    homeEl?.querySelector<HTMLElement>(selector)?.focus();
+  }
+  // A ação principal da tela: a próxima etapa ou, com as 9 feitas, o primeiro conjunto do treino.
+  const focusMain = (): Promise<void> => focusOn('[data-next-step] .primary, [data-train-set]');
+
+  function openPick(): void {
+    picking = true;
+    void focusOn('[data-pick]');
+  }
+
+  function cancelPick(): void {
+    picking = false;
+    void focusOn('[data-trail-prompt] .primary');
+  }
+
+  async function dismiss(): Promise<void> {
+    await app.dismissTrailPrompt();
+    if (!app.trailPromptShown) await focusMain();
+  }
 
   const open = (step: number): void => app.openTrail({ kind: 'lesson', step: step as TrailStep });
   const toggle = (step: number): Promise<boolean> => app.setTrail([step as TrailStep], !app.profile.trail[step]);
@@ -23,6 +52,7 @@
   async function markPicked(): Promise<void> {
     const steps = picked.flatMap((on, i) => (on ? [i as TrailStep] : []));
     if (steps.length > 0) await app.setTrail(steps, true);
+    if (!app.trailPromptShown) await focusMain();
   }
 </script>
 
@@ -44,7 +74,7 @@
   </div>
 {/snippet}
 
-<div class="trail-home">
+<div class="trail-home" bind:this={homeEl}>
   <header class="trail-top">
     <MiniCentro {app} />
     <div>
@@ -64,13 +94,13 @@
         </fieldset>
         <div class="row">
           <button type="button" class="btn primary" disabled={!picked.some(Boolean)} onclick={markPicked}>{T.trilha.promptSave}</button>
-          <button type="button" class="btn" onclick={() => (picking = false)}>{T.trilha.promptCancel}</button>
+          <button type="button" class="btn" onclick={cancelPick}>{T.trilha.promptCancel}</button>
         </div>
       {:else}
         <p>{T.trilha.prompt}</p>
         <div class="row">
-          <button type="button" class="btn primary" onclick={() => (picking = true)}>{T.trilha.promptOpen}</button>
-          <button type="button" class="btn" onclick={() => void app.dismissTrailPrompt()}>{T.trilha.promptDismiss}</button>
+          <button type="button" class="btn primary" onclick={openPick}>{T.trilha.promptOpen}</button>
+          <button type="button" class="btn" onclick={dismiss}>{T.trilha.promptDismiss}</button>
         </div>
       {/if}
     </div>

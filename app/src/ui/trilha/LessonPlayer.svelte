@@ -1,10 +1,10 @@
 <script lang="ts">
   // O leitor de aula (spec do sub-projeto 4, seção 6): o Centro pequeno, o nome da etapa e os pontos do progresso; o cubo animado com as
   // peças que importam em destaque; o algoritmo escrito com o movimento atual; os controles; o texto e a dica; Voltar e Próximo.
-  // ← e → andam um movimento e o espaço toca ou pausa (a tela não tem timer). Cada troca de passo guarda onde a aula parou
-  // (profile.lessonAt), e a aula volta dali. O último passo conclui: marca a etapa, a face lateral pisca e o Centro fica feliz.
-  // "Reduzir movimento" ou o Centro estático: nada toca sozinho, o cubo anda só pelos controles.
-  import { untrack } from 'svelte';
+  // ← e → andam um movimento (sem passar do começo nem do fim) e o espaço toca ou pausa (a tela não tem timer). Cada troca de passo guarda
+  // onde a aula parou (profile.lessonAt), e a aula volta dali; a troca é anunciada. O último passo conclui: marca a etapa, a face lateral
+  // pisca e o Centro fica feliz. "Reduzir movimento" ou o Centro estático: nada toca sozinho, o cubo anda só pelos controles.
+  import { tick, untrack } from 'svelte';
   import { LESSONS } from '../../core/trail/lessons';
   import type { TrailStep } from '../../core/trail/types';
   import { T, TRAIL } from '../../strings';
@@ -20,7 +20,9 @@
   let completed = $state(false);
   let saving = $state(false);
   let cube = $state.raw<CubeView | null>(null);
-  let cubeFailed = $state(false);
+  let cubeFailed = $state(false); // a figura 2D parada no lugar do 3D
+  let cubeMissing = $state(false); // nem a figura: o cubing.js não carregou
+  let navEl = $state<HTMLElement>();
   let cubeState = $state<CubeState>({ move: 0, playing: false, atStart: true, atEnd: false });
   let host = $state<HTMLElement>();
   let reduceMq = $state(false);
@@ -50,7 +52,8 @@
       }
       mounted = view;
       cube = view;
-      cubeFailed = view === null || !view.moving;
+      cubeMissing = view === null;
+      cubeFailed = view !== null && !view.moving;
       view?.listen((s) => {
         cubeState = s;
       });
@@ -68,6 +71,7 @@
     if (i < 0 || i > last || i === part) return;
     part = i;
     cube?.show(specOf(i), autoplay());
+    app.announce(T.trilha.lesson.partNow(i + 1, lesson.parts.length, lesson.parts[i].title));
     await app.setLessonAt(step, i);
   }
 
@@ -76,9 +80,18 @@
     saving = true;
     const ok = await app.completeLesson(step);
     saving = false;
-    if (!ok) return; // o aviso já saiu; a etapa fica como estava
+    if (!ok) return; // o aviso já saiu; a etapa fica como estava (e o foco, no botão)
     completed = true;
     app.announce(T.trilha.lesson.completed(TRAIL[step]));
+    // O botão de concluir sumiu: o foco vai para a ação principal nova (a próxima etapa, o treino ou a volta à trilha).
+    await tick();
+    navEl?.querySelector<HTMLElement>('button')?.focus();
+  }
+
+  // Avançar e concluir são o mesmo botão (o rótulo e a ação mudam no último passo): o foco não cai quando o passo muda.
+  function forward(): void {
+    if (part < last) void goTo(part + 1);
+    else void complete();
   }
 
   function onKey(e: KeyboardEvent): void {
@@ -86,12 +99,13 @@
     if (document.querySelector('dialog[open]')) return;
     const target = e.target instanceof Element ? e.target : null;
     if (target?.closest('input, textarea, select')) return;
+    // As setas param nas pontas (como os botões, que ficam desligados lá) e não repetem com a tecla segurada.
     if (e.key === 'ArrowRight') {
       e.preventDefault();
-      cube.step(1);
+      if (!e.repeat && !cubeState.atEnd) cube.step(1);
     } else if (e.key === 'ArrowLeft') {
       e.preventDefault();
-      cube.step(-1);
+      if (!e.repeat && !cubeState.atStart) cube.step(-1);
     } else if (e.code === 'Space' && !target?.closest('button, a')) {
       // Num botão, o espaço é do botão (tocar, voltar, próximo).
       e.preventDefault();
@@ -135,8 +149,11 @@
     <button type="button" class="link exit" onclick={() => app.openTrail()}>{T.trilha.lesson.exit}</button>
   </header>
 
-  <div class="cube" class:flat={cube !== null && !cube.moving} aria-hidden="true" data-cube bind:this={host}></div>
-  {#if cubeFailed}
+  <!-- Sem o cubing.js, a caixa recolhe: não há figura para mostrar nela. -->
+  <div class="cube" class:flat={cube !== null && !cube.moving} hidden={cubeMissing} aria-hidden="true" data-cube bind:this={host}></div>
+  {#if cubeMissing}
+    <p class="muted note" data-cube-missing>{T.trilha.lesson.noCube}</p>
+  {:else if cubeFailed}
     <p class="muted note" data-cube-flat>{T.trilha.lesson.flat}</p>
   {/if}
 
@@ -163,7 +180,7 @@
     <p class="tip"><strong>{T.trilha.lesson.tip}:</strong> {current.tip}</p>
   {/if}
 
-  <div class="nav">
+  <div class="nav" bind:this={navEl}>
     {#if completed}
       {#if lesson.cases}
         <button type="button" class="btn primary" onclick={() => app.openTrail({ kind: 'set', set: lesson.cases! })}>{T.trilha.lesson.train}</button>
@@ -173,11 +190,7 @@
       <button type="button" class="btn" onclick={() => app.openTrail()}>{T.trilha.lesson.exit}</button>
     {:else}
       <button type="button" class="btn" disabled={part === 0} onclick={() => goTo(part - 1)}>{T.trilha.lesson.prev}</button>
-      {#if part < last}
-        <button type="button" class="btn primary" onclick={() => goTo(part + 1)}>{T.trilha.lesson.next}</button>
-      {:else}
-        <button type="button" class="btn primary" disabled={saving} onclick={complete}>{marked ? T.trilha.lesson.finish : T.trilha.lesson.done}</button>
-      {/if}
+      <button type="button" class="btn primary" onclick={forward}>{part < last ? T.trilha.lesson.next : marked ? T.trilha.lesson.finish : T.trilha.lesson.done}</button>
     {/if}
   </div>
 </div>

@@ -1,7 +1,8 @@
 <script lang="ts">
   // A primeira vez: o tour do protótipo, em três passos, e a pergunta "Já resolve o cubo?" (spec do sub-projeto 4, seção 8.5). No passo 2
   // a pessoa segura (espaço ou o botão) até o anel ficar verde e solta; Continuar só libera depois disso (skipPractice libera de cara,
-  // para os testes). Pular apresentação vai à pergunta. "Ainda não" fecha o tour e abre a aba Trilha na aula 1; quem já resolve segue
+  // para os testes). Pular apresentação vai à pergunta. "Ainda não" fecha o tour, dispensa o aviso "Já resolve?" da Trilha (a pessoa já
+  // respondeu) e abre a aba Trilha na aula 1; quem já resolve segue
   // como antes: importar (do csTimer ou da versão anterior) ou começar do zero. Não há dados de exemplo. Fechar por qualquer caminho grava
   // que a primeira vez já passou (profile.onboarded), e o tour não volta sozinho.
   //
@@ -20,6 +21,8 @@
     skipPractice = false,
     onpickfile,
   }: { app: AppState; open: boolean; skipPractice?: boolean; onpickfile?: () => void } = $props();
+  const uid = $props.id();
+  const textId = `${uid}-text`; // o texto do passo: descreve o "Ainda não" na pergunta
 
   // O Centro de cada passo, como no protótipo: o anel e os olhos do passo, o marco aceso no terceiro e a primeira etapa da trilha na
   // pergunta.
@@ -198,8 +201,9 @@
     close();
   }
 
-  // "Ainda não": a aba Trilha abre direto na aula 1, e o tour fecha.
+  // "Ainda não": a aba Trilha abre direto na aula 1, e o tour fecha. A resposta já foi dada: o aviso "Já resolve?" não volta na Trilha.
   function notYet(): void {
+    void app.dismissTrailPrompt();
     app.openTrail({ kind: 'lesson', step: 0 });
     close();
   }
@@ -218,7 +222,7 @@
       <div class="label">{T.onboarding.stepOf(step)}</div>
       <div class="centro-box" bind:this={boxEl}>{@html centroMarkup}</div>
       <h2>{current.title}</h2>
-      <p>{stepText}</p>
+      <p id={textId}>{stepText}</p>
       {#if step === 2}
         <button
           type="button"
@@ -232,7 +236,7 @@
       {/if}
       {#if step === 4}
         <div class="actions">
-          <button type="button" class="btn primary" onclick={notYet}>{T.onboarding.notYet}</button>
+          <button type="button" class="btn primary" aria-describedby={textId} onclick={notYet}>{T.onboarding.notYet}</button>
         </div>
         <p class="already"><strong>{T.onboarding.already}</strong> · {T.onboarding.end}</p>
       {/if}

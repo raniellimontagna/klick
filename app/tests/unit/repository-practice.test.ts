@@ -156,6 +156,16 @@ describe('o treino no arquivo e nas cópias (spec 9.3)', () => {
     expect(await repo.listPractice()).toEqual([later]);
   });
 
+  it('restaurar uma cópia com um treino que não é lista mantém o treino daqui, como uma cópia sem a chave', async () => {
+    const repo = await fresh();
+    const mine = await repo.addPractice(pr());
+    const snapshot = await repo.exportAll();
+    await repo.replaceAll({ ...snapshot, practice: 'quebrado' as unknown as Practice[] });
+    expect(await repo.listPractice()).toEqual([mine]);
+    await repo.replaceAll({ ...snapshot, practice: { 0: mine } as unknown as Practice[] });
+    expect(await repo.listPractice()).toEqual([mine]);
+  });
+
   it('restaurar uma cópia de antes do treino mantém a escolha de algoritmos, os casos fora e o passo das aulas daqui', async () => {
     const repo = await fresh();
     await repo.saveProfile({ finish: 'fosco' });

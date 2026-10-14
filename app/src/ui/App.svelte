@@ -33,7 +33,10 @@
   ];
 
   // A aba Trilha carrega na primeira vez que abre: as aulas ficam fora do código da abertura (spec 9.5). O service worker guarda o pedaço.
-  const loadTrilha = () => import('./trilha/TrilhaScreen.svelte');
+  // Se ele não carrega, a aba mostra a linha de erro, e "Tentar de novo" refaz o import (loadTrilha é trocável nos testes).
+  let { loadTrilha = () => import('./trilha/TrilhaScreen.svelte') }: { loadTrilha?: () => Promise<typeof import('./trilha/TrilhaScreen.svelte')> } =
+    $props();
+  let trilhaTry = $state(0);
 
   let app = $state.raw<AppState | null>(null);
   let failed = $state(false);
@@ -207,9 +210,16 @@
         <EvolucaoScreen {app} />
       {/if}
       {#if app.tab === 'trilha'}
-        {#await loadTrilha() then { default: TrilhaScreen }}
-          <TrilhaScreen {app} />
-        {/await}
+        {#key trilhaTry}
+          {#await loadTrilha() then { default: TrilhaScreen }}
+            <TrilhaScreen {app} />
+          {:catch}
+            <section class="screen" data-screen="trilha" aria-label={T.tabs.trilha}>
+              <p role="alert" data-trail-load-failed>{T.trilha.loadFailed}</p>
+              <button type="button" class="btn" onclick={() => trilhaTry++}>{T.trilha.retry}</button>
+            </section>
+          {/await}
+        {/key}
       {/if}
       {#if app.tab === 'companion'}
         <CentroScreen {app} />

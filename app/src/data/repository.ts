@@ -776,8 +776,9 @@ export function createRepository(
 
     async replaceAll(data) {
       const { sessions, solves, profile } = data;
-      // Uma cópia de antes do treino (sem `practice`) não apaga o treino daqui; com a lista, mesmo vazia, o treino é o dela.
-      const practice = data.practice === undefined ? null : practiceFrom(data.practice);
+      // Uma cópia de antes do treino (sem `practice`, ou com algo que não é lista) não apaga o treino daqui; com a lista, mesmo vazia, o
+      // treino é o dela.
+      const practice = Array.isArray(data.practice) ? practiceFrom(data.practice) : null;
       await write(['sessions', 'solves', 'profile', 'practice'], async (tx) => {
         const sessionStore = tx.objectStore('sessions');
         const solveStore = tx.objectStore('solves');

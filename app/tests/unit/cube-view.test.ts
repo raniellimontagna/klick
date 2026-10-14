@@ -127,3 +127,35 @@ describe('cubo da aula: o TwistyPlayer atrás da interface (spec 6.1)', () => {
     expect(f.drawn).toEqual([{ svg: 'planificação', mask: maskObject('pair'), pattern: "padrão z2 R U R'" }]);
   });
 });
+
+describe('o teste de WebGL (hasWebGL)', () => {
+  it('testa uma vez por abertura e solta o contexto do teste', async () => {
+    vi.resetModules();
+    const lose = vi.fn();
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockImplementation(((kind: string) => (kind === 'webgl2' ? { getExtension: (name: string) => (name === 'WEBGL_lose_context' ? { loseContext: lose } : null) } : null)) as never);
+    try {
+      const { hasWebGL } = await import('../../src/ui/trilha/cube-view');
+      expect(hasWebGL()).toBe(true);
+      expect(hasWebGL()).toBe(true);
+      expect(getContext).toHaveBeenCalledTimes(1);
+      expect(lose).toHaveBeenCalledTimes(1);
+    } finally {
+      getContext.mockRestore();
+    }
+  });
+
+  it('sem WebGL, a resposta (falso) também fica guardada', async () => {
+    vi.resetModules();
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation((() => null) as never);
+    try {
+      const { hasWebGL } = await import('../../src/ui/trilha/cube-view');
+      expect(hasWebGL()).toBe(false);
+      expect(hasWebGL()).toBe(false);
+      expect(getContext).toHaveBeenCalledTimes(2); // webgl2 e webgl, uma vez só
+    } finally {
+      getContext.mockRestore();
+    }
+  });
+});

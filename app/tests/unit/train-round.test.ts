@@ -79,6 +79,8 @@ describe('conjunto do treino (spec 7.1 e 7.4)', () => {
   it('tirar casos do sorteio grava; com todos fora, o treino não começa', async () => {
     const { a, repo } = await app();
     render(SetView, { app: a, set: 'pll2' });
+    // A caixa fica dentro de um rótulo: a área de toque é a dele, não só a da caixa.
+    expect(screen.getByRole('checkbox', { name: 'T-perm no sorteio' }).closest('label')).not.toBeNull();
     for (const name of ['T-perm', 'Y-perm', 'Ua', 'Ub', 'H-perm', 'Z-perm']) {
       await fireEvent.click(screen.getByRole('checkbox', { name: `${name} no sorteio` }));
       await waitFor(() => expect(a.profile.trainOff.length).toBeGreaterThan(0));
@@ -137,8 +139,11 @@ describe('rodada do treino (spec 7.2)', () => {
     expect(screen.getByText("F U R U' R' F'")).toBeInTheDocument(); // o inverso do algoritmo da Linha, sem giro de cima (sorteio 0)
     await solve();
     await screen.findByRole('button', { name: 'Acertei' });
+    // A parada é anunciada, com o tempo e o que fazer.
+    await waitFor(() => expect(a.live).toMatch(/^Parou em \d:\d\d\.\d\d\. Acertei ou errei\?$/));
     key('keydown', 'Enter', 'Enter');
     await waitFor(async () => expect(await repo.listPractice()).toHaveLength(1));
+    await waitFor(() => expect(document.activeElement).toBe(document.querySelector('[data-round]')));
     const [p] = await repo.listPractice();
     expect(p).toMatchObject({ caseId: 'oll2-linha', ok: true, helped: false });
     expect(p.ms).toBeGreaterThanOrEqual(0);
@@ -195,7 +200,11 @@ describe('rodada do treino (spec 7.2)', () => {
     const { a, repo } = await app();
     round(a);
     await solve();
-    await fireEvent.click(await screen.findByRole('button', { name: 'Acertei' }));
+    const ok = await screen.findByRole('button', { name: 'Acertei' });
+    ok.focus();
+    await fireEvent.click(ok);
+    // Os botões de marcar somem com o caso seguinte: o foco vai para a rodada, não para o body.
+    await waitFor(() => expect(document.activeElement).toBe(document.querySelector('[data-round]')));
     await fireEvent.click(await screen.findByRole('button', { name: 'Apagar' }));
     await waitFor(() => expect(document.querySelector('[data-last-attempt]')).toBeNull());
     expect(await repo.listPractice()).toEqual([]);

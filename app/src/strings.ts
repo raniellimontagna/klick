@@ -164,10 +164,14 @@ export const T = Object.freeze({
     trainHint: 'Cada caso aparece montado por um embaralhamento curto. O tempo do treino não entra nas suas estatísticas.',
     sets: Object.freeze({ oll2: 'OLL em 2 passos', pll2: 'PLL em 2 passos', f2l: 'F2L com algoritmos' }),
     firm: (n: number, total: number) => `${n} de ${total} firmes`,
+    // O pedaço da aba não carregou (sem rede antes do pré-cache, ou o arquivo falhou): a linha de erro e o botão que tenta de novo.
+    loadFailed: 'A Trilha não carregou. Confira a conexão e tente de novo.',
+    retry: 'Tentar de novo',
     // O leitor de aula (ui/trilha/LessonPlayer.svelte).
     lesson: Object.freeze({
       exit: 'Voltar à trilha',
       partOf: (i: number, n: number) => `passo ${i} de ${n}`,
+      partNow: (i: number, n: number, title: string) => `passo ${i} de ${n}: ${title}`, // o anúncio da troca de passo
       alg: 'Algoritmo',
       tip: 'Dica',
       controls: 'Controles do cubo',
@@ -183,6 +187,7 @@ export const T = Object.freeze({
       nextStep: 'Próxima etapa',
       train: 'Treinar os casos',
       flat: 'O cubo 3D não abriu neste aparelho. A figura mostra o estado, e o algoritmo está escrito abaixo.',
+      noCube: 'O cubo não abriu neste aparelho. A aula segue pelo texto e pelos movimentos escritos.', // nem a figura 2D carregou
       completed: (name: string) => `${name}: etapa feita.`,
     }),
     // Um conjunto do treino (ui/trilha/SetView.svelte): os casos do mais fraco ao mais firme, o sorteio e a escolha de algoritmo.
@@ -214,6 +219,7 @@ export const T = Object.freeze({
       miss: 'Errei',
       last: 'Última tentativa',
       outcome: (ok: boolean, helped: boolean) => `${ok ? 'acerto' : 'erro'}${helped ? ' · com ajuda' : ''}`,
+      stopped: (time: string) => `Parou em ${time}. Acertei ou errei?`, // o anúncio da parada do tempo
       caseAvg: (avg: string | null) => (avg ? `média do caso ${avg}` : 'sem média ainda'),
       fixToOk: 'Era acerto',
       fixToMiss: 'Era erro',

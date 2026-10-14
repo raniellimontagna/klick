@@ -59,7 +59,10 @@
         {@const off = app.profile.trainOff.includes(c.id)}
         <li data-case={c.id}>
           <div class="case-row">
-            <input type="checkbox" checked={!off} aria-label={T.trilha.set.include(c.name)} onchange={(e) => void setIncluded(e.currentTarget, c.id)} />
+            <!-- O rótulo é a área de toque da caixa (24 px, 44 no toque); o nome vem do aria-label. -->
+            <label class="include">
+              <input type="checkbox" checked={!off} aria-label={T.trilha.set.include(c.name)} onchange={(e) => void setIncluded(e.currentTarget, c.id)} />
+            </label>
             <button type="button" class="case-name" aria-expanded={open === c.id} onclick={() => (open = open === c.id ? null : c.id)}>{c.name}</button>
             <span class="chip level">{T.trilha.set.level[levelName(s.level)]}</span>
           </div>
@@ -118,10 +121,28 @@
     gap: 10px;
   }
 
+  .set-view {
+    --box: 24px; /* a área de toque da caixa do sorteio; os detalhes do caso alinham depois dela */
+  }
+
   .case-row {
     display: flex;
     align-items: center;
     gap: 10px;
+  }
+
+  .include {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    min-width: var(--box);
+    min-height: var(--box);
+    cursor: pointer;
+  }
+
+  .include input {
+    margin: 0;
   }
 
   .case-name {
@@ -140,12 +161,12 @@
   }
 
   .case-stats {
-    margin: 2px 0 0 28px;
+    margin: 2px 0 0 calc(var(--box) + 10px);
     font-size: 13px;
   }
 
   .case-more {
-    margin: 8px 0 0 28px;
+    margin: 8px 0 0 calc(var(--box) + 10px);
     display: grid;
     gap: 6px;
   }
@@ -173,6 +194,10 @@
   }
 
   @media (pointer: coarse) {
+    .set-view {
+      --box: 44px;
+    }
+
     .case-name,
     .alg-choice {
       min-height: 44px;

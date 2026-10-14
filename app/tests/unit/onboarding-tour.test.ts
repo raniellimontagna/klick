@@ -5,6 +5,7 @@ import { createRepository } from '../../src/data/repository';
 import { createScrambleQueue } from '../../src/scramble/queue';
 import { AppState } from '../../src/ui/state/app.svelte';
 import OnboardingDialog from '../../src/ui/dialogs/OnboardingDialog.svelte';
+import TrilhaScreen from '../../src/ui/trilha/TrilhaScreen.svelte';
 import { T } from '../../src/strings';
 import { mockMedia } from './media';
 
@@ -192,6 +193,27 @@ describe('a pergunta da trilha (spec do sub-projeto 4, seção 8.5)', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
     expect(await screen.findByRole('heading', { name: 'Já resolve o cubo?' })).toBeInTheDocument();
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Ainda não' }));
+  });
+
+  it('"Ainda não" é descrito pelo texto da pergunta', async () => {
+    const { a } = await app();
+    render(OnboardingDialog, { app: a, open: true });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Pular apresentação' }));
+    expect(screen.getByRole('button', { name: 'Ainda não' })).toHaveAccessibleDescription(T.onboarding.steps[3].text);
+  });
+
+  it('depois de "Ainda não", a home da Trilha não mostra o aviso de marcar o que já sabe', async () => {
+    const { a, repo } = await app();
+    a.dialog = 'onboarding';
+    render(OnboardingDialog, { app: a, open: true });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Pular apresentação' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Ainda não' }));
+    await vi.waitFor(async () => expect((await repo.getMeta()).trailPromptDismissed).toBe(true), { timeout: 3000 });
+    expect(a.trailPromptShown).toBe(false);
+    a.openTrail();
+    render(TrilhaScreen, { app: a });
+    expect(await screen.findByText('0 de 9 etapas')).toBeInTheDocument();
+    expect(screen.queryByText(T.trilha.prompt)).toBeNull();
   });
 
   it('"Ainda não" fecha o tour e abre a aba Trilha direto na aula 1', async () => {

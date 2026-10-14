@@ -73,6 +73,19 @@ describe('casca do app', () => {
 });
 
 describe('a aba Trilha', () => {
+  it('se o pedaço da Trilha não carrega: uma linha de erro com "Tentar de novo", que refaz o import', async () => {
+    let calls = 0;
+    const loadTrilha = () => (++calls === 1 ? Promise.reject(new Error('offline')) : import('../../src/ui/trilha/TrilhaScreen.svelte'));
+    render(App, { loadTrilha });
+    await screen.findByRole('button', { name: 'Timer' });
+    screen.getAllByRole('button', { name: 'Trilha' })[0].click();
+    expect(await screen.findByRole('alert')).toHaveTextContent(T.trilha.loadFailed);
+    screen.getByRole('button', { name: T.trilha.retry }).click();
+    expect(await screen.findByText('0 de 9 etapas', {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(calls).toBe(2);
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
   it('a tecla 3 abre a Trilha (carregada na hora) e a 4 o Centro', async () => {
     render(App);
     await screen.findByRole('button', { name: 'Timer' });
