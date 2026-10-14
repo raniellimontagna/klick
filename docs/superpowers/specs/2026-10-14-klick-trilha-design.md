@@ -77,14 +77,19 @@ Um módulo novo, `core/trail/`, sem interface:
 ```ts
 type TrailStep = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8; // índice em profile.trail
 type CaseSet = 'oll2' | 'pll2' | 'f2l';
-type Stage = 'cross' | 'firstLayer' | 'secondLayer' | 'yellowCross' | 'lastLayer' | 'f2l' | 'oll' | 'solved';
+// A segunda camada é o 'f2l' (as duas primeiras camadas inteiras) e a última camada é o 'solved'. 'llEdges', 'llCorners' e 'solved'
+// aceitam um giro de cima.
+type Stage = 'daisy' | 'cross' | 'firstLayer' | 'f2l' | 'yellowCross' | 'llEdges' | 'llCorners' | 'oll' | 'solved';
+// As peças em destaque; o resto fica apagado ou cinza. 'pair' é a figura do treino de F2L.
+type MaskKind = 'daisy' | 'cross' | 'firstLayer' | 'f2l' | 'eoll' | 'oll' | 'pll' | 'll' | 'pair';
 
 interface LessonCube {
-  setup: string; // movimentos que levam do resolvido ao estado que o passo mostra
+  setup: string; // movimentos que levam do resolvido (amarelo em cima, verde na frente) ao estado que o passo mostra
   alg?: string; // o que o passo toca; sem ele, o cubo só mostra o estado
-  stickering?: string; // as peças que importam; o resto fica cinza (stickerings do cubing.js, como 'F2L', 'OLL' e 'PLL'; os nomes são conferidos no plano)
-  view?: '3D' | 'top'; // ângulo da câmera
-  ends?: Stage; // o que o passo promete (setup + alg chega aqui); os testes conferem
+  view: '3D' | 'top' | 'below'; // 3D de cima, a camada de cima chapada, ou 3D por baixo (para ver a cruz branca)
+  mask?: MaskKind; // as peças que importam
+  from?: Stage; // o que o setup já cumpre; os testes conferem
+  ends?: Stage; // o que setup + alg cumpre, e o setup sozinho não; os testes conferem
 }
 
 interface LessonPart {
@@ -114,6 +119,8 @@ interface TrainCase {
 - **Cores:** padrão ocidental. Branco oposto ao amarelo, verde na frente, branco embaixo desde a aula 1.
 - **Cruz:** pela margarida. As arestas brancas vão em volta do centro amarelo, e cada uma é virada para baixo, alinhada com o centro da sua cor. Assim a cruz já nasce embaixo, como no CFOP.
 - **Método:** as etapas 1 a 5 são o método de camadas; as etapas 6 a 9 levam ao CFOP.
+- **Quadro do app:** amarelo em cima, branco embaixo e verde na frente em todas as aulas e no treino. O cubing.js parte do branco em cima; o app põe `z2` na frente de todo setup.
+- **Destaque:** as máscaras viram o `experimentalStickeringMaskOrbits` do TwistyPlayer (e o objeto equivalente na figura 2D), calculadas pela identidade da peça no quadro do app. Os stickerings prontos do cubing.js (`Cross`, `OLL`…) supõem o branco em cima e não servem.
 
 ### 5.3 As 9 aulas
 
@@ -135,7 +142,7 @@ O texto é escrito em pt-BR, num tom direto, e revisado pelo Ranielli num cubo d
 
 - **`oll2`:** 10 casos (3 de cruz amarela e 7 de cantos).
 - **`pll2`:** 6 casos (2 de cantos e 4 de arestas).
-- **`f2l`:** os 41 casos, com a numeração de uso comum.
+- **`f2l`:** os 41 casos, com a numeração do app por grupos (o par é sempre o da frente-direita): 1 a 24 com canto e aresta em cima, 25 a 30 com o canto em cima e a aresta no lugar, 31 a 36 com o canto no lugar e a aresta em cima, 37 a 41 com os dois no lugar.
 
 Cada caso tem de 1 a 3 algoritmos. A pessoa escolhe qual usa, e a escolha fica em `profile.algChoice`.
 
@@ -145,15 +152,16 @@ Cada caso tem de 1 a 3 algoritmos. A pessoa escolhe qual usa, e a escolha fica e
 - **Variação:** um giro aleatório da camada de cima (nenhum, U, U' ou U2) antes e outro depois, para o caso não aparecer sempre na mesma posição.
 - **Partida:** sempre do cubo resolvido, com branco embaixo e verde na frente.
 - **Gerador:** recebe o sorteio por fora, para os testes serem fixos.
+- **Texto:** giros seguidos da mesma camada se juntam (`U U'` some, `U U` vira `U2`), e o 2 sai sem apóstrofo.
 
 ### 5.6 Conferência
 
 Os testes rodam no Vitest, sem rede, importando o cubing do `node_modules`. Eles conferem:
 - **Algoritmos:** cada algoritmo de cada caso resolve o estado montado pelo inverso do algoritmo padrão, permitindo um giro final da camada de cima.
 - **Embaralhamento:** monta o caso, ou seja, um dos algoritmos o resolve, permitindo o giro final.
-- **Passos de aula:** todo passo com `ends` chega lá a partir do `setup`, depois do `alg`.
-- **Verificadores de etapa** sobre o estado do cubo: cruz feita, primeira camada, segunda camada, cruz amarela, última camada, F2L, OLL feita e cubo resolvido.
-- **Integridade:** todos os ids únicos, os conjuntos completos (10, 6 e 41), toda aula com 4 passos ou mais e todo algoritmo escrito em notação que o cubing.js entende.
+- **Passos de aula:** todo passo com `from` já cumpre essa etapa no `setup`; todo passo com `ends` chega lá depois do `alg`, e o `setup` sozinho não chega.
+- **Verificadores de etapa** sobre o estado do cubo (`Stage`): margarida, cruz, primeira camada, F2L (a segunda camada), cruz amarela, arestas de cima no lugar, cantos de cima no lugar, OLL feita e cubo resolvido (a última camada).
+- **Integridade:** todos os ids únicos, os conjuntos completos (10, 6 e 41), toda aula com 4 passos ou mais e todo algoritmo escrito em notação que o cubing.js entende, com o inverso do app igual ao do `Alg.invert`. No F2L, os 41 casos são exatamente as 41 classes (onde estão o canto e a aresta do par, com qualquer giro de cima), e cada um mexe só no par da frente-direita.
 
 ## 6. Aulas
 
@@ -194,7 +202,7 @@ Sem WebGL, ou com o TwistyPlayer sem carregar, a aula usa uma figura 2D do estad
 
 ### 7.2 Rodada
 
-1. **Montar:** aparece o embaralhamento do caso (seção 5.5) e uma figura 2D: a camada de cima na OLL e na PLL, ou o canto e a aresta do par no F2L. A pessoa monta o caso no cubo de verdade e confere pela figura.
+1. **Montar:** aparece o embaralhamento do caso (seção 5.5) e uma figura 2D: a camada de cima na OLL e na PLL (nos 3 casos da cruz amarela, só as arestas), ou o canto e a aresta do par no F2L. A pessoa monta o caso no cubo de verdade e confere pela figura.
 2. **Executar:** com o timer de sempre, o mesmo espaço e os mesmos dois polegares, sem inspeção. O núcleo do timer é reaproveitado, mas o resultado não vira solve.
 3. **Marcar:** ao parar, aparecem "Acertei" (o padrão, por Enter ou toque) e "Errei".
 4. **Ver o resultado:** o nome do caso, o algoritmo escolhido, o tempo e a média do caso.
@@ -219,7 +227,7 @@ O nível de um caso vai de 0 a 4 e é calculado pelo histórico das tentativas, 
 
 **Sorteio do próximo caso:**
 1. Os casos nunca tentados vêm primeiro, na ordem da aula.
-2. Depois, o peso de cada caso é 16 ÷ 2^nível. O peso dobra se a média das últimas 5 tentativas certas do caso passar de 1,25 vez a média do conjunto.
+2. Depois, o peso de cada caso é 16 ÷ 2^nível. O peso dobra se a média das últimas 5 tentativas certas do caso passar de 1,25 vez a média do conjunto. Para o tempo, conta a tentativa certa e sem ajuda; a média do conjunto é a média das médias de 5 dos casos que têm uma. Ela conta todos os casos do conjunto, também os que saíram do sorteio: tirar um caso não muda a velocidade da pessoa nesse conjunto (decidido em 14/10).
 3. O mesmo caso nunca sai duas vezes seguidas (num conjunto de um caso só, ele repete).
 4. O sorteio recebe o gerador de aleatórios por fora.
 
@@ -231,12 +239,14 @@ Uma lista do caso mais fraco ao mais firme, com:
 - % de acerto;
 - média das últimas 5 certas.
 
+A % de acerto conta como acerto a tentativa certa feita com ajuda: a ajuda já volta o nível a 0, e o acerto continua sendo acerto (decidido em 14/10). A média do conjunto que o sorteio usa (seção 7.3) conta todos os casos, também os fora do sorteio.
+
 Tocar num caso mostra os algoritmos dele e deixa trocar a escolha.
 
 ### 7.5 Centro no treino
 
 - **Erro:** olho entreaberto.
-- **Melhor tempo do caso:** feliz, sem salto.
+- **Melhor tempo do caso:** feliz, sem salto, quando a tentativa certa e sem ajuda bate o melhor tempo anterior do caso (a primeira tentativa não conta).
 - **Texto:** nenhum.
 
 ## 8. Navegação e telas
@@ -278,7 +288,7 @@ Tocar num caso mostra os algoritmos dele e deixa trocar a escolha.
 
 ### 8.5 Tour
 
-- **A pergunta:** a apresentação (`dialogs/onboarding`) ganha um último passo, "Já resolve o cubo?".
+- **A pergunta:** a apresentação (`dialogs/OnboardingDialog`) ganha um último passo, "Já resolve o cubo?", com "Ainda não" e, abaixo de "Já resolvo", as opções de sempre no mesmo passo. "Pular apresentação" leva a ele.
 - **"Ainda não":** fecha o tour e abre a aba Trilha direto na aula 1.
 - **"Já resolvo":** segue como hoje (começar do zero ou importar). A aba Trilha mostra o aviso de marcar o que já sabe.
 - **Quem já usa o app:** não vê o tour de novo e encontra o mesmo aviso na Trilha.
@@ -306,7 +316,7 @@ interface Practice {
 
 - **Índices:** por `caseId` e por `at`.
 - **Migração:** solves, sessões, perfil, meta e cópias passam intactos. O caminho que já libera as outras abas antes de uma migração vale aqui.
-- **Repositório:** ganha `addPractice`, `listPractice`, `updatePractice` e `deletePractice`. A interface só usa as duas últimas na correção da última tentativa.
+- **Repositório:** ganha `addPractice`, `listPractice`, `updatePractice` e `deletePractice`. A interface só usa as duas últimas na correção da última tentativa. Cada escrita avisa as outras abas (`'practice'`).
 
 ### 9.2 Perfil e meta
 
@@ -325,13 +335,13 @@ interface Profile {
 ### 9.3 Exportar, importar e restaurar
 
 - **Arquivo do Klick:** ganha `practice: Practice[]`.
-- **Importar:** junta o treino pelo id, sem duplicar.
-- **Restaurar uma cópia:** troca o treino junto com o resto.
+- **Importar:** junta o treino pelo id, sem duplicar. No perfil, a escolha de algoritmo e o passo das aulas juntam caso a caso (vale o do arquivo), e os casos fora do sorteio são os do arquivo.
+- **Restaurar uma cópia:** troca o treino junto com o resto. Uma cópia de antes do treino (sem `practice`) não apaga o treino daqui, e um perfil sem os campos do treino mantém a escolha de algoritmos, os casos fora do sorteio e o passo das aulas daqui.
 - **Arquivo antigo, sem `practice`:** entra normalmente.
 - **Validação:**
   - uma tentativa com caso desconhecido, tempo inválido ou campos faltando é deixada de fora;
   - no perfil, um `algChoice` fora do intervalo vira o padrão, e ids desconhecidos em `trainOff` são ignorados.
-- **Cópia do dia:** inclui o treino.
+- **Cópia do dia:** inclui o treino. Um dia só de treino também ganha a cópia: a primeira tentativa depois de uma cópia conta como mudança.
 
 ### 9.4 Falhas
 
@@ -342,7 +352,7 @@ interface Profile {
 ### 9.5 Offline
 
 - **O que vai em cache:** o conteúdo das aulas vai no código da aba Trilha, que carrega só quando ela abre. O TwistyPlayer vem dos arquivos do cubing.js em `public/vendor/cubing`, que o service worker já guarda (`globPatterns` inclui `**/*.js`).
-- **A conferir no plano:** que o pedaço do 3D cabe no limite de tamanho do cache.
+- **Conferido:** o maior arquivo de `public/vendor/cubing` (uns 670 KB) cabe no limite do cache (6 MiB); um teste de unidade guarda isso.
 
 ## 10. Testes
 
