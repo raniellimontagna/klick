@@ -203,6 +203,9 @@ const placeholderProfile = (): Profile => ({
   onboarded: false,
   currentSessionId: null,
   season: defaultSeason(),
+  lessonAt: {},
+  algChoice: {},
+  trainOff: [],
 });
 
 // Quem tem dados da v1 para oferecer: os que batem, ou só registros que não batem (a oferta mostra quantos ficaram de fora). Uma

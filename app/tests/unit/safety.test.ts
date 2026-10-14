@@ -13,7 +13,7 @@ const now = () => t;
 const meta = (p: Partial<Meta> = {}): Meta => ({
   schemaVersion: 1, deviceId: 'x', lastBackupAt: null, solvesSinceBackup: 0, lastBackupDay: null,
   lastExportAt: null, solvesSinceExport: 0, lastFolderSaveAt: null, solvesSinceFolderSave: 0,
-  lastFolderSaveDay: null, v1ImportOffered: false, persistRequested: false, installGuideDismissed: false, ...p,
+  lastFolderSaveDay: null, v1ImportOffered: false, persistRequested: false, installGuideDismissed: false, trailPromptDismissed: false, ...p,
 });
 
 describe('decisões depois de um solve', () => {

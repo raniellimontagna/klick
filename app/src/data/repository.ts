@@ -13,12 +13,12 @@
 import type { IDBPDatabase, IDBPObjectStore, IDBPTransaction, StoreNames } from 'idb';
 import { defaultSeason, finishUnlocked, moreAdvanced, seasonFrom } from '../core/season';
 import { defaultSettings } from '../core/types';
-import type { EventId, Meta, Penalty, Profile, SeasonRecord, SeasonState, Session, Settings, Solve } from '../core/types';
+import type { EventId, Meta, Penalty, Practice, Profile, SeasonRecord, SeasonState, Session, Settings, Solve } from '../core/types';
 import { T } from '../strings';
 import type { BackupRecord, KlickDB } from './db';
 import { newId } from './ids';
 
-export type ChangeKind = 'solves' | 'sessions' | 'profile' | 'meta' | 'all';
+export type ChangeKind = 'solves' | 'sessions' | 'profile' | 'meta' | 'practice' | 'all';
 // De onde veio o aviso: 'local' é desta aba (já está na memória de quem gravou); 'remote' é de outra aba (o canal).
 export type ChangeOrigin = 'local' | 'remote';
 // `solveIds` vem só nos avisos de solves: quais mudaram (gravados, editados, excluídos, restaurados ou apagados de vez). Sem ele (aviso
@@ -97,11 +97,16 @@ export interface Repository {
   replaceAll(data: KlickExport): Promise<void>; // limpa solves, sessões e perfil e grava os do arquivo; a temporada fica a mais adiantada (a daqui ou a do arquivo)
   onChange(fn: ChangeListener): () => void; // mudanças locais e de outras abas, com a origem (e, nos solves, os ids que mudaram)
   getSolves(ids: readonly string[]): Promise<(Solve | undefined)[]>; // vários solves por id numa leitura; o que não existe vem undefined
+  // O treino (spec do sub-projeto 4, seção 9.1). Cada escrita avisa 'practice'. A tela só usa update e delete na correção da última.
+  addPractice(p: Practice): Promise<Practice>; // pelo id de quem grava: uma nova tentativa com o mesmo id devolve a gravada, sem duplicar
+  listPractice(f?: { caseId?: string }): Promise<Practice[]>; // em ordem de at; com caseId, só as daquele caso
+  updatePractice(id: string, patch: { ok?: boolean }): Promise<Practice>;
+  deletePractice(id: string): Promise<void>;
   close(): void; // fecha a conexão do banco e o canal; depois disso o repositório não responde mais (usado ao trocar pela conexão reaberta)
 }
 
 const CHANNEL_NAME = 'klick-data';
-const CHANGE_KINDS: readonly string[] = ['solves', 'sessions', 'profile', 'meta', 'all'];
+const CHANGE_KINDS: readonly string[] = ['solves', 'sessions', 'profile', 'meta', 'practice', 'all'];
 const TRAIL_LENGTH = 9;
 
 const isChangeKind = (v: unknown): v is ChangeKind => typeof v === 'string' && CHANGE_KINDS.includes(v);
@@ -136,6 +141,7 @@ const META_DEFAULTS: Omit<Meta, 'deviceId'> = Object.freeze({
   v1ImportOffered: false,
   persistRequested: false,
   installGuideDismissed: false,
+  trailPromptDismissed: false,
 });
 
 function defaultProfile(): Profile {
@@ -146,6 +152,9 @@ function defaultProfile(): Profile {
     onboarded: false,
     currentSessionId: null,
     season: defaultSeason(),
+    lessonAt: {},
+    algChoice: {},
+    trainOff: [],
   };
 }
 
@@ -171,6 +180,7 @@ const metaOrNew = (stored: Meta | undefined, at: number): Meta =>
 const compareText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 const bySessionOrder = (a: Session, b: Session): number => a.order - b.order || a.createdAt - b.createdAt || compareText(a.id, b.id);
 const bySolveTime = (a: Solve, b: Solve): number => a.at - b.at || compareText(a.id, b.id);
+const byPracticeTime = (a: Practice, b: Practice): number => a.at - b.at || compareText(a.id, b.id);
 const newestDeletedFirst = (a: { id: string; deletedAt: number | null }, b: { id: string; deletedAt: number | null }): number =>
   (b.deletedAt ?? 0) - (a.deletedAt ?? 0) || compareText(a.id, b.id);
 
@@ -769,6 +779,43 @@ export function createRepository(
         }
       });
       announce('all');
+    },
+
+    async addPractice(p) {
+      const outcome = await write(['practice'], async (tx) => {
+        const store = tx.objectStore('practice');
+        const stored = await store.get(p.id);
+        if (stored) return { practice: stored, added: false };
+        await store.add(p);
+        return { practice: p, added: true };
+      });
+      if (outcome.added) announce('practice');
+      return structuredClone(outcome.practice);
+    },
+
+    async listPractice({ caseId } = {}) {
+      const list = caseId === undefined ? await db.getAll('practice') : await db.getAllFromIndex('practice', 'byCase', keyRange(caseId));
+      return list.sort(byPracticeTime);
+    },
+
+    async updatePractice(id, patch) {
+      const updated = await write(['practice'], async (tx) => {
+        const store = tx.objectStore('practice');
+        const current = await store.get(id);
+        if (!current) throw new Error(`Tentativa não encontrada: ${id}`);
+        const next: Practice = { ...current, ...definedOnly(patch) };
+        await store.put(next);
+        return next;
+      });
+      announce('practice');
+      return updated;
+    },
+
+    async deletePractice(id) {
+      await write(['practice'], async (tx) => {
+        await tx.objectStore('practice').delete(id);
+      });
+      announce('practice');
     },
 
     onChange(fn) {

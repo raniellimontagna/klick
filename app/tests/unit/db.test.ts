@@ -34,3 +34,20 @@ describe('abertura do banco e outras abas', () => {
     next.close();
   });
 });
+
+describe('versão 2 do banco', () => {
+  it('a store do treino tem os índices por caso e por tempo', async () => {
+    const db = await openKlickDb(fresh());
+    const store = db.transaction('practice').objectStore('practice');
+    expect([...store.indexNames].sort()).toEqual(['byAt', 'byCase']);
+    expect(store.keyPath).toBe('id');
+    db.close();
+  });
+
+  it('abrir a versão 1 (como fazem os testes de migração) não cria a store do treino', async () => {
+    const db = await openKlickDb(fresh(), {}, 1);
+    expect(db.objectStoreNames.contains('practice')).toBe(false);
+    expect(db.objectStoreNames.contains('solves')).toBe(true);
+    db.close();
+  });
+});

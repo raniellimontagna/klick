@@ -1,9 +1,9 @@
 // Esquema do IndexedDB do Klick. Quem abre o banco é o repositório (repository.ts); nada fora de data/ fala com o IndexedDB.
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import type { EventId, Meta, Profile, Session, Solve } from '../core/types';
+import type { EventId, Meta, Practice, Profile, Session, Solve } from '../core/types';
 
 export const DB_NAME = 'klick';
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 
 // Cópia de segurança guardada no próprio banco. `payload` é o KlickExport em JSON, ou comprimido com gzip em base64.
 export interface BackupRecord {
@@ -26,6 +26,8 @@ export interface KlickDB extends DBSchema {
   // 'current' guarda o Meta; 'folderHandle', o handle da pasta de cópias (o IndexedDB guarda handles por clone estruturado).
   meta: { key: 'current' | 'folderHandle'; value: Meta | FileSystemDirectoryHandle };
   backups: { key: string; value: BackupRecord; indexes: { byCreated: number } };
+  // O treino de algoritmos (versão 2): uma tentativa por registro, fora dos solves.
+  practice: { key: string; value: Practice; indexes: { byCase: [string, number]; byAt: number } }; // [caseId, at]
 }
 
 // O que acontece com a conexão por causa de outras abas ou do navegador. Quem abre o banco decide o que mostrar.
@@ -50,7 +52,9 @@ export async function openKlickDb(name: string = DB_NAME, events: DbEvents = {},
     terminated() {
       events.terminated?.();
     },
-    upgrade(db, oldVersion) {
+    // `newVersion` é a versão pedida: um teste que abre a versão 1 (para conferir a migração) não ganha a store da 2.
+    upgrade(db, oldVersion, newVersion) {
+      const target = newVersion ?? version;
       if (oldVersion < 1) {
         const solves = db.createObjectStore('solves', { keyPath: 'id' });
         solves.createIndex('bySession', ['sessionId', 'at']);
@@ -60,6 +64,12 @@ export async function openKlickDb(name: string = DB_NAME, events: DbEvents = {},
         db.createObjectStore('meta'); // 'current' e 'folderHandle'
         const backups = db.createObjectStore('backups', { keyPath: 'id' });
         backups.createIndex('byCreated', 'createdAt');
+      }
+      // Versão 2: o treino. Solves, sessões, perfil, meta e cópias passam intactos.
+      if (oldVersion < 2 && target >= 2) {
+        const practice = db.createObjectStore('practice', { keyPath: 'id' });
+        practice.createIndex('byCase', ['caseId', 'at']);
+        practice.createIndex('byAt', 'at');
       }
     },
   });

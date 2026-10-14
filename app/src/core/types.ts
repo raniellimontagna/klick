@@ -1,4 +1,5 @@
 // Tipos do domínio, compartilhados por core, data e ui. Em tempo de execução só existem DEFAULT_SETTINGS e defaultSettings().
+import type { TrailStep } from './trail/types';
 
 export type Penalty = null | '+2' | 'DNF';
 
@@ -102,6 +103,10 @@ export interface Profile {
   onboarded: boolean;
   currentSessionId: string | null;
   season: SeasonProgress; // a temporada atual e as fechadas (spec do sub-projeto 3, seção 5.1)
+  // Trilha e treino (spec do sub-projeto 4, seção 9.2). Um perfil antigo, sem eles, lê {}, {} e [].
+  lessonAt: Partial<Record<TrailStep, number>>; // o passo em que cada aula parou (some ao concluir)
+  algChoice: Record<string, number>; // id do caso → índice em algs (sem a chave: o padrão, 0)
+  trainOff: string[]; // ids dos casos fora do sorteio
 }
 
 // Estado local deste aparelho: versão do esquema, contadores e marcas das cópias de segurança, e sinalizadores de avisos já tratados.
@@ -119,6 +124,7 @@ export interface Meta {
   v1ImportOffered: boolean;
   persistRequested: boolean;
   installGuideDismissed: boolean;
+  trailPromptDismissed: boolean; // o aviso "Já resolve? Marque o que já sabe" foi dispensado neste aparelho
 }
 
 // Congelado por inteiro, inclusive o grupo de sons: quem precisar alterar trabalha numa cópia (defaultSettings).
