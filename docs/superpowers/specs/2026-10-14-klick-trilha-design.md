@@ -177,11 +177,13 @@ O leitor é uma tela dentro da aba Trilha. De cima para baixo:
 
 **Teclado:** ← e → andam um movimento, e o espaço toca ou pausa. A tela não tem timer, então não há conflito.
 
+**Câmera:** a vista de cima usa a latitude 35 e a longitude 30, o padrão do cubing.js. A vista de baixo usa a latitude -35: o cubing.js limita a latitude a ±35° (um -40 viraria -35).
+
 ### 6.2 Conclusão e retomada
 
 - **Último passo:** tem o botão "Consegui no meu cubo". Ele marca `trail[step]`, a face lateral pisca em azul (seção 8.4) e o Centro fica feliz. Depois aparece "Próxima etapa" ou, nas etapas 7 a 9, "Treinar os casos".
 - **Etapa já marcada:** abre a aula normalmente, sem desmarcar nada. O botão final passa a ser "Concluir".
-- **Retomada:** sair no meio guarda o passo em `profile.lessonAt[step]`, e a aula volta de onde parou. Concluir zera.
+- **Retomada:** sair no meio guarda o passo em `profile.lessonAt[step]`, e a aula volta de onde parou. Concluir zera. O passo é guardado a cada troca de passo, então sair a qualquer momento retoma dali; um passo guardado além do fim cai no último.
 
 ### 6.3 Movimento
 
@@ -211,6 +213,8 @@ Sem WebGL, ou com o TwistyPlayer sem carregar, a aula usa uma figura 2D do estad
 **Ajuda:** "Ver o algoritmo" fica disponível antes de começar. Usar marca a tentativa como "com ajuda", e ela não sobe o nível.
 
 **Correção:** só a última tentativa pode ser corrigida, trocando acerto e erro ou apagando. Isso vale até a próxima rodada começar.
+
+**Teclado com a tela do Timer montada:** enquanto o timer do treino roda (`app.trainerRunning`), a tela do Timer, sempre montada e ouvindo o teclado, não age. Assim a tecla que para o treino não troca de aba nem abre os atalhos.
 
 ### 7.3 Níveis e sorteio
 
@@ -263,7 +267,7 @@ Tocar num caso mostra os algoritmos dele e deixa trocar a escolha.
 
 - **Código:** o `Tab` ganha `'trilha'`.
 - **Ícone:** um caminho com degraus.
-- **Atalhos:** Centro e Ajustes mudam de número. A tela de atalhos acompanha.
+- **Atalhos:** Centro e Ajustes mudam de número. A tela de atalhos acompanha e ganha "← →" (andar um movimento na aula) e "Enter" (marcar acerto no treino).
 
 ### 8.2 Aba Trilha
 
@@ -317,6 +321,7 @@ interface Practice {
 - **Índices:** por `caseId` e por `at`.
 - **Migração:** solves, sessões, perfil, meta e cópias passam intactos. O caminho que já libera as outras abas antes de uma migração vale aqui.
 - **Repositório:** ganha `addPractice`, `listPractice`, `updatePractice` e `deletePractice`. A interface só usa as duas últimas na correção da última tentativa. Cada escrita avisa as outras abas (`'practice'`).
+- **Voltar atrás no deploy:** depois que a raiz rodar o `DB_VERSION` 2, publicar de novo uma versão com o banco v1 faz o `openDB` falhar com VersionError para quem já migrou (o IndexedDB não abre numa versão menor que a gravada). Voltar atrás exige manter o banco v2: a versão anterior das telas precisa vir com o `DB_VERSION` 2 e a migração.
 
 ### 9.2 Perfil e meta
 
