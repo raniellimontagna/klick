@@ -201,7 +201,7 @@ O 2º degrau é o próximo abaixo do 1º. Nenhuma meta fica abaixo de 1 s.
 - **Quando fecha:** quando os 9 marcos estão feitos.
 - **O que acontece:** a temporada vira um `SeasonRecord` em `past`, e a próxima começa com `startedAt` igual ao `endedAt` e metas novas.
 - **Definitiva:** apagar ou mudar a penalidade de um solve depois não desfaz a virada.
-- **Por penalidade no Timer:** tirar ou pôr +2 ou DNF no resultado também pode fechar a temporada. Na tela, aparece como depois de um solve: o fim de temporada no coach, a face de cima cheia e a piscada. O Centro reage de novo, mas sem o salto do recorde (decidido em 14/10).
+- **Por penalidade no Timer:** tirar ou pôr +2 ou DNF no resultado também pode fechar a temporada. As datas seguem a regra de quem fecha ao vivo: `endedAt` é o `at` desse solve, e a próxima começa na conferência que grava a virada. Na tela, aparece como depois de um solve: o fim de temporada no coach, a face de cima cheia e a piscada. O Centro reage de novo, mas sem o salto do recorde (decidido em 14/10).
 - **Fechada ao vivo** (um solve fechou):
   - `endedAt` é o `at` desse solve;
   - `basis` da próxima sai de todo o histórico de 3×3, incluindo esse solve.
@@ -318,7 +318,7 @@ O ajuste fica em `settings.centro` (`'animado' | 'estatico' | 'oculto'`, padrão
 
 ### 7.1 Prioridade
 
-O coach continua puro e sem estado guardado: tudo sai do histórico. Fala no máximo uma mensagem por solve, a de maior prioridade. O modo silencioso desliga só o texto.
+O coach continua puro e sem estado guardado: tudo sai do histórico. Fala no máximo uma mensagem por solve, a de maior prioridade. A exceção é a virada por troca de penalidade (seção 5.5): o mesmo solve ganha a mensagem do fim de temporada depois da sua. O modo silencioso desliga só o texto.
 
 Cada gatilho novo dispara ao entrar na condição, ou uma vez por sessão e por dia, nunca a cada solve. "Uma vez por sessão e por dia" quer dizer que este é o primeiro solve da sessão, no dia local de hoje, em que a condição vale. Isso se calcula pelos solves anteriores da sessão, sem memória. O dia entra porque sessões duram semanas: só "uma vez por sessão" viraria quase uma vez por temporada (decidido em 14/10).
 
@@ -339,7 +339,7 @@ Cada gatilho novo dispara ao entrar na condição, ou uma vez por sessão e por 
 
 ### 7.2 Gatilhos novos
 
-**Fim de temporada:** o solve fechou a temporada (seção 5.5).
+**Fim de temporada:** o solve, ou a troca de penalidade no resultado dele, fechou a temporada (seção 5.5).
 - Exemplo: "Temporada 2 completa: 412 solves, melhor média de 12 de 18.61 para 17.84. Gelo liberado."
 - Na T1, sem a média: "Temporada 1 completa: 1.204 solves. Brilho liberado."
 - Da T4 em diante, sem a frase do acabamento.
@@ -396,7 +396,7 @@ Mantém a estrutura de hoje: o palco no alto e os cartões embaixo.
 **Na virada da temporada (no Timer):**
 - a mensagem do coach;
 - a face de cima piscando e esvaziando;
-- o salto, se o mesmo solve também for recorde.
+- o salto, se o mesmo solve também for recorde. Na virada por troca de penalidade, a reação começa na hora (sem a espera de 0,5 s da gravação) e não tem salto; com a primeira troca ainda gravando, um segundo toque não conta.
 
 Sem diálogo e sem confete.
 
@@ -410,9 +410,9 @@ Todos os textos ficam em `strings.ts`, na voz da spec 5.7: calma, sem emoji e se
 | `core/coach.ts` | Cada gatilho novo, a prioridade dos 12, as regras de uma vez por sessão e por dia ou por marco, a média de 12 inválida no fora da curva, o modo silencioso |
 | `face`, `behavior`, `animator` | Intervalos do piscar entre 2 e 7 s e taxa de duplas perto de 10%, com sorteio fixo; olhadinha só no parado; `approach` converge em cerca de 200 ms; o `freeze` cancela laço e temporizadores; o laço para quando o rosto assenta; o estático não agenda nada; a página escondida pausa |
 | Repositório | `advanceSeason` condicional, com duas chamadas concorrentes; importar e restaurar não regridem; a validação do `profileOf`; perfil antigo sem `season` vira o padrão |
-| Telas (`@testing-library/svelte`) | Cartão da temporada com progresso, histórico, liberação de acabamento por `past`, controle animado/estático/oculto, Timer sem o Centro quando oculto, `data-eyes` nos estados |
+| Telas (`@testing-library/svelte`) | Cartão da temporada com progresso, histórico, liberação de acabamento por `past`, controle animado/estático/oculto, Timer sem o Centro quando oculto, `data-eyes` nos estados; a virada por troca de penalidade no Timer (com e sem o modo silencioso, e com dois toques seguidos) |
 | Ponta a ponta (Playwright) | Importar 1.000 solves de 3×3 fecha a T1, libera o Brilho e abre a T2 com metas; um solve que fecha a temporada mostra a mensagem e o histórico; axe na tela do Centro nos dois temas |
-| Manual | Legibilidade do rosto a 48, 64, 96 e 300 px (spec 6.7); fluidez das reações num Android médio |
+| Manual | Legibilidade do rosto a 48, 64, 96 e 300 px (spec 6.7); fluidez das reações num Android médio. Simulados no computador em 14/10: legível de 96 px para cima em qualquer densidade, e a 48 px só falha em tela de densidade 1; com a CPU 6× mais lenta, a reação roda sem quadro longo |
 
 ## 10. Fora do escopo
 

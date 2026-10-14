@@ -343,6 +343,16 @@ describe('quase lá (spec 7.2)', () => {
     expect(firstNearToday(marks, Array(9).fill(false), all, all, sv(18300, 6 + DAY))).toEqual({ index: 0, mark: marks[0], gap: 350 });
   });
 
+  it('o dia é o local: perto às 23:59:59.999 não cala o solve da meia-noite seguinte, que já é outro dia', () => {
+    const marks = [{ kind: 'ao5' as const, target: 18000 }, ...filler];
+    const midnight = new Date(2026, 9, 14).getTime();
+    const prior = [18300, 18400, 18200, 18500].map((ms, i) => sv(ms, midnight - 60000 + i));
+    const late = sv(18350, midnight - 1);
+    expect(firstNearToday(marks, Array(9).fill(false), prior, prior, late)).not.toBeNull();
+    const all = [...prior, late];
+    expect(firstNearToday(marks, Array(9).fill(false), all, all, sv(18300, midnight))).toEqual({ index: 0, mark: marks[0], gap: 350 });
+  });
+
   it('marco já feito, meta batida ou longe demais não ficam perto', () => {
     const marks = [{ kind: 'single' as const, target: 15000 }, ...filler];
     expect(firstNearToday(marks, [true, ...Array(8).fill(false)], [], [], sv(15200, 1))).toBeNull();

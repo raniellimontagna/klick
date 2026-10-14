@@ -84,6 +84,30 @@ function key(type: 'keydown' | 'keyup', code: string, k: string, target: EventTa
   target.dispatchEvent(new KeyboardEvent(type, { code, key: k, bubbles: true, cancelable: true }));
 }
 
+const litFaces = () => document.querySelectorAll('[data-centro-slot] svg.centro g[transform="matrix(1,0,0.3,-0.3,0,30)"] .lit').length;
+
+// Uma temporada que só fecha com um +2 no último solve, já na tela de resultado. Constância: os 5 seguidos variam no máximo 9 s.
+// Quatro solves de 10 s e um pelo teclado (para logo depois de soltar: ~0 s) variam ~10 s; com +2, ~8 s.
+async function seasonByPenalty({ silent = false } = {}) {
+  const { a, repo } = await app();
+  await a.updateSettings({ inspection: false, silent });
+  const startedAt = Date.now() - 60000;
+  await repo.saveProfile({
+    season: {
+      current: { n: 2, startedAt, marks: Array.from({ length: 9 }, () => ({ kind: 'steady' as const, target: 9000 })), basis: { single: 10000, ao5: 10000, ao12: 10000 } },
+      past: [{ n: 1, startedAt: 1, endedAt: 2, solves: 1000, startAo12: null, endAo12: 50000 }],
+    },
+  });
+  await a.reload();
+  for (let i = 0; i < 4; i++) await a.addSolve({ ms: 10000, penalty: null, at: startedAt + 1000 * (i + 1) });
+  render(TimerScreen, { app: a });
+  await solveByKeys();
+  await waitFor(() => expect(document.querySelector('[data-actions]')).not.toHaveAttribute('hidden'));
+  await sleep(100);
+  expect(a.profile.season.current.n).toBe(2);
+  return { a };
+}
+
 // Um solve pelo teclado: segura espaço além do tempo de armar, solta (corre) e para com outra tecla.
 async function solveByKeys(): Promise<void> {
   key('keydown', 'Space', ' ');
@@ -200,7 +224,6 @@ describe('tela do Timer: solve, reação e nota', () => {
     });
     await a.reload();
     render(TimerScreen, { app: a });
-    const litFaces = () => document.querySelectorAll('[data-centro-slot] svg.centro g[transform="matrix(1,0,0.3,-0.3,0,30)"] .lit').length;
     await solveByKeys();
     expect(await screen.findByText('Temporada 2 completa: 1 solve. Gelo liberado.', {}, { timeout: 3000 })).toBeInTheDocument();
     expect(litFaces()).toBe(9);
@@ -209,29 +232,42 @@ describe('tela do Timer: solve, reação e nota', () => {
   });
 
   it('uma penalidade que fecha a temporada mostra o fim de temporada no coach e pisca a face de cima, como depois de um solve', async () => {
-    const { a, repo } = await app();
-    await a.updateSettings({ inspection: false });
-    const startedAt = Date.now() - 60000;
-    await repo.saveProfile({
-      season: {
-        // Constância: os 5 seguidos variam no máximo 8 s. Quatro solves de 10 s e um rápido (~0,3 s) variam ~9,7 s; com +2, ~7,7 s.
-        current: { n: 2, startedAt, marks: Array.from({ length: 9 }, () => ({ kind: 'steady' as const, target: 8000 })), basis: { single: 10000, ao5: 10000, ao12: 10000 } },
-        past: [{ n: 1, startedAt: 1, endedAt: 2, solves: 1000, startAo12: null, endAo12: 50000 }],
-      },
-    });
-    await a.reload();
-    for (let i = 0; i < 4; i++) await a.addSolve({ ms: 10000, penalty: null, at: startedAt + 1000 * (i + 1) });
-    render(TimerScreen, { app: a });
-    const litFaces = () => document.querySelectorAll('[data-centro-slot] svg.centro g[transform="matrix(1,0,0.3,-0.3,0,30)"] .lit').length;
-    await solveByKeys();
-    await waitFor(() => expect(document.querySelector('[data-actions]')).not.toHaveAttribute('hidden'));
-    await sleep(100);
-    expect(a.profile.season.current.n).toBe(2);
+    const { a } = await seasonByPenalty();
+    // A face de cima, vista a cada mudança: cheia na virada, vazia depois (a janela cheia é curta para conferir com um instante só).
+    const seen: number[] = [];
+    const watch = new MutationObserver(() => seen.push(litFaces()));
+    watch.observe(document.querySelector('[data-centro-slot]')!, { attributes: true, subtree: true, childList: true });
     await fireEvent.click(document.querySelector('[data-act="plus2"]') as HTMLButtonElement);
     expect(await screen.findByText('Temporada 2 completa: 5 solves. Gelo liberado.', {}, { timeout: 3000 })).toBeInTheDocument();
-    expect(litFaces()).toBe(9);
     await waitFor(() => expect(a.profile.season.current.n).toBe(3));
     await waitFor(() => expect(litFaces()).toBe(0), { timeout: 4000 });
+    watch.disconnect();
+    expect(seen).toContain(9);
+  });
+
+  it('no modo silencioso, a virada por penalidade pisca a face de cima sem texto', async () => {
+    const { a } = await seasonByPenalty({ silent: true });
+    const seen: number[] = [];
+    const watch = new MutationObserver(() => seen.push(litFaces()));
+    watch.observe(document.querySelector('[data-centro-slot]')!, { attributes: true, subtree: true, childList: true });
+    await fireEvent.click(document.querySelector('[data-act="plus2"]') as HTMLButtonElement);
+    await waitFor(() => expect(a.profile.season.current.n).toBe(3));
+    await waitFor(() => expect(litFaces()).toBe(0), { timeout: 4000 });
+    watch.disconnect();
+    expect(seen).toContain(9);
+    expect(screen.queryByText(/Temporada 2 completa/)).toBeNull();
+  });
+
+  it('dois toques seguidos na penalidade mostram a virada uma vez só: o segundo, com o primeiro ainda gravando, não conta', async () => {
+    const { a } = await seasonByPenalty();
+    const announce = vi.spyOn(a, 'announce');
+    const plus2 = document.querySelector('[data-act="plus2"]') as HTMLButtonElement;
+    plus2.click();
+    plus2.click();
+    await waitFor(() => expect(a.profile.season.current.n).toBe(3));
+    await sleep(300);
+    expect(announce.mock.calls.filter(([text]) => text.includes('Temporada 2 completa')).length).toBe(1);
+    expect(a.solves.at(-1)?.penalty).toBe('+2');
   });
 
   it('durante o solve o Centro não muda: nenhum atributo dele é reescrito', async () => {
@@ -590,7 +626,6 @@ describe('tela do Timer: espaço segurado antes da inspeção', () => {
     await a.updateSettings({ inspection: false });
     render(TimerScreen, { app: a });
     // A face de cima do Centro (os marcos): o anel também acende na reação, então só essa face conta.
-    const litFaces = () => document.querySelectorAll('[data-centro-slot] svg.centro g[transform="matrix(1,0,0.3,-0.3,0,30)"] .lit').length;
     expect(litFaces()).toBe(0);
     await solveByKeys();
     await waitFor(() => expect(a.solves).toHaveLength(1));

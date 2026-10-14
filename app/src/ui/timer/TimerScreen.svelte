@@ -92,6 +92,7 @@
   let saving = $state(false); // gravação em voo: o tempo mostra o resultado do timer e os chips somem
   let unstored = $state<number | null>(null); // a gravação falhou: o instante (at) do solve que ficou na fila; o tempo segue o timer até ele entrar nos dados
   let deleting = $state(false);
+  let penalizing = false; // uma troca de penalidade gravando
   let noteOpen = $state(false);
   let noteValue = $state('');
   let coachShown = $state<string | null>(null);
@@ -362,7 +363,7 @@
     const t0 = performance.now();
     live.react(kind, t0, seasonClosed);
     clearTimeout(topHoldTimer);
-    if (seasonClosed) holdTop();
+    if (seasonClosed) holdTop(REACTION_DELAY + TIMING.flash);
     coach = msg ? { text: msg.text, from: t0 + REACTION_DELAY, until: t0 + REACTION_DELAY + COACH_MS } : null;
     clearTimeout(chordTimer);
     if (kind === 'pb') {
@@ -377,12 +378,12 @@
   }
 
   // Na virada, a face de cima segue cheia até a piscada passar e só depois esvazia (spec 8).
-  function holdTop(): void {
+  function holdTop(until: number): void {
     clearTimeout(topHoldTimer);
     topHold = 9;
     topHoldTimer = setTimeout(() => {
       topHold = null;
-    }, REACTION_DELAY + TIMING.flash);
+    }, until);
   }
 
   // O fim de temporada que uma troca de penalidade causou, ou null. Se a conta lançar (um erro de código), a troca segue sem a virada
@@ -399,30 +400,38 @@
   // Ações sobre o último solve. Só valem enquanto o solve está gravado e o timer parado no resultado.
   async function penalize(p: '+2' | 'DNF'): Promise<void> {
     const solve = last;
-    if (!solve || timer.state !== 'done' || !showResult || deleting) return;
-    const listBefore = app.solves;
-    const seasonAtStart = $state.snapshot(app.profile.season.current);
-    coach = null;
-    kick();
-    await app.setPenalty(solve.id, solve.penalty === p ? null : p);
-    live.setResult(kind); // no meio da reação, o Centro passa na hora para o +2 ou o DNF (sem novo salto)
-    kick();
-    const updated = app.solves.find((s) => s.id === solve.id);
-    if (!updated) return;
-    // A troca pode fechar a temporada (tirar um DNF completa uma média; um +2 pode deixar 5 seguidos mais constantes). A virada aparece
-    // como depois de um solve: o fim de temporada no coach e a piscada da face de cima, mas sem novo salto.
-    const still = !destroyed && lastId === solve.id && timer.state === 'done';
-    const end = still ? seasonEndOf(updated, seasonAtStart, listBefore) : null;
-    let msg: CoachMessage | null = null;
-    if (end) {
-      const t0 = performance.now();
-      live.seasonEnd(kind, t0);
-      holdTop();
-      msg = app.profile.settings.silent ? null : seasonEndMessage(end);
-      coach = msg ? { text: msg.text, from: t0 + REACTION_DELAY, until: t0 + REACTION_DELAY + COACH_MS } : null;
+    // Uma troca por vez: um segundo toque com a primeira ainda gravando leria a penalidade antiga (e mostraria a virada duas vezes).
+    if (!solve || timer.state !== 'done' || !showResult || deleting || penalizing) return;
+    penalizing = true;
+    try {
+      const listBefore = app.solves;
+      const seasonAtStart = $state.snapshot(app.profile.season.current);
+      coach = null;
       kick();
+      await app.setPenalty(solve.id, solve.penalty === p ? null : p);
+      live.setResult(kind); // no meio da reação, o Centro passa na hora para o +2 ou o DNF (sem novo salto)
+      kick();
+      const updated = app.solves.find((s) => s.id === solve.id);
+      if (!updated) return;
+      // A troca pode fechar a temporada (tirar um DNF completa uma média; um +2 pode deixar 5 seguidos mais constantes). A virada aparece
+      // como depois de um solve: o fim de temporada no coach e a piscada da face de cima, mas sem novo salto e sem a espera de 0,5 s (não
+      // há gravação a esperar). A conta vem numa macrotarefa depois, para não atrasar o quadro que mostra a penalidade.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      const still = !destroyed && lastId === solve.id && timer.state === 'done';
+      const end = still ? seasonEndOf(updated, seasonAtStart, listBefore) : null;
+      let msg: CoachMessage | null = null;
+      if (end) {
+        const t0 = performance.now();
+        live.seasonEnd(kind, t0);
+        holdTop(TIMING.flash);
+        msg = app.profile.settings.silent ? null : seasonEndMessage(end);
+        coach = msg ? { text: msg.text, from: t0, until: t0 + COACH_MS } : null;
+        kick();
+      }
+      app.announce(`${T.aria.final(formatSolve(updated))}${msg ? ` ${msg.text}` : ''}`);
+    } finally {
+      penalizing = false;
     }
-    app.announce(`${T.aria.final(formatSolve(updated))}${msg ? ` ${msg.text}` : ''}`);
   }
 
   async function removeLast(): Promise<void> {

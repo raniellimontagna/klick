@@ -247,6 +247,11 @@ describe('gatilhos novos do coach (spec do sub-projeto 3, seção 7)', () => {
     expect(pick({ solve: sv(27000, null, NOW + 60000), history: after, sessionSolves: after })?.id).not.toBe('outlier');
     // Uma vez por dia: no dia seguinte, a mesma sessão volta a ouvir o fora da curva.
     expect(pick({ solve: sv(27000, null, NOW + DAY), history: after, sessionSolves: after })?.id).toBe('outlier');
+    // O dia é o local: fora da curva às 23:59:59.999 não cala o solve da meia-noite seguinte.
+    const midnight = new Date(2026, 9, 9).getTime();
+    const lateSession = many(Array.from({ length: 12 }, (_, i) => 20000 + i * 100), midnight - 1);
+    const late = [...lateSession, sv(26000, null, midnight - 1)];
+    expect(pick({ solve: sv(27000, null, midnight), history: late, sessionSolves: late })?.id).toBe('outlier');
     expect(pick({ solve: sv(26000, 'DNF'), history: session, sessionSolves: session })?.id).toBe('first-dnf');
   });
 });

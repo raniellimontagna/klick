@@ -24,7 +24,7 @@ export interface CentroLive {
   hold(): void; // o solve parou e está gravando: o Centro fica parado (como no solve) até react() ou clearReaction()
   react(result: ResultKind | null, t0: number, seasonEnd?: boolean): void; // a reação ao solve, de t0 + 0,5 s a t0 + 3 s
   setResult(result: ResultKind | null): void; // uma penalidade no meio da reação: o anel e os olhos seguem, sem novo salto
-  seasonEnd(result: ResultKind | null, t0: number): void; // uma penalidade fechou a temporada: reage de novo, com a piscada e sem salto
+  seasonEnd(result: ResultKind | null, t0: number): void; // uma penalidade fechou a temporada: reage de novo já em t0, com a piscada e sem salto
   clearReaction(): void; // tira a reação e o parado da gravação
   reacting(now: number): boolean; // a reação ainda está na tela (o laço precisa de quadro)
   wake(wallNow: number): void; // uma entrada da pessoa (Date.now): acorda e conta a inatividade de novo
@@ -76,7 +76,7 @@ export function createCentroLive(timer: TimerLike, animator: CentroAnimator, wal
     },
     seasonEnd(result, t0) {
       held = false;
-      reaction = { from: t0 + REACTION_DELAY, until: t0 + REACTION_DELAY + REACTION_MS, result, jump: false, seasonEnd: true, triggered: false };
+      reaction = { from: t0, until: t0 + REACTION_MS, result, jump: false, seasonEnd: true, triggered: false }; // sem gravação a esperar
     },
     clearReaction() {
       held = false;
