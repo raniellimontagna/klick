@@ -261,11 +261,13 @@
     gap: 4px 10px;
   }
 
+  /* O texto fica na cor normal (a cor da trilha no tema escuro não chega a 4,5:1 sobre o fundo); o destaque é o sublinhado grosso. */
   .alg .now {
-    color: var(--trail);
     font-weight: 700;
     text-decoration: underline;
-    text-underline-offset: 4px;
+    text-decoration-color: var(--trail);
+    text-decoration-thickness: 3px;
+    text-underline-offset: 5px;
   }
 
   .controls,
