@@ -166,6 +166,25 @@ describe('animador do Centro', () => {
     expect(clock.frames()).toBe(0);
   });
 
+  it('uma etapa marcada apaga a face lateral e a acende de novo, uma vez; no estático, nada pisca', () => {
+    const clock = fakeScheduler();
+    const svg = mount();
+    const anim = createCentroAnimator({ svg: () => svg, scheduler: clock.sch, behavior: calm() });
+    anim.show({ state: 'idle' });
+    anim.trigger('trailStep');
+    clock.advance(200);
+    expect(Number(svg.querySelector<SVGGElement>('g.side')?.style.opacity)).toBeLessThan(0.5);
+    expect(svg.querySelector<SVGGElement>('g.top')?.style.opacity).toBe('');
+    clock.advance(300);
+    expect(svg.querySelector<SVGGElement>('g.side')?.style.opacity).toBe('');
+    const still = mount();
+    const quiet = createCentroAnimator({ svg: () => still, scheduler: clock.sch, behavior: calm(), animated: false });
+    quiet.show({ state: 'idle' });
+    quiet.trigger('trailStep');
+    clock.advance(200);
+    expect(still.querySelector<SVGGElement>('g.side')?.style.opacity).toBe('');
+  });
+
   it('um SVG refeito recebe o estado atual', () => {
     const clock = fakeScheduler();
     let svg = mount();

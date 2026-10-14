@@ -94,6 +94,34 @@ describe('comportamentos do Centro', () => {
     expect(b.overlay(900).topDim).toBe(0);
   });
 
+  it('trilha: a face lateral apaga uma vez, em 400 ms (mais curta que a de cima), também no parado', () => {
+    const b = createBehavior(seeded(1));
+    b.setMood('idle', 0);
+    b.trigger('trailStep', 1000);
+    expect(b.busy(1100)).toBe(true);
+    expect(b.overlay(1100).sideDim).toBeGreaterThan(0);
+    expect(b.overlay(1200).sideDim).toBeCloseTo(0.7, 5);
+    expect(b.overlay(1200).topDim).toBe(0);
+    expect(b.overlay(1400).sideDim).toBe(0);
+    expect(TIMING.sideFlash).toBeLessThan(TIMING.flash);
+  });
+
+  it('trilha: a reação não cancela a piscada lateral; segurar de novo e o estático cancelam; estático não pisca', () => {
+    const b = createBehavior(seeded(1));
+    b.setMood('idle', 0);
+    b.trigger('trailStep', 0);
+    b.setMood('reaction', 50);
+    expect(b.overlay(200).sideDim).toBeCloseTo(0.7, 5);
+    b.setMood('arming', 250);
+    expect(b.overlay(260).sideDim).toBe(0);
+    const still = createBehavior(seeded(1));
+    still.setMood('idle', 0);
+    still.setAnimated(false, 0);
+    still.trigger('trailStep', 10);
+    expect(still.overlay(210).sideDim).toBe(0);
+    expect(still.busy(210)).toBe(false);
+  });
+
   it('segurar de novo (outro humor) cancela o salto e a piscada da face de cima', () => {
     const b = createBehavior(seeded(1));
     b.setMood('reaction', 0);

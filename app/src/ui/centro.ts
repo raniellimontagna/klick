@@ -1,5 +1,5 @@
 // O Centro: cubo 3×3 em projeção cabinet. A frente é o rosto (adesivo central) e o anel (8 adesivos).
-// renderCentro gera o SVG; paintRing, paintFace e paintTop mexem só em atributos de um SVG já renderizado (o animador usa os três;
+// renderCentro gera o SVG; paintRing, paintFace, paintTop e paintSide mexem só em atributos de um SVG já renderizado (o animador usa os quatro;
 // updateCentro troca na hora, para o tour). Os olhos são caminhos paramétricos (centro/face.ts).
 // Porte de prototype/scripts/centro.js.
 import type { ResultKind } from '../core/stats';
@@ -233,6 +233,12 @@ export function paintFace(svg: SVGElement, face: Face, lift = 0): void {
 export function paintTop(svg: SVGElement, dim: number): void {
   const top = svg.querySelector<SVGGElement>('g.top');
   if (top) top.style.opacity = dim > 0 ? String(Number((1 - dim).toFixed(3))) : '';
+}
+
+// A piscada azul da face lateral quando uma etapa da trilha fica marcada: o mesmo desenho da de cima, na face do lado.
+export function paintSide(svg: SVGElement, dim: number): void {
+  const side = svg.querySelector<SVGGElement>('g.side');
+  if (side) side.style.opacity = dim > 0 ? String(Number((1 - dim).toFixed(3))) : '';
 }
 
 // Atualiza anel e olhos de um <svg class="centro"> já no DOM, na hora, sem animação (o tour usa assim).

@@ -2,7 +2,7 @@
 // O requestAnimationFrame roda só durante transição, piscada, salto ou piscada da face de cima. Parado e assentado, o próximo evento do
 // comportamento (piscada, olhadinha, passo da órbita, respiração) é agendado com setTimeout. No solve, freeze() encaixa o foco, desenha
 // um quadro e cancela tudo.
-import { type CentroView, eyesFor, paintFace, paintRing, paintTop, ringFor } from '../centro';
+import { type CentroView, eyesFor, paintFace, paintRing, paintSide, paintTop, ringFor } from '../centro';
 import { type Behavior, createBehavior, type Overlay } from './behavior';
 import { approach, EXPRESSIONS, type Face, OPEN_MIN, settled } from './face';
 
@@ -26,7 +26,7 @@ export const browserScheduler: Scheduler = {
 
 export interface CentroAnimator {
   show(view: CentroView): void; // o estado do momento; "resolvendo" congela (freeze). A mesma vista de novo não faz nada.
-  trigger(kind: 'pb' | 'seasonEnd'): void; // salto do recorde, piscada da face de cima
+  trigger(kind: 'pb' | 'seasonEnd' | 'trailStep'): void; // salto do recorde, piscada da face de cima, piscada da face lateral
   freeze(): void; // o solve começou: foco, um quadro, nada agendado
   setAnimated(on: boolean): void; // estático: trocas na hora, nada agendado
   setPaused(paused: boolean): void; // página escondida ou Centro fora da tela
@@ -88,6 +88,7 @@ export function createCentroAnimator(opts: AnimatorOptions): CentroAnimator {
     const ov = behavior.overlay(now);
     paintFace(svg, shown(face, ov), ov.lift);
     paintTop(svg, ov.topDim);
+    paintSide(svg, ov.sideDim);
     svg.classList.toggle('breath-off', behavior.breath(now) === true);
     svg.dataset.eyes = eyesFor(view);
   }

@@ -1,5 +1,5 @@
-// Os comportamentos do Centro no tempo (spec do sub-projeto 3, seção 6.3): piscar, olhadinha, órbita, respiração, salto do recorde e
-// piscada da face de cima. Puro: o relógio chega por parâmetro e o sorteio é injetado, então os testes repetem tudo igual. Quem
+// Os comportamentos do Centro no tempo (spec do sub-projeto 3, seção 6.3): piscar, olhadinha, órbita, respiração, salto do recorde,
+// piscada da face de cima e a piscada azul da face lateral (uma etapa da trilha marcada, spec do sub-projeto 4, seção 8.4). Puro: o relógio chega por parâmetro e o sorteio é injetado, então os testes repetem tudo igual. Quem
 // desenha (animator.ts) pergunta o que aparece agora (overlay), se algo se move (busy) e quando é o próximo evento (nextAt).
 
 export type Mood = 'idle' | 'inspect' | 'arming' | 'ready' | 'running' | 'reaction' | 'sleep';
@@ -10,9 +10,10 @@ export interface Overlay {
   lift: number; // salto: unidades para cima
   squash: number; // escala vertical do corpo (1 = normal)
   topDim: number; // 0 … 1: quanto a face de cima apaga na piscada do fim de temporada
+  sideDim: number; // 0 … 1: quanto a face lateral apaga na piscada da trilha
 }
 
-export const REST: Readonly<Overlay> = Object.freeze({ blink: 0, lookX: 0, lift: 0, squash: 1, topDim: 0 });
+export const REST: Readonly<Overlay> = Object.freeze({ blink: 0, lookX: 0, lift: 0, squash: 1, topDim: 0, sideDim: 0 });
 
 export const TIMING = Object.freeze({
   blinkGap: [2000, 7000] as const, // entre uma piscada e a próxima
@@ -26,6 +27,7 @@ export const TIMING = Object.freeze({
   jump: 400,
   jumpUp: 4,
   flash: 600,
+  sideFlash: 400, // a piscada da face lateral: mais curta que a de cima
   orbit: 950, // um passo da órbita do adesivo ocioso
   breath: 2000, // meia respiração (o ciclo é de 4 s)
 });
@@ -36,7 +38,7 @@ const DOUBLE_MS = 2 * BLINK_MS + TIMING.doubleGap;
 export interface Behavior {
   setMood(mood: Mood, now: number): void; // o estado do Centro; trocar de estado recomeça as agendas
   setAnimated(on: boolean, now: number): void; // estático: nada se move, nada é agendado
-  trigger(kind: 'pb' | 'seasonEnd', now: number): void; // salto do recorde, piscada da face de cima
+  trigger(kind: 'pb' | 'seasonEnd' | 'trailStep', now: number): void; // salto do recorde, piscada da face de cima, piscada da face lateral
   overlay(now: number): Overlay; // o que aparece agora por cima da expressão
   orbit(now: number): number | null; // passos da órbita desde que o parado começou; null fora do parado ou no estático
   breath(now: number): boolean | null; // dormindo e animado: true na metade apagada do ciclo
@@ -60,6 +62,7 @@ export function createBehavior(rng: () => number = Math.random): Behavior {
   let look: { at: number; until: number; x: number } | null = null;
   let jumpAt: number | null = null;
   let flashAt: number | null = null;
+  let sideAt: number | null = null;
 
   const blinkLength = (b: { double: boolean }): number => (b.double ? DOUBLE_MS : BLINK_MS);
 
@@ -88,6 +91,7 @@ export function createBehavior(rng: () => number = Math.random): Behavior {
     while (look && now >= look.until) planLook(look.until);
     if (jumpAt !== null && now >= jumpAt + TIMING.jump) jumpAt = null;
     if (flashAt !== null && now >= flashAt + TIMING.flash) flashAt = null;
+    if (sideAt !== null && now >= sideAt + TIMING.sideFlash) sideAt = null;
   }
 
   return {
@@ -100,6 +104,8 @@ export function createBehavior(rng: () => number = Math.random): Behavior {
         jumpAt = null;
         flashAt = null;
       }
+      // A piscada da face lateral vem do parado (a Trilha) ou da reação: segurar de novo ou o solve a cancelam.
+      if (next !== 'reaction' && next !== 'idle') sideAt = null;
     },
     setAnimated(on, now) {
       if (on === animated) return;
@@ -108,11 +114,13 @@ export function createBehavior(rng: () => number = Math.random): Behavior {
       if (!on) {
         jumpAt = null;
         flashAt = null;
+        sideAt = null;
       }
     },
     trigger(kind, now) {
       if (!animated || mood === 'running') return;
       if (kind === 'pb') jumpAt = now;
+      else if (kind === 'trailStep') sideAt = now;
       else flashAt = now;
     },
     overlay(now) {
@@ -131,7 +139,8 @@ export function createBehavior(rng: () => number = Math.random): Behavior {
         if (t > 0.7) squash = 1 - 0.06 * Math.sin((Math.PI * (t - 0.7)) / 0.3);
       }
       const topDim = flashAt !== null ? 0.7 * Math.sin((Math.PI * (now - flashAt)) / TIMING.flash) : 0;
-      return { blink: b, lookX, lift, squash, topDim };
+      const sideDim = sideAt !== null ? 0.7 * Math.sin((Math.PI * (now - sideAt)) / TIMING.sideFlash) : 0;
+      return { blink: b, lookX, lift, squash, topDim, sideDim };
     },
     orbit(now) {
       return animated && mood === 'idle' ? Math.floor((now - since) / TIMING.orbit) : null;
@@ -141,7 +150,7 @@ export function createBehavior(rng: () => number = Math.random): Behavior {
     },
     busy(now) {
       advance(now);
-      return (blink !== null && now >= blink.at) || jumpAt !== null || flashAt !== null;
+      return (blink !== null && now >= blink.at) || jumpAt !== null || flashAt !== null || sideAt !== null;
     },
     nextAt(now) {
       advance(now);
