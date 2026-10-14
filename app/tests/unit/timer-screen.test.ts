@@ -252,6 +252,10 @@ describe('tela do Timer: solve, reação e nota', () => {
     watch.observe(document.querySelector('[data-centro-slot]')!, { attributes: true, subtree: true, childList: true });
     await fireEvent.click(document.querySelector('[data-act="plus2"]') as HTMLButtonElement);
     await waitFor(() => expect(a.profile.season.current.n).toBe(3));
+    // Sem texto no coach, só a própria face marca a piscada. Esperar a face vazia não prova nada: ela já está vazia antes da virada, e a
+    // temporada nova (n = 3) pode chegar antes de a piscada começar (ela vem numa macrotarefa depois da troca). Espera as 9 acesas e só
+    // então o esvaziar.
+    await waitFor(() => expect(seen).toContain(9), { timeout: 3000 });
     await waitFor(() => expect(litFaces()).toBe(0), { timeout: 4000 });
     watch.disconnect();
     expect(seen).toContain(9);
