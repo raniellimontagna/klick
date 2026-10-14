@@ -6,8 +6,9 @@
 import { eventInfo } from '../../core/events';
 import { createSeasonTracker, defaultSeason, type MarkStatus, planAdvance, seasonKey } from '../../core/season';
 import { dayKey } from '../../core/stats';
+import type { CaseSet, TrailStep } from '../../core/trail/types';
 import { defaultSettings } from '../../core/types';
-import type { EventId, Meta, Penalty, Profile, SeasonState, Session, Solve } from '../../core/types';
+import type { EventId, Meta, Penalty, Practice, Profile, SeasonState, Session, Solve } from '../../core/types';
 import type { BackupRecord } from '../../data/db';
 import { backupFileName, type DirHandleLike, folderGranted, pickFolder, saveToFolder } from '../../data/folder';
 import { newId } from '../../data/ids';
@@ -42,7 +43,10 @@ import { downloadText } from '../download';
 import { isIOS, isStandalone } from '../platform';
 import { type ShareFile, shareFile } from '../share';
 
-export type Tab = 'timer' | 'evolucao' | 'companion' | 'ajustes';
+export type Tab = 'timer' | 'evolucao' | 'trilha' | 'companion' | 'ajustes';
+// Onde a aba Trilha está (spec do sub-projeto 4, seção 8.2): o começo, a aula de uma etapa, um conjunto do treino ou a rodada dele.
+// Fica no AppState: a tela da Trilha só existe com a aba aberta, e a pessoa volta ao mesmo lugar.
+export type TrailView = { kind: 'home' } | { kind: 'lesson'; step: TrailStep } | { kind: 'set'; set: CaseSet } | { kind: 'round'; set: CaseSet };
 export type DialogId = 'sessions' | 'shortcuts' | 'onboarding' | 'export' | 'import' | 'backups' | 'trash' | 'install';
 export interface Toast {
   text: string;
@@ -151,6 +155,7 @@ const CONNECTION_ERRORS: readonly string[] = ['InvalidStateError', 'UnknownError
 const compareId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 // A ordem do repositório: o instante e, empatando, o id.
 const bySolveTime = (a: Solve, b: Solve): number => a.at - b.at || compareId(a.id, b.id);
+const byPracticeTime = (a: Practice, b: Practice): number => a.at - b.at || compareId(a.id, b.id);
 
 // Onde um solve entra na lista ordenada: a primeira posição que não vem antes dele (busca binária, sem reordenar a lista).
 function lowerBound(list: readonly Solve[], solve: Solve): number {
@@ -166,7 +171,7 @@ function lowerBound(list: readonly Solve[], solve: Solve): number {
 
 // Os tipos que a memória do app lê do banco (um aviso 'all' são todos).
 type ReadKind = Exclude<ChangeKind, 'all'>;
-const ALL_READS: readonly ReadKind[] = ['sessions', 'solves', 'profile', 'meta'];
+const ALL_READS: readonly ReadKind[] = ['sessions', 'solves', 'profile', 'meta', 'practice'];
 const readsOf = (kind: ChangeKind): readonly ReadKind[] => (kind === 'all' ? ALL_READS : [kind]);
 
 const isConnectionError = (err: unknown): boolean => {
@@ -251,6 +256,11 @@ export class AppState {
   folderNeedsPermission = $state(false); // a pasta de cópias perdeu a permissão de gravar: Ajustes pede de novo, num clique
   private folderCheck = 0; // geração da última conferência da pasta: uma resposta velha não apaga a de uma tentativa mais nova
   solvesInFlight = $state(0); // addSolve ainda não voltou (o solve não está gravado nem na fila): o unsaved espera por ele
+  // Trilha e treino (spec do sub-projeto 4). O treino tem a própria lista: nada dele entra em solves, recordes, temporadas ou marcos.
+  practice = $state.raw<Practice[]>([]); // as tentativas do treino, em ordem de at (lista de referência, como os solves)
+  trailView = $state<TrailView>({ kind: 'home' });
+  trailFlashes = $state(0); // soma 1 a cada vez que uma etapa nova fica marcada: o Centro da Trilha pisca a face lateral
+  trainerRunning = $state(false); // o timer do treino está rodando: os atalhos da tela do Timer esperam (a tecla que para não troca de aba)
 
   private repo: Repository; // troca quando a conexão é reaberta (useRepo)
   private readonly queue: ScrambleQueue;
@@ -276,6 +286,8 @@ export class AppState {
   private readonly seasonTracker = createSeasonTracker();
   private readonly seasonMemo = new WeakMap<Solve[], { key: string; status: MarkStatus[] }>();
   private chain: Promise<void> = Promise.resolve();
+  // As escritas da trilha e do treino no perfil, em fila: cada uma lê o perfil depois da gravação anterior (o perfil grava inteiro).
+  private trailWrites: Promise<unknown> = Promise.resolve();
   private undo: { id: string; until: number } | null = null;
   private undoAction: (() => void) | null = null;
   private scrambleRequest = 0;
@@ -438,8 +450,9 @@ export class AppState {
         want.has('solves') ? repo.listSolves() : undefined,
         want.has('profile') ? repo.getProfile() : undefined,
         want.has('meta') ? repo.getMeta() : undefined,
+        want.has('practice') ? repo.listPractice() : undefined,
       ] as const);
-      const [sessions, solves, profile, meta] = deadline ? await this.withReadDeadline(reading, repo) : await reading;
+      const [sessions, solves, profile, meta, practice] = deadline ? await this.withReadDeadline(reading, repo) : await reading;
       if (sessions) {
         this.allSessions = sessions;
         this.sessions = sessions.filter((s) => s.deletedAt === null);
@@ -447,6 +460,7 @@ export class AppState {
       if (solves) this.solves = solves;
       if (profile) this.profile = profile;
       if (meta) this.meta = meta;
+      if (practice) this.practice = practice;
       // A sessão que o perfil aponta, se outra aba a excluiu (está na lixeira): depende das sessões e do perfil.
       if (sessions || profile) {
         this.parked = this.allSessions.find((s) => s.deletedAt !== null && s.id === this.profile.currentSessionId) ?? null;
@@ -738,6 +752,7 @@ export class AppState {
         sessions: $state.snapshot(this.sessions),
         solves: withPending($state.snapshot(this.solves), [...before, ...this.pendingSolves()]),
         profile: $state.snapshot(this.profile),
+        practice: $state.snapshot(this.practice),
       };
     } finally {
       clearTimeout(timer);
@@ -1021,6 +1036,141 @@ export class AppState {
       this.profile = await this.repo.saveProfile(patch);
     });
     await this.refreshKinds(['profile']);
+  }
+
+  // --- Trilha e treino (spec do sub-projeto 4). Nada aqui toca em sessões, solves, recordes, temporadas, marcos ou no coach. ---
+
+  // O aviso "Já resolve? Marque o que já sabe": enquanto nenhuma etapa está marcada e este aparelho não o dispensou.
+  get trailPromptShown(): boolean {
+    return this.meta !== null && !this.meta.trailPromptDismissed && this.profile.trail.every((done) => !done);
+  }
+
+  // Abre a aba Trilha numa vista (a aula de uma etapa, um conjunto, a rodada) ou no começo.
+  openTrail(view: TrailView = { kind: 'home' }): void {
+    this.trailView = view;
+    this.tab = 'trilha';
+  }
+
+  // Uma escrita do perfil pela trilha, na fila. Se não grava, o aviso sai e a memória volta ao que está gravado (spec 9.4).
+  private trailJob(job: () => Partial<Omit<Profile, 'settings'>>): Promise<boolean> {
+    const run = this.trailWrites.then(async () => {
+      const ok = await this.write(async () => {
+        this.profile = await this.repo.saveProfile(job());
+      });
+      if (!ok) await this.refreshKinds(['profile']);
+      return ok;
+    });
+    this.trailWrites = run.catch(() => undefined);
+    return run;
+  }
+
+  // Marca ou desmarca etapas ("já sei", "desfazer" ou várias de uma vez). Marcar alguma que ainda não estava marcada pisca a face lateral.
+  setTrail(steps: readonly TrailStep[], done: boolean): Promise<boolean> {
+    let fresh = false;
+    return this.trailJob(() => {
+      const trail = [...this.profile.trail];
+      fresh = done && steps.some((i) => !trail[i]);
+      for (const i of steps) trail[i] = done;
+      return { trail };
+    }).then((ok) => {
+      if (ok && fresh) this.trailFlashes += 1;
+      return ok;
+    });
+  }
+
+  // "Consegui no meu cubo" (spec 6.2): marca a etapa e zera o passo guardado da aula, numa gravação. Já marcada, só zera o passo.
+  completeLesson(step: TrailStep): Promise<boolean> {
+    let fresh = false;
+    return this.trailJob(() => {
+      const trail = [...this.profile.trail];
+      fresh = !trail[step];
+      trail[step] = true;
+      const lessonAt = { ...this.profile.lessonAt };
+      delete lessonAt[step];
+      return { trail, lessonAt };
+    }).then((ok) => {
+      if (ok && fresh) this.trailFlashes += 1;
+      return ok;
+    });
+  }
+
+  // O passo em que a aula parou (sair no meio volta dali).
+  setLessonAt(step: TrailStep, part: number): Promise<boolean> {
+    return this.trailJob(() => ({ lessonAt: { ...this.profile.lessonAt, [step]: part } }));
+  }
+
+  // O algoritmo que a pessoa usa no caso. O padrão (0) não fica guardado.
+  setAlgChoice(caseId: string, index: number): Promise<boolean> {
+    return this.trailJob(() => {
+      const algChoice = { ...this.profile.algChoice };
+      if (index === 0) delete algChoice[caseId];
+      else algChoice[caseId] = index;
+      return { algChoice };
+    });
+  }
+
+  // Tira o caso do sorteio do treino, ou o devolve.
+  setCaseOff(caseId: string, off: boolean): Promise<boolean> {
+    return this.trailJob(() => {
+      const rest = this.profile.trainOff.filter((id) => id !== caseId);
+      return { trainOff: off ? [...rest, caseId] : rest };
+    });
+  }
+
+  dismissTrailPrompt(): Promise<void> {
+    return this.updateMeta({ trailPromptDismissed: true });
+  }
+
+  // Grava uma tentativa do treino. Não é solve: não passa pela fila nem pelas contas dos solves. Se não grava, o aviso sai e a resposta
+  // é null (o resultado continua na tela de quem chamou).
+  async addPractice(r: Omit<Practice, 'id'>): Promise<Practice | null> {
+    try {
+      const saved = await this.repo.addPractice({ id: newId(this.now()), ...r });
+      await this.serial(async () => {
+        this.practice = [...this.practice.filter((p) => p.id !== saved.id), saved].sort(byPracticeTime);
+      });
+      void this.notePracticeForBackup();
+      return saved;
+    } catch {
+      this.showToast(T.data.changeFailed);
+      return null;
+    }
+  }
+
+  // A correção da última tentativa (spec 7.2): troca acerto e erro.
+  async setPracticeOk(id: string, ok: boolean): Promise<boolean> {
+    return this.write(async () => {
+      const updated = await this.repo.updatePractice(id, { ok });
+      await this.serial(async () => {
+        this.practice = this.practice.map((p) => (p.id === id ? updated : p));
+      });
+    });
+  }
+
+  // A correção da última tentativa: apaga.
+  async deletePractice(id: string): Promise<boolean> {
+    return this.write(async () => {
+      await this.repo.deletePractice(id);
+      await this.serial(async () => {
+        this.practice = this.practice.filter((p) => p.id !== id);
+      });
+    });
+  }
+
+  // Um dia só de treino também precisa da cópia do dia: a cópia da abertura só sai com o contador acima de zero. A primeira tentativa
+  // depois de uma cópia leva o contador a 1; acima disso não mexe, para não adiantar a cópia dos 50 solves. Falha em silêncio: a próxima
+  // tentativa tenta de novo.
+  private async notePracticeForBackup(): Promise<void> {
+    if (!this.meta || this.meta.solvesSinceBackup > 0) return;
+    try {
+      await this.serial(async () => {
+        const meta = await this.repo.getMeta();
+        if (meta.solvesSinceBackup > 0) return;
+        this.meta = await this.repo.saveMeta({ solvesSinceBackup: 1 });
+      });
+    } catch {
+      // sem aviso: a tentativa está gravada; só a marca da cópia ficou para a próxima
+    }
   }
 
   // Tira o embaralhamento da tela e invalida os pedidos em voo: o que chegar depois não é mais deste evento.
