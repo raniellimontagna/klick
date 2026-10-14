@@ -35,7 +35,9 @@
     return { setup: c?.setup ?? '', alg: c?.alg ?? '', view: c?.view ?? '3D', mask: c?.mask };
   };
 
-  // O cubo monta uma vez por aula. A tela pode fechar antes de o cubing.js carregar: aí o cubo que chegar é desmontado na hora.
+  // O cubo monta uma vez por aula. A tela pode fechar antes de o cubing.js carregar: aí o cubo que chegar é desmontado na hora. E o passo
+  // pode mudar antes de ele chegar (o goTo não acha cubo para mostrar): ao chegar, ele mostra o passo de agora, e a decisão de tocar
+  // sozinho também sai dele.
   $effect(() => {
     const el = host;
     if (!el) return;
@@ -52,7 +54,7 @@
       view?.listen((s) => {
         cubeState = s;
       });
-      if (view && untrack(() => autoplay() && moves.length > 0)) view.play();
+      if (view) untrack(() => view.show(specOf(part), autoplay()));
     });
     return () => {
       alive = false;

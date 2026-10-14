@@ -14,12 +14,14 @@ const cube = vi.hoisted(() => ({
   listener: null as null | ((s: CubeState) => void),
   moving: true,
   fail: false,
+  gate: null as null | Promise<void>, // o mountCube só resolve quando o gate abre: o cubing.js que carrega devagar
 }));
 vi.mock('../../src/ui/trilha/cube-view', () => ({
   mountCube: async (_host: HTMLElement, spec: CubeSpec) => {
     if (cube.fail) return null;
     cube.specs.push(spec);
     cube.log.push('mount');
+    if (cube.gate) await cube.gate;
     return {
       moving: cube.moving,
       show(s: CubeSpec, autoplay: boolean) {
@@ -55,7 +57,7 @@ const next = () => fireEvent.click(screen.getByRole('button', { name: 'Próximo'
 const key = (k: string, code = k) => document.body.dispatchEvent(new KeyboardEvent('keydown', { key: k, code, bubbles: true, cancelable: true }));
 
 beforeEach(() => {
-  Object.assign(cube, { log: [], specs: [], listener: null, moving: true, fail: false });
+  Object.assign(cube, { log: [], specs: [], listener: null, moving: true, fail: false, gate: null });
 });
 
 describe('aula: andar pelos passos (spec 6.1)', () => {
@@ -122,6 +124,47 @@ describe('aula: andar pelos passos (spec 6.1)', () => {
     await fireEvent.click(screen.getAllByRole('button', { name: 'Voltar à trilha' })[0]);
     expect(a.trailView).toEqual({ kind: 'home' });
     await waitFor(() => expect(cube.log).toContain('destroy'));
+  });
+});
+
+describe('aula: o cubo que carrega devagar (spec 6.1)', () => {
+  // O passo muda antes de o cubing.js terminar de montar: o cubo que chega mostra o passo de agora, não o da hora em que começou a carregar.
+  function slowCube(): () => void {
+    let open!: () => void;
+    cube.gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    return open;
+  }
+
+  it('Próximo antes de o cubo chegar: ele chega no passo novo e toca o algoritmo dele', async () => {
+    const open = slowCube();
+    await lesson(0);
+    await next();
+    expect(screen.getByRole('heading', { name: 'As faces têm letras' })).toBeInTheDocument();
+    expect(cube.log).not.toContain('show+play'); // o cubo ainda não chegou
+    open();
+    await waitFor(() => expect(cube.log.at(-1)).toBe('show+play'));
+    expect(cube.specs.at(-1)).toEqual({ setup: '', alg: 'R', view: '3D', mask: undefined });
+  });
+
+  it('Voltar antes de o cubo chegar: ele chega no passo de agora, sem o algoritmo do passo antigo', async () => {
+    const open = slowCube();
+    await lesson(0, (a) => a.setLessonAt(0, 1));
+    await fireEvent.click(screen.getByRole('button', { name: 'Voltar' }));
+    expect(screen.getByRole('heading', { name: 'Segure assim' })).toBeInTheDocument();
+    open();
+    await waitFor(() => expect(cube.specs.at(-1)).toEqual({ setup: '', alg: '', view: '3D', mask: undefined }));
+  });
+
+  it('com "reduzir movimento", o cubo que chega no passo novo também não toca sozinho', async () => {
+    const open = slowCube();
+    await lesson(0, (a) => a.updateSettings({ reducedMotion: 'always' }));
+    await next();
+    open();
+    await waitFor(() => expect(cube.log.at(-1)).toBe('show'));
+    expect(cube.specs.at(-1)).toEqual({ setup: '', alg: 'R', view: '3D', mask: undefined });
+    expect(cube.log).not.toContain('play');
   });
 });
 
