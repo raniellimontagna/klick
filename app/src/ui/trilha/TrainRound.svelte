@@ -3,6 +3,7 @@
   // (o mesmo espaço e os mesmos dois polegares), sem inspeção. Marcar: "Acertei" (o padrão, por Enter ou toque) e "Errei". O resultado
   // mostra o caso, o algoritmo, o tempo e a média do caso, e o próximo caso vem em seguida. A última tentativa pode ser corrigida até a
   // próxima rodada começar. Nada daqui vira solve: o núcleo do timer é reaproveitado, e a gravação é a do treino (app.addPractice).
+  // No desktop, duas colunas como as do Timer: o caso e o tempo à esquerda; a última tentativa, a ajuda e a dica de teclado à direita.
   import { tick, untrack } from 'svelte';
   import { chosenAlg, figureOf } from '../../core/trail/cases';
   import { formatMs } from '../../core/stats';
@@ -13,6 +14,7 @@
   import type { CaseSet, TrainCase } from '../../core/trail/types';
   import { T } from '../../strings';
   import type { CentroView } from '../centro';
+  import { wideLayout } from '../layout';
   import { createSound } from '../sound';
   import type { AppState } from '../state/app.svelte';
   import { createInputController } from '../timer/input';
@@ -50,6 +52,7 @@
   let tstate = $state<TimerState>('idle'); // o estado do timer do treino: as cores do tempo vêm dele, não do body (que a tela do Timer pinta)
   let pageVisible = $state(true);
   let destroyed = false;
+  const wide = wideLayout();
   const before = typeof document === 'undefined' ? undefined : document.body.dataset.tstate; // o que a tela do Timer tinha no body
 
   const timer = createTimer({ now: () => performance.now() });
@@ -261,59 +264,20 @@
   });
 </script>
 
-<div class="round" data-round={set} data-tstate={tstate} tabindex="-1" bind:this={screenEl}>
-  <header class="round-top fade">
-    <MiniCentro {app} view={centro} />
-    <h2>{T.trilha.sets[set]}</h2>
-    <button type="button" class="link" onclick={() => app.openTrail({ kind: 'set', set })}>{T.trilha.round.end}</button>
-  </header>
-
-  {#if current}
-    <div class="case fade">
-      <CaseFigure setup={scramble} {...figureOf(current)} />
-      <div class="case-text">
-        <div class="case-head">
-          <div class="label">{T.trilha.round.setup}</div>
-          <p class="scramble" data-train-scramble>{scramble}</p>
-        </div>
-        <p class="muted hint">{T.trilha.round.setupHint}</p>
-        {#if helped}
-          <!-- Ao lado do algoritmo, como segurar o caso para ele: o inverso dele, sem o giro de cima do embaralhamento. -->
-          <div class="help">
-            <p class="help-alg"><span class="chip">{T.trilha.round.helped}</span> <span class="mono" data-help-alg>{alg}</span></p>
-            <CaseFigure small setup={invertAlg(alg)} {...figureOf(current)} />
-          </div>
-        {:else if phase === 'setup'}
-          <button type="button" class="btn help-btn" onclick={help}>{T.trilha.round.help}</button>
-        {/if}
-      </div>
-    </div>
-
-    <!-- Classe própria, não a .time do Timer: as regras dele (o recorde, a inspeção, a ordem e o tamanho no celular) não pegam aqui. -->
-    <div class="train-time" data-time aria-hidden="true" bind:this={timeEl}></div>
-
-    {#if phase !== 'setup'}
-      <div class="marks" data-marks>
-        <button type="button" class="btn primary" disabled={phase === 'saving'} onclick={() => mark(true)}>{T.trilha.round.ok}</button>
-        <button type="button" class="btn" disabled={phase === 'saving'} onclick={() => mark(false)}>{T.trilha.round.miss}</button>
-      </div>
-    {:else}
-      <p class="muted fade kbd-hint">{T.trilha.round.hint}</p>
-    {/if}
-  {:else}
-    <p data-round-empty>{T.trilha.round.empty}</p>
-  {/if}
-
-  <!-- O invólucro fica sempre: a entrada (teclado, parar com um toque, engolir o clique que vem depois) segue ligada nele. As zonas só
-       existem enquanto o caso pode ser armado (a montagem, com um caso, e a execução, que nasce dela); sem elas o toque não arma. -->
-  <div class="zones-host" bind:this={zonesEl}>
-    {#if phase === 'setup' && current}
-      <Zones one={app.profile.settings.mobileArm === 'one'} />
-    {/if}
+<!-- Ao lado do algoritmo, como segurar o caso para ele: o inverso dele, sem o giro de cima do embaralhamento. No desktop, um cartão na
+     coluna da direita (que esmaece no solve, como o resto da tela); numa coluna só, dentro do caso. -->
+{#snippet helpBox(c: TrainCase)}
+  <div class="help" class:card={wide.current} class:fade={wide.current}>
+    <p class="help-alg"><span class="chip">{T.trilha.round.helped}</span> <span class="mono" data-help-alg>{alg}</span></p>
+    <CaseFigure small setup={invertAlg(alg)} {...figureOf(c)} />
   </div>
+{/snippet}
 
-  <!-- A última tentativa vem depois das zonas: no celular, em cima delas, ela empurrava as zonas para trás da barra de abas. No desktop as
-       zonas não aparecem, e a ordem fica a mesma de antes. -->
+{#snippet kbdHint()}
+  <p class="muted fade kbd-hint">{T.trilha.round.hint}</p>
+{/snippet}
+
+{#snippet lastCard()}
   {#if last}
     <div class="card last fade" data-last-attempt>
       <div class="label">{T.trilha.round.last}</div>
@@ -326,6 +290,78 @@
         </div>
       {/if}
     </div>
+  {/if}
+{/snippet}
+
+<div class="round" class:wide={wide.current} data-round={set} data-tstate={tstate} tabindex="-1" bind:this={screenEl}>
+  <header class="round-top fade">
+    <MiniCentro {app} view={centro} />
+    <h2>{T.trilha.sets[set]}</h2>
+    <button type="button" class="link" onclick={() => app.openTrail({ kind: 'set', set })}>{T.trilha.round.end}</button>
+  </header>
+
+  <!-- O caso e o tempo: no desktop, a coluna da esquerda; numa coluna só, o invólucro não tem caixa. -->
+  <div class="round-main">
+    {#if current}
+      <div class="case fade">
+        <CaseFigure setup={scramble} {...figureOf(current)} />
+        <div class="case-text">
+          <div class="case-head">
+            <div class="label">{T.trilha.round.setup}</div>
+            <p class="scramble" data-train-scramble>{scramble}</p>
+          </div>
+          <p class="muted hint">{T.trilha.round.setupHint}</p>
+          {#if helped}
+            {#if !wide.current}
+              {@render helpBox(current)}
+            {/if}
+          {:else if phase === 'setup'}
+            <button type="button" class="btn help-btn" onclick={help}>{T.trilha.round.help}</button>
+          {/if}
+        </div>
+      </div>
+
+      <!-- Classe própria, não a .time do Timer: as regras dele (o recorde, a inspeção, a ordem e o tamanho no celular) não pegam aqui. -->
+      <div class="train-time" data-time aria-hidden="true" bind:this={timeEl}></div>
+
+      {#if phase !== 'setup'}
+        <div class="marks" data-marks>
+          <button type="button" class="btn primary" disabled={phase === 'saving'} onclick={() => mark(true)}>{T.trilha.round.ok}</button>
+          <button type="button" class="btn" disabled={phase === 'saving'} onclick={() => mark(false)}>{T.trilha.round.miss}</button>
+        </div>
+      {:else if !wide.current}
+        {@render kbdHint()}
+      {/if}
+    {:else}
+      <p data-round-empty>{T.trilha.round.empty}</p>
+    {/if}
+  </div>
+
+  <!-- No desktop, a coluna da direita, depois da da esquerda no DOM: a última tentativa, a ajuda e a dica de teclado. -->
+  {#if wide.current}
+    <div class="round-side">
+      {@render lastCard()}
+      {#if current && helped}
+        {@render helpBox(current)}
+      {/if}
+      {#if current && phase === 'setup'}
+        {@render kbdHint()}
+      {/if}
+    </div>
+  {/if}
+
+  <!-- O invólucro fica sempre: a entrada (teclado, parar com um toque, engolir o clique que vem depois) segue ligada nele. As zonas só
+       existem enquanto o caso pode ser armado (a montagem, com um caso, e a execução, que nasce dela); sem elas o toque não arma. -->
+  <div class="zones-host" bind:this={zonesEl}>
+    {#if phase === 'setup' && current}
+      <Zones one={app.profile.settings.mobileArm === 'one'} />
+    {/if}
+  </div>
+
+  <!-- Numa coluna só, a última tentativa vem depois das zonas: no celular, em cima delas, ela empurrava as zonas para trás da barra de
+       abas. -->
+  {#if !wide.current}
+    {@render lastCard()}
   {/if}
 </div>
 
@@ -431,6 +467,53 @@
   .zones-host :global(.zones) {
     grid-area: auto;
     order: 0;
+  }
+
+  .round-main {
+    display: contents;
+  }
+
+  /* No desktop (a quebra do Timer), as colunas do Timer: a da esquerda com o caso, o tempo e as marcas; a da direita na largura da dele.
+     O cabeçalho fica em cima e as zonas (que só aparecem com o dedo) embaixo, na largura toda. */
+  .round.wide {
+    max-width: none;
+    grid-template-columns: minmax(0, 1fr) var(--side-w);
+    grid-template-areas:
+      'top top'
+      'main side';
+    column-gap: var(--cols-gap);
+    align-items: start;
+  }
+
+  .wide .round-top {
+    grid-area: top;
+  }
+
+  .wide .round-main {
+    grid-area: main;
+    display: grid;
+    gap: 14px;
+  }
+
+  .round-side {
+    grid-area: side;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .wide .zones-host :global(.zones) {
+    grid-column: 1 / -1;
+  }
+
+  /* O algoritmo da ajuda divide a linha com a figura pequena, no cartão da coluna da direita. */
+  .round-side .help-alg {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .round-side .kbd-hint {
+    font-size: 13px;
   }
 
   /* Com o dedo, a dica de teclado não serve (como as teclas dos botões). */

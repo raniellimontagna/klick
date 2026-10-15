@@ -1,19 +1,21 @@
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
-import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { formatMs } from '../../src/core/stats';
 import { invertAlg } from '../../src/core/trail/frame';
 import { openKlickDb } from '../../src/data/db';
 import { createRepository } from '../../src/data/repository';
 import { createScrambleQueue } from '../../src/scramble/queue';
 import { T } from '../../src/strings';
+import { WIDE } from '../../src/ui/layout';
 import { AppState } from '../../src/ui/state/app.svelte';
 import TimerScreen from '../../src/ui/timer/TimerScreen.svelte';
 import { drawFigure } from '../../src/ui/trilha/cube-view';
 import SetView from '../../src/ui/trilha/SetView.svelte';
 import TrainRound from '../../src/ui/trilha/TrainRound.svelte';
+import { mockMedia } from './media';
 
 // A figura do caso não carrega o cubing.js nos testes.
 vi.mock('../../src/ui/trilha/cube-view', () => ({ drawFigure: vi.fn(async () => {}), mountCube: async () => null }));
@@ -495,5 +497,58 @@ describe('a rodada no celular e o que vem da tela do Timer', () => {
     } finally {
       Reflect.deleteProperty(navigator, 'wakeLock');
     }
+  });
+});
+
+describe('a rodada em duas colunas no desktop (a partir de 1024 px)', () => {
+  // A coluna de `a` vem antes da de `b` no DOM: a ordem do teclado e do leitor de tela segue as colunas.
+  const before = (a: Element, b: Element): boolean => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+
+  it('numa coluna só, nada muda: a ajuda fica no caso, a dica embaixo do tempo e a última tentativa depois das zonas', async () => {
+    const { a } = await app();
+    round(a);
+    expect(document.querySelector('[data-round]')).not.toHaveClass('wide');
+    expect(document.querySelector('.round-side')).toBeNull();
+    expect(before(document.querySelector('[data-time]')!, document.querySelector('.kbd-hint')!)).toBe(true);
+    await fireEvent.click(screen.getByRole('button', { name: 'Ver o algoritmo' }));
+    expect(document.querySelector('.case [data-help-alg]')).not.toBeNull();
+    await solve();
+    await screen.findByRole('button', { name: 'Acertei' });
+    key('keydown', 'Enter', 'Enter');
+    await waitFor(() => expect(document.querySelector('[data-last-attempt]')).not.toBeNull());
+    expect(before(document.querySelector('.zones-host')!, document.querySelector('[data-last-attempt]')!)).toBe(true);
+  });
+
+  describe('no desktop', () => {
+    let restore = (): void => {};
+    beforeEach(() => {
+      restore = mockMedia([WIDE]);
+    });
+    afterEach(() => restore());
+
+    it('o caso, o tempo e as marcas à esquerda; a última tentativa, a ajuda e a dica de teclado à direita, depois dela no DOM', async () => {
+      const { a } = await app();
+      round(a);
+      expect(document.querySelector('[data-round]')).toHaveClass('wide');
+      const main = document.querySelector('.round-main') as HTMLElement;
+      const side = document.querySelector('.round-side') as HTMLElement;
+      expect(before(main, side)).toBe(true);
+      expect(main.querySelector('[data-train-scramble]')).not.toBeNull();
+      expect(main.querySelector('[data-time]')).not.toBeNull();
+      expect(side.querySelector('.kbd-hint')).not.toBeNull();
+      expect(document.querySelectorAll('.kbd-hint')).toHaveLength(1);
+      // "Ver o algoritmo" fica no caso, à esquerda; a ajuda abre à direita, com a figura pequena de como segurar o caso.
+      await fireEvent.click(within(main).getByRole('button', { name: 'Ver o algoritmo' }));
+      expect(side.querySelector('[data-help-alg]')).toHaveTextContent("F R U R' U' F'");
+      expect(document.querySelectorAll('[data-help-alg]')).toHaveLength(1);
+      expect(side.querySelectorAll('[data-case-figure]')).toHaveLength(1);
+      await solve();
+      expect(await within(main).findByRole('button', { name: 'Acertei' })).toBeInTheDocument();
+      key('keydown', 'Enter', 'Enter');
+      await waitFor(() => expect(side.firstElementChild).toHaveAttribute('data-last-attempt'));
+      expect(document.querySelectorAll('[data-last-attempt]')).toHaveLength(1);
+      // As zonas (só com o dedo) ficam no invólucro de sempre, depois das duas colunas.
+      expect(before(side, document.querySelector('.zones-host')!)).toBe(true);
+    });
   });
 });
