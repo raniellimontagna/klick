@@ -1,0 +1,147 @@
+import { describe, expect, it } from 'vitest';
+import { defaultSeason } from '../../src/core/season';
+import { defaultDeviceProfile, defaultPrefValue, isPrefValue, joinProfile, prefsFromProfile, profileFromPrefs, splitProfile } from '../../src/core/sync/prefs';
+import { changeToPref, fromChange, prefToChange, toChange } from '../../src/core/sync/records';
+import { checkChange } from '../../src/core/sync/shape';
+import type { Change } from '../../src/core/sync/types';
+import { defaultSettings, type Profile } from '../../src/core/types';
+
+const profile = (o: Partial<Profile> = {}): Profile => ({
+  settings: defaultSettings(),
+  trail: Array<boolean>(9).fill(false),
+  finish: 'fosco',
+  onboarded: false,
+  currentSessionId: null,
+  season: defaultSeason(),
+  lessonAt: {},
+  algChoice: {},
+  trainOff: [],
+  ...o,
+});
+
+describe('registro e mudança (spec 6.1)', () => {
+  it('as datas vão para o envelope; o resto, inclusive um campo desconhecido, vai em data e volta igual', () => {
+    const rec = { id: 'a', sessionId: 's', event: '333', ms: 1, penalty: null, at: 2, scramble: 'R', note: '', createdAt: 2, updatedAt: 3, deletedAt: null, deletionStamp: 2, extra: 'x' };
+    const c = toChange('solves', rec);
+    expect(c).toEqual({
+      store: 'solves', id: 'a', updatedAt: 3, deletedAt: null, deletionStamp: 2,
+      data: { sessionId: 's', event: '333', ms: 1, penalty: null, at: 2, scramble: 'R', note: '', createdAt: 2, extra: 'x' },
+    });
+    expect(fromChange(c)).toEqual(rec);
+  });
+
+  it('um item da conta vira mudança com deletedAt null e deletionStamp igual a updatedAt', () => {
+    const c = prefToChange({ key: 'trail.3', value: true, updatedAt: 9 });
+    expect(c).toEqual({ store: 'prefs', id: 'trail.3', data: true, updatedAt: 9, deletedAt: null, deletionStamp: 9 });
+    expect(changeToPref(c)).toEqual({ key: 'trail.3', value: true, updatedAt: 9 });
+  });
+});
+
+describe('perfil da conta e do aparelho (spec 5.2)', () => {
+  it('dividir e juntar devolve o mesmo perfil', () => {
+    const p = profile({
+      trail: [true, true, false, false, false, false, false, false, false], finish: 'gelo', onboarded: true, currentSessionId: 's1',
+      lessonAt: { 2: 4 }, algChoice: { 'oll2-h': 1 }, trainOff: ['pll2-t'],
+      settings: { ...defaultSettings(), inspection: false, dailyGoal: 30, theme: 'dark', holdMs: 550 },
+    });
+    const { device, account } = splitProfile(p);
+    expect(device).toEqual({ settings: { ...defaultDeviceProfile().settings, theme: 'dark', holdMs: 550 }, currentSessionId: 's1' });
+    expect(Object.keys(device.settings)).not.toContain('inspection');
+    expect(joinProfile(device, profileFromPrefs([...prefsFromProfile(account)].map(([key, value]) => ({ key, value, updatedAt: 1 }))))).toEqual(p);
+  });
+
+  it('sem withDefaults, só as chaves fora do padrão; com ele, todas', () => {
+    const { account } = splitProfile(profile({ trail: [false, true, false, false, false, false, false, false, false] }));
+    expect([...prefsFromProfile(account).keys()]).toEqual(['trail.1']);
+    expect(prefsFromProfile(account, { withDefaults: true }).size).toBe(9 + 5);
+  });
+
+  it('um item inválido ou de chave desconhecida fica de fora; null em lessonAt e 0 em algChoice são "sem valor"', () => {
+    const p = profileFromPrefs([
+      { key: 'trail.1', value: 'sim', updatedAt: 1 },
+      { key: 'trail.9', value: true, updatedAt: 1 },
+      { key: 'lessonAt.2', value: null, updatedAt: 1 },
+      { key: 'algChoice.oll2-h', value: 0, updatedAt: 1 },
+      { key: 'algChoice.nao-existe', value: 1, updatedAt: 1 },
+      { key: 'futuro', value: 1, updatedAt: 1 },
+      { key: 'settings.dailyGoal', value: 0, updatedAt: 1 },
+    ]);
+    expect(p).toEqual(profileFromPrefs([]));
+  });
+
+  it('os casos fora do sorteio saem na ordem em que foram tirados', () => {
+    const p = profileFromPrefs([
+      { key: 'trainOff.pll2-t', value: true, updatedAt: 5 },
+      { key: 'trainOff.oll2-h', value: true, updatedAt: 9 },
+      { key: 'trainOff.oll2-l', value: false, updatedAt: 7 },
+    ]);
+    expect(p.trainOff).toEqual(['pll2-t', 'oll2-h']);
+  });
+
+  it('o valor padrão de cada família de chaves', () => {
+    expect(['trail.0', 'lessonAt.1', 'algChoice.x', 'trainOff.x', 'finish', 'settings.inspection'].map(defaultPrefValue)).toEqual([false, null, 0, false, 'fosco', true]);
+    expect(isPrefValue('season', defaultSeason())).toBe(true);
+    expect(isPrefValue('season', { past: 'x' })).toBe(false);
+  });
+});
+
+describe('forma da mudança (spec 6.1, passo 1)', () => {
+  const ok: Change = {
+    store: 'solves', id: 'a1', updatedAt: 3, deletedAt: null, deletionStamp: 2,
+    data: { sessionId: 's', event: '333', ms: 1, penalty: '+2', at: 2, scramble: 'R', note: '', createdAt: 2, futuro: true },
+  };
+
+  it('aceita um solve, uma sessão, uma tentativa e um item da conta bem formados', () => {
+    expect(checkChange(ok)).toEqual({ ok: true, change: ok });
+    expect(checkChange({ store: 'sessions', id: 'default-333', data: { name: 'Sessão 1', event: '333', order: 0, createdAt: 1 }, updatedAt: 1, deletedAt: 5, deletionStamp: 5 }).ok).toBe(true);
+    expect(checkChange({ store: 'practice', id: 'p1', data: { caseId: 'oll2-h', ms: 1, ok: true, helped: false, at: 1 }, updatedAt: 1, deletedAt: null, deletionStamp: 1 }).ok).toBe(true);
+    expect(checkChange({ store: 'prefs', id: 'trail.0', data: true, updatedAt: 1, deletedAt: null, deletionStamp: 1 }).ok).toBe(true);
+  });
+
+  it.each([
+    ['store desconhecida', { ...ok, store: 'profile' }, 'store desconhecida'],
+    ['id com espaço', { ...ok, id: 'a b' }, 'id inválido'],
+    ['data negativa', { ...ok, updatedAt: -1 }, 'datas inválidas'],
+    ['evento desconhecido', { ...ok, data: { ...(ok.data as object), event: 'fto' } }, 'solve inválido'],
+    ['nota grande demais', { ...ok, data: { ...(ok.data as object), note: 'x'.repeat(20_000) } }, 'grande demais'],
+    ['prefs com exclusão', { store: 'prefs', id: 'trail.0', data: true, updatedAt: 1, deletedAt: 1, deletionStamp: 1 }, 'prefs sem exclusão'],
+    ['chave da conta desconhecida', { store: 'prefs', id: 'theme', data: 'dark', updatedAt: 1, deletedAt: null, deletionStamp: 1 }, 'valor inválido para a chave'],
+  ])('recusa %s, com o motivo', (_name, raw, reason) => {
+    expect(checkChange(raw)).toEqual({ ok: false, reason });
+  });
+
+  it('o envelope sai só com os seis campos', () => {
+    const r = checkChange({ ...ok, rev: 9 });
+    expect(r.ok && Object.keys(r.change).sort()).toEqual(['data', 'deletedAt', 'deletionStamp', 'id', 'store', 'updatedAt']);
+  });
+
+  it('um data aninhado a milhares de níveis é recusado como grande demais, sem estourar a pilha', () => {
+    let fundo: unknown = [];
+    for (let i = 0; i < 20_000; i++) fundo = [fundo];
+    expect(checkChange({ ...ok, data: { ...(ok.data as object), fundo } })).toEqual({ ok: false, reason: 'grande demais' });
+  });
+});
+
+// O servidor passa a temporada guardada e a recebida para mergeSeason, que lê `past` e `current` sem conferir nada: a forma tem de barrar
+// antes tudo o que não é uma SeasonProgress inteira.
+describe('a temporada na mudança (spec 6.1, passo 1)', () => {
+  const season = (data: unknown): Change => ({ store: 'prefs', id: 'season', data, updatedAt: 1, deletedAt: null, deletionStamp: 1 });
+  const REJECTED = { ok: false, reason: 'valor inválido para a chave' };
+
+  it('aceita a temporada inteira', () => {
+    expect(checkChange(season(defaultSeason()))).toEqual({ ok: true, change: season(defaultSeason()) });
+  });
+
+  it.each([
+    ['sem past', { current: defaultSeason().current }],
+    ['past que não é lista', { current: defaultSeason().current, past: 'x' }],
+    ['sem current', { past: [] }],
+    ['current torto', { current: { n: 1 }, past: [] }],
+    ['past com registro torto', { current: { ...defaultSeason().current, n: 2 }, past: [{ n: 1 }] }],
+    ['numeração que não fecha', { current: { ...defaultSeason().current, n: 3 }, past: [] }],
+    ['não é objeto', 'temporada'],
+    ['null', null],
+  ])('recusa uma temporada %s', (_name, data) => {
+    expect(checkChange(season(data))).toEqual(REJECTED);
+  });
+});
