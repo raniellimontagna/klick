@@ -524,6 +524,23 @@ body.solving .t-coach {
   color: var(--arm-ink);
 }
 
+/* No desktop (a quebra da .timer), as seções em duas colunas: Timer e Aparência e som à esquerda; Coach e acessibilidade (com o idioma)
+   e Seus dados à direita. Cada coluna é um contêiner no markup, na ordem de leitura. Abaixo da quebra, os contêineres não mudam nada. */
+@media (min-width: 1024px) {
+  .settings {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: var(--cols-gap);
+    align-items: start;
+    max-width: none;
+  }
+
+  /* Na coluna mais estreita, o botão não quebra o rótulo em duas linhas: quem estreita é a descrição ao lado. */
+  .settings .setting .btn {
+    white-space: nowrap;
+  }
+}
+
 /* ---------- Primeira vez ---------- */
 .onb .centro-box {
   width: 120px;
