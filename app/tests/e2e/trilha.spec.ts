@@ -187,6 +187,39 @@ test.describe('num iPhone 13 (390 × 844)', () => {
   });
 });
 
+// No desktop largo, a Trilha usa duas colunas, como o Timer: o treino à direita das etapas, o texto da aula à direita do cubo (quadrado) e,
+// na rodada, a dica de teclado à direita do tempo. No celular, uma coluna só (os testes de cima conferem que cabe).
+test.describe('num desktop de 1440 px', () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+  test('a Trilha em duas colunas: começo, aula e rodada', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop', 'as duas colunas são do desktop');
+    const box = async (selector: string) => {
+      const b = await page.locator(selector).boundingBox();
+      if (!b) throw new Error(`${selector}: sem caixa`);
+      return { left: b.x, right: b.x + b.width, width: b.width, height: b.height };
+    };
+    await fresh(page);
+    await openTrilha(page);
+    const steps = await box('.card:has([data-steps])');
+    const training = await box('[data-training]');
+    expect(training.left, 'o treino à direita das etapas').toBeGreaterThan(steps.right);
+    await page.getByRole('button', { name: 'Começar a aula' }).click();
+    await expect(page.getByRole('heading', { name: 'Segure assim' })).toBeVisible();
+    const cube = await box('[data-lesson] [data-cube]');
+    const text = await box('[data-lesson] .text');
+    expect(text.left, 'o texto da aula à direita do cubo').toBeGreaterThan(cube.right);
+    expect(Math.abs(cube.width - cube.height), 'o cubo quadrado').toBeLessThanOrEqual(1);
+    await page.getByRole('button', { name: 'Voltar à trilha' }).first().click();
+    await page.locator('[data-train-set="oll2"]').click();
+    await page.getByRole('button', { name: 'Começar', exact: true }).click();
+    await expect(page.locator('[data-train-scramble]')).not.toBeEmpty();
+    const time = await box('[data-round] [data-time]');
+    const hint = await box('[data-round] .kbd-hint');
+    expect(hint.left, 'a dica de teclado à direita do tempo').toBeGreaterThan(time.right);
+    await fitsWidth(page, 'rodada a 1440');
+  });
+});
+
 for (const scheme of ['light', 'dark'] as const) {
   test(`Trilha sem violações sérias de acessibilidade no tema ${scheme}: começo, aula, conjunto e rodada`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme });
