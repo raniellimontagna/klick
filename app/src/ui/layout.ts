@@ -5,5 +5,9 @@ import { MediaQuery } from 'svelte/reactivity';
 
 export const WIDE = '(min-width: 1024px)';
 
-// Criada na montagem do componente; `current` acompanha a largura da janela.
+// O celular: abaixo de 640 px, a quebra em que a barra de abas desce para o pé da tela (fixa, por cima do fim da página).
+export const PHONE = '(max-width: 639px)';
+
+// Criadas na montagem do componente; `current` acompanha a largura da janela.
 export const wideLayout = (): MediaQuery => new MediaQuery(WIDE);
+export const phoneLayout = (): MediaQuery => new MediaQuery(PHONE);

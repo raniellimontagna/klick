@@ -3,7 +3,8 @@
   // (o mesmo espaço e os mesmos dois polegares), sem inspeção. Marcar: "Acertei" (o padrão, por Enter ou toque) e "Errei". O resultado
   // mostra o caso, o algoritmo, o tempo e a média do caso, e o próximo caso vem em seguida. A última tentativa pode ser corrigida até a
   // próxima rodada começar. Nada daqui vira solve: o núcleo do timer é reaproveitado, e a gravação é a do treino (app.addPractice).
-  // No desktop, duas colunas como as do Timer: o caso e o tempo à esquerda; a última tentativa, a ajuda e a dica de teclado à direita.
+  // No desktop, duas colunas como as do Timer: o caso e o tempo à esquerda; a última tentativa, a ajuda e a dica de teclado à direita. No
+  // celular, a última tentativa vira uma linha compacta entre o tempo e as zonas de polegar.
   import { tick, untrack } from 'svelte';
   import { chosenAlg, figureOf } from '../../core/trail/cases';
   import { formatMs } from '../../core/stats';
@@ -14,7 +15,7 @@
   import type { CaseSet, TrainCase } from '../../core/trail/types';
   import { T } from '../../strings';
   import type { CentroView } from '../centro';
-  import { wideLayout } from '../layout';
+  import { phoneLayout, wideLayout } from '../layout';
   import { createSound } from '../sound';
   import type { AppState } from '../state/app.svelte';
   import { createInputController } from '../timer/input';
@@ -54,6 +55,7 @@
   let pageVisible = $state(true);
   let destroyed = false;
   const wide = wideLayout();
+  const phone = phoneLayout();
   const before = typeof document === 'undefined' ? undefined : document.body.dataset.tstate; // o que a tela do Timer tinha no body
 
   const timer = createTimer({ now: () => performance.now() });
@@ -301,6 +303,26 @@
   {/if}
 {/snippet}
 
+<!-- No celular, a última tentativa numa linha entre o tempo e as zonas: o tempo, o resultado e os botões de corrigir, sem rolar a tela.
+     O nome do caso fica para o leitor de tela. A linha é baixa, para as zonas caberem inteiras acima da barra de abas; a área de toque dos
+     botões passa da altura deles e chega a 44 px. -->
+{#snippet lastLine()}
+  {#if last}
+    <div class="last-line fade" data-last-attempt>
+      <p class="last-text">
+        <span class="label">{T.trilha.round.last}</span><span class="sr-only">, {last.name}:</span>
+        <span class="last-result">{formatMs(last.ms)} · {T.trilha.round.outcome(last.ok, last.helped)}</span>
+      </p>
+      {#if canFix}
+        <div class="fix">
+          <button type="button" class="btn" onclick={() => fix(!last!.ok)}>{last.ok ? T.trilha.round.fixToMiss : T.trilha.round.fixToOk}</button>
+          <button type="button" class="btn" onclick={remove}>{T.trilha.round.remove}</button>
+        </div>
+      {/if}
+    </div>
+  {/if}
+{/snippet}
+
 <div class="round" class:wide={wide.current} data-round={set} data-tstate={tstate} tabindex="-1" bind:this={screenEl}>
   <header class="round-top fade">
     <MiniCentro {app} view={centro} />
@@ -358,6 +380,10 @@
     </div>
   {/if}
 
+  {#if phone.current}
+    {@render lastLine()}
+  {/if}
+
   <!-- O invólucro fica sempre: a entrada (teclado, parar com um toque, engolir o clique que vem depois) segue ligada nele. As zonas só
        existem enquanto o caso pode ser armado (a montagem, com um caso, e a execução, que nasce dela); sem elas o toque não arma. -->
   <div class="zones-host" bind:this={zonesEl}>
@@ -366,9 +392,8 @@
     {/if}
   </div>
 
-  <!-- Numa coluna só, a última tentativa vem depois das zonas: no celular, em cima delas, ela empurrava as zonas para trás da barra de
-       abas. -->
-  {#if !wide.current}
+  <!-- Numa coluna só, fora do celular, o cartão da última tentativa vem depois das zonas (no celular, a linha compacta de cima). -->
+  {#if !wide.current && !phone.current}
     {@render lastCard()}
   {/if}
 </div>
@@ -612,5 +637,53 @@
 
   .fix {
     margin-top: 8px;
+  }
+
+  /* A linha do celular: o rótulo e o resultado em duas linhas curtas à esquerda, os botões à direita. A altura não muda quando os botões
+     saem (a rodada seguinte começou): as zonas não pulam no meio do solve. */
+  .last-line {
+    display: flex;
+    align-items: center;
+    gap: 6px 12px;
+    min-height: 32px;
+  }
+
+  .last-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    line-height: 1.3;
+  }
+
+  .last-result {
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .last-line .fix {
+    flex: none;
+    margin: 0;
+    gap: 6px;
+  }
+
+  /* O botão é baixo (o visual), mas a área de toque vai a 44 px de altura: o ::after, centrado nele, recebe o toque por ele. O que passa
+     de cada lado cabe no vão da rodada, sem cobrir o tempo nem as zonas. */
+  .last-line .btn {
+    position: relative;
+    min-height: 0;
+    padding: 5px 10px;
+    font-size: 12px;
+  }
+
+  .last-line .btn::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: max(44px, 100%);
+    transform: translateY(-50%);
   }
 </style>

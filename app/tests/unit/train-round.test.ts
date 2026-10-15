@@ -9,7 +9,7 @@ import { openKlickDb } from '../../src/data/db';
 import { createRepository } from '../../src/data/repository';
 import { createScrambleQueue } from '../../src/scramble/queue';
 import { T } from '../../src/strings';
-import { WIDE } from '../../src/ui/layout';
+import { PHONE, WIDE } from '../../src/ui/layout';
 import { AppState } from '../../src/ui/state/app.svelte';
 import TimerScreen from '../../src/ui/timer/TimerScreen.svelte';
 import { drawFigure } from '../../src/ui/trilha/cube-view';
@@ -412,6 +412,36 @@ const hits = (el: Element, selector: string): boolean => {
 };
 
 describe('a rodada no celular e o que vem da tela do Timer', () => {
+  it('no celular, a última tentativa é uma linha entre o tempo e as zonas: o tempo, o resultado e os botões de corrigir', async () => {
+    const restore = mockMedia([PHONE]);
+    try {
+      const { a, repo } = await app();
+      round(a);
+      await solve();
+      await screen.findByRole('button', { name: 'Acertei' });
+      key('keydown', 'Enter', 'Enter');
+      await waitFor(() => expect(document.querySelector('[data-zones]')).not.toBeNull()); // o caso seguinte, na montagem
+      const line = document.querySelector('[data-last-attempt]') as HTMLElement;
+      expect(document.querySelectorAll('[data-last-attempt]')).toHaveLength(1);
+      expect(line).toHaveClass('last-line');
+      // Antes das zonas no DOM (e na tela), depois do tempo.
+      const follows = (x: Element, y: Element): boolean => (x.compareDocumentPosition(y) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+      expect(follows(document.querySelector('[data-time]')!, line)).toBe(true);
+      expect(follows(line, document.querySelector('.zones-host')!)).toBe(true);
+      const [p] = await repo.listPractice();
+      expect(line).toHaveTextContent(`${formatMs(p.ms)} · acerto`);
+      expect(line).toHaveTextContent('Linha'); // o nome do caso, para o leitor de tela
+      await fireEvent.click(within(line).getByRole('button', { name: 'Era erro' }));
+      await waitFor(async () => expect((await repo.listPractice())[0].ok).toBe(false));
+      expect(line).toHaveTextContent('erro');
+      await fireEvent.click(within(line).getByRole('button', { name: 'Apagar' }));
+      await waitFor(() => expect(document.querySelector('[data-last-attempt]')).toBeNull());
+      expect(await repo.listPractice()).toEqual([]);
+    } finally {
+      restore();
+    }
+  });
+
   it('o tempo do treino não usa as regras do Timer: o recorde, a inspeção e o armar da tela do Timer não o pintam', async () => {
     const { a } = await app();
     document.body.dataset.result = 'pb';

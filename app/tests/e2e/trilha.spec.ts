@@ -148,6 +148,35 @@ async function roundFits(page: Page, where: string, minVisible = 1): Promise<voi
   }
 }
 
+// No celular, a última tentativa é uma linha entre o tempo e as zonas, com os botões de corrigir à vista acima da barra de abas (sem rolar).
+// O visual dos botões é baixo, mas a área de toque tem 44 px de altura: o ponto 21,5 px acima e abaixo do centro ainda cai no botão.
+async function lastFits(page: Page, where: string): Promise<void> {
+  const tabbar = page.locator('nav.tabbar');
+  if (!(await tabbar.isVisible())) return;
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const m = await page.evaluate(() => {
+    const bar = document.querySelector('nav.tabbar')!.getBoundingClientRect().top;
+    const line = document.querySelector('[data-round] [data-last-attempt]')!.getBoundingClientRect();
+    const time = document.querySelector('[data-round] [data-time]')!.getBoundingClientRect();
+    const zones = Math.min(...[...document.querySelectorAll('[data-round] [data-zone]')].map((z) => z.getBoundingClientRect().top));
+    const buttons = [...document.querySelectorAll<HTMLElement>('[data-round] [data-last-attempt] button')].map((b) => {
+      const box = b.getBoundingClientRect();
+      const x = box.left + box.width / 2;
+      const y = box.top + box.height / 2;
+      const hits = (dy: number): boolean => b.contains(document.elementFromPoint(x, y + dy));
+      return { name: b.textContent, touch: hits(-21.5) && hits(21.5), bottom: y + 22 };
+    });
+    return { bar, top: line.top, bottom: line.bottom, time: time.bottom, zones, buttons };
+  });
+  expect(m.top, `rodada ${where}: a última tentativa depois do tempo`).toBeGreaterThanOrEqual(m.time);
+  expect(m.bottom, `rodada ${where}: a última tentativa antes das zonas`).toBeLessThanOrEqual(m.zones);
+  expect(m.buttons.map((b) => b.name)).toEqual(['Era erro', 'Apagar']);
+  for (const b of m.buttons) {
+    expect(b.touch, `rodada ${where}: ${b.name} com 44 px de toque`).toBe(true);
+    expect(b.bottom, `rodada ${where}: ${b.name} acima da barra de abas`).toBeLessThanOrEqual(m.bar);
+  }
+}
+
 async function layout(page: Page): Promise<void> {
   await fresh(page);
   await openTrilha(page);
@@ -165,12 +194,18 @@ async function layout(page: Page): Promise<void> {
     await page.getByRole('button', { name: 'Ver o algoritmo' }).click();
     await expect(page.locator('[data-round] [data-case-figure]')).toHaveCount(2);
     await roundFits(page, `${set} com o algoritmo`, 0.75);
-    // O caso seguinte, com o cartão da última tentativa: ele fica depois das zonas e não as empurra.
+    // O caso seguinte, com a última tentativa: no celular, a linha compacta entre o tempo e as zonas, que continuam inteiras acima da
+    // barra de abas, também com a ajuda do caso novo aberta.
     await run(page);
     await page.keyboard.press('Enter');
     await expect(page.locator('[data-last-attempt]')).toBeVisible();
     await expect(page.locator('[data-round] [data-zone="left"]')).toBeAttached(); // o caso seguinte, na montagem (no desktop largo, sem zonas à vista)
     await roundFits(page, `${set} com a última tentativa`);
+    await lastFits(page, `${set} com a última tentativa`);
+    await page.getByRole('button', { name: 'Ver o algoritmo' }).click();
+    await expect(page.locator('[data-round] [data-case-figure]')).toHaveCount(2);
+    await roundFits(page, `${set} com a última tentativa e o algoritmo`);
+    await lastFits(page, `${set} com a última tentativa e o algoritmo`);
     await page.getByRole('button', { name: 'Encerrar' }).click();
     await page.getByRole('button', { name: 'Voltar à trilha' }).first().click();
   }
