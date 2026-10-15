@@ -86,6 +86,36 @@ describe('a aba Trilha', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
+  it('se a nova tentativa também falha (o navegador guardou a falha do import): a linha oferece recarregar a página', async () => {
+    // O jsdom não deixa trocar o reload do location dele: o location global vira uma cópia com o reload espiado.
+    const reload = vi.fn();
+    vi.stubGlobal('location', { ...window.location, reload });
+    try {
+      let calls = 0;
+      const loadTrilha = () => {
+        calls++;
+        return Promise.reject(new Error('offline'));
+      };
+      render(App, { loadTrilha });
+      await screen.findByRole('button', { name: 'Timer' });
+      screen.getAllByRole('button', { name: 'Trilha' })[0].click();
+      expect(await screen.findByRole('alert')).toHaveTextContent(T.trilha.loadFailed);
+      const retry = screen.getByRole('button', { name: T.trilha.retry });
+      retry.focus();
+      retry.click();
+      const again = await screen.findByRole('button', { name: T.trilha.reload });
+      expect(calls).toBe(2);
+      expect(screen.getByRole('alert')).toHaveTextContent(T.trilha.loadFailedAgain);
+      expect(screen.queryByRole('button', { name: T.trilha.retry })).toBeNull();
+      // O botão de tentar de novo sumiu com o clique: o foco vai para o de recarregar, não fica no body.
+      expect(document.activeElement).toBe(again);
+      again.click();
+      expect(reload).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('a tecla 3 abre a Trilha (carregada na hora) e a 4 o Centro', async () => {
     render(App);
     await screen.findByRole('button', { name: 'Timer' });

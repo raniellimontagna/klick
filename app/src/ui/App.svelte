@@ -33,10 +33,16 @@
   ];
 
   // A aba Trilha carrega na primeira vez que abre: as aulas ficam fora do código da abertura (spec 9.5). O service worker guarda o pedaço.
-  // Se ele não carrega, a aba mostra a linha de erro, e "Tentar de novo" refaz o import (loadTrilha é trocável nos testes).
+  // Se ele não carrega, a aba mostra a linha de erro, e "Tentar de novo" refaz o import (loadTrilha é trocável nos testes). Alguns
+  // navegadores guardam a falha do import dinâmico: se a nova tentativa também falha, a linha oferece recarregar a página.
   let { loadTrilha = () => import('./trilha/TrilhaScreen.svelte') }: { loadTrilha?: () => Promise<typeof import('./trilha/TrilhaScreen.svelte')> } =
     $props();
   let trilhaTry = $state(0);
+  // O botão de tentar de novo sumiu com o clique (o bloco refaz o import): o de recarregar, que entra no lugar dele, recebe o foco que
+  // caiu no body.
+  const takeFocus = (el: HTMLElement): void => {
+    if (document.activeElement === null || document.activeElement === document.body) el.focus();
+  };
 
   let app = $state.raw<AppState | null>(null);
   let failed = $state(false);
@@ -215,8 +221,13 @@
             <TrilhaScreen {app} />
           {:catch}
             <section class="screen" data-screen="trilha" aria-label={T.tabs.trilha}>
-              <p role="alert" data-trail-load-failed>{T.trilha.loadFailed}</p>
-              <button type="button" class="btn" onclick={() => trilhaTry++}>{T.trilha.retry}</button>
+              {#if trilhaTry === 0}
+                <p role="alert" data-trail-load-failed>{T.trilha.loadFailed}</p>
+                <button type="button" class="btn" onclick={() => trilhaTry++}>{T.trilha.retry}</button>
+              {:else}
+                <p role="alert" data-trail-load-failed>{T.trilha.loadFailedAgain}</p>
+                <button type="button" class="btn" onclick={() => location.reload()} {@attach takeFocus}>{T.trilha.reload}</button>
+              {/if}
             </section>
           {/await}
         {/key}

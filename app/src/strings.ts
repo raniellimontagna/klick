@@ -167,6 +167,9 @@ export const T = Object.freeze({
     // O pedaço da aba não carregou (sem rede antes do pré-cache, ou o arquivo falhou): a linha de erro e o botão que tenta de novo.
     loadFailed: 'A Trilha não carregou. Confira a conexão e tente de novo.',
     retry: 'Tentar de novo',
+    // A nova tentativa também falhou: o navegador pode ter guardado a falha do import, e aí só recarregar a página resolve.
+    loadFailedAgain: 'A Trilha não carregou de novo. Recarregue a página para tentar outra vez.',
+    reload: 'Recarregar a página',
     // O leitor de aula (ui/trilha/LessonPlayer.svelte).
     lesson: Object.freeze({
       exit: 'Voltar à trilha',
