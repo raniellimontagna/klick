@@ -91,6 +91,13 @@ describe('a cascata da sessão apagada (spec 6.3, regra 3)', () => {
   it('sessão ativa: nada muda', () => {
     expect(cascade(session({ deletedAt: null }), [solve()])).toEqual({ session: session({ deletedAt: null }), solves: [] });
   });
+
+  it('no empate de deletionStamp com a sessão, o solve termina excluído (o limite do >=)', () => {
+    const tie = solve({ id: 't', deletionStamp: 50, updatedAt: 10 });
+    const out = cascade(session(), [tie]);
+    expect(out.solves).toEqual([{ ...tie, deletedAt: 50, deletionStamp: 50 }]);
+    expect(out.session).toEqual(session());
+  });
 });
 
 describe('temporadas (spec 6.4): o servidor decide', () => {
@@ -115,6 +122,22 @@ describe('temporadas (spec 6.4): o servidor decide', () => {
     expect((out.data as SeasonProgress).past[0].solves).toBe(1000);
     expect(out.updatedAt).toBe(9);
     expect((mergeSeason(pref(defaultSeason(), 1), pref(defaultSeason(), 2)).data as SeasonProgress).past).toEqual([]);
+  });
+
+  it('1 (o sentido contrário): a armazenada com mais fechadas vence, mesmo que a recebida seja mais nova; a temporada nunca regride', () => {
+    const stored = pref(season([rec(1, 100), rec(2, 200)]), 5);
+    const out = mergeSeason(stored, pref(season([rec(1, 100)]), 9));
+    expect(out.data).toEqual(stored.data);
+    expect((out.data as SeasonProgress).past).toHaveLength(2);
+    expect(out.updatedAt).toBe(9); // o aparelho que mandou a menor recebe a maior de volta
+  });
+
+  it('3: sem fechadas dos dois lados, mas com a temporada atual diferente, fica a armazenada', () => {
+    const base = season([]);
+    const stored = pref({ ...base, current: { ...base.current, startedAt: 111 } }, 5);
+    const received = pref({ ...base, current: { ...base.current, startedAt: 222 } }, 9);
+    expect((mergeSeason(stored, received).data as SeasonProgress).current.startedAt).toBe(111);
+    expect((mergeSeason(received, stored).data as SeasonProgress).current.startedAt).toBe(222); // quem guarda decide: não é simétrica
   });
 });
 

@@ -31,3 +31,11 @@ export const prefToChange = (item: PrefItem): Change => ({
 });
 
 export const changeToPref = (change: Change): PrefItem => ({ key: change.id, value: change.data, updatedAt: change.updatedAt });
+
+// A sessão de um solve (o `sessionId` dentro de `data`), ou null se a mudança não é de um solve ou o campo não é texto. Um só lugar para
+// quem precisa achar os solves de uma sessão: o juntar de um lote (apply.ts), o Durable Object (coluna `parent`) e o repositório.
+export function sessionOfChange(change: Change): string | null {
+  if (change.store !== 'solves') return null;
+  const d = change.data as { sessionId?: unknown } | null;
+  return typeof d?.sessionId === 'string' ? d.sessionId : null;
+}
