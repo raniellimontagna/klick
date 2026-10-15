@@ -115,10 +115,52 @@ describe('forma da mudança (spec 6.1, passo 1)', () => {
     expect(r.ok && Object.keys(r.change).sort()).toEqual(['data', 'deletedAt', 'deletionStamp', 'id', 'store', 'updatedAt']);
   });
 
-  it('um data aninhado a milhares de níveis é recusado como grande demais, sem estourar a pilha', () => {
+  // Quantos objetos/listas encadeados, contando o próprio data. O corte é 32, igual no app e no servidor, e não depende da pilha.
+  const comNiveis = (niveis: number): Change => {
     let fundo: unknown = [];
-    for (let i = 0; i < 20_000; i++) fundo = [fundo];
-    expect(checkChange({ ...ok, data: { ...(ok.data as object), fundo } })).toEqual({ ok: false, reason: 'grande demais' });
+    for (let i = 1; i < niveis - 1; i++) fundo = [fundo];
+    return { ...ok, data: { ...(ok.data as object), fundo } };
+  };
+
+  it('32 níveis de aninhamento passam; 33 são recusados como grande demais', () => {
+    expect(checkChange(comNiveis(32)).ok).toBe(true);
+    expect(checkChange(comNiveis(33))).toEqual({ ok: false, reason: 'grande demais' });
+  });
+
+  it('um data aninhado a milhares de níveis é recusado como grande demais, sem estourar a pilha', () => {
+    expect(checkChange(comNiveis(20_000))).toEqual({ ok: false, reason: 'grande demais' });
+  });
+
+  it('o corte de profundidade vale também para uma lista dentro de um item da conta', () => {
+    let fundo: unknown = [];
+    for (let i = 0; i < 40; i++) fundo = [fundo];
+    expect(checkChange({ store: 'prefs', id: 'trail.0', data: fundo, updatedAt: 1, deletedAt: null, deletionStamp: 1 })).toEqual({
+      ok: false,
+      reason: 'grande demais',
+    });
+  });
+
+  // As datas viram o relógio do app (max(Date.now(), clock + 1)): acima de 2^53 o `+ 1` não muda nada, o relógio para e toda gravação
+  // seguinte empata. O servidor guarda o maior, então uma data assim nunca mais sairia da conta.
+  it.each([
+    ['updatedAt em 2^53', { ...ok, updatedAt: 2 ** 53 }],
+    ['updatedAt em 1e300', { ...ok, updatedAt: 1e300 }],
+    ['updatedAt fracionário', { ...ok, updatedAt: 1.5 }],
+    ['deletionStamp fracionário', { ...ok, deletionStamp: 1.5 }],
+    ['deletionStamp em 2^53', { ...ok, deletionStamp: 2 ** 53 }],
+    ['deletedAt fracionário', { ...ok, deletedAt: 1.5 }],
+    ['deletedAt em 2^53', { ...ok, deletedAt: 2 ** 53 }],
+    ['deletedAt em 1e300', { ...ok, deletedAt: 1e300 }],
+    ['updatedAt NaN', { ...ok, updatedAt: Number.NaN }],
+    ['updatedAt infinito', { ...ok, updatedAt: Number.POSITIVE_INFINITY }],
+  ])('recusa %s como datas inválidas', (_name, raw) => {
+    expect(checkChange(raw)).toEqual({ ok: false, reason: 'datas inválidas' });
+  });
+
+  it('aceita datas no maior inteiro seguro e no zero', () => {
+    const topo = Number.MAX_SAFE_INTEGER;
+    expect(checkChange({ ...ok, updatedAt: topo, deletedAt: topo, deletionStamp: topo }).ok).toBe(true);
+    expect(checkChange({ ...ok, updatedAt: 0, deletedAt: 0, deletionStamp: 0 }).ok).toBe(true);
   });
 });
 

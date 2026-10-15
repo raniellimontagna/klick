@@ -7,13 +7,29 @@ import { SYNC_STORES, type Change, type SyncStore } from './types';
 
 export const MAX_DATA_CHARS = 16_384;
 export const MAX_SEASON_CHARS = 65_536;
+export const MAX_DEPTH = 32; // o Klick usa até uns 4 níveis de objeto/lista (a temporada: ela, current, marks, cada marca)
 const ID = /^[\w.-]{1,96}$/;
 
 const isRec = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
-const isStamp = (v: unknown): v is number => isNum(v) && v >= 0;
+// Datas são inteiros seguros: viram o relógio do app (max(Date.now(), clock + 1)), e de 2^53 em diante o `+ 1` não muda nada, o relógio
+// para e toda gravação seguinte empata. Como o servidor guarda o maior, uma data assim nunca mais sairia da conta.
+const isStamp = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0;
 const isEvent = (v: unknown): boolean => typeof v === 'string' && (EVENT_IDS as readonly string[]).includes(v);
 const isPenalty = (v: unknown): boolean => v === null || v === '+2' || v === 'DNF';
+
+// Mais de MAX_DEPTH objetos/listas encadeados (contando o próprio data)? Percorre sem recursão: o corte é o mesmo no app e no servidor, e
+// não depende da pilha. Sem ele, um data fundo estouraria a pilha no canonicalJson de quem o lê depois (o merge).
+function tooDeep(data: unknown): boolean {
+  const pending: [unknown, number][] = [[data, 1]];
+  while (pending.length > 0) {
+    const [v, depth] = pending.pop()!;
+    if (typeof v !== 'object' || v === null) continue;
+    if (depth > MAX_DEPTH) return true;
+    for (const child of Array.isArray(v) ? v : Object.values(v)) pending.push([child, depth + 1]);
+  }
+  return false;
+}
 
 function dataProblem(store: SyncStore, id: string, d: unknown, change: Record<string, unknown>): string | null {
   if (store === 'prefs') {
@@ -46,14 +62,7 @@ export function checkChange(raw: unknown): Checked {
   if (typeof id !== 'string' || !ID.test(id)) return { ok: false, reason: 'id inválido' };
   if (!isStamp(updatedAt) || !isStamp(deletionStamp) || !(deletedAt === null || isStamp(deletedAt))) return { ok: false, reason: 'datas inválidas' };
   const limit = store === 'prefs' && id === 'season' ? MAX_SEASON_CHARS : MAX_DATA_CHARS;
-  // canonicalJson recursa: um data aninhado a milhares de níveis estoura a pilha em vez de passar do limite. Conta como grande demais.
-  let size = Infinity;
-  try {
-    size = canonicalJson(data).length;
-  } catch {
-    /* fundo demais */
-  }
-  if (size > limit) return { ok: false, reason: 'grande demais' };
+  if (tooDeep(data) || canonicalJson(data).length > limit) return { ok: false, reason: 'grande demais' };
   const problem = dataProblem(store as SyncStore, id, data, raw);
   if (problem) return { ok: false, reason: problem };
   return { ok: true, change: { store: store as SyncStore, id, data, updatedAt, deletedAt, deletionStamp } };
