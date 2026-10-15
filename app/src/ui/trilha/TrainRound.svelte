@@ -48,6 +48,7 @@
   let screenEl = $state<HTMLElement>();
   let zonesEl = $state<HTMLElement>();
   let timeEl = $state<HTMLElement>();
+  let helpEl = $state<HTMLElement>();
   let coarseMq = $state(false);
   let tstate = $state<TimerState>('idle'); // o estado do timer do treino: as cores do tempo vêm dele, não do body (que a tela do Timer pinta)
   let pageVisible = $state(true);
@@ -95,13 +96,20 @@
     loop.kick();
   }
 
-  // "Ver o algoritmo" antes de começar: a tentativa fica "com ajuda" e não sobe o nível.
-  function help(): void {
-    if (phase === 'setup' && timer.state === 'idle') helped = true;
-  }
-
   // O foco caiu no body (ou em nada): o elemento que o tinha sumiu ou foi desligado.
   const isLost = (el: Element | null): boolean => el === null || el === document.body;
+
+  // "Ver o algoritmo" antes de começar: a tentativa fica "com ajuda" e não sobe o nível.
+  async function help(): Promise<void> {
+    if (phase !== 'setup' || timer.state !== 'idle') return;
+    // O botão some com a ajuda que abre: o foco vai para a ajuda (o algoritmo e a figura), não cai no body.
+    const refocus = isLost(document.activeElement) || (screenEl?.contains(document.activeElement) ?? false);
+    helped = true;
+    if (refocus) {
+      await tick();
+      if (!destroyed) helpEl?.focus({ preventScroll: true });
+    }
+  }
 
   async function mark(ok: boolean): Promise<void> {
     const c = current;
@@ -267,7 +275,7 @@
 <!-- Ao lado do algoritmo, como segurar o caso para ele: o inverso dele, sem o giro de cima do embaralhamento. No desktop, um cartão na
      coluna da direita (que esmaece no solve, como o resto da tela); numa coluna só, dentro do caso. -->
 {#snippet helpBox(c: TrainCase)}
-  <div class="help" class:card={wide.current} class:fade={wide.current}>
+  <div class="help" class:card={wide.current} class:fade={wide.current} tabindex="-1" bind:this={helpEl}>
     <p class="help-alg"><span class="chip">{T.trilha.round.helped}</span> <span class="mono" data-help-alg>{alg}</span></p>
     <CaseFigure small setup={invertAlg(alg)} {...figureOf(c)} />
   </div>
@@ -452,6 +460,16 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 0 12px;
+  }
+
+  /* A ajuda recebe o foco quando o botão que a abre some: o contorno dos controles, só pelo teclado (como o da rodada). */
+  .help:focus {
+    outline: none;
+  }
+
+  .help:focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 4px;
   }
 
   .mono {

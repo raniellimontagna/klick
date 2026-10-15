@@ -27,6 +27,10 @@
   let cubeState = $state<CubeState>({ move: 0, playing: false, atStart: true, atEnd: false });
   let host = $state<HTMLElement>();
   let reduceMq = $state(false);
+  let backEl = $state<HTMLButtonElement>();
+  let forwardEl = $state<HTMLButtonElement>();
+  let restartEl = $state<HTMLButtonElement>();
+  let focusBefore: Element | null = null; // quem tinha o foco antes de o estado novo do cubo chegar à tela
 
   const current = $derived(lesson.parts[part]);
   const moves = $derived(current.cube?.alg ? current.cube.alg.split(/\s+/) : []);
@@ -56,6 +60,7 @@
       cubeMissing = view === null;
       cubeFailed = view !== null && !view.moving;
       view?.listen((s) => {
+        focusBefore = document.activeElement; // a tela ainda não mudou: o botão que a ponta vai desligar continua focado
         cubeState = s;
       });
       if (view) untrack(() => view.show(specOf(part), autoplay()));
@@ -65,6 +70,18 @@
       mounted?.destroy();
       cube = null;
     };
+  });
+
+  // Na ponta do algoritmo, o botão de movimento daquele lado desliga, e o foco que estava nele cairia no body. Depois que a tela muda, o
+  // foco passa para o que continua valendo: no começo, o Próximo movimento; no fim, o Recomeçar.
+  $effect(() => {
+    const { atStart, atEnd } = cubeState;
+    const had = focusBefore;
+    focusBefore = null;
+    untrack(() => {
+      if (atStart && had === backEl && backEl?.disabled) forwardEl?.focus();
+      else if (atEnd && had === forwardEl && forwardEl?.disabled) restartEl?.focus();
+    });
   });
 
   // Trocar de passo: o estado novo no cubo (no começo do algoritmo) e o passo guardado para a retomada.
@@ -181,9 +198,9 @@
       {#if cube?.moving}
         <div class="controls" role="group" aria-label={T.trilha.lesson.controls}>
           <button type="button" class="btn" onclick={togglePlay}>{cubeState.playing ? T.trilha.lesson.pause : T.trilha.lesson.play}</button>
-          <button type="button" class="btn" disabled={cubeState.atStart} onclick={() => cube?.step(-1)}>{T.trilha.lesson.back}</button>
-          <button type="button" class="btn" disabled={cubeState.atEnd} onclick={() => cube?.step(1)}>{T.trilha.lesson.forward}</button>
-          <button type="button" class="btn" onclick={() => cube?.restart()}>{T.trilha.lesson.restart}</button>
+          <button type="button" class="btn" disabled={cubeState.atStart} onclick={() => cube?.step(-1)} bind:this={backEl}>{T.trilha.lesson.back}</button>
+          <button type="button" class="btn" disabled={cubeState.atEnd} onclick={() => cube?.step(1)} bind:this={forwardEl}>{T.trilha.lesson.forward}</button>
+          <button type="button" class="btn" onclick={() => cube?.restart()} bind:this={restartEl}>{T.trilha.lesson.restart}</button>
         </div>
       {/if}
     {/if}

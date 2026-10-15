@@ -171,6 +171,20 @@ describe('rodada do treino (spec 7.2)', () => {
     expect((await repo.listPractice())[0]).toMatchObject({ caseId: 'oll2-linha', ok: false, helped: true });
   });
 
+  it('"Ver o algoritmo" some com a ajuda que abre: o foco vai para a ajuda, não cai no body', async () => {
+    const { a } = await app();
+    round(a);
+    const help = screen.getByRole('button', { name: 'Ver o algoritmo' });
+    help.focus();
+    await fireEvent.click(help);
+    expect(screen.queryByRole('button', { name: 'Ver o algoritmo' })).toBeNull();
+    const box = document.querySelector('[data-help-alg]')!.closest('.help');
+    await waitFor(() => expect(document.activeElement).toBe(box));
+    // Com o foco na ajuda, o espaço continua armando a rodada.
+    await solve();
+    expect(await screen.findByRole('button', { name: 'Acertei' })).toBeInTheDocument();
+  });
+
   it('Enter num botão focado é do botão: "Errei" focado grava só o erro', async () => {
     const { a, repo } = await app();
     round(a);
@@ -540,6 +554,7 @@ describe('a rodada em duas colunas no desktop (a partir de 1024 px)', () => {
       // "Ver o algoritmo" fica no caso, à esquerda; a ajuda abre à direita, com a figura pequena de como segurar o caso.
       await fireEvent.click(within(main).getByRole('button', { name: 'Ver o algoritmo' }));
       expect(side.querySelector('[data-help-alg]')).toHaveTextContent("F R U R' U' F'");
+      await waitFor(() => expect(document.activeElement).toBe(side.querySelector('.help'))); // o botão sumiu: o foco vai para a ajuda
       expect(document.querySelectorAll('[data-help-alg]')).toHaveLength(1);
       expect(side.querySelectorAll('[data-case-figure]')).toHaveLength(1);
       await solve();

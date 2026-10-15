@@ -143,6 +143,26 @@ describe('aula: andar pelos passos (spec 6.1)', () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Próximo' })));
   });
 
+  it('o botão de movimento que a ponta do algoritmo desliga não deixa o foco cair: no começo vai para o Próximo movimento, no fim para Recomeçar', async () => {
+    await lesson(0);
+    await next(); // um passo com algoritmo e controles
+    cube.listener?.({ move: 1, playing: false, atStart: false, atEnd: false });
+    const back = await screen.findByRole('button', { name: 'Movimento anterior' });
+    await waitFor(() => expect(back).not.toBeDisabled());
+    back.focus();
+    await fireEvent.click(back);
+    expect(cube.log.at(-1)).toBe('step -1');
+    cube.listener?.({ move: 0, playing: false, atStart: true, atEnd: false }); // o cubo chegou ao começo
+    await waitFor(() => expect(back).toBeDisabled());
+    const forward = screen.getByRole('button', { name: 'Próximo movimento' });
+    await waitFor(() => expect(document.activeElement).toBe(forward));
+    await fireEvent.click(forward);
+    expect(cube.log.at(-1)).toBe('step 1');
+    cube.listener?.({ move: 1, playing: false, atStart: false, atEnd: true }); // e ao fim
+    await waitFor(() => expect(forward).toBeDisabled());
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Recomeçar' })));
+  });
+
   it('a troca de passo é anunciada ("passo N de M" e o título)', async () => {
     const { a } = await lesson(0);
     await next();
