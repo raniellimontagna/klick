@@ -2,7 +2,7 @@
   // Um conjunto do treino (spec do sub-projeto 4, seções 7.1 e 7.4): os casos do mais fraco ao mais firme, com nível, tentativas, % de
   // acerto e a média das últimas 5 certas. Cada caso pode sair do sorteio (profile.trainOff); tocar no nome mostra como reconhecer e os
   // algoritmos, e deixa trocar o que a pessoa usa (profile.algChoice). A figura mostra como segurar o caso para o algoritmo escolhido (o
-  // inverso dele, sem giro de cima). Com todos fora, o treino não começa.
+  // inverso dele, sem giro de cima). Com todos fora, o treino não começa. No desktop, o cabeçalho na largura toda e os casos em duas colunas.
   import { casesOf, choiceOf, chosenAlg, figureOf } from '../../core/trail/cases';
   import { invertAlg } from '../../core/trail/frame';
   import { formatMs } from '../../core/stats';
@@ -191,6 +191,20 @@
 
   .mono {
     font-family: var(--mono);
+  }
+
+  /* No desktop (a quebra do Timer), a tela ocupa a moldura toda e os casos vão em duas colunas, lidos por linha (na ordem da lista). O
+     caso aberto cresce na coluna dele; o vizinho de linha fica em cima. */
+  @media (min-width: 1024px) {
+    .set-view {
+      max-width: none;
+    }
+
+    .cases {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      column-gap: var(--cols-gap);
+      align-items: start;
+    }
   }
 
   @media (pointer: coarse) {
