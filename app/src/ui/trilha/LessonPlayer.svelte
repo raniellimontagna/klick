@@ -3,7 +3,8 @@
   // peças que importam em destaque; o algoritmo escrito com o movimento atual; os controles; o texto e a dica; Voltar e Próximo.
   // ← e → andam um movimento (sem passar do começo nem do fim) e o espaço toca ou pausa (a tela não tem timer). Cada troca de passo guarda
   // onde a aula parou (profile.lessonAt), e a aula volta dali; a troca é anunciada. O último passo conclui: marca a etapa, a face lateral
-  // pisca e o Centro fica feliz. "Reduzir movimento" ou o Centro estático: nada toca sozinho, o cubo anda só pelos controles.
+  // pisca e o Centro fica feliz. "Reduzir movimento" ou o Centro estático: nada toca sozinho, o cubo anda só pelos controles. No desktop,
+  // duas colunas: o cubo à esquerda; o cabeçalho, o texto e os controles à direita.
   import { tick, untrack } from 'svelte';
   import { LESSONS } from '../../core/trail/lessons';
   import type { TrailStep } from '../../core/trail/types';
@@ -144,7 +145,7 @@
   });
 </script>
 
-<div class="lesson" data-lesson={step}>
+<div class="lesson" class:no-cube={cubeMissing} data-lesson={step}>
   <header class="lesson-top">
     <MiniCentro {app} view={completed ? { state: 'reaction', result: 'pb' } : { state: 'idle' }} />
     <div class="lesson-name">
@@ -161,47 +162,51 @@
 
   <!-- Sem o cubing.js, a caixa recolhe: não há figura para mostrar nela. -->
   <div class="cube" class:flat={cube !== null && !cube.moving} hidden={cubeMissing} aria-hidden="true" data-cube bind:this={host}></div>
-  {#if cubeMissing}
-    <p class="muted note" data-cube-missing>{T.trilha.lesson.noCube}</p>
-  {:else if cubeFailed}
-    <p class="muted note" data-cube-flat>{T.trilha.lesson.flat}</p>
-  {/if}
 
-  {#if moves.length > 0}
-    <p class="alg" data-alg>
-      <span class="sr-only">{T.trilha.lesson.alg}: {current.cube?.alg}</span>
-      {#each moves as m, i (i)}
-        <span class:now={cube?.moving && i === cubeState.move} aria-hidden="true">{m}</span>
-      {/each}
-    </p>
-    {#if cube?.moving}
-      <div class="controls" role="group" aria-label={T.trilha.lesson.controls}>
-        <button type="button" class="btn" onclick={togglePlay}>{cubeState.playing ? T.trilha.lesson.pause : T.trilha.lesson.play}</button>
-        <button type="button" class="btn" disabled={cubeState.atStart} onclick={() => cube?.step(-1)}>{T.trilha.lesson.back}</button>
-        <button type="button" class="btn" disabled={cubeState.atEnd} onclick={() => cube?.step(1)}>{T.trilha.lesson.forward}</button>
-        <button type="button" class="btn" onclick={() => cube?.restart()}>{T.trilha.lesson.restart}</button>
-      </div>
+  <!-- O texto e os controles: no desktop, a coluna da direita, embaixo do cabeçalho; numa coluna só, o invólucro não tem caixa. -->
+  <div class="lesson-body">
+    {#if cubeMissing}
+      <p class="muted note" data-cube-missing>{T.trilha.lesson.noCube}</p>
+    {:else if cubeFailed}
+      <p class="muted note" data-cube-flat>{T.trilha.lesson.flat}</p>
     {/if}
-  {/if}
 
-  <h3>{current.title}</h3>
-  <p class="text">{current.text}</p>
-  {#if current.tip}
-    <p class="tip"><strong>{T.trilha.lesson.tip}:</strong> {current.tip}</p>
-  {/if}
-
-  <div class="nav" bind:this={navEl}>
-    {#if completed}
-      {#if lesson.cases}
-        <button type="button" class="btn primary" onclick={() => app.openTrail({ kind: 'set', set: lesson.cases! })}>{T.trilha.lesson.train}</button>
-      {:else if step < 8}
-        <button type="button" class="btn primary" onclick={() => app.openTrail({ kind: 'lesson', step: (step + 1) as TrailStep })}>{T.trilha.lesson.nextStep}</button>
+    {#if moves.length > 0}
+      <p class="alg" data-alg>
+        <span class="sr-only">{T.trilha.lesson.alg}: {current.cube?.alg}</span>
+        {#each moves as m, i (i)}
+          <span class:now={cube?.moving && i === cubeState.move} aria-hidden="true">{m}</span>
+        {/each}
+      </p>
+      {#if cube?.moving}
+        <div class="controls" role="group" aria-label={T.trilha.lesson.controls}>
+          <button type="button" class="btn" onclick={togglePlay}>{cubeState.playing ? T.trilha.lesson.pause : T.trilha.lesson.play}</button>
+          <button type="button" class="btn" disabled={cubeState.atStart} onclick={() => cube?.step(-1)}>{T.trilha.lesson.back}</button>
+          <button type="button" class="btn" disabled={cubeState.atEnd} onclick={() => cube?.step(1)}>{T.trilha.lesson.forward}</button>
+          <button type="button" class="btn" onclick={() => cube?.restart()}>{T.trilha.lesson.restart}</button>
+        </div>
       {/if}
-      <button type="button" class="btn" onclick={() => app.openTrail()}>{T.trilha.lesson.exit}</button>
-    {:else}
-      <button type="button" class="btn" disabled={part === 0} onclick={back}>{T.trilha.lesson.prev}</button>
-      <button type="button" class="btn primary" onclick={forward}>{part < last ? T.trilha.lesson.next : marked ? T.trilha.lesson.finish : T.trilha.lesson.done}</button>
     {/if}
+
+    <h3>{current.title}</h3>
+    <p class="text">{current.text}</p>
+    {#if current.tip}
+      <p class="tip"><strong>{T.trilha.lesson.tip}:</strong> {current.tip}</p>
+    {/if}
+
+    <div class="nav" bind:this={navEl}>
+      {#if completed}
+        {#if lesson.cases}
+          <button type="button" class="btn primary" onclick={() => app.openTrail({ kind: 'set', set: lesson.cases! })}>{T.trilha.lesson.train}</button>
+        {:else if step < 8}
+          <button type="button" class="btn primary" onclick={() => app.openTrail({ kind: 'lesson', step: (step + 1) as TrailStep })}>{T.trilha.lesson.nextStep}</button>
+        {/if}
+        <button type="button" class="btn" onclick={() => app.openTrail()}>{T.trilha.lesson.exit}</button>
+      {:else}
+        <button type="button" class="btn" disabled={part === 0} onclick={back}>{T.trilha.lesson.prev}</button>
+        <button type="button" class="btn primary" onclick={forward}>{part < last ? T.trilha.lesson.next : marked ? T.trilha.lesson.finish : T.trilha.lesson.done}</button>
+      {/if}
+    </div>
   </div>
 </div>
 
@@ -314,5 +319,54 @@
 
   .tip {
     color: var(--ink-2);
+  }
+
+  .lesson-body {
+    display: contents;
+  }
+
+  /* No desktop (a quebra do Timer), duas colunas: o cubo quadrado à esquerda, até 520 px; à direita, o cabeçalho e, embaixo, o texto e os
+     controles. A linha de baixo é flexível: o cubo, mais alto que o cabeçalho, estica só ela, e o texto fica colado no cabeçalho. A figura
+     2D (sem WebGL) tem o formato da planificação. Sem cubo nenhum, a coluna dele some e o texto ocupa a largura toda. */
+  @media (min-width: 1024px) {
+    .lesson {
+      max-width: none;
+      grid-template-columns: minmax(0, 520px) minmax(0, 1fr);
+      grid-template-rows: auto 1fr;
+      grid-template-areas:
+        'cube top'
+        'cube body';
+      column-gap: var(--cols-gap);
+      align-items: start;
+    }
+
+    .lesson.no-cube {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas:
+        'top'
+        'body';
+    }
+
+    .lesson-top {
+      grid-area: top;
+    }
+
+    .cube {
+      grid-area: cube;
+      height: auto;
+      aspect-ratio: 1;
+    }
+
+    .cube.flat {
+      height: auto;
+      aspect-ratio: 4 / 3;
+    }
+
+    .lesson-body {
+      grid-area: body;
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }
   }
 </style>
