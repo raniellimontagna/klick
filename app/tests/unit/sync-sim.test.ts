@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyChanges, sameChange } from '../../src/core/sync/apply';
+import { sessionOfChange } from '../../src/core/sync/records';
 import { syncKey, type Change, type SyncStore } from '../../src/core/sync/types';
 import { seasonOne } from '../../src/core/season';
 import type { SeasonProgress } from '../../src/core/types';
@@ -82,7 +83,12 @@ function simulate(seed: number, rounds: number, batch: number): void {
   const server = new FakeServer(batch);
   const devices = [new Device('A', 0, sim), new Device('B', -3_600_000, sim), new Device('C', 120_000, sim)];
   const created = new Map<string, string>(); // solve -> sessão
-  const touchedByDelete = new Set<string>(); // solves e sessões que alguém apagou
+  // O que a simulação fez, por registro (chave store/id): a data da última criação ou restauração e a da última exclusão. Valem as datas,
+  // não a ordem das rodadas: é por elas que o sync decide, e os relógios dos aparelhos divergem.
+  const alive = new Map<string, number>();
+  const dead = new Map<string, number>();
+  const born = (c: Change, stamp: number): void => void alive.set(syncKey(c.store, c.id), Math.max(alive.get(syncKey(c.store, c.id)) ?? -1, stamp));
+  const killed = (c: Change, stamp: number): void => void dead.set(syncKey(c.store, c.id), Math.max(dead.get(syncKey(c.store, c.id)) ?? -1, stamp));
   const memories: { d: Device; c: Change }[] = [];
   let n = 0;
 
@@ -93,15 +99,22 @@ function simulate(seed: number, rounds: number, batch: number): void {
     const op = rnd();
     if (op < 0.06) {
       const s = d.stamp();
-      d.put({ store: 'sessions', id: `ses${++n}`, data: sessionData(n, s), updatedAt: s, deletedAt: null, deletionStamp: s });
+      const made: Change = { store: 'sessions', id: `ses${++n}`, data: sessionData(n, s), updatedAt: s, deletedAt: null, deletionStamp: s };
+      d.put(made);
+      born(made, s);
     } else if (op < 0.35) {
       const session = pick(d.all('sessions').filter((c) => c.deletedAt === null)) ?? pick(d.all('sessions'));
       if (!session) continue;
       const s = d.stamp();
       const id = `sol${++n}`;
       created.set(id, session.id);
-      d.put({ store: 'solves', id, data: solveData(session.id, n, s), updatedAt: s, deletedAt: null, deletionStamp: s });
-      if (session.deletedAt !== null) d.put({ ...session, deletedAt: null, deletionStamp: s, updatedAt: s }); // addSolve revive a sessão
+      const made: Change = { store: 'solves', id, data: solveData(session.id, n, s), updatedAt: s, deletedAt: null, deletionStamp: s };
+      d.put(made);
+      born(made, s);
+      if (session.deletedAt !== null) {
+        d.put({ ...session, deletedAt: null, deletionStamp: s, updatedAt: s }); // addSolve revive a sessão
+        born(session, s);
+      }
     } else if (op < 0.48) {
       const x = pick(d.all('solves'));
       if (!x) continue;
@@ -111,32 +124,44 @@ function simulate(seed: number, rounds: number, batch: number): void {
       const x = pick(d.all('solves').filter((c) => c.deletedAt === null));
       if (!x) continue;
       const s = d.stamp();
-      touchedByDelete.add(x.id);
       d.put({ ...x, deletedAt: s, deletionStamp: s, updatedAt: s });
+      killed(x, s);
     } else if (op < 0.64) {
       const x = pick(d.all('solves').filter((c) => c.deletedAt !== null));
       if (!x) continue;
       const s = d.stamp();
       d.put({ ...x, deletedAt: null, deletionStamp: s, updatedAt: s });
-      const session = d.get('sessions', (x.data as { sessionId: string }).sessionId);
-      if (session && session.deletedAt !== null) d.put({ ...session, deletedAt: null, deletionStamp: s, updatedAt: s });
+      born(x, s);
+      const sid = sessionOfChange(x);
+      const session = sid === null ? undefined : d.get('sessions', sid);
+      if (session && session.deletedAt !== null) {
+        d.put({ ...session, deletedAt: null, deletionStamp: s, updatedAt: s });
+        born(session, s);
+      }
     } else if (op < 0.69) {
       const session = pick(d.all('sessions').filter((c) => c.deletedAt === null));
       if (!session) continue;
       const s = d.stamp();
-      touchedByDelete.add(session.id);
       d.put({ ...session, deletedAt: s, deletionStamp: s, updatedAt: s });
+      killed(session, s);
       for (const x of d.all('solves')) {
-        if (x.deletedAt === null && (x.data as { sessionId: string }).sessionId === session.id) d.put({ ...x, deletedAt: s, deletionStamp: s, updatedAt: s });
+        if (x.deletedAt === null && sessionOfChange(x) === session.id) {
+          d.put({ ...x, deletedAt: s, deletionStamp: s, updatedAt: s });
+          killed(x, s);
+        }
       }
     } else if (op < 0.73) {
       const session = pick(d.all('sessions').filter((c) => c.deletedAt !== null));
       if (!session) continue;
       const s = d.stamp();
       d.put({ ...session, deletedAt: null, deletionStamp: s, updatedAt: s });
+      born(session, s);
       for (const x of d.all('solves')) {
-        const mine = (x.data as { sessionId: string }).sessionId === session.id;
-        if (mine && x.deletedAt === session.deletedAt) d.put({ ...x, deletedAt: null, deletionStamp: s, updatedAt: s });
+        const mine = sessionOfChange(x) === session.id;
+        if (mine && x.deletedAt === session.deletedAt) {
+          d.put({ ...x, deletedAt: null, deletionStamp: s, updatedAt: s });
+          born(x, s);
+        }
       }
     } else if (op < 0.8) {
       const s = d.stamp();
@@ -172,17 +197,30 @@ function simulate(seed: number, rounds: number, batch: number): void {
     for (const [k, c] of active) expect(sameChange(mine.get(k), c), `${d.name} em ${k}, semente ${seed}`).toBe(true);
     // As marcas de exclusão que o aparelho ainda tem são as do servidor.
     for (const [k, c] of d.records) {
+      expect(server.records.has(k), `${d.name} tem ${k}, que o servidor não tem, semente ${seed}`).toBe(true);
       const { rev: _rev, ...stored } = server.records.get(k)!;
       expect(sameChange(c, stored), `${d.name} em ${k}, semente ${seed}`).toBe(true);
     }
   }
-  for (const [id, sessionId] of created) {
-    if (touchedByDelete.has(id) || touchedByDelete.has(sessionId)) continue;
-    expect(server.records.get(syncKey('solves', id))?.deletedAt, `solve ${id} sumiu, semente ${seed}`).toBeNull();
+  // Nenhum registro que não foi apagado sumiu (spec 11): se a última criação ou restauração dele tem data maior que toda exclusão dele
+  // e da sessão dele, ele está ativo no servidor e em cada aparelho. Vale para solves e sessões, restaurados ou não (os ajustes da conta
+  // não se apagam). Uma sessão que só um solve novo devolve não entra aqui; a regra "solve ativo tem sessão ativa" abaixo a cobre.
+  let required = 0;
+  for (const [k, since] of alive) {
+    const [store, ...rest] = k.split('/');
+    const id = rest.join('/');
+    const sessionId = store === 'solves' ? created.get(id) : undefined;
+    const deletions = [dead.get(k) ?? -1, sessionId === undefined ? -1 : (dead.get(syncKey('sessions', sessionId)) ?? -1)];
+    if (since <= Math.max(...deletions)) continue;
+    required++;
+    expect(active.has(k), `${k} (criado ou restaurado em ${since}, apagado até ${Math.max(...deletions)}) sumiu do servidor, semente ${seed}`).toBe(true);
+    for (const d of devices) expect(d.records.get(k)?.deletedAt, `${k} sumiu de ${d.name}, semente ${seed}`).toBeNull();
   }
+  expect(required, `a regra de não sumir não conferiu nada, semente ${seed}`).toBeGreaterThan(0);
   for (const c of active.values()) {
     if (c.store !== 'solves') continue;
-    expect(active.has(syncKey('sessions', (c.data as { sessionId: string }).sessionId)), `solve ativo ${c.id} sem sessão ativa`).toBe(true);
+    const sid = sessionOfChange(c);
+    expect(sid !== null && active.has(syncKey('sessions', sid)), `solve ativo ${c.id} sem sessão ativa, semente ${seed}`).toBe(true);
   }
 }
 

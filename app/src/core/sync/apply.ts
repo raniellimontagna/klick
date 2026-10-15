@@ -62,12 +62,19 @@ export function applyChanges(view: RecordView, incoming: readonly unknown[], opt
     if (sid) sessions.add(sid);
   }
 
+  // A cascata só age numa sessão excluída (cascade devolve tudo como está numa ativa): numa ativa ou ausente, nem se leem os solves, que no
+  // primeiro sync de uma conta grande seriam todos. Os solves de `sid` são a última versão de cada um (a do lote, senão a gravada) que
+  // ainda aponta para `sid`: o mesmo id pode chegar sob outra sessão (decisão 13, ou um arquivo do Klick mais recente), e esse solve já
+  // é da outra, que a cascata de `sid` não pode apagar nem devolver.
   const derived = new Set<string>();
   for (const sid of sessions) {
     const session = current('sessions', sid);
-    if (!session) continue;
+    if (!session || session.deletedAt === null) continue;
     const solves = new Map<string, Change>();
-    for (const s of view.solvesOf(sid)) solves.set(s.id, overlay.get(syncKey('solves', s.id)) ?? s);
+    for (const s of view.solvesOf(sid)) {
+      const latest = overlay.get(syncKey('solves', s.id)) ?? s;
+      if (sessionOfChange(latest) === sid) solves.set(s.id, latest);
+    }
     for (const c of overlay.values()) if (sessionOfChange(c) === sid) solves.set(c.id, c);
     const out = cascade(session, [...solves.values()]);
     for (const s of out.solves) {
