@@ -57,7 +57,9 @@ test('um solve que fecha a temporada mostra o fim de temporada e libera o Gelo',
   await importFile(page, t1File(season));
   await page.getByRole('button', { name: 'Timer', exact: true }).click();
   await quickSolve(page);
-  await expect(page.getByText('Temporada 2 completa: 1 solve. Gelo liberado.')).toBeVisible();
+  // A mensagem do fim de temporada, na linha do coach da tela do Timer. A região aria-live (fora da tela) recebe o mesmo texto 50 ms
+  // depois, junto com o tempo final: procurado na página toda, o texto achava os dois elementos quando a espera chegava depois disso.
+  await expect(page.locator('[data-screen="timer"]').getByText('Temporada 2 completa: 1 solve. Gelo liberado.')).toBeVisible();
   await page.getByRole('button', { name: 'Centro', exact: true }).first().click();
   const screen = page.locator('[data-screen="companion"]');
   await expect(screen.getByText(/Temporada 3 · 0 de 9 marcos/)).toBeVisible();
