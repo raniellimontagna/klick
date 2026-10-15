@@ -31,6 +31,9 @@
   --r-btn: 10px;
   --r-tile: 14px;
   --r-card: 16px;
+  /* As duas colunas do desktop (a partir de 1024 px): o vão entre elas e a coluna da direita do Timer, da Trilha e dos Ajustes. */
+  --cols-gap: 32px;
+  --side-w: 340px;
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --t-micro: 120ms;
   --t-state: 200ms;

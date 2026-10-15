@@ -36,13 +36,13 @@ body.solving .centro * {
 /* ---------- Timer ---------- */
 .timer {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
+  grid-template-columns: minmax(0, 1fr) var(--side-w);
   grid-template-areas:
     'main side'
     'tiles side'
     'zones zones'
     'hints hints';
-  column-gap: 32px;
+  column-gap: var(--cols-gap);
   row-gap: 18px;
   align-items: start;
   user-select: none;
