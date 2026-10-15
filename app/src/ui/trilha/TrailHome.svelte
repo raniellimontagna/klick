@@ -1,12 +1,14 @@
 <script lang="ts">
   // O começo da aba Trilha (spec do sub-projeto 4, seção 8.2): o Centro pequeno com as etapas feitas, o aviso para quem já resolve, a
-  // próxima etapa, as 9 etapas (tocar abre a aula; "já sei" e "desfazer" ao lado) e os 3 conjuntos do treino.
+  // próxima etapa, as 9 etapas (tocar abre a aula; "já sei" e "desfazer" ao lado) e os 3 conjuntos do treino. No desktop, duas colunas
+  // (como o Timer): a próxima etapa e as 9 etapas à esquerda, o aviso e o treino à direita.
   import { tick } from 'svelte';
   import { CASE_SETS } from '../../core/trail/cases';
   import { LESSONS } from '../../core/trail/lessons';
   import { firmCount, setStats } from '../../core/trail/train';
   import type { TrailStep } from '../../core/trail/types';
   import { T, TRAIL } from '../../strings';
+  import { wideLayout } from '../layout';
   import type { AppState } from '../state/app.svelte';
   import MiniCentro from './MiniCentro.svelte';
 
@@ -21,6 +23,7 @@
   let picking = $state(false);
   let picked = $state(TRAIL.map(() => false));
   let homeEl = $state<HTMLElement>();
+  const wide = wideLayout();
 
   // O foco não cai no body quando o botão que o tinha some: ele vai para o que se usa a seguir.
   async function focusOn(selector: string): Promise<void> {
@@ -56,6 +59,56 @@
   }
 </script>
 
+{#snippet prompt()}
+  <div class="card prompt" data-trail-prompt>
+    {#if picking}
+      <fieldset>
+        <legend>{T.trilha.promptPick}</legend>
+        {#each TRAIL as name, i (name)}
+          <label class="pick"><input type="checkbox" data-pick={i} bind:checked={picked[i]} />{name}</label>
+        {/each}
+      </fieldset>
+      <div class="row">
+        <button type="button" class="btn primary" disabled={!picked.some(Boolean)} onclick={markPicked}>{T.trilha.promptSave}</button>
+        <button type="button" class="btn" onclick={cancelPick}>{T.trilha.promptCancel}</button>
+      </div>
+    {:else}
+      <p>{T.trilha.prompt}</p>
+      <div class="row">
+        <button type="button" class="btn primary" onclick={openPick}>{T.trilha.promptOpen}</button>
+        <button type="button" class="btn" onclick={dismiss}>{T.trilha.promptDismiss}</button>
+      </div>
+    {/if}
+  </div>
+{/snippet}
+
+{#snippet nextCard()}
+  <div class="card next" data-next-step>
+    <div class="label">{T.trilha.next}</div>
+    <h3>{TRAIL[nextStep]}</h3>
+    <button type="button" class="btn primary" onclick={() => open(nextStep)}>{resumeAt > 0 ? T.trilha.resume(resumeAt + 1) : T.trilha.start}</button>
+  </div>
+{/snippet}
+
+{#snippet steps()}
+  <div class="card">
+    <div class="label">{T.trilha.steps}</div>
+    <ul class="mlist trail" data-steps>
+      {#each TRAIL as name, i (name)}
+        {@const marked = Boolean(app.profile.trail[i])}
+        <li class:done={marked} class:next={!marked && i === nextStep}>
+          <i></i>
+          <button type="button" class="step" data-step={i} onclick={() => open(i)}>{name}</button>
+          <em>{marked ? T.trilha.state.done : i === nextStep ? T.trilha.state.current : T.trilha.state.ahead}</em>
+          <button type="button" class="link" data-trail={i} aria-label={T.trilha.knowAria(name, marked)} onclick={() => void toggle(i)}>
+            {marked ? T.trilha.undo : T.trilha.know}
+          </button>
+        </li>
+      {/each}
+    </ul>
+  </div>
+{/snippet}
+
 {#snippet training()}
   <div class="card" data-training>
     <div class="label">{T.trilha.train}</div>
@@ -74,7 +127,7 @@
   </div>
 {/snippet}
 
-<div class="trail-home" bind:this={homeEl}>
+<div class="trail-home" class:wide={wide.current} bind:this={homeEl}>
   <header class="trail-top">
     <MiniCentro {app} />
     <div>
@@ -83,58 +136,33 @@
     </div>
   </header>
 
-  {#if app.trailPromptShown}
-    <div class="card prompt" data-trail-prompt>
-      {#if picking}
-        <fieldset>
-          <legend>{T.trilha.promptPick}</legend>
-          {#each TRAIL as name, i (name)}
-            <label class="pick"><input type="checkbox" data-pick={i} bind:checked={picked[i]} />{name}</label>
-          {/each}
-        </fieldset>
-        <div class="row">
-          <button type="button" class="btn primary" disabled={!picked.some(Boolean)} onclick={markPicked}>{T.trilha.promptSave}</button>
-          <button type="button" class="btn" onclick={cancelPick}>{T.trilha.promptCancel}</button>
-        </div>
-      {:else}
-        <p>{T.trilha.prompt}</p>
-        <div class="row">
-          <button type="button" class="btn primary" onclick={openPick}>{T.trilha.promptOpen}</button>
-          <button type="button" class="btn" onclick={dismiss}>{T.trilha.promptDismiss}</button>
-        </div>
+  {#if wide.current}
+    <!-- Cada coluna é um contêiner, na ordem de leitura: a da esquerda antes da da direita. -->
+    <div class="trail-main">
+      {#if nextStep >= 0}
+        {@render nextCard()}
       {/if}
+      {@render steps()}
     </div>
-  {/if}
-
-  {#if nextStep >= 0}
-    <div class="card next" data-next-step>
-      <div class="label">{T.trilha.next}</div>
-      <h3>{TRAIL[nextStep]}</h3>
-      <button type="button" class="btn primary" onclick={() => open(nextStep)}>{resumeAt > 0 ? T.trilha.resume(resumeAt + 1) : T.trilha.start}</button>
+    <div class="trail-side">
+      {#if app.trailPromptShown}
+        {@render prompt()}
+      {/if}
+      {@render training()}
     </div>
   {:else}
-    {@render training()}
-  {/if}
-
-  <div class="card">
-    <div class="label">{T.trilha.steps}</div>
-    <ul class="mlist trail" data-steps>
-      {#each TRAIL as name, i (name)}
-        {@const marked = Boolean(app.profile.trail[i])}
-        <li class:done={marked} class:next={!marked && i === nextStep}>
-          <i></i>
-          <button type="button" class="step" data-step={i} onclick={() => open(i)}>{name}</button>
-          <em>{marked ? T.trilha.state.done : i === nextStep ? T.trilha.state.current : T.trilha.state.ahead}</em>
-          <button type="button" class="link" data-trail={i} aria-label={T.trilha.knowAria(name, marked)} onclick={() => void toggle(i)}>
-            {marked ? T.trilha.undo : T.trilha.know}
-          </button>
-        </li>
-      {/each}
-    </ul>
-  </div>
-
-  {#if nextStep >= 0}
-    {@render training()}
+    {#if app.trailPromptShown}
+      {@render prompt()}
+    {/if}
+    {#if nextStep >= 0}
+      {@render nextCard()}
+    {:else}
+      {@render training()}
+    {/if}
+    {@render steps()}
+    {#if nextStep >= 0}
+      {@render training()}
+    {/if}
   {/if}
 </div>
 
@@ -143,6 +171,24 @@
     display: grid;
     gap: 16px;
     max-width: 640px;
+  }
+
+  /* No desktop, a coluna da esquerda mais larga e a da direita na largura da do Timer; o cabeçalho fica em cima, na largura toda. */
+  .trail-home.wide {
+    max-width: none;
+    grid-template-columns: minmax(0, 1fr) var(--side-w);
+    column-gap: var(--cols-gap);
+    align-items: start;
+  }
+
+  .wide .trail-top {
+    grid-column: 1 / -1;
+  }
+
+  .trail-main,
+  .trail-side {
+    display: grid;
+    gap: 16px;
   }
 
   .trail-top {

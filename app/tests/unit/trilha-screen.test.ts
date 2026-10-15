@@ -1,10 +1,12 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openKlickDb } from '../../src/data/db';
 import { createRepository } from '../../src/data/repository';
 import { createScrambleQueue } from '../../src/scramble/queue';
+import { WIDE } from '../../src/ui/layout';
 import { AppState } from '../../src/ui/state/app.svelte';
 import TrilhaScreen from '../../src/ui/trilha/TrilhaScreen.svelte';
+import { mockMedia } from './media';
 
 // O animador de verdade, com os gatilhos e o modo anotados: a tela não expõe o animador do Centro pequeno.
 const spy = vi.hoisted(() => ({ triggers: [] as string[], animated: [] as boolean[] }));
@@ -158,5 +160,52 @@ describe('aba Trilha: para quem já resolve (spec 8.2)', () => {
     render(TrilhaScreen, { app: a });
     await screen.findByText('1 de 9 etapas');
     expect(document.querySelector('[data-trail-prompt]')).toBeNull();
+  });
+});
+
+describe('aba Trilha: o começo no desktop (duas colunas a partir de 1024 px)', () => {
+  let restore = (): void => {};
+  beforeEach(() => {
+    restore = mockMedia([WIDE]);
+  });
+  afterEach(() => restore());
+
+  // A coluna da esquerda vem antes da da direita no DOM: a ordem do teclado e do leitor de tela segue as colunas.
+  const columns = (): { main: Element; side: Element } => {
+    const main = document.querySelector('.trail-main');
+    const side = document.querySelector('.trail-side');
+    if (!main || !side) throw new Error('sem as duas colunas');
+    expect(main.compareDocumentPosition(side) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    return { main, side };
+  };
+
+  it('a próxima etapa e as 9 etapas à esquerda; o aviso e o treino à direita, uma vez cada', async () => {
+    const { a } = await app();
+    render(TrilhaScreen, { app: a });
+    await screen.findByText('Já resolve? Marque o que já sabe.');
+    const { main, side } = columns();
+    expect([...main.children].map((c) => c.hasAttribute('data-next-step') || c.querySelector('[data-steps]') !== null)).toEqual([true, true]);
+    expect([...side.children].map((c) => c.hasAttribute('data-trail-prompt') || c.hasAttribute('data-training'))).toEqual([true, true]);
+    expect(side.firstElementChild).toHaveAttribute('data-trail-prompt');
+    for (const sel of ['[data-next-step]', '[data-steps]', '[data-trail-prompt]', '[data-training]']) expect(document.querySelectorAll(sel)).toHaveLength(1);
+  });
+
+  it('com as 9 feitas, as etapas ficam à esquerda e o treino à direita (depois delas no DOM)', async () => {
+    const { a } = await app();
+    await a.setTrail([0, 1, 2, 3, 4, 5, 6, 7, 8], true);
+    render(TrilhaScreen, { app: a });
+    await screen.findByText('9 de 9 etapas');
+    const { main, side } = columns();
+    expect(main.querySelector('[data-steps]')).not.toBeNull();
+    expect(side.querySelector('[data-training]')).not.toBeNull();
+    expect(document.querySelectorAll('[data-training]')).toHaveLength(1);
+  });
+
+  it('o aviso na coluna da direita: "Agora não" leva o foco à próxima etapa, na da esquerda', async () => {
+    const { a } = await app();
+    render(TrilhaScreen, { app: a });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Agora não' }));
+    await waitFor(() => expect(document.querySelector('[data-trail-prompt]')).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Começar a aula' })));
   });
 });
