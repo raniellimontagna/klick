@@ -130,6 +130,9 @@ export interface Repository {
   // do sync volta ao padrão, com o relógio. Com mudanças esperando para subir, recusa (PendingChangesError) e não apaga nada (decisão 12):
   // apagar perderia o que ainda não está na conta.
   wipeData(): Promise<void>;
+  // A conta foi apagada no servidor (spec 7.7): numa transação, o estado do sync volta ao padrão, com o relógio (nenhuma data volta para
+  // trás). Os dados deste aparelho e a fila ficam, fora de qualquer conta. Avisa 'sync': as outras abas também saem da conta.
+  forgetAccount(): Promise<void>;
   getSyncState(): Promise<SyncState>; // o bloco sync do meta (spec 5.4); o padrão antes do primeiro login
   // Muda o estado do sync e avisa 'sync'. O relógio só sobe: um clock menor que o gravado, que não é inteiro seguro >= 0 ou que passa do teto
   // (abaixo de MAX_STAMP, ver createSyncClock) é ignorado.
@@ -1205,6 +1208,14 @@ export function createRepository(
         await meta.put({ ...defaultSyncState(), clock: state.clock }, 'sync');
       });
       announce('all', 'sync');
+    },
+
+    async forgetAccount() {
+      await syncWrite([], async (_tx, ctx) => {
+        const { clock: _clock, ...reset } = defaultSyncState();
+        ctx.setState(reset);
+      });
+      announce('sync');
     },
 
     async getSyncState() {

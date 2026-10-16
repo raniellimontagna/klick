@@ -7,7 +7,7 @@ import { newId } from '../../data/ids';
 import { defaultSyncState, PendingChangesError, type ChangeKind, type ChangeOrigin, type ChannelLike, type Repository } from '../../data/repository';
 import { createBackup } from '../../data/safety';
 import { T } from '../../strings';
-import type { Health, SyncApi } from '../../sync/api';
+import { ApiError, type CloudCopy, type Health, type SyncApi } from '../../sync/api';
 import { type AuthClientLike, type AuthUser, loadAuthClient, type PasskeyInfo, type SendResult, type VerifyResult } from '../../sync/auth';
 import { type Captcha, CaptchaError, turnstile } from '../../sync/captcha';
 import { type Account, createServerClock, createSyncEngine, idleStatus, type ServerClock, type SyncEngine, type SyncStatus } from '../../sync/engine';
@@ -494,6 +494,50 @@ export class AccountState {
     const ok = await (await this.auth().catch(() => null))?.removePasskey(id);
     if (ok) await this.loadPasskeys();
     return ok === true;
+  }
+
+  // --- Cópias na nuvem e apagar a conta (spec 7.7 e 8.3) ---
+
+  // As cópias dos últimos 30 dias, a mais nova primeiro. Sem rede (ou sem a sessão), rejeita: o diálogo avisa.
+  cloudCopies(): Promise<CloudCopy[]> {
+    return this.deps.api.cloudCopies();
+  }
+
+  // Restaurar um dia (spec 8.3): o servidor grava antes a cópia "antes de restaurar" e troca a conta inteira. A mudança chega aqui pelo sync
+  // normal, pedido à líder, com a cópia 'pre-sync' da spec 6.6 quando o lote apaga muitos solves daqui. 'gone': a cópia não existe mais (a
+  // regra do bucket apaga as de mais de 30 dias); 'failed': sem rede ou outro erro, e nada mudou.
+  async restoreCloudCopy(name: string): Promise<'ok' | 'gone' | 'failed'> {
+    try {
+      await this.deps.api.restoreCloudCopy(name);
+    } catch (err) {
+      return err instanceof ApiError && err.status === 404 ? 'gone' : 'failed';
+    }
+    void this.syncNow();
+    return 'ok';
+  }
+
+  // Apagar a conta (spec 7.7): o e-mail digitado confirma, sem diferença de maiúsculas nem de espaços nas pontas. Antes do servidor, o sync
+  // para em todas as abas (espera a rodada em andamento): a volta dela depois do apagar seria um 401, e a região aria-live diria que o sync
+  // parou. Sem resposta do servidor, a conta continua e o sync volta. Apagada, os dados e a fila ficam neste aparelho, fora de qualquer
+  // conta; as outras abas saem pelo aviso 'sync' do repositório, e o motor de todas fica parado até um novo primeiro login.
+  async deleteAccount(email: string): Promise<'ok' | 'mismatch' | 'failed'> {
+    const typed = email.trim();
+    const expected = this.sync.email?.trim().toLowerCase();
+    if (!expected || typed.toLowerCase() !== expected) return 'mismatch';
+    await this.stopSync();
+    try {
+      await this.deps.api.deleteAccount(typed);
+    } catch {
+      this.resumeSync(); // a conta continua: o sync não fica parado
+      return 'failed';
+    }
+    this.user = null;
+    this.next = null;
+    await this.host.repo().forgetAccount();
+    await this.refresh();
+    this.passkeys = null;
+    this.show(idleStatus());
+    return 'ok';
   }
 
   // Uma parada antes do fim do primeiro sync pedido pelo diálogo o cancela (o motor esquece o login que não começou). Depois do fim, nada muda.

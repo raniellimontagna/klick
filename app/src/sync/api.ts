@@ -1,6 +1,8 @@
 // O cliente HTTP do servidor do Klick (spec 6.1 e 8.1): mesma origem, com o cookie da sessão. Os erros viram tipos que o motor e as telas
 // entendem; nada aqui guarda estado.
-import type { Rejected, SyncRequest, SyncResponse } from '../core/sync/types';
+import type { CloudCopy, Rejected, SyncRequest, SyncResponse } from '../core/sync/types';
+
+export type { CloudCopy } from '../core/sync/types';
 
 export type ApiErrorKind = 'offline' | 'auth' | 'update' | 'server' | 'client';
 
@@ -24,6 +26,9 @@ export interface Health {
 export interface SyncApi {
   health(): Promise<Health | null>; // null: sem servidor (sem rede, ou o app servido sem o Worker, como no vite preview)
   sync(req: SyncRequest): Promise<SyncResponse>;
+  cloudCopies(): Promise<CloudCopy[]>; // as cópias dos últimos 30 dias, a mais nova primeiro (spec 8.3)
+  restoreCloudCopy(name: string): Promise<void>; // a cópia que não existe mais: ApiError com status 404
+  deleteAccount(email: string): Promise<void>; // spec 7.7: o e-mail digitado confirma
 }
 
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
@@ -54,6 +59,13 @@ function syncResponseOf(body: unknown): SyncResponse | null {
   if (r.rejected !== undefined && !Array.isArray(r.rejected)) return null;
   return { ...(r as unknown as SyncResponse), rejected: (r.rejected as Rejected[] | undefined) ?? [] };
 }
+
+// Uma cópia da lista com a forma que o diálogo mostra (o nome é a chave da lista e vai na rota de restaurar).
+const isCopy = (c: unknown): c is CloudCopy => {
+  if (typeof c !== 'object' || c === null) return false;
+  const r = c as Record<string, unknown>;
+  return typeof r.name === 'string' && typeof r.day === 'string' && (r.kind === 'daily' || r.kind === 'pre-restore') && Number.isFinite(r.solves);
+};
 
 export function createSyncApi(
   fetcher: Fetcher = (input, init) => fetch(input, init),
@@ -94,6 +106,26 @@ export function createSyncApi(
       const parsed = syncResponseOf(body);
       if (!parsed) throw new ApiError('server', res.status); // o motor tenta de novo mais tarde
       return parsed;
+    },
+    // As cópias na nuvem e apagar a conta (spec 7.7 e 8.3) usam o prazo do sync: restaurar e apagar mexem na conta inteira.
+    async cloudCopies() {
+      const res = await call('/api/snapshots', timeouts.sync);
+      let body: unknown;
+      try {
+        body = await res.json();
+      } catch {
+        body = null; // o index.html do vite preview, sem o Worker
+      }
+      const copies = (body as { copies?: unknown } | null)?.copies;
+      if (!Array.isArray(copies)) throw new ApiError('server', res.status);
+      return copies.filter(isCopy);
+    },
+    async restoreCloudCopy(name) {
+      await post(`/api/snapshots/${encodeURIComponent(name)}/restore`, {}, timeouts.sync);
+    },
+    async deleteAccount(email) {
+      const init: RequestInit = { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) };
+      await call('/api/account', timeouts.sync, init);
     },
   };
 }

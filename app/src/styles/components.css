@@ -531,10 +531,13 @@
   margin: 12px 0;
 }
 
-/* No celular, os botões e os campos do diálogo de entrar têm 44 px de área de toque (spec 9.6), também numa tela estreita sem toque. */
+/* No celular, os botões e os campos dos diálogos da conta (entrar, cópias na nuvem, apagar a conta) têm 44 px de área de toque (spec 9.6),
+   também numa tela estreita sem toque. */
 @media (max-width: 639px) {
   .signin .btn,
-  .signin .field input {
+  .signin .field input,
+  .account-sheet .btn,
+  .account-sheet .field input {
     min-height: 44px;
   }
 }

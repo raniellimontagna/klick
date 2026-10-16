@@ -4,7 +4,7 @@ import { openKlickDb } from '../../src/data/db';
 import { defaultSessionId } from '../../src/data/ids';
 import { createRepository, type ChannelLike, type Repository } from '../../src/data/repository';
 import { createScrambleQueue } from '../../src/scramble/queue';
-import type { Health, SyncApi } from '../../src/sync/api';
+import { ApiError, type CloudCopy, type Health, type SyncApi } from '../../src/sync/api';
 import type { AuthClientLike, PasskeyInfo, SendResult } from '../../src/sync/auth';
 import type { Captcha } from '../../src/sync/captcha';
 import { createServerClock, type ServerClock } from '../../src/sync/engine';
@@ -44,17 +44,35 @@ export function manualEnv() {
   };
 }
 
-// A API falsa: /api/health e /api/sync, com o servidor falso de uma conta.
+// A API falsa: /api/health e /api/sync, com o servidor falso de uma conta, e as cópias na nuvem e o apagar da conta (`cloud` anota o que
+// foi restaurado e apagado). Depois de apagada, a conta responde 401 ao sync e às cópias, como o objeto marcado da Task 17.
 export function fakeApi(server: FakeServer, health: Health | null = { accounts: true, turnstileSiteKey: '1x00000000000000000000BB' }) {
   let failure: Error | null = null;
+  const cloud = { copies: [] as CloudCopy[], restored: [] as string[], deleted: [] as string[] };
+  const check = (): void => {
+    if (failure) throw failure;
+    if (cloud.deleted.length > 0) throw new ApiError('auth', 401);
+  };
   const api: SyncApi = {
     health: async () => health,
     sync: async (req: SyncRequest): Promise<SyncResponse> => {
-      if (failure) throw failure;
+      check();
       return structuredClone(server.sync(structuredClone(req)));
     },
+    cloudCopies: async () => {
+      check();
+      return structuredClone(cloud.copies);
+    },
+    restoreCloudCopy: async (name) => {
+      check();
+      cloud.restored.push(name);
+    },
+    deleteAccount: async (email) => {
+      check();
+      cloud.deleted.push(email);
+    },
   };
-  return { api, fail: (e: Error | null) => (failure = e) };
+  return { api, cloud, fail: (e: Error | null) => (failure = e) };
 }
 
 // Um canal entre "abas" na memória. `mute(ch)`: a aba daquele canal está suspensa (não recebe nem manda nada); `unmute(ch)`: ela volta.

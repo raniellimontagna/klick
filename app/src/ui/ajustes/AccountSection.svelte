@@ -1,10 +1,12 @@
 <script lang="ts">
   // "Conta e sync" (spec 9.1): sem conta, o convite; com conta, o e-mail, a situação do sync e o que dá para fazer. Só aparece com a conta
   // ligada no ambiente (ou, sem resposta do servidor, com este aparelho já numa conta). No desktop, é a primeira seção da coluna da direita;
-  // no celular, a primeira da lista (screens.css). O diálogo de sair fica montado aqui; o de entrar é da casca (o lembrete do Timer também o
-  // abre), e este botão só pede a abertura (app.dialog = 'signin').
+  // no celular, a primeira da lista (screens.css). Os diálogos de sair, das cópias na nuvem e de apagar a conta ficam montados aqui; o de
+  // entrar é da casca (o lembrete do Timer também o abre), e este botão só pede a abertura (app.dialog = 'signin').
   import { onDestroy, onMount } from 'svelte';
   import { T } from '../../strings';
+  import CloudCopiesDialog from '../dialogs/CloudCopiesDialog.svelte';
+  import DeleteAccountDialog from '../dialogs/DeleteAccountDialog.svelte';
   import SignOutDialog from '../dialogs/SignOutDialog.svelte';
   import { dateLabel } from '../format';
   import type { AppState, DialogId } from '../state/app.svelte';
@@ -18,7 +20,7 @@
   let busy = $state(false);
 
   // Os diálogos que esta seção abre.
-  const ACCOUNT_DIALOGS: readonly DialogId[] = ['signout'];
+  const ACCOUNT_DIALOGS: readonly DialogId[] = ['signout', 'cloud', 'deleteAccount'];
 
   onMount(() => {
     const h = setInterval(() => (now = Date.now()), 30_000);
@@ -113,6 +115,11 @@
       {/if}
 
       <div class="setting">
+        {@render caption(T.conta.cloud, T.conta.cloudHint)}
+        <button type="button" class="btn" onclick={() => (app.dialog = 'cloud')}>{T.conta.cloudView}</button>
+      </div>
+
+      <div class="setting">
         {@render caption(T.conta.signOut, T.conta.signOutHint)}
         <button type="button" class="btn" onclick={() => (app.dialog = 'signout')}>{T.conta.signOut}</button>
       </div>
@@ -122,8 +129,14 @@
           >{confirmAll ? T.conta.confirmAgain : T.conta.signOutAll}</button
         >
       </div>
+      <div class="setting">
+        {@render caption(T.conta.deleteAccount, T.conta.deleteAccountHint)}
+        <button type="button" class="btn danger" onclick={() => (app.dialog = 'deleteAccount')}>{T.conta.deleteAccount}</button>
+      </div>
     {/if}
   </fieldset>
 {/if}
 
 <SignOutDialog {app} open={app.dialog === 'signout'} />
+<CloudCopiesDialog {app} open={app.dialog === 'cloud'} />
+<DeleteAccountDialog {app} open={app.dialog === 'deleteAccount'} />
