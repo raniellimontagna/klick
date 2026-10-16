@@ -1084,6 +1084,11 @@ export class AppState {
     return this.meta !== null && !this.meta.trailPromptDismissed && this.profile.trail.every((done) => !done);
   }
 
+  // O indicador da barra de cima leva a Ajustes, em "Conta e sync" (spec 9.3).
+  openAccount(): void {
+    this.tab = 'ajustes';
+  }
+
   // Abre a aba Trilha numa vista (a aula de uma etapa, um conjunto, a rodada) ou no começo.
   openTrail(view: TrailView = { kind: 'home' }): void {
     this.trailView = view;
@@ -1506,7 +1511,8 @@ export class AppState {
     try {
       const plan = planAfterSolve(counted, await this.folderConfigured());
       if (plan.backup) await this.backup(plan.backup);
-      if (plan.remindExport) this.exportReminder = true;
+      // Quem tem conta não vê mais o lembrete de exportar (spec 9.4): a nuvem guarda a cópia.
+      if (plan.remindExport && !this.account?.signedIn) this.exportReminder = true;
       if (plan.folderSave) await this.copyToFolder();
     } catch {
       this.showToast(T.data.backupFailed); // o solve já está gravado: o que falhou foi a cópia

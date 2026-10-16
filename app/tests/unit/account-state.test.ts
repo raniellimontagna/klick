@@ -300,6 +300,25 @@ describe('uma aba só sincroniza (spec 6.2)', () => {
     await vi.waitFor(() => expect(second.app.account!.status.phase).toBe('idle'));
   });
 
+  it('uma aba que abre com o sync já falhando não anuncia a falha; só a mudança depois do primeiro estado fala (spec 9.6)', async () => {
+    const make = bus();
+    const locks = firstWins();
+    const net = fakeApi(new FakeServer());
+    const first = await appWithAccount(net.api, { signedIn: true, locks, channel: make() });
+    await vi.waitFor(() => expect(first.app.account!.status.phase).toBe('idle'));
+    net.fail(new ApiError('server', 500));
+    await first.app.account!.syncNow();
+    await vi.waitFor(() => expect(first.app.account!.status.error).toBe('server'));
+    const second = await appWithAccount(net.api, { signedIn: true, locks, channel: make(), repo: first.repo });
+    expect(second.app.account!.leader).toBe(false);
+    await vi.waitFor(() => expect(second.app.account!.status.error).toBe('server')); // o primeiro estado que esta aba conhece
+    await sleep(100); // a região aria-live põe o texto 50 ms depois
+    expect(second.app.live).toBe('');
+    net.fail(null);
+    await first.app.account!.syncNow();
+    await vi.waitFor(() => expect(second.app.live).toBe(T.conta.syncBackLive));
+  });
+
   it('sair numa aba que não lidera para o sync na líder, e só volta depois da rodada em andamento (spec 7.7)', async () => {
     const server = new FakeServer();
     const make = bus();

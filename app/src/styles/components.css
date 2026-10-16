@@ -538,3 +538,30 @@
     min-height: 44px;
   }
 }
+
+/* O indicador do sync na barra de cima (spec 9.3). Gira só sincronizando, com o timer parado. */
+.sync-ind {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--muted);
+}
+
+.sync-ind[data-sync='error'] {
+  color: var(--arm-ink);
+}
+
+.sync-ind[data-sync='syncing'][data-quiet='false'] .spin {
+  transform-origin: 12px 13px;
+  animation: sync-spin 1.2s linear infinite;
+}
+
+@keyframes sync-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

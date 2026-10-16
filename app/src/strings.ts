@@ -680,5 +680,8 @@ export const T = Object.freeze({
     keepsGoing: 'Pode fechar: o sync continua sozinho.',
     // Uma parada (sair, noutra aba) antes do fim do primeiro sync: nada foi para a conta.
     syncCancelled: 'O primeiro sync parou antes de terminar, porque a conta saiu deste aparelho. Entre de novo para continuar.',
+    // Indicador na barra de cima (spec 9.3) e o convite no lembrete de exportar (spec 9.4)
+    indicator: (line: string): string => `Conta e sync: ${line}`,
+    protect: 'Proteger na nuvem',
   }),
 });

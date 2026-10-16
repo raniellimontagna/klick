@@ -98,6 +98,7 @@ export class AccountState {
   private started: Promise<void> | null = null;
   private closed = false;
   private failing = false; // a região aria-live já disse que o sync parou: só volta a falar quando ele voltar
+  private heard = false; // esta aba (que não lidera) já recebeu um estado da líder: o primeiro é só o ponto de partida, não uma mudança
   private readonly waits = new Map<string, () => void>(); // as paradas pedidas à líder, à espera da resposta
   // O primeiro login e a volta da conta pedidos à líder e ainda sem resposta. Se a líder some antes de atender (fechando, ou soltando o lock),
   // o pedido não se perde: a aba que passa a liderar o refaz. O login fica em todas as abas que o viram passar (a que assume pode não ser a
@@ -565,7 +566,15 @@ export class AccountState {
         if (this.leader) this.post({ type: 'status', status: this.engine.status() });
         break;
       case 'status':
-        if (!this.leader && isStatus(m.status)) this.show(m.status);
+        if (!this.leader && isStatus(m.status)) {
+          // Uma aba que abre com o sync já falhando não anuncia a falha como se tivesse acabado de acontecer (spec 9.6): o primeiro estado
+          // que ela conhece é o ponto de partida; só o que muda depois fala.
+          if (!this.heard) {
+            this.heard = true;
+            this.failing = m.status.error !== null;
+          }
+          this.show(m.status);
+        }
         break;
       case 'stop':
         // Sair, numa aba: o que ainda esperava a líder fica para trás em todas, e o primeiro sync que o diálogo de entrar esperava parou.

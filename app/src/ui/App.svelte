@@ -15,6 +15,7 @@
   import SessionsDialog from './dialogs/SessionsDialog.svelte';
   import ShortcutsDialog from './dialogs/ShortcutsDialog.svelte';
   import SignInDialog from './dialogs/SignInDialog.svelte';
+import SyncIndicator from './SyncIndicator.svelte';
   import UpdatePrompt from './dialogs/UpdatePrompt.svelte';
   import DbNotice from './dialogs/DbNotice.svelte';
   import { dbNotice, dbUpgrade } from './state/db-notice.svelte';
@@ -225,6 +226,7 @@
       <div class="meta">
         <button type="button" class="pill" data-session-pill aria-haspopup="dialog" onclick={() => openDialog('sessions')}>{T.session.pill(eventInfo(app.event).short, app.activeSession?.name ?? '')}</button>
         <span data-date>{dateLabel(Date.now())}</span>
+        <SyncIndicator {app} />
       </div>
     </header>
 

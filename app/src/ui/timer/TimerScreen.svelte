@@ -857,6 +857,10 @@
         <p>{T.reminder.text}</p>
         <span class="data-actions">
           <button type="button" class="btn" onclick={exportNow}>{T.data.exportNow}</button>
+          {#if app.account?.available && !app.account.signedIn}
+            <!-- Com a conta ligada no ambiente, o lembrete oferece também a nuvem (spec 9.4). -->
+            <button type="button" class="btn" onclick={() => (app.dialog = 'signin')}>{T.conta.protect}</button>
+          {/if}
           <button type="button" class="btn" onclick={exportLater}>{T.reminder.later}</button>
         </span>
       </div>
