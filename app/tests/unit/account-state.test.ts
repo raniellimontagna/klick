@@ -570,6 +570,51 @@ describe('uma aba só sincroniza (spec 6.2)', () => {
     expect(replays).not.toHaveBeenCalled();
   });
 
+  it('sair na líder desfaz o login que outra aba pediu e ficou sem resposta: a aba que assume depois não entra na conta (Task 14)', async () => {
+    const server = new FakeServer();
+    const make = bus();
+    const locks = queueLocks();
+    const net = fakeApi(server);
+    const leaderChannel = make();
+    const [mine, other] = await twoTabRepos();
+    const first = await appWithAccount(net.api, { locks, channel: leaderChannel, repo: mine });
+    const second = await appWithAccount(net.api, { locks, channel: make(), repo: other });
+    await vi.waitFor(() => expect(first.app.account!.leader).toBe(true));
+    await first.app.addSolve({ ms: 6_000, penalty: null, at: Date.now() });
+    make.mute(leaderChannel); // o pedido não chega à líder: fica pendente na outra aba
+    await second.app.account!.firstLogin(ACCOUNT);
+    make.unmute(leaderChannel);
+    expect(await first.app.account!.signOut(false)).toBe('ok'); // sair, na líder (stopSync avisa as outras abas)
+    first.app.account!.stop(); // a aba da líder fecha
+    await vi.waitFor(() => expect(second.app.account!.leader).toBe(true));
+    await sleep(20);
+    expect(second.app.account!.signedIn).toBe(false);
+    expect(await other.getSyncState()).toMatchObject({ accountId: null, signedIn: false });
+    expect(server.records.size).toBe(0);
+  });
+
+  it.each(['resumeSync', 'firstLogin'] as const)(
+    'a conta que volta na líder (%s) tira da parada o motor das outras abas: a que assume depois sincroniza (Task 14)',
+    async (how) => {
+      const make = bus();
+      const locks = queueLocks();
+      const net = fakeApi(new FakeServer());
+      const [mine, other] = await twoTabRepos();
+      const first = await appWithAccount(net.api, { signedIn: true, locks, channel: make(), repo: mine });
+      const second = await appWithAccount(net.api, { locks, channel: make(), repo: other }); // a próxima da fila
+      await vi.waitFor(() => expect(first.app.account!.status.phase).toBe('idle'));
+      await second.app.account!.stopSync(); // saiu nesta aba: o motor dela e o da líder param
+      if (how === 'resumeSync') first.app.account!.resumeSync();
+      else await first.app.account!.firstLogin(ACCOUNT);
+      await sleep(10);
+      first.app.account!.stop(); // a líder fecha
+      await vi.waitFor(() => expect(second.app.account!.leader).toBe(true));
+      const syncs = vi.spyOn(net.api, 'sync');
+      await second.app.account!.syncNow();
+      expect(syncs).toHaveBeenCalled();
+    },
+  );
+
   it('o primeiro login pedido numa aba que não lidera roda na líder', async () => {
     const server = new FakeServer();
     const make = bus();

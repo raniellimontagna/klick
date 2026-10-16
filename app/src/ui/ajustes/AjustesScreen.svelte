@@ -1,10 +1,12 @@
 <script lang="ts">
   // A tela Ajustes: porte de prototype/scripts/ui/ajustes-view.js, com o mesmo markup e as mesmas classes. Cada controle grava na hora,
   // pelo AppState. Os elementos não são recriados depois de uma mudança, então o foco fica onde estava. Os textos ficam em strings.ts. No
-  // desktop, as seções vão em duas colunas (screens.css); cada coluna é um contêiner, na ordem de leitura.
+  // desktop, as seções vão em duas colunas (screens.css); cada coluna é um contêiner, na ordem de leitura. "Conta e sync" vem antes delas:
+  // a primeira da lista no celular e, no desktop, a primeira da coluna da direita.
   import type { ProfilePatch } from '../../data/repository';
   import { T } from '../../strings';
   import type { AppState } from '../state/app.svelte';
+  import AccountSection from './AccountSection.svelte';
   import DataSection from './DataSection.svelte';
 
   type Patch = NonNullable<ProfilePatch['settings']>;
@@ -27,7 +29,8 @@
 <section class="screen" data-screen="ajustes" aria-label={T.tabs.ajustes}>
   <div class="page-h"><h1>{T.tabs.ajustes}</h1></div>
   <div class="settings">
-    <div class="settings-col">
+    <AccountSection {app} />
+    <div class="settings-col" data-col="a">
       <fieldset>
         <legend>{T.ajustes.timer}</legend>
         <label class="setting">
@@ -129,7 +132,7 @@
       </fieldset>
     </div>
 
-    <div class="settings-col">
+    <div class="settings-col" data-col="b">
       <fieldset>
         <legend>{T.ajustes.coach}</legend>
         <label class="setting">

@@ -5,6 +5,7 @@ import { defaultSessionId } from '../../src/data/ids';
 import { createRepository, type ChannelLike, type Repository } from '../../src/data/repository';
 import { createScrambleQueue } from '../../src/scramble/queue';
 import type { Health, SyncApi } from '../../src/sync/api';
+import type { AuthClientLike, PasskeyInfo, SendResult } from '../../src/sync/auth';
 import { createServerClock, type ServerClock } from '../../src/sync/engine';
 import type { LocksLike, TriggerEnv } from '../../src/sync/triggers';
 import { AppState } from '../../src/ui/state/app.svelte';
@@ -55,7 +56,7 @@ export function fakeApi(server: FakeServer, health: Health | null = { accounts: 
   return { api, fail: (e: Error | null) => (failure = e) };
 }
 
-// Um canal entre "abas" na memória. `mute(ch)`: a aba daquele canal está suspensa (não recebe nem manda nada).
+// Um canal entre "abas" na memória. `mute(ch)`: a aba daquele canal está suspensa (não recebe nem manda nada); `unmute(ch)`: ela volta.
 export function bus() {
   const members: ChannelLike[] = [];
   const muted = new Set<ChannelLike>();
@@ -70,7 +71,59 @@ export function bus() {
     members.push(ch);
     return ch;
   };
-  return Object.assign(make, { mute: (ch: ChannelLike) => void muted.add(ch) });
+  return Object.assign(make, { mute: (ch: ChannelLike) => void muted.add(ch), unmute: (ch: ChannelLike) => void muted.delete(ch) });
+}
+
+// O cliente de login falso: o código certo é 123456; `user` é quem entra. `state` muda o que ele responde (o envio do código, a passkey
+// de entrar, sair de todos os aparelhos, a renovação da sessão); `calls` anota o que foi pedido.
+export function fakeAuth(user = { id: 'conta-1', email: 'ranielli@exemplo.com' }) {
+  const calls: string[] = [];
+  const state = {
+    passkeys: [] as PasskeyInfo[],
+    send: 'sent' as SendResult,
+    passkeyUser: user as { id: string; email: string } | null,
+    revokeOk: true,
+    renew: null as Error | null,
+  };
+  const auth: AuthClientLike = {
+    async sendCode(email, token) {
+      calls.push(`send:${email}:${token}`);
+      return state.send;
+    },
+    async verifyCode(email, code) {
+      calls.push(`verify:${email}:${code}`);
+      return code === '123456' ? { ok: true, user } : { ok: false, reason: 'bad-code' };
+    },
+    async passkeySignIn() {
+      calls.push('passkey-sign-in');
+      return state.passkeyUser;
+    },
+    async addPasskey() {
+      calls.push('add-passkey');
+      state.passkeys.push({ id: `pk${state.passkeys.length + 1}`, name: null, createdAt: 1_791_500_000_000 });
+      return true;
+    },
+    async listPasskeys() {
+      return [...state.passkeys];
+    },
+    async removePasskey(id) {
+      calls.push(`remove-passkey:${id}`);
+      state.passkeys = state.passkeys.filter((p) => p.id !== id);
+      return true;
+    },
+    async signOut() {
+      calls.push('sign-out');
+    },
+    async signOutEverywhere() {
+      calls.push('sign-out-everywhere');
+      return state.revokeOk;
+    },
+    async renewSession() {
+      calls.push('get-session');
+      if (state.renew) throw state.renew;
+    },
+  };
+  return { auth, calls, state };
 }
 
 export interface AccountOptions {
@@ -82,6 +135,8 @@ export interface AccountOptions {
   clock?: ServerClock;
   locks?: LocksLike | null;
   channel?: ChannelLike | null;
+  auth?: AuthClientLike; // o cliente de login (padrão: um fakeAuth() só desta aba)
+  loadAuth?: () => Promise<AuthClientLike>; // no lugar de `auth`: o carregamento do cliente, que pode falhar
 }
 
 // Um AppState com conta, já com a conta começada (a liderança disputada e /api/health perguntado). O repositório tira as datas do
@@ -95,13 +150,14 @@ export async function appWithAccount(api: SyncApi, o: AccountOptions = {}): Prom
     await repo.saveProfile({ currentSessionId: session.id });
   }
   if (o.signedIn) await repo.saveSyncState({ accountId: 'conta-1', email: 'ranielli@exemplo.com', signedIn: true });
+  const auth = o.auth ?? fakeAuth().auth;
   const app = new AppState({
     repo,
     queue: createScrambleQueue({ generate: async () => 'R U' }),
     now,
     storage: null,
     storageManager: null,
-    account: { api, clock, env: o.env ?? manualEnv().env, locks: o.locks ?? null, channel: o.channel ?? null },
+    account: { api, clock, env: o.env ?? manualEnv().env, locks: o.locks ?? null, channel: o.channel ?? null, auth: o.loadAuth ?? (async () => auth) },
   });
   await app.init();
   await app.account!.start();

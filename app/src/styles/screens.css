@@ -539,6 +539,24 @@ body.solving .t-coach {
   .settings .setting .btn {
     white-space: nowrap;
   }
+
+  /* "Conta e sync" (spec 9.1): a primeira da coluna da direita. A coluna da esquerda ocupa as duas linhas; a sobra fica embaixo. Sem a
+     conta, a primeira linha fica vazia e as colunas ficam como antes. */
+  .settings {
+    grid-template-rows: auto 1fr;
+  }
+  .settings > .account {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .settings > [data-col='a'] {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+  }
+  .settings > [data-col='b'] {
+    grid-column: 2;
+    grid-row: 2;
+  }
 }
 
 /* ---------- Primeira vez ---------- */

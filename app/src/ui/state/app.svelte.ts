@@ -48,7 +48,7 @@ export type Tab = 'timer' | 'evolucao' | 'trilha' | 'companion' | 'ajustes';
 // Onde a aba Trilha está (spec do sub-projeto 4, seção 8.2): o começo, a aula de uma etapa, um conjunto do treino ou a rodada dele.
 // Fica no AppState: a tela da Trilha só existe com a aba aberta, e a pessoa volta ao mesmo lugar.
 export type TrailView = { kind: 'home' } | { kind: 'lesson'; step: TrailStep } | { kind: 'set'; set: CaseSet } | { kind: 'round'; set: CaseSet };
-export type DialogId = 'sessions' | 'shortcuts' | 'onboarding' | 'export' | 'import' | 'backups' | 'trash' | 'install';
+export type DialogId = 'sessions' | 'shortcuts' | 'onboarding' | 'export' | 'import' | 'backups' | 'trash' | 'install' | 'signin' | 'signout';
 export interface Toast {
   text: string;
   action?: string;
@@ -316,6 +316,7 @@ export class AppState {
             busy: () => this.timerBusy || this.pendingInspect || this.trainerRunning,
             now: () => this.now(),
             announce: (text) => this.announce(text),
+            afterWipe: () => this.afterWipe(),
           },
           deps.account,
         )
@@ -1416,6 +1417,13 @@ export class AppState {
     if (current) return current;
     if (this.parked) return this.parked;
     return this.replaceCurrent();
+  }
+
+  // Os dados deste aparelho foram apagados (spec 7.6 e 7.7): relê tudo e cria a sessão padrão, como num aparelho novo.
+  private async afterWipe(): Promise<void> {
+    await this.reload();
+    await this.ensureSession();
+    await this.nextScramble();
   }
 
   // Sem sessão atual viva: a primeira que sobrou assume (ou uma de 3×3, se não sobrou nenhuma), e a escolha é gravada.

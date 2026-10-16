@@ -591,5 +591,56 @@ export const T = Object.freeze({
   conta: Object.freeze({
     syncFailedLive: 'O sync parou. Seus solves continuam salvos neste aparelho.',
     syncBackLive: 'O sync voltou a funcionar.',
+    // O pedido do código (spec 7.5): o Turnstile recusado tem mensagem própria, diferente do limite e da falta de rede.
+    captchaFailed: 'Não deu para confirmar que você é uma pessoa. Tente de novo em instantes.',
+    // Ajustes, "Conta e sync" (spec 9.1)
+    title: 'Conta e sync',
+    pitch: 'Guarde seus solves na nuvem e use em outros aparelhos.',
+    signIn: 'Entrar ou criar conta',
+    syncNow: 'Sincronizar agora',
+    syncing: 'Sincronizando…',
+    sending: (sent: number, total: number): string => `Enviando ${sent.toLocaleString('pt-BR')} de ${total.toLocaleString('pt-BR')}…`,
+    receiving: (n: number): string => `Recebendo da conta: ${n.toLocaleString('pt-BR')}…`,
+    synced: (ago: string | null): string => (ago ? `Sincronizado ${ago}` : 'Sincronizado'),
+    ago: (ms: number): string => {
+      if (ms < 60_000) return 'agora';
+      if (ms < 3_600_000) return `há ${Math.floor(ms / 60_000)} min`;
+      if (ms < 86_400_000) return `há ${Math.floor(ms / 3_600_000)} h`;
+      const days = Math.floor(ms / 86_400_000);
+      return `há ${days} ${days === 1 ? 'dia' : 'dias'}`;
+    },
+    waiting: (n: number): string =>
+      n === 0 ? 'Esperando rede' : `${n.toLocaleString('pt-BR')} ${n === 1 ? 'mudança esperando' : 'mudanças esperando'} rede`,
+    failed: 'O sync parou. Tentando de novo.',
+    expired: 'Sua sessão expirou. Entre de novo para sincronizar.',
+    update: 'Atualize o Klick para sincronizar.',
+    signInAgain: 'Entrar de novo',
+    passkeys: 'Passkeys',
+    passkeysHint: 'Entre com Face ID, Touch ID ou a senha do aparelho, sem esperar o código.',
+    passkeyAdd: 'Criar passkey',
+    passkeyAdded: 'Passkey criada.',
+    passkeyFailed: 'Não consegui criar a passkey.',
+    passkeyNone: 'Nenhuma passkey ainda.',
+    passkeyName: (when: string): string => `Criada em ${when}`,
+    passkeyRemove: 'Remover',
+    passkeyRemoveAria: (when: string): string => `Remover a passkey criada em ${when}`,
+    signOut: 'Sair',
+    signOutHint: 'Os dados ficam neste aparelho.',
+    signOutAll: 'Sair de todos os aparelhos',
+    signOutAllHint: 'Encerra a sessão em todo aparelho. Os dados ficam em cada um.',
+    confirmAgain: 'Tem certeza? Clique de novo',
+    signOutAllDone: 'Você saiu de todos os aparelhos.',
+    signOutAllFailed: 'Não consegui sair dos outros aparelhos agora. Tente de novo com rede.',
+    // Diálogo de sair (spec 7.7)
+    signOutTitle: 'Sair da conta',
+    signOutText: 'Os dados ficam neste aparelho, que volta a funcionar só aqui. O que ainda não subiu sobe quando você entrar de novo nesta conta.',
+    eraseHere: 'Apagar os dados deste aparelho',
+    eraseHint: 'Solves, sessões, treino e cópias deste aparelho. Na conta, tudo continua.',
+    pendingBlock: (n: number): string =>
+      `${n.toLocaleString('pt-BR')} ${n === 1 ? 'mudança ainda não subiu' : 'mudanças ainda não subiram'}. Sincronize antes de apagar os dados deste aparelho.`,
+    cancel: 'Cancelar',
+    signedOut: 'Você saiu da conta. Os dados continuam neste aparelho.',
+    signedOutErased: 'Você saiu da conta e os dados deste aparelho foram apagados.',
+    signOutFailed: 'Não consegui sair agora. Tente de novo.',
   }),
 });
