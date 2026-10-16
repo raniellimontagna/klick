@@ -134,6 +134,34 @@ describe('as datas que a migração grava são inteiros seguros >= 0 (shape.ts),
     expect((await db.getAll('backups'))[0].createdAt).toBe(1_791_500_000_000);
   });
 
+  // Fix round 2: uma data do sync no futuro subiria o relógio de todos os aparelhos até ela, e uma além do maior inteiro seguro o travaria.
+  it('uma data no futuro ou além do maior inteiro seguro dá, no máximo, a data da migração', async () => {
+    const name = `stamps-${++n}`;
+    const v2 = await openKlickDb(name, {}, 2);
+    const year3000 = Date.UTC(3000, 0, 1);
+    const session: Session = { id: 'grande', name: 'S', event: '333', order: 0, createdAt: 2 ** 53, updatedAt: 5, deletedAt: null };
+    const base = { sessionId: 'grande', event: '333' as const, ms: 30_000, penalty: null, at: 10, scramble: 'R', note: '', updatedAt: 5 };
+    const solves: Solve[] = [
+      { ...base, id: 'criado-em-1e300', createdAt: 1e300, deletedAt: null },
+      { ...base, id: 'apagado-no-ano-3000', createdAt: 1, deletedAt: year3000 },
+    ];
+    const practice: Practice[] = [{ id: 'treino-no-ano-3000', caseId: 'oll2-sune', ms: 2500, ok: true, helped: false, at: year3000 }];
+    await v2.put('sessions', session as never);
+    for (const s of solves) await v2.put('solves', s as never);
+    for (const p of practice) await v2.put('practice', p as never);
+    v2.close();
+
+    const migratedAt = 1_791_500_000_000;
+    const db = await openKlickDb(name, {}, 3, () => migratedAt);
+    const stamps = [
+      ((await db.get('sessions', 'grande')) as StoredSession).deletionStamp,
+      ...((await db.getAll('solves')) as StoredSolve[]).map((s) => s.deletionStamp),
+      ...((await db.getAll('practice')) as StoredPractice[]).flatMap((p) => [p.updatedAt, p.deletionStamp]),
+    ];
+    expect(stamps).toEqual([migratedAt, migratedAt, migratedAt, migratedAt, migratedAt]);
+    expect(stamps.every((x) => Number.isSafeInteger(x))).toBe(true);
+  });
+
   it('uma migração que falha no meio não deixa nada pela metade: o banco fica na versão 2, intacto', async () => {
     const name = `stamps-${++n}`;
     const v2 = await openKlickDb(name, {}, 2);

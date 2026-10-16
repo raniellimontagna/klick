@@ -528,6 +528,15 @@ describe('csTimer', () => {
       expect(r.solves.map((s) => [s.createdAt, s.updatedAt])).toEqual([[NOW, NOW], [AT, AT]]);
     });
 
+    // Fix round 2: as datas que o conversor tira do arquivo nunca fazem o import recusar nada (a recusa é para as datas que já vêm prontas
+    // num arquivo do Klick). Um primeiro tempo quebrado não pode levar a sessão, e com ela os solves bons.
+    it('um instante negativo ou com fração dá datas inteiras >= 0 (stampOf); a sessão e os solves continuam, e o instante fica como veio', () => {
+      const r = csTimerToKlick([csSession('session1', [csSolve(1_000, -5_000), csSolve(2_000, AT + 0.5)])], {}, ctx());
+      expect(r.sessions).toHaveLength(1);
+      expect(r.sessions[0]).toMatchObject({ createdAt: 0, updatedAt: 0 });
+      expect(r.solves.map((s) => [s.at, s.createdAt, s.updatedAt])).toEqual([[-5_000, 0, 0], [AT + 0.5, AT, AT]]);
+    });
+
     // Acrescentado (além do brief): com o id da sessão derivado, importar de novo o mesmo arquivo (com solves novos) acha a sessão daqui, e
     // o plano não a traz de novo: o registro daqui (renomeado, reordenado) fica como está.
     it('a sessão que já existe (o mesmo arquivo importado antes, depois renomeada) recebe os solves novos e não é recriada', () => {
@@ -895,6 +904,22 @@ describe('migração da v1', () => {
       expect(r.sessions).toEqual([
         { id: 'p1', name: 'Com data', event: '333', order: 5, createdAt: created, updatedAt: created, deletedAt: null },
         { id: 'p2', name: 'Sem data', event: 'skewb', order: 6, createdAt: NOW, updatedAt: NOW, deletedAt: null },
+      ]);
+    });
+
+    // Fix round 2: o import recusa uma data no futuro ou antes de 1970 que venha pronta num arquivo do Klick. As da v1 são o conversor que
+    // tira: um celular antigo com o relógio adiantado, ou uma data antes de 1970, não pode fazer os dados da v1 ficarem de fora.
+    it('as datas que a conversão tira da v1 ficam entre 0 e agora; o instante do solve fica como veio', () => {
+      const ahead = new Date(NOW + 30 * 86_400_000).toISOString();
+      const before1970 = '1969-07-20T20:17:00.000Z';
+      const v1 = readSessions([
+        v1Session({ id: 'p1', createdAt: ahead, solves: [v1Solve({ id: 'futuro', createdAt: ahead }), v1Solve({ id: 'antigo', createdAt: before1970, updatedAt: ahead })] }),
+      ]);
+      const r = v1ToKlick(v1, ctx());
+      expect(r.sessions[0]).toMatchObject({ createdAt: NOW, updatedAt: NOW });
+      expect(r.solves.map((s) => [s.id, s.at, s.createdAt, s.updatedAt])).toEqual([
+        ['futuro', Date.parse(ahead), NOW, NOW],
+        ['antigo', Date.parse(before1970), 0, NOW],
       ]);
     });
 

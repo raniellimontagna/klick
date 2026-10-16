@@ -8,7 +8,7 @@ import { openKlickDb, type KlickDB } from '../../src/data/db';
 import { defaultSessionId } from '../../src/data/ids';
 import { createRepository, type KlickExport, type Repository } from '../../src/data/repository';
 import { createBackup, restoreBackup } from '../../src/data/safety';
-import { csTimerToKlick, parseCsTimer, parseKlickJson } from '../../src/data/transfer';
+import { csTimerToKlick, parseCsTimer, parseKlickJson, v1ToKlick, type V1Session } from '../../src/data/transfer';
 import { createScrambleQueue } from '../../src/scramble/queue';
 import { T } from '../../src/strings';
 import { summaryLines } from '../../src/ui/import-flow';
@@ -188,6 +188,68 @@ describe('importar do csTimer: as datas vêm do dado, como os ids (spec 5.5)', (
     }
     expect(await phone.db.get('solves', first.id)).toMatchObject({ penalty: 'DNF', deletedAt: null });
     expect((await phone.db.get('solves', second.id))!.deletedAt).not.toBeNull();
+  });
+});
+
+// Fix round 2: recusar uma sessão (pela data, pelo tamanho) não pode deixar entrar os solves dela sem sessão nenhuma: o reviveSession não acha
+// registro para devolver, e um solve ativo sem sessão subiria pelo sync.
+describe('importar não deixa solve ativo sem sessão (solve ativo => sessão ativa)', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const fileOf = (sessionUpdatedAt: number): KlickExport => ({
+    format: 'klick',
+    version: 1,
+    exportedAt: t,
+    profile: null,
+    sessions: [{ id: 's', name: 'S', event: '333', order: 0, createdAt: 1_000, updatedAt: sessionUpdatedAt, deletedAt: null }],
+    solves: [{ id: 'x', sessionId: 's', event: '333', ms: 9_000, penalty: null, at: 1_000, scramble: 'R', note: '', createdAt: 1_000, updatedAt: 1_000, deletedAt: null }],
+  });
+  // Os solves ativos sem a sessão gravada e ativa.
+  const orphans = async (repo: Repository) => {
+    const live = new Set((await repo.listSessions()).map((s) => s.id));
+    return (await repo.listSolves()).filter((s) => !live.has(s.sessionId)).map((s) => s.id);
+  };
+
+  it('a sessão recusada (uma data três dias à frente) leva junto o solve dela: os dois contam, nada entra, a fila fica vazia', async () => {
+    const { db, repo } = await fresh('conta-1');
+    expect(await repo.importAll(fileOf(t + 3 * DAY))).toEqual({ sessionsAdded: 0, solvesAdded: 0, solvesUpdated: 0, skipped: 0, refused: 2 });
+    expect(await repo.listSolves({ includeDeleted: true })).toEqual([]);
+    expect(await db.getAllKeys('outbox')).toEqual([]);
+  });
+
+  it('com uma sessão daqui com o mesmo id, o solve entra nela, mesmo com a do arquivo recusada', async () => {
+    const { repo } = await fresh('conta-1');
+    await repo.importAll({ ...fileOf(1_000), solves: [] });
+    expect(await repo.importAll(fileOf(t + 3 * DAY))).toEqual({ sessionsAdded: 0, solvesAdded: 1, solvesUpdated: 0, skipped: 0, refused: 1 });
+    expect((await repo.listSolves()).map((s) => s.id)).toEqual(['x']);
+    expect(await orphans(repo)).toEqual([]);
+  });
+
+  it('do csTimer, um primeiro tempo negativo não deixa solve sem sessão: a sessão e os dois solves entram, sem recusa', async () => {
+    const { db, repo } = await fresh('conta-1');
+    const file = JSON.stringify({
+      session1: [[[0, 30_000], 'R U', '', -5], [[0, 31_000], 'F R', '', 1_791_400_060]],
+      properties: { sessionData: JSON.stringify({ 1: { name: 'Main', opt: { scrType: '333' } } }) },
+    });
+    const plan = csTimerToKlick(parseCsTimer(file), {}, { now: t, existingSessions: [], existingSolves: [] });
+    const report = await repo.importAll({ format: 'klick', version: 1, exportedAt: t, sessions: plan.sessions, solves: plan.solves, profile: null });
+    expect(report).toEqual({ sessionsAdded: 1, solvesAdded: 2, solvesUpdated: 0, skipped: 0 });
+    expect(await orphans(repo)).toEqual([]);
+    expect(refusedBy(await pendingChanges(db))).toEqual([]);
+  });
+
+  it('da v1, um relógio adiantado e uma data antes de 1970 entram, com datas que o sync aceita', async () => {
+    const { db, repo } = await fresh('conta-1');
+    const ahead = new Date(t + 30 * DAY).toISOString();
+    const solveOf = (id: string, createdAt: string) => ({ id, timeMs: 30_000, penalty: 'NONE' as const, scramble: 'R', createdAt });
+    const v1: V1Session[] = [
+      { id: 'v1-sessao', name: 'Antiga', puzzleType: '3x3', createdAt: ahead, solves: [solveOf('v1-futuro', ahead), solveOf('v1-antigo', '1969-07-20T20:17:00.000Z')] },
+    ];
+    const plan = v1ToKlick(v1, { now: t, existingSessions: [], existingSolves: [] });
+    const report = await repo.importAll({ format: 'klick', version: 1, exportedAt: t, sessions: plan.sessions, solves: plan.solves, profile: null });
+    expect(report).toEqual({ sessionsAdded: 1, solvesAdded: 2, solvesUpdated: 0, skipped: 0 });
+    const queued = await pendingChanges(db);
+    expect(queued).toHaveLength(3);
+    expect(refusedBy(queued)).toEqual([]);
   });
 });
 

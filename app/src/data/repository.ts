@@ -873,11 +873,13 @@ export function createRepository(
         const knownSessions = new Map<string, StoredSession>();
         for (const s of await sessions.getAll()) knownSessions.set(s.id, s);
         const sessionWrites: StoredSession[] = [];
+        const refusedSessions = new Set<unknown>();
         for (const s of data.sessions) {
           const have = knownSessions.get(s.id);
           const stored: StoredSession = { ...s, deletionStamp: importedStamp(have, s) };
           if (!fileDatesOk(s, limit) || !syncable('sessions', stored)) {
             refused++;
+            refusedSessions.add(s.id);
             continue;
           }
           if (have !== undefined && s.updatedAt <= have.updatedAt) continue;
@@ -889,14 +891,17 @@ export function createRepository(
         await each(sessionWrites, (s) => ctx.track('sessions', s.id));
 
         // Solve por id: entra o que não existe, substitui o de updatedAt menor, e o resto é pulado. Um solve cuja sessão não pode existir
-        // (o sessionId não serve de id) fica de fora também.
+        // (o sessionId não serve de id) fica de fora também, e o de uma sessão que este import recusou (pela data, pelo tamanho), a não ser
+        // que a sessão já exista aqui: sem registro nenhum, o reviveSession não teria o que devolver, e um solve ativo sem sessão subiria
+        // pelo sync (o invariante do topo).
+        const orphaned = (sessionId: string): boolean => refusedSessions.has(sessionId) && !knownSessions.has(sessionId);
         const knownSolves = new Map<string, StoredSolve>();
         for (const s of await solves.getAll()) knownSolves.set(s.id, s);
         const incoming: StoredSolve[] = [];
         for (const s of data.solves) {
           const have = knownSolves.get(s.id);
           const stored: StoredSolve = { ...s, deletionStamp: importedStamp(have, s) };
-          if (!fileDatesOk(s, limit) || !isSyncId(s.sessionId) || !syncable('solves', stored)) {
+          if (!fileDatesOk(s, limit) || !isSyncId(s.sessionId) || orphaned(s.sessionId) || !syncable('solves', stored)) {
             refused++;
             continue;
           }

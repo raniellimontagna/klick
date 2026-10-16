@@ -98,9 +98,12 @@ async function migrateToV3(tx: UpgradeTx, at: number): Promise<void> {
   const pending: Promise<unknown>[] = [
     tx.objectStore('backups').put({ id: newId(at), createdAt: at, reason: 'pre-sync', label: 'v3', solveCount, encoding: 'json', payload: JSON.stringify(copy) }),
   ];
-  for (const s of allSolves) pending.push(solves.put({ ...s, deletionStamp: stampOf(s.deletedAt ?? s.createdAt) }));
-  for (const s of allSessions) pending.push(sessions.put({ ...s, deletionStamp: stampOf(s.deletedAt ?? s.createdAt) }));
-  for (const p of allPractice) pending.push(practice.put({ ...p, updatedAt: stampOf(p.at), deletedAt: null, deletionStamp: stampOf(p.at) }));
+  // Cada data do sync que a migração grava fica no máximo na data dela: uma no futuro (um relógio adiantado, um arquivo editado à mão)
+  // subiria o relógio de todos os aparelhos até ela, e uma além do maior inteiro seguro o travaria (stampOf não a traz para dentro).
+  const capped = (v: unknown): number => Math.min(stampOf(v), at);
+  for (const s of allSolves) pending.push(solves.put({ ...s, deletionStamp: capped(s.deletedAt ?? s.createdAt) }));
+  for (const s of allSessions) pending.push(sessions.put({ ...s, deletionStamp: capped(s.deletedAt ?? s.createdAt) }));
+  for (const p of allPractice) pending.push(practice.put({ ...p, updatedAt: capped(p.at), deletedAt: null, deletionStamp: capped(p.at) }));
   const { device, account } = splitProfile(fullProfile(stored));
   if (stored) pending.push(profile.put(device, 'current'));
   // Só as chaves fora do padrão (decisão 4), e só as que o servidor aceita (prefsFromProfile tira um caso que saiu do catálogo e leva ao

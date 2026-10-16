@@ -15,8 +15,9 @@ export interface StampedRecord {
 // trazer uma data com fração ou negativa (um arquivo editado à mão, um relógio antes de 1970): fica o inteiro de baixo, e a negativa vira
 // 0; o que nem é número vira 0, a data mais antiga, que não vence a exclusão de outro aparelho. Uma data além do maior inteiro seguro NÃO
 // é trazida para dentro: 2^53 - 1 é aceito pelo servidor, mas o relógio de quem o recebesse travaria (o seguinte, 2^53, não é inteiro
-// seguro) e toda gravação seguinte seria recusada. Ela continua inválida, e quem chama decide: o import recusa o registro, e checkChange
-// o deixa fora da fila. Mora aqui (e não no banco) porque restaurar uma cópia (restore.ts) também a usa, no aparelho e no servidor.
+// seguro) e toda gravação seguinte seria recusada. Ela continua inválida, e quem chama decide: o import recusa o registro, a migração e a
+// restauração a limitam à data delas, e checkChange deixa o resto fora da fila. Mora aqui (e não no banco) porque restaurar uma cópia
+// (restore.ts) também a usa, no aparelho e no servidor.
 export function stampOf(v: unknown): number {
   if (typeof v !== 'number' || !Number.isFinite(v)) return 0;
   return Math.max(Math.floor(v), 0);

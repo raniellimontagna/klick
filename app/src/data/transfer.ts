@@ -6,6 +6,7 @@
 // O que fica de fora por falta de dados (sessão sem evento) também volta contado no resultado.
 import { EVENT_IDS, eventFromCsTimer, eventInfo } from '../core/events';
 import { seasonFrom } from '../core/season';
+import { stampOf } from '../core/sync/records';
 import { algChoiceFrom, lessonAtFrom, practiceFrom, trainOffFrom } from '../core/trail/validate';
 import type { EventId, FinishId, Penalty, Session, Settings, Solve } from '../core/types';
 import { T, TRAIL } from '../strings';
@@ -251,6 +252,11 @@ export function toCsTimerJson(sessions: Session[], solves: Solve[]): string {
 // exato, exportar para o csTimer e importar o arquivo de volta duplicaria tudo.
 const timeKey = (ms: number, at: number): string => `${ms}@${Math.floor(at / 1000)}`;
 
+// Uma data de registro que o próprio conversor tira de um instante do arquivo (csTimer, v1): no máximo agora (um relógio adiantado não dá
+// data no futuro), inteira e >= 0 (stampOf: a fração cai, um instante antes de 1970 vira 0). Assim ela sempre passa no import, que só
+// recusa as datas que já vêm prontas num arquivo do Klick: um instante quebrado não leva a sessão, nem os solves bons dela.
+const bornAt = (instant: number, now: number): number => stampOf(Math.min(instant, now));
+
 // Os ids vêm do próprio dado (spec 5.5): o mesmo arquivo importado em dois aparelhos dá os mesmos ids, e o sync junta em vez de
 // duplicar. O solve é `cs-` mais um hash do evento, do instante, do tempo e do embaralhamento; a sessão, `cs-s-` mais um hash do
 // evento, do nome e do instante do primeiro solve dela no arquivo.
@@ -264,8 +270,8 @@ export const csTimerSessionId = (event: EventId, p: Pick<CsTimerSession, 'name' 
 // importado antes, mesmo na lixeira) recebe os solves novos e não é recriada: o registro daqui (renomeado, reordenado) fica como está.
 //
 // As datas também vêm do dado, não da hora da importação: o solve nasce no instante dele e a sessão no do primeiro solve dela no arquivo
-// (nos dois, no máximo agora: um relógio adiantado no csTimer não dá data no futuro). O mesmo arquivo dá registros idênticos em qualquer
-// aparelho, e uma edição ou exclusão feita depois num deles vence a importação feita mais tarde no outro.
+// (bornAt: no máximo agora, inteiras e >= 0). O mesmo arquivo dá registros idênticos em qualquer aparelho, e uma edição ou exclusão feita
+// depois num deles vence a importação feita mais tarde no outro.
 export function csTimerToKlick(
   parsed: CsTimerSession[],
   mapping: Record<string, EventId | undefined>,
@@ -296,11 +302,11 @@ export function csTimerToKlick(
     const sessionId = csTimerSessionId(event, p);
     if (!known.has(sessionId)) {
       known.add(sessionId);
-      const born = Math.min(p.solves[0].at, ctx.now); // fresh não está vazio, então o arquivo tem o primeiro solve
+      const born = bornAt(p.solves[0].at, ctx.now); // fresh não está vazio, então o arquivo tem o primeiro solve
       result.sessions.push({ id: sessionId, name: p.name, event, order: order++, createdAt: born, updatedAt: born, deletedAt: null });
     }
     for (const s of fresh) {
-      const born = Math.min(s.at, ctx.now);
+      const born = bornAt(s.at, ctx.now);
       result.solves.push({
         id: csTimerSolveId(event, s), sessionId, event, ms: s.ms, penalty: s.penalty, at: s.at, scramble: s.scramble, note: s.note,
         createdAt: born, updatedAt: born, deletedAt: null,
@@ -401,7 +407,8 @@ const V1_EVENTS: ReadonlyMap<string, EventId> = new Map<string, EventId>([
 
 // Mantém os ids da v1, e é isso que impede duplicar: a sessão que já existe (pelo id, excluída ou não) não é recriada, mas os solves
 // novos dela entram, no evento dela; o solve que já existe (pelo id) conta em `duplicates`. Sessão de um puzzle fora do mapa fica
-// de fora, com os solves. A sessão vazia é criada, para a pessoa reencontrá-la.
+// de fora, com os solves. A sessão vazia é criada, para a pessoa reencontrá-la. As datas dos registros passam por bornAt (um celular antigo
+// com o relógio adiantado, ou uma data antes de 1970, não deixa os dados da v1 de fora); o instante do solve fica como a v1 o gravou.
 export function v1ToKlick(v1: V1Session[], ctx: { now: number; existingSessions: Session[]; existingSolves: Solve[] }): ImportResult {
   const result: ImportResult = { sessions: [], solves: [], duplicates: 0, skippedSessions: 0 };
   const sessions = new Map(ctx.existingSessions.map((s) => [s.id, s]));
@@ -415,7 +422,7 @@ export function v1ToKlick(v1: V1Session[], ctx: { now: number; existingSessions:
         result.skippedSessions++;
         return;
       }
-      const createdAt = v.createdAt === undefined ? ctx.now : Date.parse(v.createdAt);
+      const createdAt = bornAt(v.createdAt === undefined ? ctx.now : Date.parse(v.createdAt), ctx.now);
       session = { id: v.id, name: v.name.trim() || T.session.defaultName(index + 1), event, order: order++, createdAt, updatedAt: createdAt, deletedAt: null };
       sessions.set(session.id, session);
       result.sessions.push(session);
@@ -429,7 +436,7 @@ export function v1ToKlick(v1: V1Session[], ctx: { now: number; existingSessions:
       const at = Date.parse(s.createdAt);
       result.solves.push({
         id: s.id, sessionId: session.id, event: session.event, ms: s.timeMs, penalty: s.penalty === 'NONE' ? null : s.penalty, at,
-        scramble: s.scramble, note: '', createdAt: at, updatedAt: Date.parse(s.updatedAt ?? s.createdAt), deletedAt: null,
+        scramble: s.scramble, note: '', createdAt: bornAt(at, ctx.now), updatedAt: bornAt(Date.parse(s.updatedAt ?? s.createdAt), ctx.now), deletedAt: null,
       });
     }
   });
