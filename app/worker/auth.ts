@@ -26,7 +26,9 @@ export function createAuth(env: Env, ctx: ExecutionContext, mailer: Mailer) {
     session: { expiresIn: SESSION_DAYS * 86_400, updateAge: 86_400 },
     advanced: {
       useSecureCookies: origin.startsWith('https://'),
-      ipAddress: { ipAddressHeaders: ['cf-connecting-ip'] },
+      // A sessão não guarda o IP (spec 10): o Better Auth o gravaria em claro por 90 dias, e nada o usa. Os limites de abuse.ts leem o IP
+      // do pedido, e o limite do Better Auth está desligado.
+      ipAddress: { disableIpTracking: true },
       defaultCookieAttributes: { sameSite: 'lax', httpOnly: true },
     },
     plugins: [

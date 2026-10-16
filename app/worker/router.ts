@@ -2,11 +2,12 @@
 // Sem um BETTER_AUTH_SECRET de verdade, as rotas da conta respondem 503. De /api/auth/*, só as rotas do Better Auth que o app usa; as outras
 // rotas da conta pedem sessão e falam com o Durable Object dela. O que não é /api são os arquivos do app. Os logs levam só ids, contagens,
 // durações e erros (spec 8.5).
-import { SYNC_BATCH, SYNC_PROTOCOL, type SyncRequest, type SyncResponse } from '../src/core/sync/types';
-import { E2E_TOKEN, guardPasskeyOptions, guardSendCode, turnstileVerifier, type VerifyCaptcha } from './abuse';
+import { SYNC_BATCH, SYNC_PROTOCOL, type CloudCopy, type SyncRequest, type SyncResponse } from '../src/core/sync/types';
+import { E2E_TOKEN, emailKeyOf, guardPasskeyOptions, guardSendCode, turnstileVerifier, type VerifyCaptcha } from './abuse';
 import { authSecretOk, createAuth, sessionUser, type User } from './auth';
 import type { Env } from './env';
 import { e2eMailbox, e2eMailer, missingMailer, resendMailer, type Mailer } from './mail';
+import { SNAPSHOT_NAME, snapshotPrefix } from './snapshots';
 
 export interface Deps {
   now: () => number;
@@ -144,6 +145,46 @@ export function parseSyncRequest(body: unknown): SyncRequest | 'update' | null {
   return { v: SYNC_PROTOCOL, deviceId, cursor: cursor as number, clock, changes };
 }
 
+// As cópias da conta no R2, a mais nova primeiro. A ordem é a da gravação: o nome da diária leva o dia de Brasília, e o da de antes de
+// restaurar, a data em UTC, que entre 21h e meia-noite de lá já é o dia seguinte.
+async function listCopies(env: Env, userId: string): Promise<CloudCopy[]> {
+  const prefix = snapshotPrefix(userId);
+  const found: { copy: CloudCopy; uploaded: number }[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await env.SNAPSHOTS.list({ prefix, include: ['customMetadata'], cursor });
+    for (const o of page.objects) {
+      const name = o.key.slice(prefix.length, -'.json.gz'.length);
+      const meta = o.customMetadata ?? {};
+      const kind = meta.kind === 'pre-restore' ? 'pre-restore' : 'daily';
+      found.push({ copy: { name, day: meta.day ?? name.slice(0, 10), kind, solves: Number(meta.solves ?? 0) }, uploaded: o.uploaded.getTime() });
+    }
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+  return found.sort((a, b) => b.uploaded - a.uploaded || (a.copy.name < b.copy.name ? 1 : -1)).map((f) => f.copy);
+}
+
+async function deleteCopies(env: Env, userId: string): Promise<void> {
+  for (;;) {
+    const page = await env.SNAPSHOTS.list({ prefix: snapshotPrefix(userId), limit: 1000 });
+    if (page.objects.length === 0) return;
+    await env.SNAPSHOTS.delete(page.objects.map((o) => o.key));
+  }
+}
+
+// Os códigos pendentes de um e-mail, por ele exato: o identificador do Better Auth é "<tipo>-otp-<e-mail>", e o tipo não tem "-otp-".
+const PENDING_CODES = "DELETE FROM verification WHERE instr(identifier, '-otp-') > 0 AND substr(identifier, instr(identifier, '-otp-') + 5) = ?";
+
+// O nome de uma cópia na rota, ou null: um nome fora do formato (ou que nem se lê como URI) não chega ao R2.
+function copyName(raw: string): string | null {
+  try {
+    const name = decodeURIComponent(raw);
+    return SNAPSHOT_NAME.test(name) ? name : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function handle(request: Request, env: Env, ctx: ExecutionContext, deps: Deps): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname;
@@ -176,6 +217,49 @@ export async function handle(request: Request, env: Env, ctx: ExecutionContext, 
     const res = (await account.syncBatch(user.id, req, started)) as unknown as SyncResponse;
     log({ evt: 'sync', user: user.id, pushed: req.changes.length, rejected: res.rejected.length, pulled: res.changes.length, ms: deps.now() - started });
     return json(res);
+  }
+
+  // As cópias na nuvem (spec 8.3). Listar e restaurar passam pela mesma rajada do sync: cada pedido custa operações no R2.
+  if (path === '/api/snapshots' && request.method === 'GET') {
+    if (!(await env.API_BURST.limit({ key: user.id })).success) return fail(429, 'limited');
+    return json({ copies: await listCopies(env, user.id) });
+  }
+
+  const restore = /^\/api\/snapshots\/([^/]+)\/restore$/.exec(path);
+  if (restore && request.method === 'POST') {
+    const guard = writeGuard(request, env);
+    if (guard) return guard;
+    const name = copyName(restore[1]);
+    if (name === null) return fail(400, 'bad-name');
+    if (!(await env.API_BURST.limit({ key: user.id })).success) return fail(429, 'limited');
+    const outcome = await account.restoreSnapshot(name, deps.now());
+    log({ evt: 'restore', user: user.id, outcome });
+    return outcome === 'ok' ? new Response(null, { status: 204 }) : fail(404, 'not-found');
+  }
+
+  // Apagar a conta (spec 7.7): o e-mail digitado confirma; somem na hora o objeto da conta, as cópias no R2 e as linhas no D1, com os
+  // códigos pendentes e os pedidos de código do e-mail. O D1 vai por último: se algo falhar no meio, a sessão continua e o pedido pode ser
+  // refeito.
+  if (path === '/api/account' && request.method === 'DELETE') {
+    const guard = writeGuard(request, env);
+    if (guard) return guard;
+    const body = await readJson(request);
+    if (body instanceof Response) return body;
+    const email = user.email.trim().toLowerCase();
+    const typed = isRec(body) && typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+    if (typed !== email) return fail(400, 'confirm');
+    await account.wipe();
+    await deleteCopies(env, user.id);
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM passkey WHERE userId = ?').bind(user.id),
+      env.DB.prepare('DELETE FROM session WHERE userId = ?').bind(user.id),
+      env.DB.prepare('DELETE FROM account WHERE userId = ?').bind(user.id),
+      env.DB.prepare(PENDING_CODES).bind(email),
+      env.DB.prepare('DELETE FROM otp_requests WHERE key = ?').bind(await emailKeyOf(email, env.BETTER_AUTH_SECRET)),
+      env.DB.prepare('DELETE FROM "user" WHERE id = ?').bind(user.id),
+    ]);
+    log({ evt: 'account-deleted', user: user.id });
+    return new Response(null, { status: 204 });
   }
 
   return fail(404, 'not-found');

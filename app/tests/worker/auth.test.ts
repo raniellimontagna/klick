@@ -109,6 +109,21 @@ describe('login por código (spec 7.1 a 7.3)', () => {
     expect(rows.results[0].value).not.toContain(code);
   });
 
+  it('a sessão não guarda o IP de quem entrou (spec 10): os limites leem o IP do pedido, sem gravá-lo', async () => {
+    const deps = authDeps();
+    const email = 'sem-ip@exemplo.com';
+    const ip = { 'cf-connecting-ip': '203.0.113.7' };
+    await call('/api/auth/email-otp/send-verification-otp', postJson({ email, type: 'sign-in' }, { 'x-turnstile-token': 'ok', ...ip }), { deps });
+    const { code } = deps.mailer.sent.at(-1)!;
+    expect((await call('/api/auth/sign-in/email-otp', postJson({ email, otp: code }, ip), { deps })).status).toBe(200);
+    const row = await testEnv()
+      .DB.prepare('SELECT s.ipAddress FROM session s JOIN "user" u ON u.id = s.userId WHERE u.email = ?')
+      .bind(email)
+      .first<{ ipAddress: string | null }>();
+    expect(row).not.toBeNull();
+    expect(row!.ipAddress ?? '').toBe('');
+  });
+
   it('a falha do carteiro vai para o log só com o nome do erro: sem o e-mail, sem o código (spec 8.5)', async () => {
     let code = '';
     const leaky: Mailer = {

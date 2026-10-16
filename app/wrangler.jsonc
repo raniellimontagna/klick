@@ -19,6 +19,8 @@
   // Um Durable Object com SQLite por conta (spec 8.2). As migrações valem para os dois ambientes; cada um tem o próprio namespace.
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["AccountStore"] }],
   "durable_objects": { "bindings": [{ "name": "ACCOUNT", "class_name": "AccountStore" }] },
+  // As cópias diárias (spec 8.3). O bucket é criado à mão (`wrangler r2 bucket create`), com a regra que apaga o que passa de 30 dias.
+  "r2_buckets": [{ "binding": "SNAPSHOTS", "bucket_name": "klick-snapshots-beta" }],
   "ratelimits": [
     { "name": "API_BURST", "namespace_id": "1101", "simple": { "limit": 120, "period": 60 } },
     { "name": "OTP_BURST", "namespace_id": "1102", "simple": { "limit": 5, "period": 60 } }
@@ -37,6 +39,7 @@
       "routes": [{ "pattern": "klick.ranimontagna.com", "custom_domain": true }],
       "assets": { "directory": "./dist", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": ["/api/*"] },
       "durable_objects": { "bindings": [{ "name": "ACCOUNT", "class_name": "AccountStore" }] },
+      "r2_buckets": [{ "binding": "SNAPSHOTS", "bucket_name": "klick-snapshots" }],
       "ratelimits": [
         { "name": "API_BURST", "namespace_id": "2101", "simple": { "limit": 120, "period": 60 } },
         { "name": "OTP_BURST", "namespace_id": "2102", "simple": { "limit": 5, "period": 60 } }

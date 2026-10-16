@@ -85,6 +85,13 @@ export async function ipKeyOf(ip: string, secret: string): Promise<string> {
   return `i:${await hmac(secret, ipBucket(ip))}`;
 }
 
+// O que passou da hora sai no pedido do código (dentro do lote) e no alarme diário de cada conta (spec 10): sem novos pedidos, as linhas
+// não ficam paradas no D1. Apagar é global e idempotente: o alarme de qualquer conta limpa todas.
+const FORGET = 'DELETE FROM otp_requests WHERE at <= ?';
+export async function forgetOldRequests(db: D1Database, now: number): Promise<void> {
+  await db.prepare(FORGET).bind(now - HOUR).run();
+}
+
 // As duas linhas (e-mail e IP) entram juntas, ou nenhuma: como o SELECT lê a própria tabela, o SQLite o termina antes de inserir.
 const COUNT = 'SELECT count(*) FROM otp_requests WHERE key = ?1 AND at > ?3';
 const COUNT_IP = 'SELECT count(*) FROM otp_requests WHERE key = ?2 AND at > ?3';
@@ -113,7 +120,7 @@ export async function guardSendCode(request: Request, env: Env, deps: { now: () 
   const since = now - HOUR;
   const [emailKey, ipKey] = [await emailKeyOf(email, env.BETTER_AUTH_SECRET), await ipKeyOf(ip, env.BETTER_AUTH_SECRET)];
   const [, before, inserted] = await env.DB.batch<{ byEmail: number; byIp: number }>([
-    env.DB.prepare('DELETE FROM otp_requests WHERE at <= ?').bind(since),
+    env.DB.prepare(FORGET).bind(since),
     env.DB.prepare(COUNTS).bind(emailKey, ipKey, since),
     env.DB.prepare(INSERT).bind(emailKey, ipKey, since, now, CODES_PER_EMAIL_HOUR, CODES_PER_IP_HOUR),
   ]);

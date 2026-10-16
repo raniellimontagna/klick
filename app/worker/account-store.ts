@@ -4,8 +4,13 @@
 import { DurableObject } from 'cloudflare:workers';
 import { applyChanges, type RecordView } from '../src/core/sync/apply';
 import { sessionOfChange } from '../src/core/sync/records';
+import { restoreChanges } from '../src/core/sync/restore';
+import { accountPrefsOf, exportFromRecords } from '../src/core/sync/snapshot';
 import { SYNC_BATCH, type Change, type SyncRequest, type SyncResponse, type SyncStore } from '../src/core/sync/types';
+import type { KlickExport } from '../src/core/types';
+import { forgetOldRequests } from './abuse';
 import type { Env } from './env';
+import { dayOf, gunzipJson, gzipJson, nextSnapshotAt, preRestoreName, snapshotKey } from './snapshots';
 
 type Row = {
   store: string;
@@ -26,6 +31,8 @@ const rowToChange = (r: Row): Change => ({
   deletedAt: r.deleted_at,
   deletionStamp: r.deletion_stamp,
 });
+
+const activeSolves = (data: KlickExport): number => data.solves.filter((s) => s.deletedAt === null).length;
 
 export class AccountStore extends DurableObject<Env> {
   private readonly sql: SqlStorage;
@@ -67,6 +74,10 @@ export class AccountStore extends DurableObject<Env> {
     };
   }
 
+  private all(): Change[] {
+    return this.sql.exec<Row>('SELECT * FROM records').toArray().map(rowToChange);
+  }
+
   // Grava cada registro que mudou com a próxima revisão da conta. `parent` segue o conteúdo gravado: um solve que passou para outra sessão
   // sai da cascata da de antes e entra na da nova.
   private write(changes: readonly Change[]): void {
@@ -84,25 +95,82 @@ export class AccountStore extends DurableObject<Env> {
   }
 
   // POST /api/sync (spec 6.1): valida e junta o lote, dá revisão ao que mudou e devolve o que mudou desde o cursor, até SYNC_BATCH.
+  // Um cursor além da revisão da conta só pode ser de antes de ela ser apagada (wipe): o aparelho recomeça do zero, senão nunca mais
+  // receberia nada. A comparação é com a revisão de antes do lote, a última que algum aparelho pode ter visto.
   async syncBatch(userId: string, req: SyncRequest, now: number): Promise<SyncResponse> {
-    return this.ctx.storage.transactionSync((): SyncResponse => {
+    const response = this.ctx.storage.transactionSync((): SyncResponse => {
       if (this.getState('userId') === null) this.setState('userId', userId);
+      const from = req.cursor > Number(this.getState('rev') ?? '0') ? 0 : req.cursor;
       const result = applyChanges(this.view(), req.changes, { mode: 'server' });
       this.write(result.writes);
       this.sql.exec(
         'INSERT INTO devices (device_id, last_sync_at) VALUES (?, ?) ON CONFLICT(device_id) DO UPDATE SET last_sync_at = excluded.last_sync_at',
         req.deviceId, now,
       );
-      const rows = this.sql.exec<Row>('SELECT * FROM records WHERE rev > ? ORDER BY rev LIMIT ?', req.cursor, SYNC_BATCH + 1).toArray();
+      const rows = this.sql.exec<Row>('SELECT * FROM records WHERE rev > ? ORDER BY rev LIMIT ?', from, SYNC_BATCH + 1).toArray();
       const page = rows.slice(0, SYNC_BATCH);
       return {
         accepted: req.changes.length - result.rejected.length,
         rejected: result.rejected,
         changes: page.map(rowToChange),
-        cursor: page.length > 0 ? page[page.length - 1].rev : req.cursor,
+        cursor: page.length > 0 ? page[page.length - 1].rev : from,
         more: rows.length > SYNC_BATCH,
         serverTime: now,
       };
     });
+    // A cópia diária: o primeiro sync marca o alarme. Pela hora de verdade, não pela do pedido: um alarme no passado dispararia na hora.
+    if ((await this.ctx.storage.getAlarm()) === null) await this.ctx.storage.setAlarm(nextSnapshotAt(Date.now()));
+    return response;
+  }
+
+  // Uma vez por dia (spec 8.3 e 10): a cópia do dia, só se a conta mudou desde a última, e os pedidos de código que passaram da hora.
+  async alarm(): Promise<void> {
+    const now = Date.now();
+    await this.snapshot(now);
+    await forgetOldRequests(this.env.DB, now);
+    await this.ctx.storage.setAlarm(nextSnapshotAt(now));
+  }
+
+  async snapshot(now: number): Promise<boolean> {
+    const userId = this.getState('userId');
+    const rev = this.getState('rev') ?? '0';
+    if (userId === null || this.getState('snapshotRev') === rev) return false;
+    const data = exportFromRecords(this.all(), now);
+    const day = dayOf(now);
+    await this.env.SNAPSHOTS.put(snapshotKey(userId, day), await gzipJson(data), {
+      customMetadata: { kind: 'daily', day, solves: String(activeSolves(data)) },
+    });
+    this.setState('snapshotRev', rev);
+    this.setState('lastSnapshotDay', day);
+    return true;
+  }
+
+  // POST /api/snapshots/:name/restore (spec 8.3): grava antes a cópia "antes de restaurar"; depois, cada registro da cópia com datas novas,
+  // e o que existe hoje e não está nela vai para a lixeira. A temporada passa por mergeSeason, como num sync: o progresso não volta atrás.
+  // Os aparelhos recebem pelo sync normal.
+  async restoreSnapshot(name: string, now: number): Promise<'ok' | 'not-found'> {
+    const userId = this.getState('userId');
+    if (userId === null) return 'not-found';
+    const object = await this.env.SNAPSHOTS.get(snapshotKey(userId, name));
+    if (!object) return 'not-found';
+    const copy = (await gunzipJson(await object.arrayBuffer())) as KlickExport;
+    const before = exportFromRecords(this.all(), now);
+    await this.env.SNAPSHOTS.put(snapshotKey(userId, preRestoreName(now)), await gzipJson(before), {
+      customMetadata: { kind: 'pre-restore', day: dayOf(now), solves: String(activeSolves(before)) },
+    });
+    this.ctx.storage.transactionSync(() => {
+      const current = this.all();
+      const stamp = current.reduce((max, c) => Math.max(max, c.updatedAt + 1, c.deletionStamp + 1), now); // vence tudo o que existe
+      const practice = Array.isArray(copy.practice) ? copy.practice : null;
+      const changes = restoreChanges(current, { sessions: copy.sessions, solves: copy.solves, practice }, accountPrefsOf(copy.profile), stamp);
+      this.write(applyChanges(this.view(), changes, { mode: 'server' }).writes);
+    });
+    return 'ok';
+  }
+
+  // Apagar a conta (spec 7.7): o banco inteiro do objeto e o alarme somem na hora.
+  async wipe(): Promise<void> {
+    await this.ctx.storage.deleteAll();
+    this.migrate();
   }
 }
