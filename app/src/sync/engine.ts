@@ -1,8 +1,9 @@
 // O motor do sync no app (spec 6): manda a fila em lotes, recebe o que mudou desde o cursor, junta pelo repositório e repete enquanto
 // houver fila ou `more`. Cada lote avança o cursor: um sync que cai no meio continua de onde parou. Nunca roda com o timer ocupado.
-// Uma rodada por vez: quem pede durante uma rodada ganha mais uma, logo depois dela (decisão 20).
-import { SYNC_BATCH, SYNC_PROTOCOL, type Change, type SyncState } from '../core/sync/types';
-import type { Repository } from '../data/repository';
+// Uma rodada por vez: quem pede durante uma rodada ganha mais uma, logo depois dela (decisão 20). Depois de um 401, nenhuma rodada sai até
+// a conta voltar (resume ou firstLogin): sem um pedido por gatilho.
+import { SYNC_BATCH, SYNC_PROTOCOL, type Change } from '../core/sync/types';
+import { AccountChangedError, type Repository } from '../data/repository';
 import { ApiError, type SyncApi } from './api';
 
 export const RETRY_MS: readonly number[] = Object.freeze([5_000, 30_000, 120_000, 300_000]); // spec 6.6: 5 s, 30 s, 2 min e então a cada 5 min
@@ -73,18 +74,20 @@ export interface Account {
 }
 
 export interface SyncEngine {
-  run(): Promise<SyncStatus>; // parado (stop), devolve o estado sem rodar
+  run(): Promise<SyncStatus>; // parado (stop) ou depois de um 401, devolve o estado sem rodar
   // O primeiro login neste aparelho (spec 6.5), ou juntar à conta nova (spec 7.6): cópia 'pre-sync', tudo na fila, baixa a conta inteira,
   // deduplica e só então sobe. Se o app fechar no meio, a próxima rodada continua (firstSync). A mesma conta já gravada não recomeça nada.
-  // Tira o motor do stop().
+  // Tira o motor do stop() e do 401.
   firstLogin(account: Account): Promise<SyncStatus>;
   status(): SyncStatus;
-  // Para o motor: cancela a nova tentativa agendada e o primeiro login que ainda não começou, e resolve quando a rodada em andamento (e a
-  // pedida durante ela) terminou. Depois disso nenhuma rodada começa, nem pelos gatilhos, até resume() ou firstLogin(). Sair da conta e
-  // apagar os dados (Task 15) espera o stop() antes de auth.signOut e de wipeData: senão a rodada em andamento, que já confirmou a fila,
-  // juntaria a volta do servidor no banco recém-apagado, e o primeiro login seguinte, em qualquer conta, subiria esses registros para ela.
+  // Para o motor: cancela a nova tentativa agendada e o primeiro login que ainda não começou, e resolve quando o pedido em andamento voltou
+  // e foi juntado: a rodada para ali ('off', sem nova tentativa), e um primeiro sync em lotes continua depois, de onde parou. Depois disso
+  // nenhuma rodada começa, nem pelos gatilhos, até resume() ou firstLogin(); um deles pedido durante a espera a encerra (a rodada dele não é
+  // esperada). Sair da conta e apagar os dados (Task 15) espera o stop() antes de auth.signOut e de wipeData: senão a rodada em andamento,
+  // que já confirmou a fila, juntaria a volta do servidor no banco recém-apagado, e o primeiro login seguinte, em qualquer conta, subiria
+  // esses registros para ela. O repositório confere a conta de novo dentro da transação que junta (applyRemote).
   stop(): Promise<void>;
-  resume(): void; // volta a aceitar rodadas (a mesma conta que entra de novo)
+  resume(): void; // volta a aceitar rodadas (a mesma conta que entra de novo, também depois de um 401)
 }
 
 const defaultSchedule = (fn: () => void, ms: number): (() => void) => {
@@ -104,11 +107,11 @@ class RoundError extends Error {
   }
 }
 
-// A conta mudou durante a rodada (saiu, apagou os dados, trocou): a volta do servidor não é confirmada nem juntada.
-class AccountChanged extends Error {
+// stop() no meio da rodada: ela para entre um pedido e outro, sem nova tentativa.
+class Paused extends Error {
   constructor() {
-    super('a conta mudou durante a rodada');
-    this.name = 'AccountChanged';
+    super('o motor parou no meio da rodada');
+    this.name = 'Paused';
   }
 }
 
@@ -123,6 +126,7 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
   let retries = 0;
   let cancelRetry: (() => void) | null = null;
   let paused = false;
+  let authFailed = false; // a última rodada recebeu 401: nenhuma rodada até resume() ou firstLogin()
   let login: Account | null = null; // o primeiro login pedido cujo começo (a cópia e a fila) ainda não aconteceu
   let refused = 0;
   let missing = 0;
@@ -136,34 +140,39 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
     while (deps.busy?.()) await sleep(BUSY_POLL_MS);
   }
 
-  // A conta de quando o pedido saiu continua aqui, dentro? Senão, nada da volta pode ser gravado (nem a fila confirmada): o banco pode ter
-  // acabado de ser apagado, e o que entrasse nele sem conta subiria no próximo primeiro login, para qualquer conta.
-  async function sameAccount(before: SyncState): Promise<void> {
-    const state = await deps.repo().getSyncState();
-    if (state.accountId !== before.accountId || !state.signedIn) throw new AccountChanged();
+  // A conta da rodada continua aqui, dentro? Senão, nada da volta pode ser gravado (nem a fila confirmada): o banco pode ter acabado de ser
+  // apagado, e o que entrasse nele sem conta subiria no próximo primeiro login, para qualquer conta.
+  const isAccount = (state: { accountId: string | null; signedIn: boolean }, accountId: string): boolean =>
+    state.accountId === accountId && state.signedIn;
+  async function sameAccount(accountId: string): Promise<void> {
+    if (!isAccount(await deps.repo().getSyncState(), accountId)) throw new AccountChangedError();
   }
 
   // Um pedido: manda até SYNC_BATCH da fila (ou nada, só recebendo) e junta a volta. A ordem conta: o que subiu sai da fila antes de juntar
   // a volta (a temporada que acabou de subir adota o que o servidor decidiu, em vez de ficar "na fila" e divergir), e a cópia local vem
-  // antes de juntar um lote que apaga MASS_DELETE solves daqui ou mais, contando a cascata (spec 6.6).
-  async function exchange(push: boolean): Promise<{ more: boolean; sent: number; received: number }> {
+  // antes de juntar um lote que apaga MASS_DELETE solves daqui ou mais, contando a cascata (spec 6.6). `accountId` é a conta de quando a
+  // rodada começou: um pedido não sai com o cursor de outra conta, e a volta só entra nela.
+  async function exchange(push: boolean, accountId: string): Promise<{ more: boolean; sent: number; received: number }> {
+    if (paused) throw new Paused();
     await waitIdle();
+    if (paused) throw new Paused(); // parou durante o solve
     const [state, meta] = await Promise.all([deps.repo().getSyncState(), deps.repo().getMeta()]);
+    if (!isAccount(state, accountId)) throw new AccountChangedError();
     const batch = push ? await deps.repo().outboxBatch(SYNC_BATCH) : { changes: [], sent: [], refused: 0, missing: 0 };
     refused += batch.refused;
     missing += batch.missing;
     const answered = deps.clock?.send();
     const res = await deps.api.sync({ v: SYNC_PROTOCOL, deviceId: meta.deviceId, cursor: state.cursor, clock: state.clock, changes: batch.changes });
     answered?.(res.serverTime);
-    await sameAccount(state);
+    await sameAccount(accountId);
     if (res.more && res.cursor <= state.cursor) throw new RoundError(`o servidor mandou mais sem avançar o cursor (${res.cursor})`);
     await deps.repo().confirmSent(batch.sent);
     refused += res.rejected.length;
     for (const r of res.rejected) log(`sync: o servidor recusou ${r.store}/${r.id} (${r.reason})`);
     await waitIdle(); // a resposta chegou durante um solve: junta depois dele
     if (hasDeletion(res.changes) && (await deps.repo().countRemoteDeletions(res.changes)) >= MASS_DELETE) await deps.backup();
-    await sameAccount(state); // de novo: a espera e a cópia levam tempo
-    await deps.repo().applyRemote(res.changes, res.serverTime);
+    await sameAccount(accountId); // de novo: a espera e a cópia levam tempo
+    await deps.repo().applyRemote(res.changes, res.serverTime, accountId); // e o repositório confere dentro da transação (outra aba)
     await deps.repo().saveSyncState({ cursor: res.cursor, lastSyncAt: now(), clock: res.serverTime });
     return { more: res.more, sent: batch.sent.length, received: res.changes.length };
   }
@@ -192,12 +201,13 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
       set({ ...idleStatus(), pending: await deps.repo().outboxCount() });
       return;
     }
+    const accountId = state.accountId;
     const progress = { sent: 0, total: await deps.repo().outboxCount(), received: 0 };
     set({ phase: 'syncing', progress: { ...progress } });
     if (state.firstSync) {
       for (let i = 0, more = true; more; i++) {
         if (i === MAX_EXCHANGES) throw new RoundError(`o primeiro sync passou de ${MAX_EXCHANGES} pedidos`);
-        const r = await exchange(false); // a conta inteira chega antes de subir qualquer coisa
+        const r = await exchange(false, accountId); // a conta inteira chega antes de subir qualquer coisa
         progress.received += r.received;
         set({ progress: { ...progress } });
         more = r.more;
@@ -208,7 +218,7 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
     }
     for (let i = 0; ; i++) {
       if (i === MAX_EXCHANGES) throw new RoundError(`a rodada passou de ${MAX_EXCHANGES} pedidos`);
-      const r = await exchange(true);
+      const r = await exchange(true, accountId);
       const left = await deps.repo().outboxCount();
       progress.sent += r.sent;
       progress.received += r.received;
@@ -242,7 +252,11 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
         .repo()
         .outboxCount()
         .catch(() => status.pending);
-      if (err instanceof AccountChanged) {
+      if (err instanceof Paused) {
+        set({ phase: 'off', error: null, pending, progress: null }); // stop(): volta com resume() ou firstLogin()
+        return status;
+      }
+      if (err instanceof AccountChangedError) {
         log('sync: a conta mudou durante a rodada; a resposta foi descartada');
         const state = await deps
           .repo()
@@ -257,7 +271,10 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
       else if (!(err instanceof ApiError)) log(`sync: a rodada falhou (${err instanceof Error ? err.name : typeof err})`);
       const kind = err instanceof ApiError ? err.kind : 'server';
       if (kind === 'offline') set({ phase: 'offline', error: null, pending, progress: null }); // volta com o evento online
-      else if (kind === 'auth') set({ phase: 'error', error: 'auth', pending, progress: null }); // Ajustes pede para entrar de novo
+      else if (kind === 'auth') {
+        authFailed = true; // sem rodada até a conta voltar: o cookie não volta sozinho
+        set({ phase: 'error', error: 'auth', pending, progress: null }); // Ajustes pede para entrar de novo
+      }
       else if (kind === 'update') set({ phase: 'error', error: 'update', pending, progress: null });
       else {
         set({ phase: 'error', error: 'server', pending, progress: null });
@@ -270,7 +287,7 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
   // Pedido durante uma rodada: mais uma rodada depois dela (uma só, por mais pedidos que cheguem), para nada gravado no meio ficar para trás.
   // Também depois de uma rodada que rejeitou (um ouvinte de onStatus que lançou), senão a rodada a mais ficaria presa a ela.
   function run(): Promise<SyncStatus> {
-    if (paused) return Promise.resolve(status);
+    if (paused || authFailed) return Promise.resolve(status);
     if (running) {
       const next = (): Promise<SyncStatus> => {
         again = null;
@@ -287,6 +304,7 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
     run,
     firstLogin(account) {
       paused = false;
+      authFailed = false;
       login = { accountId: account.accountId, email: account.email }; // a próxima rodada começa por ele (depois da que está em andamento)
       return run();
     },
@@ -296,11 +314,13 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
       login = null;
       cancelRetry?.();
       cancelRetry = null;
-      // A rodada a mais (again) roda run() quando a de agora termina, vê o motor parado e não roda: esperar as duas basta.
-      while (running || again) await (again ?? running)?.catch(() => undefined);
+      // Só enquanto parado, e só a rodada em andamento: a rodada a mais (again) roda run() quando ela termina, vê o motor parado e não roda.
+      // Um firstLogin() ou resume() durante a espera tira o motor do stop: a rodada dele não é esperada (nem apagada por quem chamou).
+      while (paused && running) await running.catch(() => undefined);
     },
     resume() {
       paused = false;
+      authFailed = false;
     },
   };
 }

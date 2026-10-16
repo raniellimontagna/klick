@@ -587,4 +587,9 @@ export const T = Object.freeze({
     later: 'Agora não',
   }),
   season: (n: number, done: number, finish: string) => `Temporada ${n} · ${done} de 9 marcos · ${finish}`,
+  // Conta e sync (sub-projeto 5a): Ajustes, o diálogo de entrar, o indicador e os avisos. Voz calma; nada de culpa.
+  conta: Object.freeze({
+    syncFailedLive: 'O sync parou. Seus solves continuam salvos neste aparelho.',
+    syncBackLive: 'O sync voltou a funcionar.',
+  }),
 });

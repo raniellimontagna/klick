@@ -101,8 +101,10 @@ export interface Repository {
   outboxCount(): Promise<number>;
   countRemoteDeletions(changes: readonly unknown[]): Promise<number>; // quantos solves ativos daqui o lote apagaria (spec 6.6)
   // Junta um lote do servidor (applyChanges, no modo do aparelho): grava o que muda, põe na fila o que a cascata mudou, sobe o relógio e
-  // avisa as telas (desta aba e das outras) como uma mudança de fora.
-  applyRemote(changes: readonly unknown[], serverTime: number): Promise<RemoteResult>;
+  // avisa as telas (desta aba e das outras) como uma mudança de fora. `accountId` é a conta da rodada que pediu o lote: se a conta gravada
+  // já é outra (ou nenhuma: outra aba apagou os dados ou trocou de conta no meio), lança AccountChangedError, conferido dentro da mesma
+  // transação, e nada muda: nem registro, nem fila, nem relógio. Sem ele (os testes do repositório), não confere.
+  applyRemote(changes: readonly unknown[], serverTime: number, accountId?: string): Promise<RemoteResult>;
   // O começo do primeiro login (spec 6.5), numa transação só: o estado do sync passa a ser o da conta (accountId, email, signedIn,
   // firstSync, cursor 0, lastSyncAt null; o relógio e o resto ficam) e todo registro daqui entra na fila, menos o que o servidor recusaria
   // (fica fora, no log local como em outboxBatch). Acontecem os dois ou nenhum: o app fechado no meio (ou a cota cheia) não deixa
@@ -306,6 +308,15 @@ interface SyncCtx {
 export interface RemoteResult {
   applied: number; // registros que mudaram aqui
   rejected: number; // mudanças tortas, ignoradas
+}
+
+// A conta mudou durante uma rodada do sync (saiu, apagou os dados, trocou; nesta aba ou noutra): a volta do servidor não é confirmada nem
+// juntada. O repositório a lança de dentro de applyRemote; o motor, nas conferências dele.
+export class AccountChangedError extends Error {
+  constructor() {
+    super('a conta mudou durante a rodada');
+    this.name = 'AccountChangedError';
+  }
 }
 
 // wipeData com mudanças esperando para subir (decisão 12): quem chama mostra o porquê.
@@ -1024,8 +1035,10 @@ export function createRepository(
       });
     },
 
-    async applyRemote(changes, serverTime) {
+    async applyRemote(changes, serverTime, accountId) {
       const joined = await syncWrite(['solves', 'sessions', 'practice', 'prefs'], async (tx, ctx) => {
+        // Na mesma transação que grava: um wipeData ou uma troca de conta de outra aba entre a conferência do motor e aqui não recebe o lote.
+        if (accountId !== undefined && ctx.state().accountId !== accountId) throw new AccountChangedError();
         const waiting = new Set(await tx.objectStore('outbox').getAllKeys());
         const result = await joinIn(tx, changes, { mode: 'client', pending: (s, id) => waiting.has(syncKey(s, id)) });
         // O relógio sobe até a hora do servidor e as datas que chegaram (spec 5.4): só as de mudanças que passam por checkChange.

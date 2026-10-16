@@ -6,7 +6,7 @@ import { checkChange } from '../../src/core/sync/shape';
 import { MAX_STAMP, SYNC_BATCH, SYNC_PROTOCOL, syncKey, type Change } from '../../src/core/sync/types';
 import type { SeasonProgress } from '../../src/core/types';
 import { openKlickDb, type KlickDB } from '../../src/data/db';
-import { createRepository, createSyncClock, PendingChangesError, type ChangeKind, type ChangeOrigin, type Repository } from '../../src/data/repository';
+import { AccountChangedError, createRepository, createSyncClock, PendingChangesError, type ChangeKind, type ChangeOrigin, type Repository } from '../../src/data/repository';
 import { FakeServer } from './sync-fakes';
 
 let n = 0;
@@ -213,6 +213,27 @@ describe('juntar um lote do servidor (spec 6.1 e 6.3)', () => {
     expect((await repo.getSyncState()).clock).toBe(clock);
     const x = await repo.addSolve(ns(s.id, 1000));
     expect(checkChange(toChange('solves', (await db.get('solves', x.id))!)).ok).toBe(true);
+  });
+});
+
+describe('o lote de outra conta (Task 13: a conferência dentro da transação)', () => {
+  it('com a conta da rodada diferente da gravada, nada entra: nem registro, nem relógio, nem aviso', async () => {
+    const { repo } = await fresh('conta-2');
+    const s = await repo.createSession({ event: '333' });
+    const clock = (await repo.getSyncState()).clock;
+    const seen: ChangeKind[] = [];
+    repo.onChange((kind) => seen.push(kind));
+    await expect(repo.applyRemote([remoteSolve('de-la', s.id, { updatedAt: t + 5000 })], t + 9000, 'conta-1')).rejects.toBeInstanceOf(AccountChangedError);
+    expect(await repo.listSolves({ includeDeleted: true })).toEqual([]);
+    expect((await repo.getSyncState()).clock).toBe(clock);
+    expect(seen).toEqual([]);
+    expect(await repo.applyRemote([remoteSolve('de-la', s.id, { updatedAt: t + 5000 })], t + 9000, 'conta-2')).toEqual({ applied: 1, rejected: 0 });
+  });
+
+  it('sem conta gravada (os dados foram apagados), o lote da rodada também não entra', async () => {
+    const { repo } = await fresh(null);
+    await expect(repo.applyRemote([remoteSession('da-conta')], t, 'conta-1')).rejects.toBeInstanceOf(AccountChangedError);
+    expect(await repo.listSessions({ includeDeleted: true })).toEqual([]);
   });
 });
 

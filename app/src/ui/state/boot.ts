@@ -4,6 +4,8 @@ import { DB_NAME, openKlickDb } from '../../data/db';
 import { createRepository, createSender } from '../../data/repository';
 import { generateScramble } from '../../scramble/cubing-loader';
 import { createScrambleQueue } from '../../scramble/queue';
+import { createSyncApi } from '../../sync/api';
+import { createServerClock } from '../../sync/engine';
 import { AppState } from './app.svelte';
 import { clearingCloseOthers, dbEvents, trackingUpgrade } from './db-notice.svelte';
 
@@ -14,10 +16,18 @@ export async function boot(): Promise<AppState> {
   // migração terminou ou falhou.
   const open = () => trackingUpgrade(clearingCloseOthers(openKlickDb(DB_NAME, events)));
   const sender = createSender(); // o mesmo em todas as conexões desta página: a sequência dos avisos continua depois de reabrir
-  const repo = createRepository(await open(), { sender });
+  // A hora do servidor (spec 5.4): o motor a acerta a cada resposta, e o repositório tira dela as datas do sync, nesta conexão e nas
+  // reabertas. Um aparelho adiantado grava na hora do servidor depois do primeiro sync.
+  const clock = createServerClock();
+  const repo = createRepository(await open(), { sender, now: clock.now });
   const queue = createScrambleQueue({ generate: (event) => generateScramble(event) });
   // A conexão nova para quando o iOS derruba a antiga (o AppState chama isto ao receber um erro de conexão).
-  app = new AppState({ repo, queue, reopen: async () => createRepository(await open(), { sender }) });
+  app = new AppState({
+    repo,
+    queue,
+    reopen: async () => createRepository(await open(), { sender, now: clock.now }),
+    account: { api: createSyncApi(), clock },
+  });
   await app.init();
   return app;
 }

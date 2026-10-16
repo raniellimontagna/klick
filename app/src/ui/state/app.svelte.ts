@@ -42,6 +42,7 @@ import { T, TRAIL } from '../../strings';
 import { downloadText } from '../download';
 import { isIOS, isStandalone } from '../platform';
 import { type ShareFile, shareFile } from '../share';
+import { type AccountDeps, AccountState } from './account.svelte';
 
 export type Tab = 'timer' | 'evolucao' | 'trilha' | 'companion' | 'ajustes';
 // Onde a aba Trilha está (spec do sub-projeto 4, seção 8.2): o começo, a aula de uma etapa, um conjunto do treino ou a rodada dele.
@@ -61,6 +62,7 @@ export interface AppDeps {
   storageManager?: StorageLike | null; // armazenamento persistente (padrão: navigator.storage)
   reopen?: () => Promise<Repository>; // abre uma conexão nova com o banco; sem ela, uma conexão morta não é trocada
   share?: ShareFile | null; // exportar pela folha de compartilhar (padrão: a do sistema no iPhone e no iPad; nos outros, o download)
+  account?: AccountDeps | null; // a conta e o sync (sub-projeto 5a); sem eles (os testes de antes), nada de conta existe
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -170,10 +172,11 @@ function lowerBound(list: readonly Solve[], solve: Solve): number {
   return lo;
 }
 
-// Os tipos que a memória do app lê do banco (um aviso 'all' são todos).
-type ReadKind = Exclude<ChangeKind, 'all'>;
+// Os tipos que a memória do app lê do banco (um aviso 'all' são todos). O aviso 'sync' é o estado da conta: a conta o relê, e nenhum
+// dado da tela muda por ele.
+type ReadKind = Exclude<ChangeKind, 'all' | 'sync'>;
 const ALL_READS: readonly ReadKind[] = ['sessions', 'solves', 'profile', 'meta', 'practice'];
-const readsOf = (kind: ChangeKind): readonly ReadKind[] => (kind === 'all' ? ALL_READS : [kind]);
+const readsOf = (kind: ChangeKind): readonly ReadKind[] => (kind === 'all' ? ALL_READS : kind === 'sync' ? [] : [kind]);
 
 const isConnectionError = (err: unknown): boolean => {
   const name = typeof err === 'object' && err !== null ? (err as { name?: unknown }).name : undefined;
@@ -263,6 +266,7 @@ export class AppState {
   trailFlashes = $state(0); // soma 1 a cada vez que uma etapa nova fica marcada: o Centro da Trilha pisca a face lateral
   trainerRunning = $state(false); // o timer do treino está rodando: os atalhos da tela do Timer esperam (a tecla que para não troca de aba)
 
+  readonly account: AccountState | null; // a conta e o sync; null sem os deps (AppDeps.account)
   private repo: Repository; // troca quando a conexão é reaberta (useRepo)
   private readonly queue: ScrambleQueue;
   private readonly now: () => number;
@@ -303,6 +307,19 @@ export class AppState {
     this.storage = deps.storage === undefined ? defaultStorage() : deps.storage;
     this.storageManager = deps.storageManager === undefined ? defaultStorageManager() : deps.storageManager;
     this.share = deps.share === undefined ? (isIOS() ? shareFile : null) : deps.share;
+    // O sync espera o timer, o espaço segurado antes da inspeção e o timer do treino (spec 6.2, decisão 14). As arrow functions: o motor
+    // usa o repositório atual (o reaberto, depois de o iOS derrubar a conexão).
+    this.account = deps.account
+      ? new AccountState(
+          {
+            repo: () => this.repo,
+            busy: () => this.timerBusy || this.pendingInspect || this.trainerRunning,
+            now: () => this.now(),
+            announce: (text) => this.announce(text),
+          },
+          deps.account,
+        )
+      : null;
     // A arrow function: a fila grava pelo repositório atual, não pelo que existia quando ela foi criada.
     this.saves = createSaveQueue((s) => this.saveWatched(s), {
       // A fila só avisa numa falha (n > 0) e quando esvazia depois dela (0). Nos dois casos o número é o que ela tem agora.
@@ -372,6 +389,15 @@ export class AppState {
     return status;
   }
 
+  // A lista sobre a qual se contam os marcos de antes de uma ação desta aba sobre um solve: gravá-lo, ou trocar a penalidade (`previous` é a
+  // versão de antes). É a lista de agora com só essa ação desfeita: solves de outro aparelho que o sync juntou durante a gravação ficam dos
+  // dois lados, e a virada que eles fecharam não é desta ação nem é anunciada aqui (spec 6.4: só o aparelho que causou a virada a anuncia).
+  // Sem nada juntado no meio, é a própria `listBefore`, cuja conta já está guardada.
+  solvesBefore(listBefore: Solve[], solve: Solve, previous?: Solve): Solve[] {
+    const undone = previous ? this.solves.map((s) => (s.id === solve.id ? previous : s)) : this.solves.filter((s) => s.id !== solve.id);
+    return undone.length === listBefore.length && undone.every((s, i) => s === listBefore[i]) ? listBefore : undone;
+  }
+
   // Fecha a temporada atual quando os 9 marcos estão feitos (spec do sub-projeto 3, seção 5.5). Na fila: vê a lista e o perfil depois
   // das gravações que já estavam nela. A virada é condicional no repositório: se outra aba já virou, o perfil gravado volta e nada vira
   // duas vezes. Uma falha ou uma virada sem resposta no prazo mostra o aviso; os marcos continuam feitos, então a conferência seguinte
@@ -429,6 +455,8 @@ export class AppState {
     // casca. backup() e copyToFolder() já tratam as próprias falhas (com aviso); o catch só evita uma rejeição sem dono.
     void this.openingCopies(plan).catch(() => undefined);
     void this.checkFolderPermission();
+    // A conta e o sync (spec 6.2): /api/health e o primeiro sync saem daqui, sem segurar a abertura.
+    void this.account?.start();
   }
 
   private async openingCopies(plan: SafetyPlan): Promise<void> {
@@ -1317,6 +1345,7 @@ export class AppState {
   private lastReadReopen = -Infinity; // a última reabertura pedida por uma leitura que falhou na hora // as cópias depois de um solve, enquanto rodam (talvez já fora da fila)
   supersede(): void {
     this.superseded = true;
+    this.account?.stop(); // sem banco, esta aba não sincroniza: solta o lock 'klick-sync' para a aba da versão nova liderar
   }
 
   // O navegador derrubou a conexão (evento terminated do banco): reabre, como num erro de conexão de uma gravação.
@@ -1373,7 +1402,8 @@ export class AppState {
   private subscribe(): void {
     this.unsubscribe?.();
     this.unsubscribe = this.repo.onChange((kind, origin, solveIds) => {
-      if (origin === 'local') return;
+      this.account?.changed(kind, origin); // uma gravação daqui pede o sync; 'sync' relê o estado da conta
+      if (origin === 'local' || kind === 'sync') return;
       if (kind === 'solves' && solveIds) void this.refreshSolveIds(solveIds);
       else void this.refreshKinds(readsOf(kind));
     });

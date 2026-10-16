@@ -231,6 +231,50 @@ describe('tela do Timer: solve, reação e nota', () => {
     await waitFor(() => expect(litFaces()).toBe(0), { timeout: 4000 });
   });
 
+  // Spec 6.4: a virada só é anunciada no aparelho que a causou. Um solve de outro aparelho chega pelo sync enquanto o solve daqui grava.
+  async function remoteDuringSave(target: number) {
+    const { a, repo } = await app();
+    await a.updateSettings({ inspection: false });
+    const startedAt = Date.now() - 60000;
+    await repo.saveProfile({
+      season: {
+        current: { n: 2, startedAt, marks: Array.from({ length: 9 }, () => ({ kind: 'count' as const, target })), basis: { single: 50000, ao5: 50000, ao12: 50000 } },
+        past: [{ n: 1, startedAt: 1, endedAt: 2, solves: 1000, startAo12: null, endAo12: 50000 }],
+      },
+    });
+    await a.reload();
+    const sessionId = a.activeSession!.id;
+    const at = startedAt + 1000;
+    const gravar = repo.addSolve.bind(repo);
+    repo.addSolve = async (s) => {
+      // O lote do servidor, juntado como o motor junta: a tela relê o solve como mudança de fora.
+      const data = { sessionId, event: '333', ms: 30000, penalty: null, at, scramble: 'R U', note: '', createdAt: at };
+      await repo.applyRemote([{ store: 'solves', id: 'do-outro', data, updatedAt: at, deletedAt: null, deletionStamp: at }], at);
+      await waitFor(() => expect(a.solves.some((x) => x.id === 'do-outro')).toBe(true));
+      return gravar(s);
+    };
+    const announce = vi.spyOn(a, 'announce');
+    render(TimerScreen, { app: a });
+    await solveByKeys();
+    await waitFor(() => expect(a.solves).toHaveLength(2));
+    await waitFor(() => expect(announce.mock.calls.some(([text]) => text.startsWith('Tempo final'))).toBe(true), { timeout: 3000 });
+    return { a, announce };
+  }
+
+  it('a virada que um solve de outro aparelho fechou, juntado durante a gravação, não é anunciada aqui (spec 6.4)', async () => {
+    const { a, announce } = await remoteDuringSave(1);
+    await sleep(100);
+    expect(screen.queryByText(/Temporada 2 completa/)).toBeNull();
+    expect(announce.mock.calls.filter(([text]) => text.includes('Temporada 2 completa'))).toEqual([]);
+    await waitFor(() => expect(a.profile.season.current.n).toBe(3)); // a temporada vira assim mesmo, em silêncio
+  });
+
+  it('a virada que o solve daqui fechou, com um de outro aparelho que chegou no meio, é anunciada aqui (spec 6.4)', async () => {
+    const { a } = await remoteDuringSave(2);
+    expect(await screen.findByText('Temporada 2 completa: 2 solves. Gelo liberado.', {}, { timeout: 3000 })).toBeInTheDocument();
+    await waitFor(() => expect(a.profile.season.current.n).toBe(3));
+  });
+
   it('uma penalidade que fecha a temporada mostra o fim de temporada no coach e pisca a face de cima, como depois de um solve', async () => {
     const { a } = await seasonByPenalty();
     // A face de cima, vista a cada mudança: cheia na virada, vazia depois (a janela cheia é curta para conferir com um instante só).

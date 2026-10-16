@@ -21,3 +21,16 @@ describe('o cubing.js inteiro cabe no pré-cache do service worker', () => {
     expect(largest).toBeLessThan(bytes);
   });
 });
+
+// O app e o Worker estão na mesma origem (spec 8.1). Uma navegação para /api/ (o link de um e-mail, alguém que abre /api/health) não pode
+// receber o index.html do pré-cache: ela vai para o Worker.
+describe('o service worker deixa as navegações para /api/ irem ao Worker', () => {
+  it('navigateFallbackDenylist do vite.config.ts recusa /api/ e mais nada', () => {
+    const config = readFileSync(resolve(app, 'vite.config.ts'), 'utf8');
+    const deny = config.match(/navigateFallbackDenylist:\s*\[\s*\/((?:\\\/|[^/])+)\/\s*\]/);
+    expect(deny).not.toBeNull();
+    const pattern = new RegExp(deny![1]);
+    for (const path of ['/api/health', '/api/auth/callback', '/api/sync']) expect(pattern.test(path)).toBe(true);
+    for (const path of ['/', '/privacidade', '/apiario', '/x/api/']) expect(pattern.test(path)).toBe(false);
+  });
+});

@@ -254,7 +254,8 @@
   // ----- Solve: gravar, depois reagir -----
 
   // A temporada do solve para o coach: os marcos antes e depois dele, os solves da temporada antes dele e, se ele fechou a temporada, o
-  // resumo dela. Conta na temporada de quando o solve começou: a virada pode já ter gravado a próxima.
+  // resumo dela. Conta na temporada de quando o solve começou: a virada pode já ter gravado a próxima. `listBefore` é a lista sem a ação
+  // desta tela (app.solvesBefore): o que o sync juntou no meio não faz a virada parecer deste solve (spec 6.4).
   function seasonInput(state: SeasonState, listBefore: Solve[]): CoachSeason {
     const before = app.seasonStatus(listBefore, state);
     const after = app.seasonStatus(app.solves, state);
@@ -344,7 +345,7 @@
     let seasonClosed = false;
     let msg: CoachMessage | null = null;
     try {
-      const season = eventInfo(solve.event).milestones ? seasonInput(seasonAtStart, listBefore) : undefined;
+      const season = eventInfo(solve.event).milestones ? seasonInput(seasonAtStart, app.solvesBefore(listBefore, solve)) : undefined;
       const s = app.profile.settings;
       msg = pickCoachMessage({
         solve,
@@ -419,7 +420,7 @@
       // há gravação a esperar). A conta vem numa macrotarefa depois, para não atrasar o quadro que mostra a penalidade.
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
       const still = !destroyed && lastId === solve.id && timer.state === 'done';
-      const end = still ? seasonEndOf(updated, seasonAtStart, listBefore) : null;
+      const end = still ? seasonEndOf(updated, seasonAtStart, app.solvesBefore(listBefore, updated, solve)) : null;
       let msg: CoachMessage | null = null;
       if (end) {
         const t0 = performance.now();

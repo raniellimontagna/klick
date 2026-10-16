@@ -162,8 +162,23 @@ describe('motor do sync (spec 6.1 e 6.2)', () => {
     expect(await engine.run()).toMatchObject({ phase: 'error', error: 'auth', pending: 2 });
     expect(schedule).not.toHaveBeenCalled();
     expect((await repo.getSyncState()).signedIn).toBe(true); // a conta continua aqui: Ajustes mostra "entrar de novo" pelo erro (spec 6.6)
+    // Até a conta voltar (resume ou firstLogin), nenhum gatilho chama o servidor: sem um 401 por gatilho.
+    expect(await engine.run()).toMatchObject({ phase: 'error', error: 'auth' });
+    expect(net.calls).toHaveLength(1);
+    engine.resume();
     net.failNext(new ApiError('offline', 0));
     expect(await engine.run()).toMatchObject({ phase: 'offline', error: null, pending: 2 });
+    expect(net.calls).toHaveLength(2);
+  });
+
+  it('401 e depois o primeiro login: a rodada volta a sair', async () => {
+    const repo = await device();
+    const net = network(new FakeServer());
+    const { engine } = engineFor(repo, net);
+    net.failNext(new ApiError('auth', 401));
+    expect((await engine.run()).error).toBe('auth');
+    expect((await engine.firstLogin(ACCOUNT)).phase).toBe('idle');
+    expect(net.calls).toHaveLength(2);
   });
 
   it('nunca durante um solve: espera o timer parar (spec 6.2)', async () => {
@@ -395,7 +410,8 @@ describe('motor do sync (spec 6.1 e 6.2)', () => {
     const stopped = engine.stop().then(() => {
       drained = true;
     });
-    expect(engine.run()).not.toBe(round); // parado: um gatilho não pede a rodada a mais
+    // Parado: um gatilho não pede a rodada a mais; devolve o estado na hora, sem pedido.
+    expect((await engine.run()).phase).toBe('syncing');
     await new Promise((r) => setTimeout(r, 10));
     expect(drained).toBe(false); // a resposta ainda está na rede
     gate.resolve();
@@ -753,6 +769,94 @@ describe('primeiro login (spec 6.5)', () => {
     expect(backups).toEqual([]);
     expect(net.calls).toEqual([]);
     expect((await desktop.getSyncState()).accountId).toBeNull();
+  });
+
+  it('o stop() no meio de um primeiro sync em lotes volta depois do pedido em andamento: a rodada para ali, sem nova tentativa', async () => {
+    const server = new FakeServer(1);
+    const phone = await device();
+    const ps = await phone.createSession({ event: '333' });
+    for (let i = 0; i < 4; i++) await phone.addSolve(ns(ps.id, 1000 + i, t + i));
+    await engineFor(phone, network(server)).engine.run();
+    const desktop = await device(null);
+    const net = network(server);
+    const real = net.api.sync;
+    const gate = deferred();
+    const second = deferred();
+    net.api.sync = async (req) => {
+      if (net.calls.length === 1) {
+        second.resolve();
+        await gate.promise;
+      }
+      return real(req);
+    };
+    const schedule = vi.fn(() => () => undefined);
+    const { engine } = engineFor(desktop, net, { schedule });
+    const round = engine.firstLogin(ACCOUNT);
+    await second.promise; // o segundo pedido da descida está na rede
+    const stopped = engine.stop();
+    gate.resolve();
+    await stopped;
+    expect(await round).toMatchObject({ phase: 'off', error: null, progress: null });
+    expect(net.calls).toHaveLength(2); // nenhum pedido depois do que estava na rede
+    expect(schedule).not.toHaveBeenCalled();
+    expect(await desktop.getSyncState()).toMatchObject({ firstSync: true, cursor: 2 }); // o primeiro login continua de onde parou
+    engine.resume();
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0 });
+    expect(await desktop.listSolves()).toHaveLength(4);
+  });
+
+  it('um primeiro login pedido enquanto o stop() espera não é esperado por ele', async () => {
+    const desktop = await device(null);
+    const net = network(new FakeServer());
+    const real = net.api.sync;
+    const gates = [deferred(), deferred()];
+    const sent = [deferred(), deferred()];
+    net.api.sync = async (req) => {
+      const i = net.calls.length; // antes de real(), que conta o pedido
+      sent[i]?.resolve();
+      await gates[i]?.promise;
+      return real(req);
+    };
+    const { engine } = engineFor(desktop, net);
+    await desktop.saveSyncState({ accountId: 'conta-1', email: 'a@b.c', signedIn: true });
+    const round = engine.run();
+    await sent[0].promise;
+    let drained = false;
+    const stopped = engine.stop().then(() => {
+      drained = true;
+    });
+    const login = engine.firstLogin({ accountId: 'conta-2', email: 'b@c.d' }); // entrou de novo antes de a espera terminar
+    gates[0].resolve();
+    await round;
+    await sent[1].promise; // a rodada do login está na rede
+    await stopped;
+    expect(drained).toBe(true);
+    gates[1].resolve();
+    expect((await login).phase).toBe('idle');
+  });
+
+  it('o lote do servidor só entra se a conta ainda é a da rodada, conferida dentro da transação (outra aba que apaga no meio)', async () => {
+    const server = new FakeServer();
+    const phone = await device();
+    const ps = await phone.createSession({ event: '333' });
+    await phone.addSolve(ns(ps.id, 1000));
+    await engineFor(phone, network(server)).engine.run();
+    const desktop = await device();
+    const real = desktop.applyRemote.bind(desktop);
+    const accounts: (string | undefined)[] = [];
+    desktop.applyRemote = async (changes, serverTime, accountId) => {
+      accounts.push(accountId);
+      await desktop.wipeData(); // outra aba apagou os dados entre a conferência do motor e a transação
+      return real(changes, serverTime, accountId);
+    };
+    const lines: string[] = [];
+    const { engine } = engineFor(desktop, network(server), { log: (l) => lines.push(l) });
+    expect((await engine.run()).phase).toBe('off');
+    expect(accounts).toEqual(['conta-1']);
+    expect(await desktop.listSolves({ includeDeleted: true })).toEqual([]);
+    expect(await desktop.listSessions({ includeDeleted: true })).toEqual([]);
+    expect(await desktop.getSyncState()).toMatchObject({ accountId: null, cursor: 0 });
+    expect(lines).toEqual(['sync: a conta mudou durante a rodada; a resposta foi descartada']);
   });
 
   it('a mesma conta que volta depois de sair não ganha cópia nem primeiro login: sobe o que mudou enquanto estava fora', async () => {
