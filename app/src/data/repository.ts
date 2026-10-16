@@ -18,7 +18,7 @@ import { defaultPrefValue, isPrefValue, joinProfile, prefsFromProfile, profileFr
 import { changeToPref, fromChange, prefToChange, sessionOfChange, stampOf, toChange, type RecordStore, type StampedRecord } from '../core/sync/records';
 import { restoreChanges } from '../core/sync/restore';
 import { checkChange, isSyncId } from '../core/sync/shape';
-import { SYNC_STORES, syncKey, type Change, type DeviceProfile, type OutboxEntry, type PrefItem, type SyncState, type SyncStore } from '../core/sync/types';
+import { MAX_STAMP, SYNC_STORES, syncKey, type Change, type DeviceProfile, type OutboxEntry, type PrefItem, type SyncState, type SyncStore } from '../core/sync/types';
 import { algChoiceFrom, lessonAtFrom, practiceFrom, trainOffFrom } from '../core/trail/validate';
 import { defaultSettings } from '../core/types';
 import type { EventId, KlickExport, Meta, Penalty, Practice, Profile, ProfilePatch, SeasonRecord, SeasonState, Session, Solve } from '../core/types';
@@ -107,13 +107,15 @@ export interface Repository {
   // firstSync, cursor 0, lastSyncAt null; o relógio e o resto ficam) e todo registro daqui entra na fila, menos o que o servidor recusaria
   // (fica fora, no log local como em outboxBatch). Acontecem os dois ou nenhum: o app fechado no meio (ou a cota cheia) não deixa
   // firstSync ligado com a fila vazia, o que faria a deduplicação tomar tudo daqui como da conta, nada subiria, e wipeData passaria a
-  // apagar a única cópia. Se falhar, rejeita e nada muda; o motor chama de novo. Avisa 'sync'. Devolve quantos ficaram fora da fila.
+  // apagar a única cópia. Se falhar, rejeita e nada muda; o motor chama de novo. Avisa 'sync'. Devolve quantos ficaram fora da fila. Com
+  // a mesma conta já gravada (o primeiro login dela já começou), não faz nada e devolve 0, sem aviso: o cursor e a fila ficam.
   beginFirstSync(account: { accountId: string; email: string }): Promise<number>;
   // Depois de baixar a conta inteira no primeiro login (spec 6.5): um solve daqui igual a um da conta, com outro id, e uma sessão daqui vazia
   // com o nome padrão, de um evento que já tem sessão na conta, recebem marca de exclusão e saem da fila. "Daqui" é o que está na fila; "da
   // conta" é o que não está e o servidor aceitaria (um registro daqui que ficou fora da fila por ser torto não é da conta). A nota do solve
-  // daqui vai para o da conta, como edição que sobe. A sessão padrão (`default-<evento>`) nunca sai: o id é o mesmo em todo aparelho, e o
-  // sync a junta. Rodar de novo não muda nada.
+  // daqui vai para o da conta, como edição que sobe, se couber no que o servidor aceita. A sessão padrão (`default-<evento>`) nunca sai: o id
+  // é o mesmo em todo aparelho, e o sync a junta. Desliga firstSync na mesma transação: quem chama não grava firstSync: false à parte (o app
+  // fechado entre as duas gravações rodaria a deduplicação de novo). Sem firstSync, não faz nada.
   dedupeFirstLogin(): Promise<{ solves: number; sessions: number }>;
   // Apaga os dados deste aparelho (spec 7.6 e 7.7): solves, sessões, treino, conta, fila e cópias. Ficam os ajustes do aparelho; o estado
   // do sync volta ao padrão, com o relógio. Com mudanças esperando para subir, recusa (PendingChangesError) e não apaga nada (decisão 12):
@@ -121,7 +123,7 @@ export interface Repository {
   wipeData(): Promise<void>;
   getSyncState(): Promise<SyncState>; // o bloco sync do meta (spec 5.4); o padrão antes do primeiro login
   // Muda o estado do sync e avisa 'sync'. O relógio só sobe: um clock menor que o gravado, que não é inteiro seguro >= 0 ou que passa do teto
-  // (MAX_CLOCK) é ignorado.
+  // (abaixo de MAX_STAMP, ver createSyncClock) é ignorado.
   saveSyncState(patch: Partial<SyncState>): Promise<SyncState>;
   getFolderHandle(): Promise<unknown | null>;
   saveFolderHandle(h: unknown | null): Promise<void>;
@@ -264,14 +266,13 @@ export const defaultSyncState = (): SyncState => ({
 });
 const syncStateOrDefault = (stored: SyncState | undefined): SyncState => ({ ...defaultSyncState(), ...stored });
 
-// O teto do relógio: 2^32 ms (uns 50 dias) abaixo do maior inteiro seguro. Uma data válida, mas perto de 2^53, que subisse o relógio o
-// prenderia: clock + 1 deixaria de ser inteiro seguro, e o servidor recusaria em silêncio toda gravação seguinte deste aparelho.
-const MAX_CLOCK = Number.MAX_SAFE_INTEGER - 2 ** 32;
-const isClockValue = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0 && (v as number) <= MAX_CLOCK;
+// O relógio fica abaixo do teto do sync (MAX_STAMP, o mesmo que o servidor confere): assim clock + 1, a próxima data, ainda é aceita. Um
+// relógio no teto, ou perto de 2^53, faria o servidor recusar em silêncio toda gravação seguinte deste aparelho.
+const isClockValue = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0 && (v as number) < MAX_STAMP;
 
 // O relógio de uma escrita do sync (spec 5.4), a partir do gravado. `stamp()` é a data da escrita, max(agora, clock + 1), a mesma enquanto
 // o relógio não sobe; `raise(at)` sobe o relógio até `at` (a hora do servidor, as datas recebidas), e o stamp() seguinte já sai depois
-// dele. O que não é inteiro seguro >= 0, ou passa de MAX_CLOCK, não sobe nada. `value()` é o relógio a gravar.
+// dele. O que não é inteiro seguro >= 0, ou chega a MAX_STAMP, não sobe nada. `value()` é o relógio a gravar.
 export interface SyncClock {
   stamp(): number;
   raise(at: number): void;
@@ -296,6 +297,7 @@ interface SyncCtx {
   stamp(): number; // a data desta escrita: max(agora, clock + 1), nunca menor que uma data já vista (spec 5.4); muda só depois de um raise
   track(store: SyncStore, id: string): Promise<void>; // põe o registro na fila de saída, se o aparelho tem conta (spec 5.3), com a data desta escrita
   raise(at: number): void; // o relógio sobe até `at` (a hora do servidor e as datas recebidas, spec 5.4); ver createSyncClock
+  state(): SyncState; // o estado do sync nesta transação (o gravado, com o que setState mudou)
   // Muda o estado do sync na mesma transação (gravado no fim, com o relógio). O track seguinte já usa o novo accountId.
   setState(patch: Partial<Omit<SyncState, 'clock'>>): void;
 }
@@ -647,6 +649,7 @@ export function createRepository(
           if (state.accountId !== null) await outbox.put({ store, id, queuedAt: clock.stamp() }, syncKey(store, id));
         },
         raise: clock.raise,
+        state: () => ({ ...state, clock: clock.value() }),
         setState: (patch) => {
           state = { ...state, ...definedOnly(patch) };
         },
@@ -1051,7 +1054,10 @@ export function createRepository(
 
     async beginFirstSync({ accountId, email }) {
       const refusals: string[] = [];
-      await syncWrite(['solves', 'sessions', 'practice', 'prefs'], async (tx, ctx) => {
+      const began = await syncWrite(['solves', 'sessions', 'practice', 'prefs'], async (tx, ctx) => {
+        // A mesma conta já começou (ou terminou) o primeiro login: zerar o cursor e pôr na fila o que já veio dela faria os registros da
+        // conta passarem por daqui, e os gêmeos subiriam repetidos. Nada muda.
+        if (ctx.state().accountId === accountId) return false;
         // O estado vem primeiro: o track seguinte já vê a conta. Ele só é gravado no fim, junto com a fila (syncWrite).
         ctx.setState({ accountId, email, signedIn: true, firstSync: true, cursor: 0, lastSyncAt: null });
         const [solves, sessions, practice, prefs] = await Promise.all([
@@ -1080,7 +1086,9 @@ export function createRepository(
         // Uma entrada que já estava na fila (gravada antes por outro caminho) também sai: a contagem do que vai subir fica certa.
         const outbox = tx.objectStore('outbox');
         await each(left, (c) => outbox.delete(syncKey(c.store, c.id)));
+        return true;
       });
+      if (!began) return 0;
       for (const line of refusals) log(line);
       announce('sync');
       return refusals.length;
@@ -1088,6 +1096,10 @@ export function createRepository(
 
     async dedupeFirstLogin() {
       const outcome = await syncWrite(['solves', 'sessions'], async (tx, ctx) => {
+        // Só uma vez por primeiro login: firstSync desliga nesta mesma transação. Numa segunda rodada, o solve da conta que recebeu a nota
+        // (agora na fila, "daqui") seria gêmeo de outro igual da conta e sairia, e os dois lados ficariam diferentes para sempre.
+        if (!ctx.state().firstSync) return { solves: [], noted: [], sessions: [] };
+        ctx.setState({ firstSync: false });
         const outbox = tx.objectStore('outbox');
         const waiting = new Set(await outbox.getAllKeys());
         const mine = (store: SyncStore, id: string): boolean => waiting.has(syncKey(store, id));
@@ -1116,7 +1128,11 @@ export function createRepository(
           const target = theirs.get(fingerprint(s))!;
           const current = noted.get(target.id) ?? target;
           const note = joinedNote(current.note, s.note);
-          if (note !== current.note) noted.set(target.id, { ...current, note });
+          // Junta, a nota pode passar do tamanho que o servidor aceita: aí ela não vai (a edição seria recusada, e as seguintes também),
+          // e a do gêmeo fica com ele, na lixeira daqui.
+          if (note === current.note) continue;
+          const edited: StoredSolve = { ...current, note };
+          if (syncable('solves', edited)) noted.set(target.id, edited);
         }
         const edits = [...noted.values()].map((s) => ({ ...s, updatedAt: ctx.stamp() }));
         await each(edits, (s) => solves.put(s));
@@ -1177,7 +1193,7 @@ export function createRepository(
       const state = await write(['meta'], async (tx) => {
         const store = tx.objectStore('meta');
         const stored = syncStateOrDefault((await store.get('sync')) as SyncState | undefined);
-        // O relógio só sobe, e só por um inteiro seguro >= 0 até MAX_CLOCK: um NaN viraria NaN para sempre, e um perto de 2^53 o prenderia;
+        // O relógio só sobe, e só por um inteiro seguro >= 0 abaixo de MAX_STAMP: um NaN viraria NaN para sempre, e um no teto o prenderia;
         // nos dois, o servidor recusaria toda mudança.
         const given = patch.clock;
         const clock = isClockValue(given) ? Math.max(stored.clock, given) : stored.clock;

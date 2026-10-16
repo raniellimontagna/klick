@@ -3,7 +3,7 @@
 import { EVENT_IDS } from '../events';
 import { canonicalJson } from './merge';
 import { isPrefValue } from './prefs';
-import { SYNC_STORES, type Change, type SyncStore } from './types';
+import { MAX_STAMP, SYNC_STORES, type Change, type SyncStore } from './types';
 
 export const MAX_DATA_CHARS = 16_384;
 export const MAX_SEASON_CHARS = 65_536;
@@ -14,9 +14,10 @@ export const isSyncId = (v: unknown): v is string => typeof v === 'string' && ID
 
 const isRec = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
-// Datas são inteiros seguros: viram o relógio do app (max(Date.now(), clock + 1)), e de 2^53 em diante o `+ 1` não muda nada, o relógio
-// para e toda gravação seguinte empata. Como o servidor guarda o maior, uma data assim nunca mais sairia da conta.
-const isStamp = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0;
+// Datas são inteiros seguros até MAX_STAMP: viram o relógio do app (max(Date.now(), clock + 1)), e de 2^53 em diante o `+ 1` não muda nada,
+// o relógio para e toda gravação seguinte empata. Como o servidor guarda o maior, uma data assim nunca mais sairia da conta; e uma acima do
+// teto do relógio nunca mais seria passada por gravação nenhuma.
+const isStamp = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0 && (v as number) <= MAX_STAMP;
 const isEvent = (v: unknown): boolean => typeof v === 'string' && (EVENT_IDS as readonly string[]).includes(v);
 const isPenalty = (v: unknown): boolean => v === null || v === '+2' || v === 'DNF';
 

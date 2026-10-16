@@ -18,6 +18,10 @@ export interface Change {
 
 export const SYNC_PROTOCOL = 1; // sobe quando o formato do pedido muda: o servidor responde 426 a uma versão que não conhece
 export const SYNC_BATCH = 500; // mudanças por pedido, nos dois sentidos
+// A maior data do sync: 2^32 ms (uns 50 dias) abaixo do maior inteiro seguro. O servidor recusa datas acima dela (shape.ts), e o relógio dos
+// aparelhos fica abaixo dela (data/repository.ts): toda data que um aparelho grava é aceita, e um registro nunca fica com uma data que
+// nenhum aparelho consegue passar (ele nunca mais seria editado nem apagado).
+export const MAX_STAMP = Number.MAX_SAFE_INTEGER - 2 ** 32;
 export const CAPTCHA_HEADER = 'x-turnstile-token'; // o token do Turnstile no pedido do código (spec 7.5): o app manda, o Worker confere
 
 export interface SyncRequest {

@@ -3,7 +3,7 @@ import { defaultSeason } from '../../src/core/season';
 import { defaultDeviceProfile, defaultPrefValue, isPrefValue, joinProfile, prefsFromProfile, profileFromPrefs, splitProfile } from '../../src/core/sync/prefs';
 import { changeToPref, fromChange, prefToChange, stampOf, toChange } from '../../src/core/sync/records';
 import { checkChange } from '../../src/core/sync/shape';
-import type { Change } from '../../src/core/sync/types';
+import { MAX_STAMP, type Change } from '../../src/core/sync/types';
 import { defaultSettings, type Profile } from '../../src/core/types';
 
 const profile = (o: Partial<Profile> = {}): Profile => ({
@@ -153,12 +153,19 @@ describe('forma da mudança (spec 6.1, passo 1)', () => {
     ['deletedAt em 1e300', { ...ok, deletedAt: 1e300 }],
     ['updatedAt NaN', { ...ok, updatedAt: Number.NaN }],
     ['updatedAt infinito', { ...ok, updatedAt: Number.POSITIVE_INFINITY }],
+    ['updatedAt no maior inteiro seguro', { ...ok, updatedAt: Number.MAX_SAFE_INTEGER }],
+    ['updatedAt logo acima do teto', { ...ok, updatedAt: MAX_STAMP + 1 }],
+    ['deletionStamp logo acima do teto', { ...ok, deletionStamp: MAX_STAMP + 1 }],
+    ['deletedAt logo acima do teto', { ...ok, deletedAt: MAX_STAMP + 1 }],
   ])('recusa %s como datas inválidas', (_name, raw) => {
     expect(checkChange(raw)).toEqual({ ok: false, reason: 'datas inválidas' });
   });
 
-  it('aceita datas no maior inteiro seguro e no zero', () => {
-    const topo = Number.MAX_SAFE_INTEGER;
+  // O teto (MAX_STAMP) fica 2^32 ms abaixo do maior inteiro seguro, o mesmo do relógio dos aparelhos: um registro com data acima dele
+  // nunca mais poderia ser editado nem apagado, porque nenhum aparelho grava uma data maior.
+  it('aceita datas no teto e no zero', () => {
+    expect(MAX_STAMP).toBe(Number.MAX_SAFE_INTEGER - 2 ** 32);
+    const topo = MAX_STAMP;
     expect(checkChange({ ...ok, updatedAt: topo, deletedAt: topo, deletionStamp: topo }).ok).toBe(true);
     expect(checkChange({ ...ok, updatedAt: 0, deletedAt: 0, deletionStamp: 0 }).ok).toBe(true);
   });
