@@ -22,7 +22,7 @@ import { T } from '../strings';
 import { stampOf, type BackupRecord, type KlickDB, type StoredPractice, type StoredSession, type StoredSolve } from './db';
 import { newId } from './ids';
 
-export type ChangeKind = 'solves' | 'sessions' | 'profile' | 'meta' | 'practice' | 'all';
+export type ChangeKind = 'solves' | 'sessions' | 'profile' | 'meta' | 'practice' | 'sync' | 'all';
 // De onde veio o aviso: 'local' é desta aba (já está na memória de quem gravou); 'remote' é de outra aba (o canal).
 export type ChangeOrigin = 'local' | 'remote';
 // `solveIds` vem só nos avisos de solves: quais mudaram (gravados, editados, excluídos, restaurados ou apagados de vez). Sem ele (aviso
@@ -70,7 +70,9 @@ export interface Repository {
   deleteSolve(id: string): Promise<void>;
   restoreSolve(id: string): Promise<void>; // devolve o solve; se a sessão dele está na lixeira, devolve também o registro dela (só ele: os outros solves excluídos da sessão continuam na lixeira)
   listTrash(): Promise<{ sessions: Session[]; solves: Solve[] }>; // o excluído mais recentemente primeiro, sessões e solves
-  purgeTrash(olderThanMs: number): Promise<number>; // apaga de vez o excluído antes de now - olderThanMs (no limite exato ainda fica); devolve quantos itens (sessões e solves)
+  // Apaga de vez o excluído antes de now - olderThanMs (no limite exato ainda fica), menos o que espera na fila de saída: a marca de exclusão
+  // só some depois que o servidor a tem (spec 5.5). Devolve quantos itens (sessões e solves); as marcas do treino saem junto, sem contar.
+  purgeTrash(olderThanMs: number): Promise<number>;
   getProfile(): Promise<Profile>; // padrão se ausente (e não grava o padrão)
   saveProfile(patch: ProfilePatch): Promise<Profile>; // settings faz merge raso, sound faz merge
   // Vira a temporada (spec 5.5) numa transação: só grava se a temporada gravada ainda for fromN. Se outra aba já virou, não grava nem
@@ -78,6 +80,9 @@ export interface Repository {
   advanceSeason(fromN: number, record: SeasonRecord, next: SeasonState): Promise<Profile>;
   getMeta(): Promise<Meta>; // padrão se ausente (deviceId novo), gravado na primeira leitura
   saveMeta(patch: Partial<Meta>): Promise<Meta>;
+  getSyncState(): Promise<SyncState>; // o bloco sync do meta (spec 5.4); o padrão antes do primeiro login
+  // Muda o estado do sync e avisa 'sync'. O relógio só sobe: um clock menor que o gravado é ignorado.
+  saveSyncState(patch: Partial<SyncState>): Promise<SyncState>;
   getFolderHandle(): Promise<unknown | null>;
   saveFolderHandle(h: unknown | null): Promise<void>;
   saveBackup(r: BackupRecord): Promise<void>;
@@ -98,7 +103,7 @@ export interface Repository {
 }
 
 const CHANNEL_NAME = 'klick-data';
-const CHANGE_KINDS: readonly string[] = ['solves', 'sessions', 'profile', 'meta', 'practice', 'all'];
+const CHANGE_KINDS: readonly string[] = ['solves', 'sessions', 'profile', 'meta', 'practice', 'sync', 'all'];
 const TRAIL_LENGTH = 9;
 
 const isChangeKind = (v: unknown): v is ChangeKind => typeof v === 'string' && CHANGE_KINDS.includes(v);
@@ -203,7 +208,7 @@ const syncStateOrDefault = (stored: SyncState | undefined): SyncState => ({ ...d
 // O que uma escrita acompanhada pelo sync recebe (syncWrite): a próxima data do relógio e a fila de saída.
 interface SyncCtx {
   stamp(): number; // a data desta escrita, uma só por transação: max(agora, clock + 1), nunca menor que uma data já vista (spec 5.4)
-  track(store: SyncStore, id: string): Promise<void>; // põe o registro na fila de saída, se o aparelho tem conta (spec 5.3)
+  track(store: SyncStore, id: string): Promise<void>; // põe o registro na fila de saída, se o aparelho tem conta (spec 5.3), com a data desta escrita
 }
 const metaOrNew = (stored: Meta | undefined, at: number): Meta =>
   stored ? { ...META_DEFAULTS, ...stored } : { ...META_DEFAULTS, deviceId: newId(at) };
@@ -428,10 +433,14 @@ export function createRepository(
       const outbox = tx.objectStore('outbox');
       let clock = state.clock;
       let at: number | null = null;
+      const stamp = (): number => (at ??= clock = Math.max(now(), clock + 1));
       const ctx: SyncCtx = {
-        stamp: () => (at ??= clock = Math.max(now(), clock + 1)),
+        stamp,
+        // A data da fila é a da gravação (a do relógio nesta transação), a mesma para tudo o que a transação põe nela, mesmo quando o
+        // registro entra antes de qualquer outra data ser pedida (uma importação): o clock de antes, ainda zero num aparelho novo,
+        // misturaria a ordem do índice byQueued.
         track: async (store, id) => {
-          if (state.accountId !== null) await outbox.put({ store, id, queuedAt: clock }, syncKey(store, id));
+          if (state.accountId !== null) await outbox.put({ store, id, queuedAt: stamp() }, syncKey(store, id));
         },
       };
       const result = await work(tx, ctx);
@@ -661,13 +670,18 @@ export function createRepository(
     async purgeTrash(olderThanMs) {
       const limit = now() - olderThanMs;
       const expired = ({ deletedAt }: { deletedAt: number | null }) => deletedAt !== null && deletedAt < limit;
-      const removed = await write(['sessions', 'solves'], async (tx) => {
+      const removed = await write(['sessions', 'solves', 'practice', 'outbox'], async (tx) => {
         const sessions = tx.objectStore('sessions');
         const solves = tx.objectStore('solves');
-        const oldSessions = (await sessions.getAll()).filter(expired);
-        const oldSolves = (await solves.getAll()).filter(expired);
+        const practice = tx.objectStore('practice');
+        const waiting = new Set(await tx.objectStore('outbox').getAllKeys());
+        const gone = (store: SyncStore) => (r: { id: string; deletedAt: number | null }) => expired(r) && !waiting.has(syncKey(store, r.id));
+        const oldSessions = (await sessions.getAll()).filter(gone('sessions'));
+        const oldSolves = (await solves.getAll()).filter(gone('solves'));
+        const oldPractice = (await practice.getAll()).filter(gone('practice'));
         await each(oldSessions, (s) => sessions.delete(s.id));
         await each(oldSolves, (s) => solves.delete(s.id));
+        await each(oldPractice, (p) => practice.delete(p.id));
         return { sessions: oldSessions.length, solves: oldSolves.map((s) => s.id) };
       });
       if (removed.solves.length > 0) announceSolves(removed.solves);
@@ -728,6 +742,22 @@ export function createRepository(
       });
       announce('meta');
       return meta;
+    },
+
+    async getSyncState() {
+      return syncStateOrDefault((await db.get('meta', 'sync')) as SyncState | undefined);
+    },
+
+    async saveSyncState(patch) {
+      const state = await write(['meta'], async (tx) => {
+        const store = tx.objectStore('meta');
+        const stored = syncStateOrDefault((await store.get('sync')) as SyncState | undefined);
+        const merged: SyncState = { ...stored, ...definedOnly(patch), clock: Math.max(stored.clock, patch.clock ?? 0) };
+        await store.put(merged, 'sync');
+        return merged;
+      });
+      announce('sync');
+      return state;
     },
 
     async getFolderHandle() {
