@@ -14,8 +14,11 @@ export const T0 = 1_791_500_000_000;
 export const allow: RateLimit = { limit: async () => ({ success: true }) };
 
 export function testEnv(over: Partial<Env> = {}): Env {
-  return { ...(env as unknown as Env), ACCOUNTS_ENABLED: 'true', API_BURST: allow, ...over };
+  return { ...(env as unknown as Env), ACCOUNTS_ENABLED: 'true', API_BURST: allow, OTP_BURST: allow, ...over };
 }
+
+// O Turnstile falso: o token 'ok' passa.
+export const captchaOk = async (token: string): Promise<boolean> => token === 'ok';
 
 // Um carteiro falso: guarda o que seria enviado.
 export function fakeMailer(): Mailer & { sent: { email: string; code: string }[] } {
@@ -31,13 +34,19 @@ export function fakeMailer(): Mailer & { sent: { email: string; code: string }[]
 // `user`: quem tem sessão neste pedido, sem passar pelo login; null, ninguém.
 export function testDeps(over: Partial<Deps> & { user?: string | null } = {}): Deps {
   const { user = null, ...rest } = over;
-  return { now: () => T0, mailer: fakeMailer(), resolveUser: async () => (user ? { id: user, email: `${user}@exemplo.com` } : null), ...rest };
+  return {
+    now: () => T0,
+    mailer: fakeMailer(),
+    verifyCaptcha: captchaOk,
+    resolveUser: async () => (user ? { id: user, email: `${user}@exemplo.com` } : null),
+    ...rest,
+  };
 }
 
 // Com o login de verdade (Better Auth no D1 local) e o carteiro falso.
 export function authDeps(): Deps & { mailer: ReturnType<typeof fakeMailer> } {
   const mailer = fakeMailer();
-  return { now: () => T0, mailer, resolveUser: (request, e, ctx) => sessionUser(request, e, ctx, mailer) };
+  return { now: () => T0, mailer, verifyCaptcha: captchaOk, resolveUser: (request, e, ctx) => sessionUser(request, e, ctx, mailer) };
 }
 
 // Pede o código, entra com ele e devolve o cookie de sessão, pronto para o cabeçalho Cookie.

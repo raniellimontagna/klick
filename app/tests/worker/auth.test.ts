@@ -102,7 +102,7 @@ describe('login por código (spec 7.1 a 7.3)', () => {
   it('o código fica no D1 só em hash (decisão 23)', async () => {
     const deps = authDeps();
     const email = 'hash@exemplo.com';
-    await call('/api/auth/email-otp/send-verification-otp', postJson({ email, type: 'sign-in' }), { deps });
+    await call('/api/auth/email-otp/send-verification-otp', postJson({ email, type: 'sign-in' }, { 'x-turnstile-token': 'ok' }), { deps });
     const { code } = deps.mailer.sent.at(-1)!;
     const rows = await testEnv().DB.prepare('SELECT value FROM verification WHERE identifier LIKE ?').bind(`%${email}`).all<{ value: string }>();
     expect(rows.results).toHaveLength(1);
@@ -119,7 +119,9 @@ describe('login por código (spec 7.1 a 7.3)', () => {
     };
     const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
-      const res = await call('/api/auth/email-otp/send-verification-otp', postJson({ email: 'vaza@exemplo.com', type: 'sign-in' }), { deps: { ...authDeps(), mailer: leaky } });
+      const res = await call('/api/auth/email-otp/send-verification-otp', postJson({ email: 'vaza@exemplo.com', type: 'sign-in' }, { 'x-turnstile-token': 'ok' }), {
+        deps: { ...authDeps(), mailer: leaky },
+      });
       expect(res.status).toBe(200);
       const logged = spy.mock.calls.flat().map(String).join('\n');
       expect(logged).toContain('mail-failed');
@@ -142,6 +144,14 @@ describe('login por código (spec 7.1 a 7.3)', () => {
     expect((await call('/api/auth/sign-out', postJson({}, { Cookie: cookie }), { deps })).status).toBe(200);
     expect((await sync(cookie)).status).toBe(401);
   });
+
+  it('sair sem corpo funciona: o pedido que o router refaz não leva um corpo vazio ao Better Auth', async () => {
+    const deps = authDeps();
+    const cookie = await signIn('sem-corpo@exemplo.com', deps);
+    const res = await call('/api/auth/sign-out', { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: ORIGIN, Cookie: cookie } }, { deps });
+    expect(res.status).toBe(200);
+    expect((await call('/api/sync', postJson(syncBody(), { Cookie: cookie }), { deps })).status).toBe(401);
+  });
 });
 
 describe('/api/auth/*: só as rotas que o app usa (spec 7.1 e 7.2)', () => {
@@ -150,7 +160,7 @@ describe('/api/auth/*: só as rotas que o app usa (spec 7.1 e 7.2)', () => {
   it('conferir o código sem consumir a tentativa não existe: a rajada de palpites dá 404, e o código continua valendo', async () => {
     const deps = authDeps();
     const email = 'rajada@exemplo.com';
-    await call('/api/auth/email-otp/send-verification-otp', postJson({ email, type: 'sign-in' }), { deps });
+    await call('/api/auth/email-otp/send-verification-otp', postJson({ email, type: 'sign-in' }, { 'x-turnstile-token': 'ok' }), { deps });
     const { code } = deps.mailer.sent.at(-1)!;
     const guesses = Array.from({ length: 41 }, (_, i) => String(i).padStart(6, '0'));
     const burst = await Promise.all(guesses.map((otp) => call('/api/auth/email-otp/check-verification-otp', postJson({ email, type: 'sign-in', otp }), { deps })));

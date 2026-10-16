@@ -36,9 +36,13 @@ export function createAuth(env: Env, ctx: ExecutionContext, mailer: Mailer) {
         allowedAttempts: 5,
         storeOTP: 'hashed',
         // Sem esperar o envio (a resposta não denuncia nada pelo tempo); o waitUntil segura o Worker até o e-mail sair. O log leva só o nome
-        // do erro: a mensagem de um serviço de e-mail pode trazer o destinatário.
+        // do erro e, se houver, o status HTTP: a mensagem de um serviço de e-mail pode trazer o destinatário.
         async sendVerificationOTP({ email, otp }) {
-          const failed = (err: unknown) => console.error(JSON.stringify({ evt: 'mail-failed', error: err instanceof Error ? err.name : 'unknown' }));
+          const failed = (err: unknown) => {
+            const status = (err as { status?: unknown } | null)?.status;
+            const entry = { evt: 'mail-failed', error: err instanceof Error ? err.name : 'unknown', ...(typeof status === 'number' ? { status } : {}) };
+            console.error(JSON.stringify(entry));
+          };
           ctx.waitUntil(mailer.sendCode(email, otp).catch(failed));
         },
       }),

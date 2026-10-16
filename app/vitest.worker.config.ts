@@ -12,7 +12,13 @@ export default defineConfig(async () => {
     plugins: [
       cloudflareTest({
         wrangler: { configPath: './wrangler.jsonc' },
-        miniflare: { bindings: { TEST_MIGRATIONS: migrations, BETTER_AUTH_SECRET: 'segredo-so-dos-testes-0123456789abcdef' } },
+        miniflare: {
+          bindings: {
+            TEST_MIGRATIONS: migrations,
+            BETTER_AUTH_SECRET: 'segredo-so-dos-testes-0123456789abcdef',
+            TURNSTILE_SECRET: '1x0000000000000000000000000000000AA', // a chave de teste da Cloudflare (sempre passa); os testes trocam o verificador
+          },
+        },
       }),
     ],
     test: { include: ['tests/worker/**/*.test.ts'], setupFiles: ['tests/worker/apply-migrations.ts'] },

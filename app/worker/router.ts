@@ -3,13 +3,15 @@
 // rotas da conta pedem sessão e falam com o Durable Object dela. O que não é /api são os arquivos do app. Os logs levam só ids, contagens,
 // durações e erros (spec 8.5).
 import { SYNC_BATCH, SYNC_PROTOCOL, type SyncRequest, type SyncResponse } from '../src/core/sync/types';
+import { E2E_TOKEN, guardPasskeyOptions, guardSendCode, turnstileVerifier, type VerifyCaptcha } from './abuse';
 import { authSecretOk, createAuth, sessionUser, type User } from './auth';
 import type { Env } from './env';
-import { e2eMailbox, e2eMailer, missingMailer, type Mailer } from './mail';
+import { e2eMailbox, e2eMailer, missingMailer, resendMailer, type Mailer } from './mail';
 
 export interface Deps {
   now: () => number;
   mailer: Mailer;
+  verifyCaptcha: VerifyCaptcha;
   resolveUser: (request: Request, env: Env, ctx: ExecutionContext) => Promise<User | null>; // a sessão do pedido; os testes passam um falso
 }
 
@@ -36,9 +38,12 @@ const AUTH_ROUTES = new Map<string, string>([
   ['/api/auth/passkey/delete-passkey', 'POST'],
 ]);
 
+// Na nuvem: o Resend e o Turnstile de verdade. No ponta a ponta local (E2E_MAILBOX, só no wrangler dev), a caixa local e o token de teste.
 export function defaultDeps(env: Env): Deps {
-  const mailer = env.E2E_MAILBOX === 'true' ? e2eMailer : missingMailer;
-  return { now: () => Date.now(), mailer, resolveUser: (request, e, ctx) => sessionUser(request, e, ctx, mailer) };
+  const e2e = env.E2E_MAILBOX === 'true';
+  const mailer = e2e ? e2eMailer : env.RESEND_API_KEY ? resendMailer(env.RESEND_API_KEY, env.MAIL_FROM) : missingMailer;
+  const verifyCaptcha: VerifyCaptcha = e2e ? async (token) => token === E2E_TOKEN : turnstileVerifier(env.TURNSTILE_SECRET);
+  return { now: () => Date.now(), mailer, verifyCaptcha, resolveUser: (request, e, ctx) => sessionUser(request, e, ctx, mailer) };
 }
 
 const json = (data: unknown, status = 200): Response => Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } });
@@ -93,21 +98,30 @@ async function readJson(request: Request): Promise<unknown> {
 const isRec = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 // Uma rota de /api/auth/* vai ao Better Auth só se está na lista, com o método dela. O corpo de um POST é lido aqui, com limite, e segue
-// num pedido novo. Pedir o código só vale para entrar: os outros tipos (senha, verificação de e-mail) gravam a mais no D1 para um e-mail
-// sem conta, e o tempo da resposta denunciaria quem tem conta (spec 7.5).
-async function authRoute(request: Request, path: string, env: Env, ctx: ExecutionContext, mailer: Mailer): Promise<Response> {
+// num pedido novo (sem corpo, se veio sem: um corpo vazio com Content-Type JSON o Better Auth recusa). Pedir o código só vale para entrar:
+// os outros tipos (senha, verificação de e-mail) gravam a mais no D1 para um e-mail sem conta, e o tempo da resposta denunciaria quem tem
+// conta (spec 7.5). Depois do tipo, o guarda (abuse.ts): o Turnstile e os limites. As opções da passkey, sem sessão, passam pela rajada.
+async function authRoute(request: Request, path: string, env: Env, ctx: ExecutionContext, deps: Deps): Promise<Response> {
   if (AUTH_ROUTES.get(path) !== request.method) return fail(404, 'not-found');
-  const auth = createAuth(env, ctx, mailer);
-  if (request.method !== 'POST') return auth.handler(request);
+  if (request.method !== 'POST') {
+    if (path === '/api/auth/passkey/generate-authenticate-options') {
+      const blocked = await guardPasskeyOptions(request, env);
+      if (blocked) return blocked;
+    }
+    return createAuth(env, ctx, deps.mailer).handler(request);
+  }
   const text = await readText(request, MAX_AUTH_BODY);
   if (text instanceof Response) return text;
+  const headers = new Headers(request.headers);
+  headers.delete('Content-Length');
+  const forward = new Request(request.url, { method: 'POST', headers, body: text || null });
   if (path === '/api/auth/email-otp/send-verification-otp') {
     const body = parseJson(text);
     if (!isRec(body) || body.type !== 'sign-in') return fail(400, 'bad-request');
+    const blocked = await guardSendCode(forward, env, deps);
+    if (blocked) return blocked;
   }
-  const headers = new Headers(request.headers);
-  headers.delete('Content-Length');
-  return auth.handler(new Request(request.url, { method: 'POST', headers, body: text }));
+  return createAuth(env, ctx, deps.mailer).handler(forward);
 }
 
 // A caixa do ponta a ponta local (E2E_MAILBOX): só com a variável ligada e só em localhost. Na nuvem, 404.
@@ -140,7 +154,7 @@ export async function handle(request: Request, env: Env, ctx: ExecutionContext, 
     log({ evt: 'auth-secret-missing' });
     return fail(503, 'unavailable');
   }
-  if (path.startsWith('/api/auth/')) return authRoute(request, path, env, ctx, deps.mailer);
+  if (path.startsWith('/api/auth/')) return authRoute(request, path, env, ctx, deps);
 
   const user = await deps.resolveUser(request, env, ctx);
   if (!user) return fail(401, 'auth');

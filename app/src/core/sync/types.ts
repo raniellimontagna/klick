@@ -18,6 +18,7 @@ export interface Change {
 
 export const SYNC_PROTOCOL = 1; // sobe quando o formato do pedido muda: o servidor responde 426 a uma versão que não conhece
 export const SYNC_BATCH = 500; // mudanças por pedido, nos dois sentidos
+export const CAPTCHA_HEADER = 'x-turnstile-token'; // o token do Turnstile no pedido do código (spec 7.5): o app manda, o Worker confere
 
 export interface SyncRequest {
   v: number;
