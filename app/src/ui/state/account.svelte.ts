@@ -9,6 +9,7 @@ import { createBackup } from '../../data/safety';
 import { T } from '../../strings';
 import type { Health, SyncApi } from '../../sync/api';
 import { type AuthClientLike, type AuthUser, loadAuthClient, type PasskeyInfo, type SendResult, type VerifyResult } from '../../sync/auth';
+import { type Captcha, CaptchaError, turnstile } from '../../sync/captcha';
 import { type Account, createServerClock, createSyncEngine, idleStatus, type ServerClock, type SyncEngine, type SyncStatus } from '../../sync/engine';
 import { acquireLeadership, browserTriggerEnv, type LocksLike, startTriggers, type TriggerEnv, type Triggers } from '../../sync/triggers';
 
@@ -24,11 +25,17 @@ export interface AccountDeps {
   channel?: ChannelLike | null; // padrão: BroadcastChannel('klick-sync'); null: sem canal
   env?: TriggerEnv; // padrão: window, document e os timers (também as esperas e novas tentativas do motor)
   auth?: () => Promise<AuthClientLike>; // padrão: o cliente do Better Auth, carregado na hora (sync/auth.ts)
+  captcha?: Captcha; // padrão: o Turnstile da Cloudflare, carregado na hora (sync/captcha.ts)
 }
 
 // Depois do código (ou da passkey): o primeiro login neste aparelho, a volta da mesma conta, ou outra conta (spec 7.6).
 export type SignInNext = 'first' | 'resume' | 'other-account';
 export type VerifyOutcome = { ok: true; next: SignInNext } | Extract<VerifyResult, { ok: false }>;
+
+// O primeiro sync pedido pelo diálogo de entrar (continueSignIn), visto pelo estado que esta aba recebe: 'waiting', a conta ainda não
+// entrou; 'started', entrou e o sync corre; 'done', a rodada terminou depois do pedido, sem erro e sem primeiro sync por fazer;
+// 'cancelled', uma parada (sair, nesta aba ou noutra) o cancelou antes disso.
+export type SignInSync = 'waiting' | 'started' | 'done' | 'cancelled';
 
 // O que a conta usa do app.
 export interface AccountHost {
@@ -47,7 +54,9 @@ type Message =
   | { type: 'status'; status: SyncStatus } // o estado do motor da líder
   | { type: 'stop'; id: string } // sair: o que esperava a líder fica para trás em todas; pedido por uma aba que não lidera, a líder para o motor...
   | { type: 'stopped'; id: string } // ...e responde quando ele parou
-  | { type: 'resume' } // a conta voltou (ou entrou): todas as abas tiram o motor da parada; pedido por uma aba que não lidera...
+  // A conta voltou (ou entrou): todas as abas tiram o motor da parada; pedido por uma aba que não lidera... `accountId`: a conta em que a
+  // líder entrou (o primeiro login dela), e o login pedido por outra aba para outra conta fica para trás.
+  | { type: 'resume'; accountId?: string }
   | { type: 'resumed' } // ...a líder responde que voltou a aceitar rodadas
   | { type: 'login'; account: Account }; // o primeiro login (ou a outra conta) pedido numa aba que não lidera (a resposta é o aviso 'sync')
 
@@ -99,6 +108,10 @@ export class AccountState {
   private pendingResume = false;
   private unlisten: (() => void)[] = [];
   private user: AuthUser | null = null; // quem acabou de entrar (o código ou a passkey), até continueSignIn ou cancelSignIn
+  private next: SignInNext | null = null; // o caminho que o login de `user` deu: continueSignIn só aceita o modo que bate com ele
+  // O primeiro sync que o diálogo de entrar espera (signInSync): a conta, quando foi pedido (o relógio do aparelho, o mesmo de lastSyncAt) e
+  // se uma parada o cancelou.
+  private joining = $state<{ accountId: string; since: number; cancelled: boolean } | null>(null);
   private client: Promise<AuthClientLike> | null = null;
 
   constructor(host: AccountHost, deps: AccountDeps) {
@@ -127,6 +140,18 @@ export class AccountState {
 
   get signedIn(): boolean {
     return this.sync.signedIn && this.sync.accountId !== null;
+  }
+
+  // O diálogo de entrar espera por aqui, não pela promessa: numa aba que não lidera, o pedido resolve antes de a líder fazer o trabalho, e o
+  // estado chega depois, pelo canal e pelo aviso 'sync'. "Pronto" só depois de uma rodada que terminou depois do pedido, com a conta dentro.
+  get signInSync(): SignInSync | null {
+    const j = this.joining;
+    if (!j) return null;
+    if (j.cancelled) return 'cancelled';
+    if (!this.sync.signedIn || this.sync.accountId !== j.accountId) return 'waiting';
+    const s = this.status;
+    const done = !this.sync.firstSync && s.phase === 'idle' && s.error === null && s.lastSyncAt !== null && s.lastSyncAt >= j.since;
+    return done ? 'done' : 'started';
   }
 
   // A conta aparece (Ajustes, o indicador, o convite): o ambiente diz que ela está ligada (spec 8.4). Sem resposta do servidor (sem rede),
@@ -228,7 +253,7 @@ export class AccountState {
   async firstLogin(account: Account): Promise<void> {
     const plain = { accountId: account.accountId, email: account.email };
     if (this.leader || !this.channel) {
-      this.post({ type: 'resume' });
+      this.post({ type: 'resume', accountId: plain.accountId });
       await this.engine.firstLogin(plain);
       return;
     }
@@ -244,6 +269,7 @@ export class AccountState {
   async stopSync(): Promise<void> {
     this.pendingLogin = null; // sair vale por cima do que ainda esperava a líder
     this.pendingResume = false;
+    this.cancelJoining();
     const own = this.engine.stop();
     if (this.leader || !this.channel) {
       this.post({ type: 'stop', id: newId(this.host.now()) }); // as outras não lideram: só limpam o que esperavam, sem responder
@@ -290,10 +316,21 @@ export class AccountState {
     }
   }
 
-  // O código por e-mail (spec 7.2), com o token do Turnstile. 'captcha' e 'limited' vêm do guarda do Worker, cada um com a sua mensagem.
-  async sendCode(email: string, captchaToken: string): Promise<SendResult> {
+  // O código por e-mail (spec 7.2): primeiro um token novo do Turnstile, no elemento `host` da tela do e-mail (o token vale uma vez, e o
+  // servidor o gasta até no 429). 'captcha' e 'limited' vêm do guarda do Worker, cada um com a sua mensagem; o desafio recusado aqui também
+  // é 'captcha'. Sem a site key (o /api/health não respondeu ao abrir), pergunta de novo antes; sem resposta, 'failed'.
+  async sendCode(email: string, host: HTMLElement): Promise<SendResult> {
+    if (this.siteKey === null) await this.checkHealth();
+    const siteKey = this.siteKey;
+    if (siteKey === null) return 'failed';
+    let token: string;
     try {
-      return await (await this.auth()).sendCode(email.trim(), captchaToken);
+      token = await (this.deps.captcha ?? turnstile).token(siteKey, host);
+    } catch (err) {
+      return err instanceof CaptchaError ? 'captcha' : 'failed'; // o script que não carregou: sem rede
+    }
+    try {
+      return await (await this.auth()).sendCode(email.trim(), token);
     } catch {
       return 'failed';
     }
@@ -323,20 +360,39 @@ export class AccountState {
     }
   }
 
+  // Quem entrou fica guardado, com o caminho que deu, até continuar ou desistir. A lista de passkeys relê: a que não carregou antes (sem rede,
+  // a sessão expirada) ficaria vazia até recarregar.
   private async adopt(user: AuthUser): Promise<SignInNext> {
-    this.user = user;
+    this.user = null;
+    this.next = null;
     const { accountId } = await this.host.repo().getSyncState();
-    return accountId === null ? 'first' : accountId === user.id ? 'resume' : 'other-account';
+    const next: SignInNext = accountId === null ? 'first' : accountId === user.id ? 'resume' : 'other-account';
+    this.user = user;
+    this.next = next;
+    this.passkeys = null;
+    return next;
+  }
+
+  // O modo de continueSignIn bate com o caminho do login? 'join' é o primeiro login ou juntar à outra conta; 'erase', só na outra conta;
+  // 'resume', só a mesma conta de antes. Fora disso, 'resume' depois de outra conta gravaria o e-mail dela na conta de antes, dentro, e
+  // sincronizaria a fila e o cursor de uma com o cookie da outra.
+  private static fits(next: SignInNext, mode: 'join' | 'erase' | 'resume'): boolean {
+    if (next === 'first') return mode === 'join';
+    if (next === 'resume') return mode === 'resume';
+    return mode === 'join' || mode === 'erase';
   }
 
   // Depois de entrar: 'join' junta os dados deste aparelho à conta (o primeiro login, ou a outra conta da spec 7.6); 'erase' apaga os dados
   // deste aparelho antes (spec 7.6) e recusa ('pending') se ainda há mudanças esperando para subir (decisão 12); 'resume' é a mesma conta de
-  // antes, que só volta a sincronizar. Trocar de conta para o sync antes (o motor espera a rodada em andamento): a volta de uma rodada da
-  // conta anterior não cai no meio da troca. O sync segue em segundo plano: a promessa resolve quando ele foi pedido. Uma parada depois
-  // disso (sair, numa aba) cancela o primeiro login que ainda não começou: quem chama confere o estado, não esta promessa.
-  async continueSignIn(mode: 'join' | 'erase' | 'resume'): Promise<'ok' | 'pending'> {
+  // antes, que só volta a sincronizar. O modo que não bate com o caminho do login é recusado ('refused'), e nada muda. Trocar de conta para
+  // o sync antes (o motor espera a rodada em andamento): a volta de uma rodada da conta anterior não cai no meio da troca, e a região
+  // aria-live não fala de falha. O sync segue em segundo plano: a promessa resolve quando ele foi pedido. Uma parada depois disso (sair,
+  // numa aba) cancela o primeiro login que ainda não começou: quem chama confere o estado (signInSync), não esta promessa.
+  async continueSignIn(mode: 'join' | 'erase' | 'resume'): Promise<'ok' | 'pending' | 'refused'> {
     const user = this.user;
-    if (!user) return 'ok';
+    const next = this.next;
+    if (!user || !next) return 'ok';
+    if (!AccountState.fits(next, mode)) return 'refused';
     const repo = this.host.repo();
     const state = await repo.getSyncState();
     const switching = state.accountId !== null && state.accountId !== user.id;
@@ -357,6 +413,8 @@ export class AccountState {
       await this.stopSync();
     }
     this.user = null;
+    this.next = null;
+    this.joining = { accountId: user.id, since: this.host.now(), cancelled: false };
     if (mode === 'resume') {
       await repo.saveSyncState({ signedIn: true, email: user.email });
       await this.refresh();
@@ -371,6 +429,7 @@ export class AccountState {
   // Desistir no diálogo da outra conta (spec 7.6): sai da sessão nova; nada daqui muda.
   async cancelSignIn(): Promise<void> {
     this.user = null;
+    this.next = null;
     await (await this.auth().catch(() => null))?.signOut();
   }
 
@@ -434,6 +493,11 @@ export class AccountState {
     const ok = await (await this.auth().catch(() => null))?.removePasskey(id);
     if (ok) await this.loadPasskeys();
     return ok === true;
+  }
+
+  // Uma parada antes do fim do primeiro sync pedido pelo diálogo o cancela (o motor esquece o login que não começou). Depois do fim, nada muda.
+  private cancelJoining(): void {
+    if (this.joining && !this.joining.cancelled && this.signInSync !== 'done') this.joining = { ...this.joining, cancelled: true };
   }
 
   // A aba fecha (ou o AppState é trocado): solta o lock, para os gatilhos e o motor.
@@ -504,9 +568,10 @@ export class AccountState {
         if (!this.leader && isStatus(m.status)) this.show(m.status);
         break;
       case 'stop':
-        // Sair, numa aba: o que ainda esperava a líder fica para trás em todas.
+        // Sair, numa aba: o que ainda esperava a líder fica para trás em todas, e o primeiro sync que o diálogo de entrar esperava parou.
         this.pendingLogin = null;
         this.pendingResume = false;
+        this.cancelJoining();
         if (this.leader && typeof m.id === 'string') {
           const id = m.id;
           void this.engine.stop().then(() => this.post({ type: 'stopped', id }));
@@ -516,7 +581,9 @@ export class AccountState {
         if (typeof m.id === 'string') this.waits.get(m.id)?.();
         break;
       case 'resume':
-        // Também nas abas que não lideram: uma delas pode ter parado o próprio motor ao sair, e liderar depois.
+        // Também nas abas que não lideram: uma delas pode ter parado o próprio motor ao sair, e liderar depois. A líder entrou noutra conta:
+        // o login pedido aqui para outra, e perdido, não pode ser refeito por esta aba se ela liderar depois (trocaria de conta sozinha).
+        if (typeof m.accountId === 'string' && this.pendingLogin?.accountId !== m.accountId) this.pendingLogin = null;
         this.engine.resume();
         if (this.leader) this.post({ type: 'resumed' });
         break;

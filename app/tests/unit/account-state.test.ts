@@ -570,6 +570,28 @@ describe('uma aba só sincroniza (spec 6.2)', () => {
     expect(replays).not.toHaveBeenCalled();
   });
 
+  it('a líder que entra noutra conta desfaz o login perdido de outra aba: a que assume depois não troca de conta sozinha (Task 14)', async () => {
+    const make = bus();
+    const locks = queueLocks();
+    const net = fakeApi(new FakeServer());
+    const leaderChannel = make();
+    const [mine, other] = await twoTabRepos();
+    const first = await appWithAccount(net.api, { locks, channel: leaderChannel, repo: mine });
+    const second = await appWithAccount(net.api, { locks, channel: make(), repo: other });
+    await vi.waitFor(() => expect(first.app.account!.leader).toBe(true));
+    make.mute(leaderChannel); // suspensa: o pedido da conta 1 se perde
+    await second.app.account!.firstLogin(ACCOUNT);
+    make.unmute(leaderChannel);
+    await first.app.account!.firstLogin({ accountId: 'conta-2', email: 'outra@exemplo.com' }); // depois, a líder entra na conta 2
+    await vi.waitFor(() => expect(second.app.account!.sync.accountId).toBe('conta-2'));
+    const replays = vi.spyOn(engineOf(second.app), 'firstLogin');
+    first.app.account!.stop(); // a aba da líder fecha
+    await vi.waitFor(() => expect(second.app.account!.leader).toBe(true));
+    await sleep(20);
+    expect(replays).not.toHaveBeenCalled();
+    expect(await other.getSyncState()).toMatchObject({ accountId: 'conta-2', signedIn: true });
+  });
+
   it('sair na líder desfaz o login que outra aba pediu e ficou sem resposta: a aba que assume depois não entra na conta (Task 14)', async () => {
     const server = new FakeServer();
     const make = bus();

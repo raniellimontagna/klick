@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { SyncRequest, SyncResponse } from '../../src/core/sync/types';
 import { defaultSessionId } from '../../src/data/ids';
+import type { Health, SyncApi } from '../../src/sync/api';
 import type { AuthClientLike } from '../../src/sync/auth';
+import { type Captcha, CaptchaError } from '../../src/sync/captcha';
 import { appWithAccount, fakeApi, fakeAuth } from './sync-account';
 import { FakeServer } from './sync-fakes';
 
@@ -36,12 +38,74 @@ describe('entrar (spec 7.2 e 7.6)', () => {
   it('o pedido do código devolve o que o cliente respondeu: o Turnstile recusado e o limite são diferentes', async () => {
     const { auth, calls, state } = fakeAuth();
     const { app } = await appWithAccount(fakeApi(new FakeServer()).api, { auth });
-    expect(await app.account!.sendCode(` ${EMAIL} `, 'tok')).toBe('sent');
-    expect(calls).toContain(`send:${EMAIL}:tok`);
+    const host = document.createElement('div');
+    expect(await app.account!.sendCode(` ${EMAIL} `, host)).toBe('sent');
+    expect(calls).toContain(`send:${EMAIL}:token-de-1x00000000000000000000BB`);
     state.send = 'captcha';
-    expect(await app.account!.sendCode(EMAIL, 'tok')).toBe('captcha');
+    expect(await app.account!.sendCode(EMAIL, host)).toBe('captcha');
     state.send = 'limited';
-    expect(await app.account!.sendCode(EMAIL, 'tok')).toBe('limited');
+    expect(await app.account!.sendCode(EMAIL, host)).toBe('limited');
+  });
+
+  it('cada pedido do código pega um token novo do Turnstile, no elemento da tela do e-mail (o servidor gasta o token até no 429)', async () => {
+    const { auth, calls, state } = fakeAuth();
+    const asked: [string, HTMLElement][] = [];
+    let n = 0;
+    const captcha: Captcha = {
+      token: async (siteKey, host) => {
+        asked.push([siteKey, host]);
+        return `token-${++n}`;
+      },
+    };
+    const { app } = await appWithAccount(fakeApi(new FakeServer()).api, { auth, captcha });
+    const host = document.createElement('div');
+    state.send = 'limited';
+    expect(await app.account!.sendCode(EMAIL, host)).toBe('limited');
+    state.send = 'sent';
+    expect(await app.account!.sendCode(EMAIL, host)).toBe('sent');
+    expect(calls).toEqual([`send:${EMAIL}:token-1`, `send:${EMAIL}:token-2`]);
+    expect(asked).toEqual([
+      ['1x00000000000000000000BB', host],
+      ['1x00000000000000000000BB', host],
+    ]);
+  });
+
+  it('o Turnstile que falha aqui não chega ao servidor: o desafio recusado é "captcha"; sem o script (sem rede), "failed"', async () => {
+    const { auth, calls } = fakeAuth();
+    let failure: Error = new CaptchaError();
+    const captcha: Captcha = {
+      token: async () => {
+        throw failure;
+      },
+    };
+    const { app } = await appWithAccount(fakeApi(new FakeServer()).api, { auth, captcha });
+    const host = document.createElement('div');
+    expect(await app.account!.sendCode(EMAIL, host)).toBe('captcha');
+    failure = new Error('o script não veio');
+    expect(await app.account!.sendCode(EMAIL, host)).toBe('failed');
+    expect(calls).toEqual([]);
+  });
+
+  it('sem a site key (o /api/health não respondeu ao abrir), pergunta de novo antes do Turnstile; sem resposta, "failed"', async () => {
+    const { auth, calls } = fakeAuth();
+    let health: Health | null = null;
+    const api: SyncApi = { ...fakeApi(new FakeServer()).api, health: async () => health };
+    const asked: string[] = [];
+    const captcha: Captcha = {
+      token: async (siteKey) => {
+        asked.push(siteKey);
+        return 'tok';
+      },
+    };
+    const { app } = await appWithAccount(api, { auth, captcha });
+    const host = document.createElement('div');
+    expect(app.account!.siteKey).toBeNull();
+    expect(await app.account!.sendCode(EMAIL, host)).toBe('failed');
+    expect(asked).toEqual([]);
+    health = { accounts: true, turnstileSiteKey: 'site-key' };
+    expect(await app.account!.sendCode(EMAIL, host)).toBe('sent');
+    expect(asked).toEqual(['site-key']);
+    expect(calls).toEqual([`send:${EMAIL}:tok`]);
   });
 
   it('o cliente de login que não carrega (sem rede) responde "failed" e carrega de novo na próxima', async () => {
@@ -52,7 +116,7 @@ describe('entrar (spec 7.2 e 7.6)', () => {
       return fakeAuth().auth;
     };
     const { app } = await appWithAccount(fakeApi(new FakeServer()).api, { loadAuth });
-    expect(await app.account!.sendCode(EMAIL, 'tok')).toBe('failed');
+    expect(await app.account!.sendCode(EMAIL, document.createElement('div'))).toBe('failed');
     expect(await app.account!.verifyCode(EMAIL, '123456')).toEqual({ ok: true, next: 'first' });
     expect(loads).toBe(2);
   });
@@ -73,6 +137,43 @@ describe('entrar (spec 7.2 e 7.6)', () => {
     expect(await account.continueSignIn('resume')).toBe('ok');
     expect(account.signedIn).toBe(true);
     await vi.waitFor(() => expect(hasSolve(server)).toBe(true)); // sem recarregar: o motor saiu da parada de sair
+  });
+
+  it('continuar só vale no caminho que o login devolveu; o que não bate é recusado, e nada muda (Task 14)', async () => {
+    const first = await appWithAccount(fakeApi(new FakeServer()).api);
+    expect(await first.app.account!.verifyCode(EMAIL, '123456')).toEqual({ ok: true, next: 'first' });
+    expect(await first.app.account!.continueSignIn('resume')).toBe('refused');
+    expect(await first.app.account!.continueSignIn('erase')).toBe('refused');
+    expect(await first.repo.getSyncState()).toMatchObject({ accountId: null, signedIn: false });
+
+    const back = await appWithAccount(fakeApi(new FakeServer()).api, { signedIn: true });
+    await vi.waitFor(() => expect(back.app.account!.status.phase).toBe('idle'));
+    expect(await back.app.account!.signOut(false)).toBe('ok');
+    expect(await back.app.account!.verifyCode(EMAIL, '123456')).toEqual({ ok: true, next: 'resume' });
+    expect(await back.app.account!.continueSignIn('join')).toBe('refused'); // seria um primeiro login, com cópia e tudo na fila
+    expect((await back.repo.listBackups()).map((b) => b.reason)).not.toContain('pre-sync');
+
+    // 'resume' depois de outra conta gravaria o e-mail da conta 2 na conta 1, dentro, e sincronizaria a fila da 1 com o cookie da 2.
+    const { auth } = fakeAuth(OTHER);
+    const other = await appWithAccount(fakeApi(new FakeServer()).api, { signedIn: true, auth });
+    await vi.waitFor(() => expect(other.app.account!.status.phase).toBe('idle'));
+    expect(await other.app.account!.signOut(false)).toBe('ok');
+    expect(await other.app.account!.verifyCode(OTHER.email, '123456')).toEqual({ ok: true, next: 'other-account' });
+    expect(await other.app.account!.continueSignIn('resume')).toBe('refused');
+    expect(await other.repo.getSyncState()).toMatchObject({ accountId: 'conta-1', email: EMAIL, signedIn: false });
+    expect(await other.app.account!.continueSignIn('join')).toBe('ok'); // a escolha certa ainda vale
+    await vi.waitFor(async () => expect((await other.repo.getSyncState()).accountId).toBe('conta-2'));
+  });
+
+  it('entrar relê a lista de passkeys que não tinha carregado (sem rede, ou a sessão expirada) (Task 14)', async () => {
+    const { auth, state } = fakeAuth();
+    const { app } = await appWithAccount(fakeApi(new FakeServer()).api, { signedIn: true, auth });
+    const account = app.account!;
+    await account.loadPasskeys(); // a lista que não veio fica vazia
+    expect(account.passkeys).toEqual([]);
+    state.passkeys.push({ id: 'pk1', name: null, createdAt: 1_791_500_000_000 });
+    expect(await account.verifyCode(EMAIL, '123456')).toEqual({ ok: true, next: 'resume' });
+    expect(account.passkeys).toBeNull(); // Ajustes relê
   });
 
   it('a passkey: sem ela, null; com ela, o mesmo caminho do código', async () => {

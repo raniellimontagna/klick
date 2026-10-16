@@ -6,6 +6,7 @@ import { createRepository, type ChannelLike, type Repository } from '../../src/d
 import { createScrambleQueue } from '../../src/scramble/queue';
 import type { Health, SyncApi } from '../../src/sync/api';
 import type { AuthClientLike, PasskeyInfo, SendResult } from '../../src/sync/auth';
+import type { Captcha } from '../../src/sync/captcha';
 import { createServerClock, type ServerClock } from '../../src/sync/engine';
 import type { LocksLike, TriggerEnv } from '../../src/sync/triggers';
 import { AppState } from '../../src/ui/state/app.svelte';
@@ -137,6 +138,7 @@ export interface AccountOptions {
   channel?: ChannelLike | null;
   auth?: AuthClientLike; // o cliente de login (padrão: um fakeAuth() só desta aba)
   loadAuth?: () => Promise<AuthClientLike>; // no lugar de `auth`: o carregamento do cliente, que pode falhar
+  captcha?: Captcha; // o Turnstile (padrão: um falso que devolve `token-de-<site key>`, sem rede)
 }
 
 // Um AppState com conta, já com a conta começada (a liderança disputada e /api/health perguntado). O repositório tira as datas do
@@ -157,7 +159,15 @@ export async function appWithAccount(api: SyncApi, o: AccountOptions = {}): Prom
     now,
     storage: null,
     storageManager: null,
-    account: { api, clock, env: o.env ?? manualEnv().env, locks: o.locks ?? null, channel: o.channel ?? null, auth: o.loadAuth ?? (async () => auth) },
+    account: {
+      api,
+      clock,
+      env: o.env ?? manualEnv().env,
+      locks: o.locks ?? null,
+      channel: o.channel ?? null,
+      auth: o.loadAuth ?? (async () => auth),
+      captcha: o.captcha ?? { token: async (siteKey) => `token-de-${siteKey}` },
+    },
   });
   await app.init();
   await app.account!.start();

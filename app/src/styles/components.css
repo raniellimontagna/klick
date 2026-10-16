@@ -508,3 +508,33 @@
     min-height: 44px;
   }
 }
+
+/* ---------- Conta e sync (spec 9.2) ---------- */
+.sheet .field {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+}
+
+.sheet .field input {
+  font: inherit;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-btn);
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.sheet .stack {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+/* No celular, os botões e os campos do diálogo de entrar têm 44 px de área de toque (spec 9.6), também numa tela estreita sem toque. */
+@media (max-width: 639px) {
+  .signin .btn,
+  .signin .field input {
+    min-height: 44px;
+  }
+}

@@ -14,6 +14,7 @@
   import OnboardingDialog from './dialogs/OnboardingDialog.svelte';
   import SessionsDialog from './dialogs/SessionsDialog.svelte';
   import ShortcutsDialog from './dialogs/ShortcutsDialog.svelte';
+  import SignInDialog from './dialogs/SignInDialog.svelte';
   import UpdatePrompt from './dialogs/UpdatePrompt.svelte';
   import DbNotice from './dialogs/DbNotice.svelte';
   import { dbNotice, dbUpgrade } from './state/db-notice.svelte';
@@ -298,6 +299,9 @@
       <ShortcutsDialog {app} open={app.dialog === 'shortcuts'} />
       <OnboardingDialog {app} open={app.dialog === 'onboarding'} onpickfile={() => importInput?.click()} />
       <InstallGuide {app} open={app.dialog === 'install'} {installEvent} onused={() => (installEvent = null)} />
+      {#if app.account}
+        <SignInDialog {app} open={app.dialog === 'signin'} />
+      {/if}
     </div>
   {:else if dbUpgrade() === 'running'}
     <main class="screen">
