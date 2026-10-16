@@ -131,11 +131,15 @@ Toda gravação local num registro sincronizável (solve, sessão, tentativa ou 
 - **`clock`:** a última data vista. Toda data nova (`updatedAt` e `deletionStamp`) é `max(Date.now(), clock + 1)`. A cada resposta do servidor, `clock` sobe para a hora do servidor e para as datas recebidas. Um aparelho com o relógio atrasado nunca grava uma data menor que a dos dados que já viu.
 - **`accountId`:** a conta dona dos dados do aparelho. Continua gravado depois de sair, para a seção 7.6.
 - **`cursor`:** a última revisão do servidor já aplicada.
+- **Relógio adiantado:** o servidor nunca recusa uma mudança por ter data no futuro, porque ela sairia da fila e se perderia. Em vez disso, de cada resposta o app tira quanto o aparelho está à frente da hora do servidor e grava as datas com esse desconto. O desconto vive só na memória: até a primeira resposta depois de abrir o app, as datas são as do aparelho. Um aparelho adiantado que gravou nesse meio tempo continua dando datas à frente (`clock + 1`) até a hora de verdade alcançá-las, no máximo o tamanho do adiantamento.
+- **Teto:** nenhuma data passa de `MAX_STAMP`, o maior inteiro seguro menos 2^32. O servidor recusa, o import recusa, e o relógio do app fica abaixo dele. Assim, toda data que um aparelho grava é aceita, e nenhum registro fica com uma data que ninguém consegue passar.
 
 ### 5.5 Correções que a pesquisa achou
 
 - **Import do csTimer:** o id passa a ser derivado do solve: `cs-` mais um hash de evento, `at`, `ms` e embaralhamento. O mesmo arquivo importado em dois aparelhos gera os mesmos ids. Imports antigos ficam com os ids que têm; a deduplicação do primeiro login (seção 6.5) cobre esse caso.
-- **"Sessão 1" de um aparelho novo:** a sessão padrão criada sem dados passa a ter id fixo por evento, `default-<evento>`. Dois aparelhos novos geram a mesma sessão, e o sync as junta.
+  - As datas também vêm do dado, não da hora do import: o solve nasce no instante dele, e a sessão no do primeiro solve dela no arquivo, no máximo agora. O mesmo arquivo dá registros idênticos em qualquer aparelho.
+- **"Sessão 1" de um aparelho novo:** a sessão padrão criada sem dados passa a ter id fixo por evento, `default-<evento>`. Dois aparelhos novos geram a mesma sessão, e o sync as junta. Ela nasce com as datas em 1: qualquer ação de verdade, em qualquer aparelho, vence a dela.
+- **Datas de um arquivo do Klick:** uma data de registro que não é inteiro seguro >= 0, ou que passa de 24 horas no futuro, deixa o registro de fora, contado no relatório do import. Nada é ajustado. Os conversores do csTimer e da v1 guardada no navegador tiram as datas do próprio dado, inteiras, >= 0 e no máximo agora, e por isso nunca recusam o que eles mesmos geraram.
 - **Restaurar uma cópia:** deixa de apagar as stores e regravar.
   - Cada registro da cópia é gravado de novo, com datas novas.
   - O que existe agora e não está na cópia ganha marca de exclusão.
@@ -145,7 +149,7 @@ Toda gravação local num registro sincronizável (solve, sessão, tentativa ou 
 
 ### 5.6 Migração
 
-`DB_VERSION` passa a 3. Antes de abrir a v3, o app grava uma cópia com motivo `'pre-sync'`, rotulada "antes da v3". A migração só acrescenta, e nenhum dado sai do aparelho:
+`DB_VERSION` passa a 3. Antes de mudar qualquer registro, a migração grava uma cópia com motivo `'pre-sync'`, rotulada "Antes da atualização para a conta e o sync" (a cópia "antes da v3"). Ela fica 90 dias fora da poda das cópias. A migração só acrescenta, e nenhum dado sai do aparelho:
 1. **Solves e sessões:** `deletionStamp = deletedAt ?? createdAt`.
 2. **Treino:** `updatedAt = at`, `deletedAt = null` e `deletionStamp = at`.
 3. **Perfil:** os campos da conta viram itens de `prefs`, com `updatedAt` igual à hora da migração. O perfil fica só com os campos do aparelho.
@@ -191,15 +195,17 @@ O app repete o pedido enquanto houver fila ou `more`, e cada lote avança o curs
   - em "Sincronizar agora".
 - **Nunca durante um solve ou uma inspeção:** com `app.timerBusy`, o sync espera o timer parar.
 - **Uma aba só:** sincroniza a aba que pegar o lock `klick-sync` da Web Locks API. As outras recebem as mudanças pelo `BroadcastChannel` que já existe entre as abas e recarregam o estado como fazem hoje.
+  - Uma aba suspensa com o lock (o Safari do iOS em segundo plano) pode atrasar o sync das outras abas até voltar ou ser descartada. Fica assim: o app instalado tem uma aba só.
+- **Prazos:** 15 segundos para `/api/health` e 60 para o sync. Estourado o prazo, o pedido conta como sem rede.
 
 ### 6.3 Regras de conflito
 
 Ficam em `app/src/core/sync/merge.ts`, como funções puras sem dependência de navegador. O app e o Worker importam o mesmo arquivo. `merge(local, remoto)` devolve o registro resultante. Nas regras 1 a 4, ela é comutativa, associativa e idempotente, e os testes provam isso (seção 11). A temporada é a exceção e é decidida pelo servidor (seção 6.4).
 
 1. **Conteúdo** (`data` e `updatedAt`): vence o lado com `updatedAt` maior. No empate, vence o `data` com o JSON canônico maior. Esse critério é arbitrário, mas é o mesmo nos dois lados, e por isso converge.
-2. **Exclusão** (`deletedAt` e `deletionStamp`): vence o lado com `deletionStamp` maior, independentemente do conteúdo, com o mesmo desempate. Como editar não muda `deletionStamp`, uma edição concorrente nunca desfaz uma exclusão (D5). Restaurar da lixeira grava `deletedAt = null` com um `deletionStamp` novo, e por isso vence a exclusão anterior.
+2. **Exclusão** (`deletedAt` e `deletionStamp`): vence o lado com `deletionStamp` maior, independentemente do conteúdo. No empate, vence a exclusão (entre duas exclusões, a de `deletedAt` maior). Como editar não muda `deletionStamp`, uma edição concorrente nunca desfaz uma exclusão (D5). Restaurar da lixeira grava `deletedAt = null` com um `deletionStamp` novo, e por isso vence a exclusão anterior.
 3. **Sessão apagada:** apagar uma sessão marca os solves dela com o mesmo `deletedAt` e `deletionStamp`.
-   - **Depois de juntar um lote,** os dois lados aplicam a cascata (`applyCascade`): um solve ativo cuja sessão está apagada, com `deletionStamp` da sessão maior que o do solve, recebe a exclusão da sessão. Assim, uma edição feita offline num solve dessa sessão não a ressuscita.
+   - **Depois de juntar um lote,** os dois lados aplicam a cascata (`cascade`): um solve ativo cuja sessão está apagada, com `deletionStamp` da sessão maior ou igual ao do solve, recebe a exclusão da sessão. O solve com a mesma data da exclusão também é apagado. Assim, uma edição feita offline num solve dessa sessão não a ressuscita.
    - **Restaurar um solve da lixeira** continua restaurando a sessão dele, como hoje, porque é uma ação explícita e grava datas novas nos dois.
 4. **Itens da conta:** cada chave segue a regra 1. Desmarcar uma etapa da trilha num aparelho desmarca nos outros.
 
@@ -215,18 +221,21 @@ O aparelho não junta a temporada por conta própria. Ele adota o valor que o se
 ### 6.5 Primeiro login num aparelho com dados
 
 1. O app grava uma cópia `'pre-sync'` e conta o que vai subir. O aviso diz: "1.234 solves deste aparelho vão para a conta".
+   - Passar o aparelho para a conta e pôr tudo na fila acontecem numa transação só (`beginFirstSync`): o app fechado no meio não deixa o primeiro login pela metade.
 2. O app baixa a conta inteira antes de subir qualquer coisa, para poder deduplicar.
 3. **Deduplicação:**
    - um solve local ativo com id diferente, mas mesmo evento, `at`, `ms`, penalidade e embaralhamento de um solve da conta é o mesmo solve: o local recebe marca de exclusão e não sobe;
-   - uma sessão local vazia com o nome padrão, de um evento que já tem sessão na conta, também.
+   - uma sessão local vazia com o nome padrão, de um evento que já tem sessão na conta, também;
+   - a nota do solve local que saiu vai para o da conta: se só um lado tem nota, fica ela; se as duas são diferentes, ficam as duas, como `<nota da conta> / <nota daqui>`.
 4. Tudo o que sobrou entra na fila de saída e sobe.
 
 ### 6.6 Proteção e falhas
 
 - **Muitas exclusões de uma vez:** se um lote do servidor vai apagar 50 solves ou mais, o app grava antes uma cópia local `'pre-sync'`.
+- **Quanto duram as cópias `'pre-sync'`:** a do primeiro login e a das muitas exclusões ficam 30 dias fora da poda das cópias, as 5 mais novas. Passado o prazo, entram na poda de sempre.
 - **Sem rede:** a fila espera, e o indicador mostra "esperando rede".
 - **Erro do servidor (5xx):** nova tentativa em 5 s, 30 s, 2 min e depois a cada 5 min.
-- **Sessão expirada (401):** o indicador mostra erro, e Ajustes pede para entrar de novo. O app segue funcionando local, e a fila guarda tudo.
+- **Sessão expirada (401):** o indicador mostra erro, e Ajustes pede para entrar de novo. O app segue funcionando local, e a fila guarda tudo. O aparelho continua dentro da conta, com erro de login, até a pessoa entrar de novo; até lá, nenhum gatilho faz pedido novo.
 - **Mudança rejeitada por forma inválida:** sai da fila e fica no log local. Um registro que o próprio app gerou nunca deveria cair aqui; os testes de forma garantem.
 
 ## 7. Conta e login
@@ -264,10 +273,11 @@ Num aparelho que já tem uma passkey, a tela de entrar oferece a passkey primeir
 
 - **Limites:**
   - 5 códigos por e-mail por hora;
-  - 20 pedidos de código por IP por hora.
+  - 20 pedidos de código por IP por hora, com o IPv6 contado por /64.
 
-  Usam o binding de rate limiting do Workers.
+  Contam numa tabela `otp_requests` do D1. O e-mail e o IP entram como HMAC, com uma chave derivada do `BETTER_AUTH_SECRET`: sem o segredo, nenhum dos dois sai dali. Contar e gravar acontecem numa transação só, e uma onda de pedidos em paralelo não passa dos limites. O binding de rate limiting do Workers, que só conta janelas de 10 ou 60 segundos, fica como trava de rajada.
 - **Turnstile:** só na tela do e-mail.
+- **Só o que o app usa:** das rotas do Better Auth, existem só as que o app chama; as outras respondem 404. O código só sai para entrar, nunca para os outros fluxos da biblioteca (senha, verificação de e-mail).
 - **Erros:** não dizem se o e-mail tem conta ou não.
 
 ### 7.6 Outra conta no mesmo aparelho
@@ -283,6 +293,7 @@ Se o aparelho tem dados de uma conta (`meta.sync.accountId`) e a pessoa entra co
   - os dados ficam no aparelho, que volta a funcionar só local;
   - a tela tem a caixa "apagar os dados deste aparelho";
   - a fila de saída que ainda não subiu fica no aparelho e sobe se a mesma conta entrar de novo.
+- **Apagar os dados deste aparelho** (ao sair, ou antes de entrar com outra conta, seção 7.6): só com a fila vazia, porque apagar perderia o que ainda não está na conta. Leva também as cópias locais. É a exceção ao princípio 3: o motivo de apagar é privacidade, e os dados estão na conta.
 - **Sair de todos os aparelhos:** revoga todas as sessões no D1.
 - **Apagar minha conta:** tem confirmação, digitando o e-mail. Apaga na hora:
   - o Durable Object da conta (`deleteAll`);
@@ -320,14 +331,15 @@ CREATE TABLE devices (device_id TEXT PRIMARY KEY, last_sync_at INTEGER NOT NULL)
 
 - **Marcas de exclusão:** ficam para sempre, só com id e datas; o `data` de uma marca antiga pode ser esvaziado. Assim, um aparelho que passou meses offline não ressuscita nada.
 - **Um pedido por vez:** o objeto processa um sync de cada vez, o que dá a ordem das revisões sem lock extra.
+- **Cursor à frente:** um cursor maior que a revisão da conta não saiu daqui (o banco do objeto recomeçou por fora). O aparelho recomeça do zero, senão nunca mais receberia nada.
 
 ### 8.3 Cópias diárias e restauração
 
 - **Cópia diária:** um alarme do objeto, uma vez por dia, grava em `snap/<userId>/<AAAA-MM-DD>.json.gz` no R2 uma cópia comprimida no formato do export do Klick (`transfer.ts`). Só grava se a conta mudou desde a última cópia.
 - **Retenção:** uma regra de ciclo de vida do bucket apaga as cópias com mais de 30 dias.
-- **`GET /api/snapshots`:** lista os dias, com o número de solves de cada um.
+- **`GET /api/snapshots`:** lista as cópias, a mais nova primeiro pela hora em que foi gravada, com o número de solves de cada uma.
 - **`POST /api/snapshots/:day/restore`:**
-  1. o servidor grava antes uma cópia "antes de restaurar";
+  1. o servidor grava antes uma cópia "antes de restaurar", com o nome em UTC (`AAAA-MM-DDTHH-MM-SSZ-antes`), sem sobrescrever a do dia;
   2. regrava cada registro da cópia com datas novas;
   3. marca como excluído o que existe hoje e não está na cópia.
 
@@ -342,7 +354,7 @@ CREATE TABLE devices (device_id TEXT PRIMARY KEY, last_sync_at INTEGER NOT NULL)
 
   O repositório público tem só os nomes. A site key do Turnstile é pública e vai no `wrangler.jsonc`.
 - **Chave `ACCOUNTS_ENABLED`** (variável de ambiente):
-  - **Beta:** `true` assim que o login funcionar.
+  - **Beta:** `true` na etapa 8, junto com a política de privacidade (até lá, as etapas 4 a 7 são testadas na máquina).
   - **Produção:** `false` até a política de privacidade estar no ar e o Ranielli dar o ok.
   - **Com `false`:** as rotas `/api` (menos `/api/health`) respondem 404, e o app esconde tudo de conta. O app pergunta isso em `/api/health`, que diz se a conta está ligada.
 
@@ -378,6 +390,8 @@ Usa a folha (`dialog.sheet`) dos outros diálogos, com quatro passos:
 4. primeiro sync.
 
 O link para a política de privacidade fica no primeiro passo.
+
+Fechar o diálogo no passo da passkey é o mesmo que "Agora não": a entrada continua, também depois de escolher "apagar os dados deste aparelho" (seção 7.6). Se não dá para continuar (mudanças esperando, uma falha do banco), a entrada é desfeita.
 
 ### 9.3 Indicador na barra de cima
 
@@ -420,6 +434,7 @@ Um toque leva a Ajustes, em "Conta e sync". O ícone não anima durante o timer,
   - correção, editando no app;
   - exclusão, por "Apagar minha conta";
   - informação, pela política.
+- **O que o servidor não guarda:** a sessão do Better Auth não grava o IP. Dos pedidos de código (`otp_requests`, com o e-mail e o IP em HMAC), o que passou de uma hora sai a cada novo pedido e no alarme diário de cada conta. Apagar a conta tira também os pedidos do e-mail dela.
 - **Transferência internacional:** os dados ficam nos EUA. Antes de ligar a conta na raiz, é preciso conferir se o contrato de tratamento de dados da Cloudflare cobre as cláusulas-padrão da ANPD. A pesquisa deixou isso em aberto.
 - **Menores:** a 5a não tem nada público nem entre pessoas, porque só sincroniza os dados da própria pessoa. O ECA Digital pesa na 5b.
 
@@ -442,7 +457,7 @@ Um toque leva a Ajustes, em "Conta e sync". O ícone não anima durante o timer,
   - restaurar como gravação;
   - purge só depois do servidor;
   - deduplicação do primeiro login.
-- **Servidor** (`@cloudflare/vitest-pool-workers`):
+- **Servidor** (`@cloudflare/vitest-plugin`, o sucessor do `@cloudflare/vitest-pool-workers`, que não aceita o Vitest 5):
   - login por código, com o envio de e-mail falso, e os limites;
   - `/api/sync` com cursor, lotes e revisões;
   - uma conta não lê nem grava na outra;
@@ -505,3 +520,34 @@ A conta só liga na raiz depois da semana de teste no beta, da conferência do c
 | O e-mail com o código cai no spam | SPF, DKIM e DMARC, texto simples e remetente fixo. A passkey diminui a dependência do e-mail |
 | Gasto fora do esperado | Alerta de gasto, limites de pedido e lotes de 500 |
 | Transferência internacional (LGPD) | Conferir o contrato da Cloudflare antes de ligar na raiz |
+
+## 16. Decisões do plano de implementação
+
+O plano `docs/superpowers/plans/2026-10-15-klick-conta-sync.md` ajustou esta spec onde ela não fechava com as bibliotecas ou com a simulação. Valem por cima do texto acima:
+
+1. Os testes do servidor usam o `@cloudflare/vitest-plugin` 1.4.0, num config próprio (`pnpm test:worker`).
+2. Os limites por hora (5 códigos por e-mail, 20 pedidos por IP) contam numa tabela `otp_requests` do D1, com o e-mail e o IP em HMAC (seção 7.5); o binding de rate limiting, que só conta janelas de 10 ou 60 segundos, é a trava de rajada.
+3. O estado do sync fica na chave `'sync'` da store `meta`, com `email`, `signedIn`, `firstSync` e `passkey` além dos campos da seção 5.4.
+4. A migração grava só os ajustes da conta fora do padrão; uma chave ausente lê o padrão.
+5. A cascata vale nos dois sentidos (um solve ativo mais novo devolve a sessão), e o que ela muda no aparelho sobe.
+6. O servidor dá revisão nova também ao registro cujo resultado difere do que chegou.
+7. O pedido de sync leva `v: 1` (426 para outra versão), e a resposta tem `rejected` com o motivo.
+8. A tabela `records` tem a coluna `parent` (a sessão de cada solve); `state` guarda também `userId` e `snapshotRev`.
+9. Restaurar uma cópia no aparelho manda para a lixeira o que não estava nela.
+10. Apagar e restaurar mexem em `updatedAt` e em `deletionStamp`; o import grava o `deletionStamp` pela regra do mais recente.
+11. O repositório não devolve as datas do sync às telas, ao export nem às cópias.
+12. Apagar os dados do aparelho espera a fila vazia, e leva também as cópias locais.
+13. As sessões do csTimer também têm id derivado; a sessão padrão usa `default-<evento>` só com o id livre.
+14. O sync espera também o timer do treino.
+15. O Turnstile é conferido por um guarda próprio, com o token no cabeçalho `x-turnstile-token`.
+16. O Durable Object usa `migrations` com `new_sqlite_classes`.
+17. O SQL do Better Auth para o D1 é escrito à mão e conferido por teste com o `getMigrations` da biblioteca.
+18. `E2E_MAILBOX` liga, só em localhost, a caixa de e-mail e o token de teste do Turnstile do ponta a ponta.
+19. O dia das cópias é o de Brasília; a cópia sai às 00:05 de Brasília.
+20. "Sincronizar agora" no meio de uma rodada pede uma rodada a mais depois dela.
+21. `ACCOUNTS_ENABLED=true` no beta só na etapa 8 (seção 8.4).
+22. A passkey usa o hostname do próprio ambiente como `rpID`.
+23. O código fica em hash no D1, e o limitador do Better Auth fica desligado (os limites são os do item 2).
+24. `KlickExport` e `ProfilePatch` moram em `core/types.ts`.
+25. A cópia "antes da v3" é JSON puro, gravada dentro da transação da migração.
+26. `TURNSTILE_SECRET` e `RESEND_API_KEY` entram pelo terminal do Ranielli; `BETTER_AUTH_SECRET` é gerado direto para o `wrangler secret put`.

@@ -341,8 +341,8 @@ export class PendingChangesError extends Error {
 const isKeyed = (c: unknown): c is Change =>
   typeof c === 'object' && c !== null && (SYNC_STORES as readonly unknown[]).includes((c as Change).store) && typeof (c as Change).id === 'string';
 // A marca de um solve para a deduplicação do primeiro login (spec 6.5): evento, instante, tempo, penalidade e embaralhamento. Tem de ser a
-// mesma do script que traz os dados da v1 (Task 20): o mesmo solve dos dois lados precisa dar a mesma marca.
-const fingerprint = (s: Solve): string => JSON.stringify([s.event, s.at, s.ms, s.penalty, s.scramble]);
+// mesma do script do Supabase da v1 (`mark`, em scripts/v1-supabase-map.mjs): o mesmo solve dos dois lados precisa dar a mesma marca.
+export const fingerprint = (s: Solve): string => JSON.stringify([s.event, s.at, s.ms, s.penalty, s.scramble]);
 // A sessão padrão (defaultSessionId): o mesmo id em todo aparelho novo, que o sync junta, e que a deduplicação nunca manda para a lixeira.
 const isDefaultSession = (id: string): boolean => id.startsWith(defaultSessionId(''));
 // A nota do solve da conta depois de receber a de um gêmeo daqui (spec 6.5): vazia lá, fica a daqui; vazia aqui ou igual, nada muda;
