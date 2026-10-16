@@ -1,5 +1,6 @@
 import type { IDBPDatabase } from 'idb';
 import { describe, expect, it } from 'vitest';
+import { merge } from '../../src/core/sync/merge';
 import { prefToChange, toChange, type RecordStore } from '../../src/core/sync/records';
 import { checkChange } from '../../src/core/sync/shape';
 import type { Change } from '../../src/core/sync/types';
@@ -7,7 +8,7 @@ import { openKlickDb, type KlickDB } from '../../src/data/db';
 import { defaultSessionId } from '../../src/data/ids';
 import { createRepository, type KlickExport, type Repository } from '../../src/data/repository';
 import { createBackup, restoreBackup } from '../../src/data/safety';
-import { parseKlickJson } from '../../src/data/transfer';
+import { csTimerToKlick, parseCsTimer, parseKlickJson } from '../../src/data/transfer';
 import { createScrambleQueue } from '../../src/scramble/queue';
 import { T } from '../../src/strings';
 import { summaryLines } from '../../src/ui/import-flow';
@@ -44,6 +45,26 @@ describe('a sessão padrão de um aparelho novo (spec 5.5)', () => {
     const second = await repo.createSession({ event: '333', id: defaultSessionId('333') });
     expect(first.id).toBe('default-333');
     expect(second.id).not.toBe('default-333');
+  });
+
+  // Fix round 1: com updatedAt = agora, a "Sessão 1" de um aparelho novo trocaria, no sync, a default-333 que outro aparelho já renomeou.
+  it('a sessão padrão nasce com as datas em 1: um renomear de verdade, em qualquer aparelho, vence a de um aparelho novo, e ela entra na fila', async () => {
+    const devices: { db: IDBPDatabase<KlickDB>; repo: Repository }[] = [];
+    for (let i = 0; i < 2; i++) {
+      const device = await fresh('conta-1');
+      await new AppState({ repo: device.repo, queue: createScrambleQueue({ generate: async () => 'R' }), now, storage: null, storageManager: null }).init();
+      devices.push(device);
+    }
+    const [established, newcomer] = devices;
+    t += 1000;
+    await established.repo.renameSession(defaultSessionId('333'), 'Treino');
+    const renamed = (await established.db.get('sessions', defaultSessionId('333')))!;
+    const fresh333 = (await newcomer.db.get('sessions', defaultSessionId('333')))!;
+    expect(fresh333).toMatchObject({ name: 'Sessão 1', order: 0, createdAt: 1, updatedAt: 1, deletedAt: null, deletionStamp: 1 });
+    expect(await newcomer.db.getAllKeys('outbox')).toContain(`sessions/${defaultSessionId('333')}`);
+    const a = toChange('sessions', renamed);
+    const b = toChange('sessions', fresh333);
+    for (const merged of [merge(a, b), merge(b, a)]) expect(merged).toMatchObject({ data: { name: 'Treino' }, updatedAt: renamed.updatedAt, deletedAt: null });
   });
 });
 
@@ -134,6 +155,42 @@ describe('importar sessões: o invariante "solve ativo => sessão ativa" (spec 5
   });
 });
 
+describe('importar do csTimer: as datas vêm do dado, como os ids (spec 5.5)', () => {
+  // Dois solves de 3×3, como o csTimer grava: [[penalidade, ms], embaralhamento, nota, segundos].
+  const csFile = JSON.stringify({
+    session1: [[[0, 30_000], 'R U', '', 1_791_400_000], [[0, 31_000], 'F R', '', 1_791_400_060]],
+    properties: { sessionData: JSON.stringify({ 1: { name: 'Main', opt: { scrType: '333' } } }) },
+  });
+  // O que AppState.importCsTimer faz: converte com o relógio de agora e importa o plano.
+  const importCs = async (repo: Repository) => {
+    const plan = csTimerToKlick(parseCsTimer(csFile), {}, { now: t, existingSessions: [], existingSolves: [] });
+    await repo.importAll({ format: 'klick', version: 1, exportedAt: t, sessions: plan.sessions, solves: plan.solves, profile: null });
+    return plan;
+  };
+
+  it('o mesmo arquivo em dois aparelhos, em horas diferentes, dá registros iguais; uma edição feita num deles vence a importação do outro', async () => {
+    const phone = await fresh('conta-1');
+    const desktop = await fresh('conta-1');
+    const plan = await importCs(phone.repo);
+    const [first, second] = plan.solves;
+    t += 1000;
+    await phone.repo.updateSolve(first.id, { penalty: 'DNF' });
+    await phone.repo.deleteSolve(second.id);
+    t += 3_600_000; // o desktop importa o mesmo arquivo uma hora depois da edição
+    await importCs(desktop.repo);
+    const sessionId = plan.sessions[0].id;
+    expect(await desktop.db.get('sessions', sessionId)).toEqual(await phone.db.get('sessions', sessionId));
+    for (const id of [first.id, second.id]) {
+      const mine = toChange('solves', (await phone.db.get('solves', id))!);
+      const theirs = toChange('solves', (await desktop.db.get('solves', id))!);
+      expect(merge(mine, theirs)).toEqual(mine);
+      expect(merge(theirs, mine)).toEqual(mine);
+    }
+    expect(await phone.db.get('solves', first.id)).toMatchObject({ penalty: 'DNF', deletedAt: null });
+    expect((await phone.db.get('solves', second.id))!.deletedAt).not.toBeNull();
+  });
+});
+
 describe('importar não deixa entrar o que o sync recusaria (spec 6.6: um registro do app nunca é recusado)', () => {
   const session = { name: 'Sessão', event: '333', order: 0, createdAt: 1_000, updatedAt: 1_000, deletedAt: null };
   const solve = { sessionId: 'boa', event: '333', ms: 9_000, penalty: null, at: 1_000, scramble: 'R', note: '', createdAt: 1_000, updatedAt: 1_000, deletedAt: null };
@@ -146,14 +203,18 @@ describe('importar não deixa entrar o que o sync recusaria (spec 6.6: um regist
       exportedAt: 1_000,
       profile: null,
       sessions: [
-        { ...session, id: 'boa', updatedAt: -5 },
+        { ...session, id: 'boa' },
+        { ...session, id: 'negativa', updatedAt: -5 },
         { ...session, id: 'com espaço' },
         { ...session, id: 'com:dois-pontos' },
         { ...session, id: '' },
       ],
       solves: [
-        { ...solve, id: 'fracao', updatedAt: 2_000.5, createdAt: 1_500.75 },
+        { ...solve, id: 'ok' },
+        { ...solve, id: 'fracao', updatedAt: 2_000.5 },
+        { ...solve, id: 'criacao-fracao', createdAt: 1_500.75 },
         { ...solve, id: 'negativa', updatedAt: -3, deletedAt: -3 },
+        { ...solve, id: 'apagado-fracao', deletedAt: 1_000.5 },
         { ...solve, id: 'a:b' },
         { ...solve, id: '   ' },
         { ...solve, id: 'sessao-vazia', sessionId: '' },
@@ -162,18 +223,17 @@ describe('importar não deixa entrar o que o sync recusaria (spec 6.6: um regist
       practice: [
         { ...attempt, id: 'p-boa' },
         { ...attempt, id: 'p:ruim' },
+        { ...attempt, id: 'p-fracao', at: 1_000.5 },
+        { ...attempt, id: 'p-negativa', at: -1 },
       ],
     });
 
-  it('id ou sessão que não servem ficam de fora e contam; datas quebradas viram inteiros seguros; a fila só tem o que o servidor aceita', async () => {
+  it('id, sessão ou data que não servem ficam de fora e contam (nada é ajustado); a fila só tem o que o servidor aceita', async () => {
     const { db, repo } = await fresh('conta-1');
     const report = await repo.importAll(parseKlickJson(handEdited()));
-    expect(report).toEqual({ sessionsAdded: 1, solvesAdded: 2, solvesUpdated: 0, skipped: 0, refused: 8 });
-    expect(await db.get('sessions', 'boa')).toMatchObject({ updatedAt: 0, deletedAt: null });
-    expect(await db.get('solves', 'fracao')).toMatchObject({ updatedAt: 2_000, createdAt: 1_500.75, deletedAt: null });
-    expect(await db.get('solves', 'negativa')).toMatchObject({ updatedAt: 0, deletedAt: 0 });
+    expect(report).toEqual({ sessionsAdded: 1, solvesAdded: 1, solvesUpdated: 0, skipped: 0, refused: 15 });
     const queued = await pendingChanges(db);
-    expect(queued.map((c) => `${c.store}/${c.id}`).sort()).toEqual(['practice/p-boa', 'sessions/boa', 'solves/fracao', 'solves/negativa']);
+    expect(queued.map((c) => `${c.store}/${c.id}`).sort()).toEqual(['practice/p-boa', 'sessions/boa', 'solves/ok']);
     expect(refusedBy(queued)).toEqual([]);
   });
 
@@ -182,8 +242,56 @@ describe('importar não deixa entrar o que o sync recusaria (spec 6.6: um regist
     const app = new AppState({ repo, queue: createScrambleQueue({ generate: async () => 'R' }), now, storage: null, storageManager: null });
     await app.init();
     const summary = await app.importKlick(parseKlickJson(handEdited()));
-    expect(summary).toMatchObject({ solves: 2, refused: 8 });
-    expect(summaryLines(summary!)).toContain(T.importDialog.refused(8));
+    expect(summary).toMatchObject({ solves: 1, refused: 15 });
+    expect(summaryLines(summary!)).toContain(T.importDialog.refused(15));
+  });
+
+  // Uma data no futuro subiria, pelo sync, o relógio de todos os aparelhos até ela (spec 5.4); em 2^53 - 1 ele travaria, e toda gravação
+  // seguinte seria recusada. Uma do ano 3000 adiantaria todos em mil anos.
+  const inTheFuture = (date: number): string =>
+    JSON.stringify({
+      format: 'klick',
+      version: 1,
+      exportedAt: 1_000,
+      profile: null,
+      sessions: [
+        { ...session, id: 'editada-no-futuro', updatedAt: date },
+        { ...session, id: 'criada-no-futuro', createdAt: date, updatedAt: date },
+      ],
+      solves: [
+        { ...solve, id: 'editado-no-futuro', updatedAt: date },
+        { ...solve, id: 'criado-no-futuro', createdAt: date },
+        { ...solve, id: 'apagado-no-futuro', deletedAt: date },
+      ],
+      practice: [{ ...attempt, id: 'treino-no-futuro', at: date }],
+    });
+
+  it.each([
+    ['no ano 3000', Date.UTC(3000, 0, 1)],
+    ['em 1e300', 1e300],
+  ])('uma data %s: os registros ficam de fora, contados; nada entra na fila e o relógio não sai do lugar', async (_label, date) => {
+    const { db, repo } = await fresh('conta-1');
+    const clock = (await repo.getSyncState()).clock;
+    const report = await repo.importAll(parseKlickJson(inTheFuture(date)));
+    expect(report).toEqual({ sessionsAdded: 0, solvesAdded: 0, solvesUpdated: 0, skipped: 0, refused: 6 });
+    expect(await db.getAllKeys('outbox')).toEqual([]);
+    expect((await db.count('sessions')) + (await db.count('solves')) + (await db.count('practice'))).toBe(0);
+    expect((await repo.getSyncState()).clock).toBe(clock);
+  });
+
+  it('até um dia à frente do relógio do aparelho a data entra (um relógio um pouco adiantado); um milissegundo além, não', async () => {
+    const { repo } = await fresh('conta-1');
+    const DAY = 24 * 60 * 60 * 1000;
+    const file = (id: string, updatedAt: number): KlickExport => ({
+      format: 'klick',
+      version: 1,
+      exportedAt: t,
+      profile: null,
+      sessions: [{ ...session, event: '333', id, updatedAt }],
+      solves: [],
+    });
+    expect(await repo.importAll(file('no-limite', t + DAY))).toMatchObject({ sessionsAdded: 1 });
+    expect(await repo.importAll(file('alem-do-limite', t + DAY + 1))).toMatchObject({ sessionsAdded: 0, refused: 1 });
   });
 });
 
@@ -249,12 +357,24 @@ describe('restaurar com conta põe na fila tudo o que grava, e só o que o servi
     t += 1000;
     await repo.replaceAll({
       ...data,
-      solves: [...data.solves, { ...data.solves[0], id: 'apagado-com-fracao', deletedAt: 1_500.5 }, { ...data.solves[0], id: 'sem-sessao', sessionId: null as never }],
+      solves: [
+        ...data.solves,
+        { ...data.solves[0], id: 'apagado-com-fracao', deletedAt: 1_500.5 },
+        // Uma marca de exclusão depois da própria restauração não faz sentido, e no futuro ela travaria o relógio (como no import).
+        { ...data.solves[0], id: 'apagado-no-ano-3000', deletedAt: Date.UTC(3000, 0, 1) },
+        { ...data.solves[0], id: 'apagado-em-1e300', deletedAt: 1e300 },
+        { ...data.solves[0], id: 'sem-sessao', sessionId: null as never },
+      ],
     });
+    const stamp = (await db.get('solves', a.id))!.updatedAt;
     expect(await db.get('solves', 'apagado-com-fracao')).toMatchObject({ deletedAt: 1_500 });
+    expect(await db.get('solves', 'apagado-no-ano-3000')).toMatchObject({ deletedAt: stamp });
+    expect(await db.get('solves', 'apagado-em-1e300')).toMatchObject({ deletedAt: stamp });
     expect((await repo.listSolves()).map((x) => x.id).sort()).toEqual([a.id, 'sem-sessao'].sort());
     const queued = (await db.getAllKeys('outbox')) as string[];
-    expect(queued).toEqual(expect.arrayContaining([`solves/${a.id}`, 'solves/apagado-com-fracao', `sessions/${s.id}`]));
+    expect(queued).toEqual(
+      expect.arrayContaining([`solves/${a.id}`, 'solves/apagado-com-fracao', 'solves/apagado-no-ano-3000', 'solves/apagado-em-1e300', `sessions/${s.id}`]),
+    );
     expect(queued).not.toContain('solves/sem-sessao');
     expect(queued).not.toContain(`prefs/${unknown.key}`);
     expect(await db.get('prefs', unknown.key)).toEqual(unknown);

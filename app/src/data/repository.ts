@@ -66,7 +66,8 @@ export interface ImportReport {
 
 export interface Repository {
   listSessions(o?: { includeDeleted?: boolean }): Promise<Session[]>; // ordenadas por order
-  // Nome padrão "Sessão N" por evento. `id` é o da sessão padrão (defaultSessionId): vale se ainda não existe registro com ele; senão, um novo.
+  // Nome padrão "Sessão N" por evento. `id` é o da sessão padrão (defaultSessionId): vale se ainda não existe registro com ele, e então a
+  // sessão nasce com as datas em 1 (perde para qualquer ação de verdade no sync); senão, um id novo e as datas de agora.
   createSession(o: { event: EventId; name?: string; id?: string }): Promise<Session>;
   renameSession(id: string, name: string): Promise<void>; // ignora nome vazio
   deleteSession(id: string): Promise<void>; // marca a sessão e os solves dela
@@ -116,6 +117,7 @@ export interface Repository {
 const CHANNEL_NAME = 'klick-data';
 const CHANGE_KINDS: readonly string[] = ['solves', 'sessions', 'profile', 'meta', 'practice', 'sync', 'all'];
 const TRAIL_LENGTH = 9;
+const DEFAULT_SESSION_STAMP = 1; // as datas da sessão padrão (createSession com `id`): fixas, iguais em todo aparelho e antes de qualquer ação
 
 const isChangeKind = (v: unknown): v is ChangeKind => typeof v === 'string' && CHANGE_KINDS.includes(v);
 
@@ -203,13 +205,16 @@ function importedStamp(
 // Uma tentativa que vem de um arquivo importado ganha as datas como na migração (spec 5.6): o instante dela.
 const importedPractice = (p: Practice): StoredPractice => ({ ...p, updatedAt: stampOf(p.at), deletedAt: null, deletionStamp: stampOf(p.at) });
 
-// As datas de edição e de exclusão de um registro importado como o sync as aceita (stampOf): um arquivo editado à mão pode trazê-las com
-// fração ou negativas. O registro entra com elas assim; o resto dele fica como veio.
-const fileDates = <R extends { updatedAt: number; deletedAt: number | null }>(r: R): R => ({
-  ...r,
-  updatedAt: stampOf(r.updatedAt),
-  deletedAt: r.deletedAt == null ? null : stampOf(r.deletedAt),
-});
+// Até quanto à frente do relógio do aparelho uma data importada pode estar: um relógio um pouco adiantado (no aparelho que exportou, ou no
+// csTimer) passa. Além disso, a data subiria pelo sync o relógio de todos os aparelhos até ela (spec 5.4): uma do ano 3000 os adiantaria
+// em mil anos, e 2^53 - 1 os travaria (o seguinte não é inteiro seguro, e toda gravação depois seria recusada).
+const IMPORT_FUTURE_MS = 24 * 60 * 60 * 1000;
+
+// As datas de um registro importado servem ao sync tal como vieram? Inteiros seguros >= 0 e no máximo `limit` (agora mais um dia). Nada é
+// ajustado: uma data com fração, negativa, no futuro ou além do maior inteiro seguro deixa o registro de fora, contado em refused.
+const isFileDate = (v: unknown, limit: number): boolean => Number.isSafeInteger(v) && (v as number) >= 0 && (v as number) <= limit;
+const fileDatesOk = (r: { createdAt: unknown; updatedAt: unknown; deletedAt: unknown }, limit: number): boolean =>
+  isFileDate(r.createdAt, limit) && isFileDate(r.updatedAt, limit) && (r.deletedAt === null || isFileDate(r.deletedAt, limit));
 
 // O servidor aceitaria o registro como ele vai para a fila? Um registro do app nunca é recusado (spec 6.6): o que não passaria (um id que
 // não serve de chave, um campo fora do tipo, um registro grande demais) não entra pelo import.
@@ -505,8 +510,11 @@ export function createRepository(
       const session = await syncWrite(['sessions'], async (tx, ctx) => {
         const store = tx.objectStore('sessions');
         const all = await store.getAll();
-        const at = ctx.stamp();
         const free = id !== undefined && !all.some((s) => s.id === id);
+        // A sessão padrão (o `id` livre) nasce com as datas em 1, fixas: a mesma "Sessão 1" de todo aparelho novo é idêntica nos dois lados
+        // e perde para qualquer ação de verdade (renomear, reordenar, excluir) feita em qualquer aparelho, sem nunca desfazer uma. A fila a
+        // leva como qualquer gravação.
+        const at = free ? DEFAULT_SESSION_STAMP : ctx.stamp();
         // A numeração parte do maior "Sessão N" entre as sessões ativas do evento.
         const lastNumber = Math.max(0, ...all.filter((s) => s.event === event && s.deletedAt === null).map((s) => T.session.defaultNameNumber(s.name) ?? 0));
         const created: StoredSession = {
@@ -857,18 +865,18 @@ export function createRepository(
         const sessions = tx.objectStore('sessions');
         const solves = tx.objectStore('solves');
         const practice = tx.objectStore('practice');
+        const limit = now() + IMPORT_FUTURE_MS;
 
         // Sessão por id, como o solve (spec 5.5): entra a nova (e conta), substitui a de updatedAt menor (renomear e excluir no outro
-        // aparelho chegam), e o resto fica como está. Em todos os registros, as datas passam por fileDates e o que o sync recusaria fica
-        // de fora (contado em refused).
+        // aparelho chegam), e o resto fica como está. Em todos os registros, o que tem uma data que não serve (fileDatesOk) ou que o sync
+        // recusaria fica de fora, contado em refused.
         const knownSessions = new Map<string, StoredSession>();
         for (const s of await sessions.getAll()) knownSessions.set(s.id, s);
         const sessionWrites: StoredSession[] = [];
-        for (const raw of data.sessions) {
-          const s = fileDates(raw);
+        for (const s of data.sessions) {
           const have = knownSessions.get(s.id);
           const stored: StoredSession = { ...s, deletionStamp: importedStamp(have, s) };
-          if (!syncable('sessions', stored)) {
+          if (!fileDatesOk(s, limit) || !syncable('sessions', stored)) {
             refused++;
             continue;
           }
@@ -885,11 +893,10 @@ export function createRepository(
         const knownSolves = new Map<string, StoredSolve>();
         for (const s of await solves.getAll()) knownSolves.set(s.id, s);
         const incoming: StoredSolve[] = [];
-        for (const raw of data.solves) {
-          const s = fileDates(raw);
+        for (const s of data.solves) {
           const have = knownSolves.get(s.id);
           const stored: StoredSolve = { ...s, deletionStamp: importedStamp(have, s) };
-          if (!isSyncId(s.sessionId) || !syncable('solves', stored)) {
+          if (!fileDatesOk(s, limit) || !isSyncId(s.sessionId) || !syncable('solves', stored)) {
             refused++;
             continue;
           }
@@ -970,7 +977,7 @@ export function createRepository(
         for (const p of practiceFrom(data.practice)) {
           if (knownPractice.has(p.id)) continue;
           const stored = importedPractice(p);
-          if (!syncable('practice', stored)) {
+          if (!isFileDate(p.at, limit) || !syncable('practice', stored)) {
             refused++;
             continue;
           }

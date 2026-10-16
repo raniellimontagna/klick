@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { defaultSeason } from '../../src/core/season';
 import { defaultDeviceProfile, defaultPrefValue, isPrefValue, joinProfile, prefsFromProfile, profileFromPrefs, splitProfile } from '../../src/core/sync/prefs';
-import { changeToPref, fromChange, prefToChange, toChange } from '../../src/core/sync/records';
+import { changeToPref, fromChange, prefToChange, stampOf, toChange } from '../../src/core/sync/records';
 import { checkChange } from '../../src/core/sync/shape';
 import type { Change } from '../../src/core/sync/types';
 import { defaultSettings, type Profile } from '../../src/core/types';
@@ -185,5 +185,21 @@ describe('a temporada na mudança (spec 6.1, passo 1)', () => {
     ['null', null],
   ])('recusa uma temporada %s', (_name, data) => {
     expect(checkChange(season(data))).toEqual(REJECTED);
+  });
+});
+
+// Fix round 1: trazer para o maior inteiro seguro uma data além dele daria ao sync uma data válida que trava o relógio (o seguinte, 2^53, não
+// é inteiro seguro). stampOf não a ajusta: quem chama recusa o registro (o import) ou o deixa fora da fila (checkChange).
+describe('stampOf', () => {
+  it('a fração vira o inteiro de baixo, a negativa e o que não é número viram 0', () => {
+    expect([stampOf(1_500.75), stampOf(-7), stampOf(Number.NaN), stampOf('1'), stampOf(Number.POSITIVE_INFINITY)]).toEqual([1_500, 0, 0, 0, 0]);
+  });
+
+  it('uma data além do maior inteiro seguro não é trazida para dentro: continua inválida para o sync', () => {
+    expect(stampOf(Number.MAX_SAFE_INTEGER)).toBe(Number.MAX_SAFE_INTEGER);
+    for (const big of [2 ** 53, 1e300]) {
+      expect(Number.isSafeInteger(stampOf(big))).toBe(false);
+      expect(checkChange({ store: 'solves', id: 'x', data: {}, updatedAt: 1, deletedAt: stampOf(big), deletionStamp: 1 })).toMatchObject({ ok: false });
+    }
   });
 });

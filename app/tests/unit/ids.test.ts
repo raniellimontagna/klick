@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { newId } from '../../src/data/ids';
+import { defaultSessionId, derivedId, newId } from '../../src/data/ids';
 
 // O contador do newId é estado do módulo: dois testes que usam o mesmo `now` enxergam o contador um do outro. Os testes que
 // olham o contador pedem um `now` que nenhum outro usa (o passo de 10 também deixa livre o now + 1), e assim passam em
@@ -74,5 +74,24 @@ describe('newId', () => {
     const back = newId(now - 5, () => 0);
     expect(back > ids[2]).toBe(true);
     expect(new Set([...ids, back]).size).toBe(4);
+  });
+});
+
+// Valores fixos (fix round 1): o mesmo dado tem de dar o mesmo id em toda versão do app, ou dois aparelhos com versões diferentes deixam
+// de juntar os mesmos registros. Mudar o hash, o separador ou a ordem das partes quebra estes testes, de propósito.
+describe('derivedId', () => {
+  it('dá sempre o mesmo id para as mesmas partes', () => {
+    expect(derivedId('x-', [])).toBe('x-26c8wzs8fs10kz98hrb9of');
+    expect(derivedId('x-', ['a', 1])).toBe('x-046jh2rt30v1lobjext51p');
+    expect(derivedId('cs-', ['333', 1_791_400_000_000, 61_234, "R U R' U'"])).toBe('cs-1ezpmb1j6671yz5y3g2nqv');
+  });
+
+  it('o separador entre as partes conta: juntar ou separar as partes dá outro id', () => {
+    expect(derivedId('x-', ['ab', 'c'])).not.toBe(derivedId('x-', ['a', 'bc']));
+    expect(derivedId('x-', ['a', 1])).not.toBe(derivedId('x-', ['a1']));
+  });
+
+  it('a sessão padrão é default-<evento>', () => {
+    expect(defaultSessionId('333')).toBe('default-333');
   });
 });

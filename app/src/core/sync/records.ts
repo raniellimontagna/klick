@@ -12,12 +12,14 @@ export interface StampedRecord {
 }
 
 // Uma data do sync tirada de uma data do registro. O servidor só aceita inteiros seguros >= 0 (shape.ts), e um registro de antes pode
-// trazer uma data com fração ou negativa (um arquivo editado à mão, um relógio antes de 1970): fica o inteiro de baixo, dentro da faixa;
-// o que nem é número vira 0, a data mais antiga, que não vence a exclusão de outro aparelho. Mora aqui (e não no banco) porque restaurar
-// uma cópia (restore.ts) também a usa, no aparelho e no servidor.
+// trazer uma data com fração ou negativa (um arquivo editado à mão, um relógio antes de 1970): fica o inteiro de baixo, e a negativa vira
+// 0; o que nem é número vira 0, a data mais antiga, que não vence a exclusão de outro aparelho. Uma data além do maior inteiro seguro NÃO
+// é trazida para dentro: 2^53 - 1 é aceito pelo servidor, mas o relógio de quem o recebesse travaria (o seguinte, 2^53, não é inteiro
+// seguro) e toda gravação seguinte seria recusada. Ela continua inválida, e quem chama decide: o import recusa o registro, e checkChange
+// o deixa fora da fila. Mora aqui (e não no banco) porque restaurar uma cópia (restore.ts) também a usa, no aparelho e no servidor.
 export function stampOf(v: unknown): number {
   if (typeof v !== 'number' || !Number.isFinite(v)) return 0;
-  return Math.min(Math.max(Math.floor(v), 0), Number.MAX_SAFE_INTEGER);
+  return Math.max(Math.floor(v), 0);
 }
 
 export function toChange(store: RecordStore, record: StampedRecord): Change {

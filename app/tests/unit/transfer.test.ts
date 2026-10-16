@@ -3,7 +3,8 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-  csTimerToKlick, parseCsTimer, parseKlickJson, readV1, readV1Invalid, toCsTimerJson, toKlickJson, v1ToKlick, V1_KEY,
+  csTimerSessionId, csTimerSolveId, csTimerToKlick, parseCsTimer, parseKlickJson, readV1, readV1Invalid, toCsTimerJson, toKlickJson, v1ToKlick,
+  V1_KEY,
 } from '../../src/data/transfer';
 import type { CsTimerSession, CsTimerSolve } from '../../src/data/transfer';
 import { EVENT_IDS, eventInfo } from '../../src/core/events';
@@ -486,16 +487,17 @@ describe('csTimer', () => {
     it('sessões e solves novos saem completos, com ids próprios e a ordem depois da maior que existe (excluída inclusive)', () => {
       const parsed = parseCsTimer(fixture('cstimer-export.txt'));
       const r = csTimerToKlick(parsed, {}, ctx([mkSession({ order: 3 }), mkSession({ id: 'velha', order: 7, deletedAt: 5 })]));
+      // As datas vêm do dado (fix round 1): o solve no instante dele, a sessão no do primeiro solve dela no arquivo.
       expect(r.sessions).toEqual([
-        { id: expect.any(String), name: 'Main', event: '333', order: 8, createdAt: NOW, updatedAt: NOW, deletedAt: null },
-        { id: expect.any(String), name: '2x2', event: '222', order: 9, createdAt: NOW, updatedAt: NOW, deletedAt: null },
+        { id: expect.any(String), name: 'Main', event: '333', order: 8, createdAt: 1791400000000, updatedAt: 1791400000000, deletedAt: null },
+        { id: expect.any(String), name: '2x2', event: '222', order: 9, createdAt: 1791400300000, updatedAt: 1791400300000, deletedAt: null },
       ]);
       const [main, pocket] = r.sessions;
       expect(r.solves).toEqual([
-        { id: expect.any(String), sessionId: main.id, event: '333', ms: 61234, penalty: null, at: 1791400000000, scramble: "R U R' U'", note: '', createdAt: NOW, updatedAt: NOW, deletedAt: null },
-        { id: expect.any(String), sessionId: main.id, event: '333', ms: 58000, penalty: '+2', at: 1791400100000, scramble: 'F R U', note: 'cruz', createdAt: NOW, updatedAt: NOW, deletedAt: null },
-        { id: expect.any(String), sessionId: main.id, event: '333', ms: 70000, penalty: 'DNF', at: 1791400200000, scramble: 'L D', note: '', createdAt: NOW, updatedAt: NOW, deletedAt: null },
-        { id: expect.any(String), sessionId: pocket.id, event: '222', ms: 8123, penalty: null, at: 1791400300000, scramble: "R U2 R'", note: '', createdAt: NOW, updatedAt: NOW, deletedAt: null },
+        { id: expect.any(String), sessionId: main.id, event: '333', ms: 61234, penalty: null, at: 1791400000000, scramble: "R U R' U'", note: '', createdAt: 1791400000000, updatedAt: 1791400000000, deletedAt: null },
+        { id: expect.any(String), sessionId: main.id, event: '333', ms: 58000, penalty: '+2', at: 1791400100000, scramble: 'F R U', note: 'cruz', createdAt: 1791400100000, updatedAt: 1791400100000, deletedAt: null },
+        { id: expect.any(String), sessionId: main.id, event: '333', ms: 70000, penalty: 'DNF', at: 1791400200000, scramble: 'L D', note: '', createdAt: 1791400200000, updatedAt: 1791400200000, deletedAt: null },
+        { id: expect.any(String), sessionId: pocket.id, event: '222', ms: 8123, penalty: null, at: 1791400300000, scramble: "R U2 R'", note: '', createdAt: 1791400300000, updatedAt: 1791400300000, deletedAt: null },
       ]);
       const ids = [...r.sessions.map((s) => s.id), ...r.solves.map((s) => s.id)];
       expect(new Set(ids).size).toBe(6);
@@ -504,17 +506,30 @@ describe('csTimer', () => {
       expect(r.solves.every((s) => /^cs-[0-9a-z]{22}$/.test(s.id))).toBe(true);
     });
 
-    it('o mesmo arquivo importado em dois aparelhos dá os mesmos ids, mesmo em horas e com sessões diferentes (spec 5.5)', () => {
+    it('o mesmo arquivo importado em dois aparelhos dá os mesmos ids e as mesmas datas, mesmo em horas e com sessões diferentes (spec 5.5)', () => {
       const parsed = parseCsTimer(fixture('cstimer-export.txt'));
       const phone = csTimerToKlick(parsed, { session3: '333' }, ctx());
       const desktop = csTimerToKlick(parsed, { session3: '333' }, { ...ctx([mkSession({ order: 4 })]), now: NOW + 3_600_000 });
       expect(desktop.sessions.map((s) => s.id)).toEqual(phone.sessions.map((s) => s.id));
       expect(desktop.solves.map((s) => s.id)).toEqual(phone.solves.map((s) => s.id));
-      expect(desktop.sessions[0].createdAt).not.toBe(phone.sessions[0].createdAt);
+      // Fix round 1: as datas vêm do dado, não da hora da importação (com a hora, a importação mais nova desfaria a edição do outro).
+      expect(desktop.sessions[0].createdAt).toBe(phone.sessions[0].createdAt);
+      expect(desktop.solves).toEqual(phone.solves);
     });
 
-    // Acrescentado (além do brief): com o id da sessão derivado, importar de novo o mesmo arquivo (com solves novos) acha a sessão daqui.
-    // Recriá-la com a data de agora trocaria a daqui no import ("o mais recente vence") e desfaria um renomear.
+    it('o mesmo arquivo importado em dois instantes dá registros idênticos (com as mesmas sessões que já existem)', () => {
+      const parsed = parseCsTimer(fixture('cstimer-export.txt'));
+      expect(csTimerToKlick(parsed, { session3: '333' }, { ...ctx(), now: NOW + 86_400_000 })).toEqual(csTimerToKlick(parsed, { session3: '333' }, ctx()));
+    });
+
+    it('um instante no futuro (relógio do csTimer adiantado) vira a hora da importação: nenhuma data passa de agora', () => {
+      const r = csTimerToKlick([csSession('session1', [csSolve(1_000, NOW + 50_000), csSolve(2_000, AT)])], {}, ctx());
+      expect(r.sessions[0]).toMatchObject({ createdAt: NOW, updatedAt: NOW });
+      expect(r.solves.map((s) => [s.createdAt, s.updatedAt])).toEqual([[NOW, NOW], [AT, AT]]);
+    });
+
+    // Acrescentado (além do brief): com o id da sessão derivado, importar de novo o mesmo arquivo (com solves novos) acha a sessão daqui, e
+    // o plano não a traz de novo: o registro daqui (renomeado, reordenado) fica como está.
     it('a sessão que já existe (o mesmo arquivo importado antes, depois renomeada) recebe os solves novos e não é recriada', () => {
       const first = csTimerToKlick([csSession('session1', [csSolve(1_000, AT)])], {}, ctx());
       const mine = { ...first.sessions[0], name: 'Renomeada', updatedAt: NOW + 5 };
@@ -522,6 +537,22 @@ describe('csTimer', () => {
       expect(again.sessions).toEqual([]);
       expect(again.solves.map((s) => [s.sessionId, s.ms])).toEqual([[mine.id, 2_000]]);
       expect(again.duplicates).toBe(1);
+    });
+
+    // Valores fixos (fix round 1): o mesmo arquivo tem de dar os mesmos ids em toda versão do app, ou dois aparelhos com versões diferentes
+    // duplicam em vez de juntar. Mudar o hash, o separador, as partes ou o que o leitor do arquivo devolve quebra estes testes, de propósito.
+    it('os ids derivados de um arquivo fixo são sempre os mesmos', () => {
+      expect(csTimerSolveId('333', { at: 1_791_400_000_000, ms: 61_234, scramble: "R U R' U'" })).toBe('cs-1ezpmb1j6671yz5y3g2nqv');
+      expect(csTimerSessionId('222', csSession('session2', [csSolve(8_123, 1_791_400_300_000)], { name: '2x2', event: '222' }))).toBe('cs-s-230inmyrr3a0ez0eggnlgp');
+      const r = csTimerToKlick(parseCsTimer(fixture('cstimer-export.txt')), { session3: '333' }, ctx());
+      expect(r.sessions.map((s) => s.id)).toEqual(['cs-s-2auduauhwqw0pgt9n0gj4j', 'cs-s-230inmyrr3a0ez0eggnlgp', 'cs-s-1rug29hjhpm2evclivjk9t']);
+      expect(r.solves.map((s) => s.id)).toEqual([
+        'cs-1ezpmb1j6671yz5y3g2nqv',
+        'cs-0mlsyg19b870dizd6dve4v',
+        'cs-25xl5rb82ou0bnoxzw5fe1',
+        'cs-13u4t384yhg0cg935lmpi3',
+        'cs-0m5ojgbce3c0rzsqx3dyzc',
+      ]);
     });
 
     it('sem sessões que existam, a ordem parte de 0', () => {

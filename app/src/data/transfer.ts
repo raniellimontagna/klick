@@ -255,13 +255,17 @@ const timeKey = (ms: number, at: number): string => `${ms}@${Math.floor(at / 100
 // duplicar. O solve é `cs-` mais um hash do evento, do instante, do tempo e do embaralhamento; a sessão, `cs-s-` mais um hash do
 // evento, do nome e do instante do primeiro solve dela no arquivo.
 export const csTimerSolveId = (event: EventId, s: Pick<CsTimerSolve, 'at' | 'ms' | 'scramble'>): string => derivedId('cs-', [event, s.at, s.ms, s.scramble]);
-const csTimerSessionId = (event: EventId, p: CsTimerSession): string => derivedId('cs-s-', [event, p.name, p.solves[0]?.at ?? 0]);
+export const csTimerSessionId = (event: EventId, p: Pick<CsTimerSession, 'name' | 'solves'>): string =>
+  derivedId('cs-s-', [event, p.name, p.solves[0]?.at ?? 0]);
 
 // Cada sessão do arquivo vira uma sessão (nova, ou a mesma que outro aparelho criou com o mesmo arquivo). Fica de fora a que não tem
 // evento (nem do tipo de embaralhamento, nem do mapeamento) e a que só traz solves que já existem; os que já existem (inclusive os
 // excluídos, como vieram em ctx) ou se repetem no próprio arquivo contam em `duplicates`. A sessão que já existe aqui (o mesmo arquivo
-// importado antes, mesmo na lixeira) recebe os solves novos e não é recriada: com a data de agora, ela trocaria a daqui no import e
-// desfaria um renomear.
+// importado antes, mesmo na lixeira) recebe os solves novos e não é recriada: o registro daqui (renomeado, reordenado) fica como está.
+//
+// As datas também vêm do dado, não da hora da importação: o solve nasce no instante dele e a sessão no do primeiro solve dela no arquivo
+// (nos dois, no máximo agora: um relógio adiantado no csTimer não dá data no futuro). O mesmo arquivo dá registros idênticos em qualquer
+// aparelho, e uma edição ou exclusão feita depois num deles vence a importação feita mais tarde no outro.
 export function csTimerToKlick(
   parsed: CsTimerSession[],
   mapping: Record<string, EventId | undefined>,
@@ -292,12 +296,14 @@ export function csTimerToKlick(
     const sessionId = csTimerSessionId(event, p);
     if (!known.has(sessionId)) {
       known.add(sessionId);
-      result.sessions.push({ id: sessionId, name: p.name, event, order: order++, createdAt: ctx.now, updatedAt: ctx.now, deletedAt: null });
+      const born = Math.min(p.solves[0].at, ctx.now); // fresh não está vazio, então o arquivo tem o primeiro solve
+      result.sessions.push({ id: sessionId, name: p.name, event, order: order++, createdAt: born, updatedAt: born, deletedAt: null });
     }
     for (const s of fresh) {
+      const born = Math.min(s.at, ctx.now);
       result.solves.push({
         id: csTimerSolveId(event, s), sessionId, event, ms: s.ms, penalty: s.penalty, at: s.at, scramble: s.scramble, note: s.note,
-        createdAt: ctx.now, updatedAt: ctx.now, deletedAt: null,
+        createdAt: born, updatedAt: born, deletedAt: null,
       });
     }
   }

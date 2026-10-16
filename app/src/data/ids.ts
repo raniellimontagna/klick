@@ -44,8 +44,11 @@ export function newId(now: number = Date.now(), rand: () => number = Math.random
 
 // --- Ids derivados (spec 5.5): o mesmo dado dá o mesmo id em qualquer aparelho ---
 
-// cyrb53 (domínio público, de bryc): um hash de 53 bits, rápido e sem dependência. Duas sementes dão 106 bits, longe de colidir num
-// histórico de dezenas de milhares de solves.
+// cyrb53 (domínio público, de bryc): um hash de 53 bits, rápido, sem dependência e não criptográfico. O id junta duas rodadas dele com
+// sementes diferentes (2 × 53 bits, 22 caracteres), mas elas não somam 106 bits independentes: o algoritmo é o mesmo, cada rodada parte de
+// um estado de só 64 bits (duas faixas de 32, que só se misturam no fim) e a semente muda apenas o ponto de partida. Contra colisão por
+// acaso, conte com pelo menos os 53 bits de uma rodada: com 100 mil ids, a chance de dois baterem fica abaixo de 1 em um milhão. Ninguém
+// escolhe os dados para colidir de propósito (são os solves da própria pessoa).
 function cyrb53(text: string, seed: number): number {
   let h1 = 0xdeadbeef ^ seed;
   let h2 = 0x41c6ce57 ^ seed;

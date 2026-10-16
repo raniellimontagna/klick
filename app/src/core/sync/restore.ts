@@ -21,8 +21,9 @@ export function restoreChanges(current: readonly Change[], copy: RestoreCopy, pr
     for (const rec of list) {
       const r = rec as { id: string; deletedAt?: number | null };
       inCopy.add(syncKey(store, r.id));
-      // A marca de exclusão da cópia passa por stampOf: um registro de antes pode trazê-la com fração ou negativa.
-      const deletedAt = r.deletedAt == null ? null : stampOf(r.deletedAt);
+      // A marca de exclusão da cópia passa por stampOf (um registro de antes pode trazê-la com fração ou negativa) e nunca fica depois da
+      // própria restauração: uma marca no futuro subiria, pelo sync, o relógio de todos os aparelhos até ela.
+      const deletedAt = r.deletedAt == null ? null : Math.min(stampOf(r.deletedAt), stamp);
       const stamped = { ...rec, id: r.id, updatedAt: stamp, deletedAt, deletionStamp: stamp } as StampedRecord;
       out.push(toChange(store, stamped));
     }
