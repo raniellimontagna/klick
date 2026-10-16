@@ -49,9 +49,13 @@ export function authDeps(): Deps & { mailer: ReturnType<typeof fakeMailer> } {
   return { now: () => T0, mailer, verifyCaptcha: captchaOk, resolveUser: (request, e, ctx) => sessionUser(request, e, ctx, mailer) };
 }
 
-// Pede o código, entra com ele e devolve o cookie de sessão, pronto para o cabeçalho Cookie.
+// Pede o código, entra com ele e devolve o cookie de sessão, pronto para o cabeçalho Cookie. Cada login vem de um IP próprio: os testes
+// não dividem o limite de pedidos por IP por hora.
+let signIns = 0;
 export async function signIn(email: string, deps: ReturnType<typeof authDeps>): Promise<string> {
-  const send = await call('/api/auth/email-otp/send-verification-otp', postJson({ email, type: 'sign-in' }, { 'x-turnstile-token': 'ok' }), { deps });
+  const ip = `198.18.${(signIns >> 8) & 255}.${signIns++ & 255}`;
+  const headers = { 'x-turnstile-token': 'ok', 'cf-connecting-ip': ip };
+  const send = await call('/api/auth/email-otp/send-verification-otp', postJson({ email, type: 'sign-in' }, headers), { deps });
   if (send.status !== 200) throw new Error(`pedir o código deu ${send.status}`);
   const code = deps.mailer.sent.at(-1)!.code;
   const res = await call('/api/auth/sign-in/email-otp', postJson({ email, otp: code }), { deps });

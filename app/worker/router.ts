@@ -42,7 +42,8 @@ const AUTH_ROUTES = new Map<string, string>([
 export function defaultDeps(env: Env): Deps {
   const e2e = env.E2E_MAILBOX === 'true';
   const mailer = e2e ? e2eMailer : env.RESEND_API_KEY ? resendMailer(env.RESEND_API_KEY, env.MAIL_FROM) : missingMailer;
-  const verifyCaptcha: VerifyCaptcha = e2e ? async (token) => token === E2E_TOKEN : turnstileVerifier(env.TURNSTILE_SECRET);
+  const host = new URL(env.APP_ORIGIN).hostname; // um token do Turnstile só vale no hostname deste ambiente
+  const verifyCaptcha: VerifyCaptcha = e2e ? async (token) => token === E2E_TOKEN : turnstileVerifier(env.TURNSTILE_SECRET, host);
   return { now: () => Date.now(), mailer, verifyCaptcha, resolveUser: (request, e, ctx) => sessionUser(request, e, ctx, mailer) };
 }
 
