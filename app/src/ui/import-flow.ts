@@ -18,6 +18,7 @@ export function summaryLines(s: ImportSummary): string[] {
   if (s.missed > 0) lines.push(T.importDialog.missed(s.missed));
   if (s.skippedSessions > 0) lines.push(T.importDialog.skippedSessions(s.skippedSessions));
   if (s.unreadable > 0) lines.push(T.importDialog.unreadable(s.unreadable));
+  if (s.refused) lines.push(T.importDialog.refused(s.refused));
   if (s.repeated) lines.push(T.importDialog.repeated(s.repeated));
   if (s.offerNotMarked) lines.push(T.importDialog.offerNotMarked);
   if (s.settingsApplied) lines.push(T.importDialog.settingsApplied);

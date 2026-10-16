@@ -7,19 +7,22 @@
 // Invariante: solve ativo => sessão ativa. Um solve ativo sob uma sessão na lixeira continuaria entrando nas contas por evento,
 // mas nenhuma lista de sessões mostraria a sessão dele, e o purge a apagaria de vez. Os três caminhos que gravam um solve ativo
 // (restoreSolve, addSolve e importAll) devolvem o registro da sessão na mesma transação, e só ele: os outros solves excluídos da
-// sessão continuam na lixeira. replaceAll grava o arquivo como veio.
+// sessão continuam na lixeira. replaceAll grava a cópia como veio.
 //
 // Leitura: o que sai do IndexedDB já é cópia. Os padrões (perfil e meta) são montados novos a cada chamada, nunca compartilhados.
 import type { IDBPDatabase, IDBPObjectStore, IDBPTransaction, StoreNames } from 'idb';
 import { defaultSeason, finishUnlocked, moreAdvanced, seasonFrom } from '../core/season';
 import { canonicalJson } from '../core/sync/merge';
-import { defaultPrefValue, joinProfile, prefsFromProfile, profileFromPrefs, splitProfile } from '../core/sync/prefs';
-import { syncKey, type DeviceProfile, type PrefItem, type SyncState, type SyncStore } from '../core/sync/types';
-import { practiceFrom } from '../core/trail/validate';
+import { defaultPrefValue, isPrefValue, joinProfile, prefsFromProfile, profileFromPrefs, splitProfile } from '../core/sync/prefs';
+import { changeToPref, fromChange, prefToChange, stampOf, toChange, type RecordStore, type StampedRecord } from '../core/sync/records';
+import { restoreChanges } from '../core/sync/restore';
+import { checkChange, isSyncId } from '../core/sync/shape';
+import { syncKey, type Change, type DeviceProfile, type PrefItem, type SyncState, type SyncStore } from '../core/sync/types';
+import { algChoiceFrom, lessonAtFrom, practiceFrom, trainOffFrom } from '../core/trail/validate';
 import { defaultSettings } from '../core/types';
 import type { EventId, KlickExport, Meta, Penalty, Practice, Profile, ProfilePatch, SeasonRecord, SeasonState, Session, Solve } from '../core/types';
 import { T } from '../strings';
-import { stampOf, type BackupRecord, type KlickDB, type StoredPractice, type StoredSession, type StoredSolve } from './db';
+import type { BackupRecord, KlickDB, StoredPractice, StoredSession, StoredSolve } from './db';
 import { newId } from './ids';
 
 export type ChangeKind = 'solves' | 'sessions' | 'profile' | 'meta' | 'practice' | 'sync' | 'all';
@@ -56,11 +59,15 @@ export interface ImportReport {
   solvesAdded: number;
   solvesUpdated: number;
   skipped: number;
+  // Registros do arquivo (sessões, solves e tentativas) que o sync recusaria e ficaram de fora (spec 6.6): um id que não serve de chave, um
+  // solve cuja sessão não pode existir, um registro grande demais. Só aparece quando há algum.
+  refused?: number;
 }
 
 export interface Repository {
   listSessions(o?: { includeDeleted?: boolean }): Promise<Session[]>; // ordenadas por order
-  createSession(o: { event: EventId; name?: string }): Promise<Session>; // nome padrão "Sessão N" por evento
+  // Nome padrão "Sessão N" por evento. `id` é o da sessão padrão (defaultSessionId): vale se ainda não existe registro com ele; senão, um novo.
+  createSession(o: { event: EventId; name?: string; id?: string }): Promise<Session>;
   renameSession(id: string, name: string): Promise<void>; // ignora nome vazio
   deleteSession(id: string): Promise<void>; // marca a sessão e os solves dela
   restoreSession(id: string): Promise<void>; // restaura a sessão e os solves excluídos junto
@@ -91,8 +98,11 @@ export interface Repository {
   getBackup(id: string): Promise<BackupRecord | undefined>;
   deleteBackup(id: string): Promise<void>;
   exportAll(o?: { includeDeleted?: boolean }): Promise<KlickExport>; // includeDeleted padrão true
-  importAll(data: KlickExport): Promise<ImportReport>; // junta por id; fica o de updatedAt maior. Sessão da lixeira que recebe solve ativo do arquivo volta (sem entrar no relatório; avisa sessions). O perfil do arquivo vale por cima do daqui (ver importAll). O treino junta pelo id, sem duplicar (fora do relatório)
-  replaceAll(data: KlickExport): Promise<void>; // limpa solves, sessões e perfil e grava os do arquivo; a temporada fica a mais adiantada (a daqui ou a do arquivo). O treino troca junto, se o arquivo o tiver
+  importAll(data: KlickExport): Promise<ImportReport>; // junta por id; fica o de updatedAt maior, em solves e sessões (spec 5.5). Sessão da lixeira que recebe solve ativo do arquivo volta (sem entrar no relatório; avisa sessions). O perfil do arquivo vale por cima do daqui (ver importAll). O treino junta pelo id, sem duplicar (fora do relatório). O que o sync recusaria fica de fora, contado em `refused`
+  // Restaura a cópia como gravação (spec 5.5): cada registro dela é gravado de novo, com a data do relógio; o que existe aqui e não está nela
+  // vai para a lixeira; tudo entra na fila de saída. A temporada fica a mais adiantada (a daqui ou a da cópia). O treino troca junto, se a
+  // cópia o tiver.
+  replaceAll(data: KlickExport): Promise<void>;
   onChange(fn: ChangeListener): () => void; // mudanças locais e de outras abas, com a origem (e, nos solves, os ids que mudaram)
   getSolves(ids: readonly string[]): Promise<(Solve | undefined)[]>; // vários solves por id numa leitura; o que não existe vem undefined
   // O treino (spec do sub-projeto 4, seção 9.1). Cada escrita avisa 'practice'. A tela só usa update e delete na correção da última.
@@ -178,7 +188,7 @@ const bareSolve = ({ deletionStamp: _d, ...solve }: StoredSolve): Solve => solve
 const bareSession = ({ deletionStamp: _d, ...session }: StoredSession): Session => session;
 const barePractice = ({ updatedAt: _u, deletedAt: _x, deletionStamp: _d, ...practice }: StoredPractice): Practice => practice;
 
-// O deletionStamp de um solve ou sessão que vem de um arquivo (importar, restaurar). Num registro novo, como na migração (spec 5.6):
+// O deletionStamp de um solve ou sessão que vem de um arquivo importado. Num registro novo, como na migração (spec 5.6):
 // a marca de exclusão ou a criação. Num que já existe, o daqui quando o estado de exclusão não muda; quando muda, a data do arquivo
 // (excluir e restaurar mexem em updatedAt), para a exclusão ou a volta que o arquivo traz também valer no sync. A data do arquivo passa
 // por stampOf: o servidor só aceita inteiros seguros >= 0.
@@ -190,8 +200,20 @@ function importedStamp(
   return local.deletedAt === incoming.deletedAt ? local.deletionStamp : stampOf(incoming.updatedAt);
 }
 
-// Uma tentativa que vem de um arquivo (importar, restaurar) ganha as datas como na migração (spec 5.6): o instante dela.
+// Uma tentativa que vem de um arquivo importado ganha as datas como na migração (spec 5.6): o instante dela.
 const importedPractice = (p: Practice): StoredPractice => ({ ...p, updatedAt: stampOf(p.at), deletedAt: null, deletionStamp: stampOf(p.at) });
+
+// As datas de edição e de exclusão de um registro importado como o sync as aceita (stampOf): um arquivo editado à mão pode trazê-las com
+// fração ou negativas. O registro entra com elas assim; o resto dele fica como veio.
+const fileDates = <R extends { updatedAt: number; deletedAt: number | null }>(r: R): R => ({
+  ...r,
+  updatedAt: stampOf(r.updatedAt),
+  deletedAt: r.deletedAt == null ? null : stampOf(r.deletedAt),
+});
+
+// O servidor aceitaria o registro como ele vai para a fila? Um registro do app nunca é recusado (spec 6.6): o que não passaria (um id que
+// não serve de chave, um campo fora do tipo, um registro grande demais) não entra pelo import.
+const syncable = (store: RecordStore, record: StampedRecord): boolean => checkChange(toChange(store, record)).ok;
 
 // O estado do sync antes do primeiro login (spec 5.4).
 export const defaultSyncState = (): SyncState => ({
@@ -257,9 +279,9 @@ async function reviveSession(sessions: SessionStore, sessionId: unknown, ctx: Sy
 
 // Grava o perfil inteiro `next` por cima de `base` (os dois montados por composeProfile): os ajustes do aparelho na store profile e,
 // da conta, só as chaves que mudaram, com a data do relógio. Uma chave que some (uma aula concluída, uma escolha que volta ao padrão)
-// grava o valor padrão: a mudança precisa viajar. `all` grava todas as chaves da conta (restaurar uma cópia, spec 5.5). O perfil do
-// aparelho é gravado sempre que muda ou ainda não existe: um perfil salvo sai no export, como antes da divisão.
-async function writeProfile(tx: WriteTx, base: Profile, next: Profile, ctx: SyncCtx, all = false): Promise<void> {
+// grava o valor padrão: a mudança precisa viajar. O perfil do aparelho é gravado sempre que muda ou ainda não existe: um perfil salvo sai
+// no export, como antes da divisão. Restaurar uma cópia grava todas as chaves por outro caminho (restoreChanges, em replaceAll).
+async function writeProfile(tx: WriteTx, base: Profile, next: Profile, ctx: SyncCtx): Promise<void> {
   const before = splitProfile(base);
   const after = splitProfile(next);
   const profile = tx.objectStore('profile');
@@ -269,7 +291,7 @@ async function writeProfile(tx: WriteTx, base: Profile, next: Profile, ctx: Sync
   const prefs = tx.objectStore('prefs');
   for (const key of new Set([...old.keys(), ...now.keys()])) {
     const value = now.has(key) ? now.get(key) : defaultPrefValue(key);
-    if (!all && canonicalJson(value) === canonicalJson(old.has(key) ? old.get(key) : defaultPrefValue(key))) continue;
+    if (canonicalJson(value) === canonicalJson(old.has(key) ? old.get(key) : defaultPrefValue(key))) continue;
     await prefs.put({ key, value, updatedAt: ctx.stamp() });
     await ctx.track('prefs', key);
   }
@@ -479,15 +501,16 @@ export function createRepository(
       return all.filter((s) => includeDeleted || s.deletedAt === null).map(bareSession).sort(bySessionOrder);
     },
 
-    async createSession({ event, name }) {
+    async createSession({ event, name, id }) {
       const session = await syncWrite(['sessions'], async (tx, ctx) => {
         const store = tx.objectStore('sessions');
         const all = await store.getAll();
         const at = ctx.stamp();
+        const free = id !== undefined && !all.some((s) => s.id === id);
         // A numeração parte do maior "Sessão N" entre as sessões ativas do evento.
         const lastNumber = Math.max(0, ...all.filter((s) => s.event === event && s.deletedAt === null).map((s) => T.session.defaultNameNumber(s.name) ?? 0));
         const created: StoredSession = {
-          id: newId(at),
+          id: free ? id : newId(at),
           name: name?.trim() || T.session.defaultName(lastNumber + 1),
           event,
           order: Math.max(-1, ...all.map((s) => s.order)) + 1,
@@ -829,36 +852,53 @@ export function createRepository(
 
     async importAll(data) {
       const report: ImportReport = { sessionsAdded: 0, solvesAdded: 0, solvesUpdated: 0, skipped: 0 };
+      let refused = 0;
       const outcome = await syncWrite(['sessions', 'solves', 'profile', 'prefs', 'practice'], async (tx, ctx) => {
         const sessions = tx.objectStore('sessions');
         const solves = tx.objectStore('solves');
         const practice = tx.objectStore('practice');
 
-        // Sessão que já existe fica como está (e não conta); só entram as novas.
-        const knownSessions = new Set(await sessions.getAllKeys());
-        const newSessions: Session[] = [];
-        for (const s of data.sessions) {
-          if (knownSessions.has(s.id)) continue;
-          knownSessions.add(s.id);
-          newSessions.push(s);
+        // Sessão por id, como o solve (spec 5.5): entra a nova (e conta), substitui a de updatedAt menor (renomear e excluir no outro
+        // aparelho chegam), e o resto fica como está. Em todos os registros, as datas passam por fileDates e o que o sync recusaria fica
+        // de fora (contado em refused).
+        const knownSessions = new Map<string, StoredSession>();
+        for (const s of await sessions.getAll()) knownSessions.set(s.id, s);
+        const sessionWrites: StoredSession[] = [];
+        for (const raw of data.sessions) {
+          const s = fileDates(raw);
+          const have = knownSessions.get(s.id);
+          const stored: StoredSession = { ...s, deletionStamp: importedStamp(have, s) };
+          if (!syncable('sessions', stored)) {
+            refused++;
+            continue;
+          }
+          if (have !== undefined && s.updatedAt <= have.updatedAt) continue;
+          if (have === undefined) report.sessionsAdded++;
+          knownSessions.set(s.id, stored);
+          sessionWrites.push(stored);
         }
-        report.sessionsAdded = newSessions.length;
-        await each(newSessions, (s) => sessions.put({ ...s, deletionStamp: importedStamp(undefined, s) }));
-        await each(newSessions, (s) => ctx.track('sessions', s.id));
+        await each(sessionWrites, (s) => sessions.put(s));
+        await each(sessionWrites, (s) => ctx.track('sessions', s.id));
 
-        // Solve por id: entra o que não existe, substitui o de updatedAt menor, e o resto é pulado.
+        // Solve por id: entra o que não existe, substitui o de updatedAt menor, e o resto é pulado. Um solve cuja sessão não pode existir
+        // (o sessionId não serve de id) fica de fora também.
         const knownSolves = new Map<string, StoredSolve>();
         for (const s of await solves.getAll()) knownSolves.set(s.id, s);
         const incoming: StoredSolve[] = [];
-        for (const s of data.solves) {
+        for (const raw of data.solves) {
+          const s = fileDates(raw);
           const have = knownSolves.get(s.id);
+          const stored: StoredSolve = { ...s, deletionStamp: importedStamp(have, s) };
+          if (!isSyncId(s.sessionId) || !syncable('solves', stored)) {
+            refused++;
+            continue;
+          }
           if (have === undefined) report.solvesAdded++;
           else if (s.updatedAt > have.updatedAt) report.solvesUpdated++;
           else {
             report.skipped++;
             continue;
           }
-          const stored: StoredSolve = { ...s, deletionStamp: importedStamp(have, s) };
           knownSolves.set(s.id, stored);
           incoming.push(stored);
         }
@@ -866,9 +906,16 @@ export function createRepository(
         await each(incoming, (s) => ctx.track('solves', s.id));
 
         // Invariante: solve ativo que chegou do arquivo não pode ficar sob uma sessão na lixeira (a daqui, por exemplo, que foi
-        // excluída): ela volta, só o registro dela. Isso não entra no relatório.
+        // excluída): ela volta, só o registro dela. Do mesmo jeito, a exclusão de uma sessão que chegou do arquivo não pode deixar na
+        // lixeira uma sessão com solve ativo daqui que o arquivo não traz (gravado aqui depois do export): ela volta, e o solve não some
+        // da tela. Isso não entra no relatório.
+        const revive = new Set(incoming.filter((s) => s.deletedAt === null).map((s) => s.sessionId));
+        for (const s of sessionWrites) {
+          if (s.deletedAt === null || revive.has(s.id)) continue;
+          if ((await solves.index('bySession').getAll(keyRange(s.id))).some((x) => x.deletedAt === null)) revive.add(s.id);
+        }
         let sessionBack = false;
-        for (const id of new Set(incoming.filter((s) => s.deletedAt === null).map((s) => s.sessionId))) {
+        for (const id of revive) {
           if (await reviveSession(sessions, id, ctx)) sessionBack = true;
         }
 
@@ -889,8 +936,15 @@ export function createRepository(
           // A temporada nunca regride (spec 5.6): fica a mais adiantada. O acabamento do arquivo só vale se estiver liberado por ela.
           const season = moreAdvanced(base.season, seasonFrom(theirs.season));
           const finish = theirs.finish !== undefined && finishUnlocked(theirs.finish, season.past.length) ? theirs.finish : base.finish;
+          // Um valor da conta que o sync não aceitaria (uma escolha além dos algoritmos do caso, um caso que esta versão não conhece, um
+          // passo negativo, uma meta zero) fica de fora antes de juntar: senão writeProfile gravaria o padrão por cima do valor válido
+          // daqui, e o padrão subiria para a conta.
+          const accountSetting = <K extends 'inspection' | 'dailyGoal'>(key: K) =>
+            isPrefValue(`settings.${key}`, theirs.settings?.[key]) ? theirs.settings?.[key] : undefined;
+          const settings = theirs.settings && { ...theirs.settings, inspection: accountSetting('inspection'), dailyGoal: accountSetting('dailyGoal') };
           const merged = mergeProfile(base, {
             ...theirs,
+            settings,
             season,
             finish,
             trail: theirs.trail ? base.trail.map((done, i) => done || theirs.trail?.[i] === true) : base.trail,
@@ -898,9 +952,9 @@ export function createRepository(
             currentSessionId,
             // Treino: a escolha de algoritmo e o passo das aulas juntam caso a caso (vale o do arquivo); os casos fora do sorteio são os do
             // arquivo, quando ele os traz.
-            algChoice: { ...base.algChoice, ...theirs.algChoice },
-            lessonAt: { ...base.lessonAt, ...theirs.lessonAt },
-            trainOff: theirs.trainOff ?? base.trainOff,
+            algChoice: { ...base.algChoice, ...algChoiceFrom(theirs.algChoice) },
+            lessonAt: { ...base.lessonAt, ...lessonAtFrom(theirs.lessonAt) },
+            trainOff: trainOffFrom(theirs.trainOff) ?? base.trainOff,
           });
           // Mesma ordem de chaves nos dois (mergeProfile monta ambos), então o JSON compara o conteúdo.
           if (!stored || JSON.stringify(merged) !== JSON.stringify(base)) {
@@ -912,48 +966,79 @@ export function createRepository(
         // O treino junta pelo id (spec do sub-projeto 4, seção 9.3): entra o que não existe; o que já existe (até uma marca de exclusão)
         // fica como está.
         const knownPractice = new Set(await practice.getAllKeys());
-        const newPractice = practiceFrom(data.practice).filter((p) => !knownPractice.has(p.id));
-        await each(newPractice, (p) => practice.put(importedPractice(p)));
+        const newPractice: StoredPractice[] = [];
+        for (const p of practiceFrom(data.practice)) {
+          if (knownPractice.has(p.id)) continue;
+          const stored = importedPractice(p);
+          if (!syncable('practice', stored)) {
+            refused++;
+            continue;
+          }
+          newPractice.push(stored);
+        }
+        await each(newPractice, (p) => practice.put(p));
         await each(newPractice, (p) => ctx.track('practice', p.id));
-        return { profileSaved, sessionBack, practiceAdded: newPractice.length };
+        return { profileSaved, sessionBack, practiceAdded: newPractice.length, sessionsWritten: sessionWrites.length };
       });
-      const changed = report.sessionsAdded + report.solvesAdded + report.solvesUpdated + outcome.practiceAdded > 0;
+      if (refused > 0) report.refused = refused;
+      const changed = outcome.sessionsWritten + report.solvesAdded + report.solvesUpdated + outcome.practiceAdded > 0;
       if (outcome.profileSaved || changed) announce('all');
       if (outcome.sessionBack) announce('sessions');
       return report;
     },
 
     async replaceAll(data) {
-      const { sessions, solves, profile } = data;
-      // Uma cópia de antes do treino (sem `practice`, ou com algo que não é lista) não apaga o treino daqui; com a lista, mesmo vazia, o
+      const { profile } = data;
+      // Uma cópia de antes do treino (sem `practice`, ou com algo que não é lista) não mexe no treino daqui; com a lista, mesmo vazia, o
       // treino é o dela.
       const practice = Array.isArray(data.practice) ? practiceFrom(data.practice) : null;
       await syncWrite(['sessions', 'solves', 'profile', 'prefs', 'practice'], async (tx, ctx) => {
-        const sessionStore = tx.objectStore('sessions');
-        const solveStore = tx.objectStore('solves');
-        const profileStore = tx.objectStore('profile');
-        const prefsStore = tx.objectStore('prefs');
-        const practiceStore = tx.objectStore('practice');
-        // O perfil daqui é lido antes de limpar: a restauração fica com a temporada mais adiantada (spec 5.6), mesmo que a cópia não
-        // tenha perfil, e uma cópia sem perfil também não tira o acabamento que a pessoa escolheu.
-        const local = await storedProfile(tx);
-        const mine = local.season;
-        await Promise.all([sessionStore.clear(), solveStore.clear(), profileStore.clear(), prefsStore.clear(), ...(practice ? [practiceStore.clear()] : [])]);
-        await each(sessions, (s) => sessionStore.put({ ...s, deletionStamp: importedStamp(undefined, s) }));
-        await each(solves, (s) => solveStore.put({ ...s, deletionStamp: importedStamp(undefined, s) }));
-        if (practice) await each(practice, (p) => practiceStore.put(importedPractice(p)));
+        const [sessions, solves, practices, device, items] = await Promise.all([
+          tx.objectStore('sessions').getAll(),
+          tx.objectStore('solves').getAll(),
+          tx.objectStore('practice').getAll(),
+          tx.objectStore('profile').get('current'),
+          tx.objectStore('prefs').getAll(),
+        ]);
+        // A restauração fica com a temporada mais adiantada (spec 5.6), mesmo que a cópia não tenha perfil, e uma cópia sem perfil também
+        // não tira o acabamento que a pessoa escolheu.
+        const local = composeProfile(device, items);
         // O que é do treino e a cópia não traz (uma cópia de antes do treino) fica o daqui.
         const kept: ProfilePatch = { lessonAt: local.lessonAt, algChoice: local.algChoice, trainOff: local.trainOff };
         const restored = profile ? mergeProfile(defaultProfile(), { ...kept, ...profile }) : null;
-        const season = moreAdvanced(mine, seasonFrom(profile?.season));
-        // Sem perfil na cópia e sem temporada a guardar, o perfil fica vazio (os padrões), como sempre foi. Sem perfil na cópia e com
-        // temporada a guardar, o perfil é o padrão com o acabamento daqui; com perfil, vale o acabamento da cópia. Nos dois, só se
-        // estiver liberado pelas temporadas fechadas.
-        if (restored || season.past.length > 0) {
+        const season = moreAdvanced(local.season, seasonFrom(profile?.season));
+        // Sem perfil na cópia e sem temporada a guardar, o perfil volta aos padrões, como sempre foi. Sem perfil na cópia e com temporada a
+        // guardar, o perfil é o padrão com o acabamento daqui; com perfil, vale o acabamento da cópia. Nos dois, só se estiver liberado
+        // pelas temporadas fechadas.
+        const keepsProfile = restored !== null || season.past.length > 0;
+        let target = defaultProfile();
+        if (keepsProfile) {
           const base = restored ?? mergeProfile(defaultProfile(), { ...kept, finish: local.finish });
-          const finish = finishUnlocked(base.finish, season.past.length) ? base.finish : 'fosco';
-          await writeProfile(tx, defaultProfile(), { ...base, season, finish }, ctx);
+          target = { ...base, season, finish: finishUnlocked(base.finish, season.past.length) ? base.finish : 'fosco' };
         }
+        const current: Change[] = [
+          ...sessions.map((s) => toChange('sessions', s)),
+          ...solves.map((s) => toChange('solves', s)),
+          ...practices.map((p) => toChange('practice', p)),
+          ...items.map(prefToChange),
+        ];
+        const copy = { sessions: data.sessions, solves: data.solves, practice };
+        const split = splitProfile(target);
+        const changes = restoreChanges(current, copy, prefsFromProfile(split.account, { withDefaults: true }), ctx.stamp());
+        await each(changes, (c) => {
+          if (c.store === 'prefs') return tx.objectStore('prefs').put(changeToPref(c));
+          if (c.store === 'solves') return tx.objectStore('solves').put(fromChange<StoredSolve>(c));
+          if (c.store === 'sessions') return tx.objectStore('sessions').put(fromChange<StoredSession>(c));
+          return tx.objectStore('practice').put(fromChange<StoredPractice>(c));
+        });
+        // Tudo o que a restauração grava entra na fila (spec 5.5), menos o que o servidor recusaria (spec 6.6): um registro da cópia que já
+        // estava torto aqui (um id que não serve de chave, um solve sem sessão) volta à tela como antes, mas não sobe.
+        await each(
+          changes.filter((c) => checkChange(c).ok),
+          (c) => ctx.track(c.store, c.id),
+        );
+        if (keepsProfile) await tx.objectStore('profile').put(split.device, 'current');
+        else await tx.objectStore('profile').delete('current');
       });
       announce('all');
     },

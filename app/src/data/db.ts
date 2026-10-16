@@ -2,6 +2,7 @@
 import { openDB, type DBSchema, type IDBPDatabase, type IDBPTransaction, type StoreNames } from 'idb';
 import { seasonFrom } from '../core/season';
 import { joinProfile, prefsFromProfile, profileFromPrefs, splitProfile } from '../core/sync/prefs';
+import { stampOf } from '../core/sync/records';
 import type { DeviceProfile, OutboxEntry, PrefItem, SyncState } from '../core/sync/types';
 import type { EventId, KlickExport, Meta, Practice, Profile, Session, Solve } from '../core/types';
 import { newId } from './ids';
@@ -14,14 +15,6 @@ export const DB_VERSION = 3;
 export type StoredSolve = Solve & { deletionStamp: number };
 export type StoredSession = Session & { deletionStamp: number };
 export type StoredPractice = Practice & { updatedAt: number; deletedAt: number | null; deletionStamp: number };
-
-// Uma data do sync tirada de uma data do registro. O servidor só aceita inteiros seguros >= 0 (shape.ts), e um registro de antes pode
-// trazer uma data com fração ou negativa (um arquivo editado à mão, um relógio antes de 1970): fica o inteiro de baixo, dentro da faixa;
-// o que nem é número vira 0, a data mais antiga, que não vence a exclusão de outro aparelho. O registro em si não muda.
-export function stampOf(v: unknown): number {
-  if (typeof v !== 'number' || !Number.isFinite(v)) return 0;
-  return Math.min(Math.max(Math.floor(v), 0), Number.MAX_SAFE_INTEGER);
-}
 
 // Cópia de segurança guardada no próprio banco. `payload` é o KlickExport em JSON, ou comprimido com gzip em base64.
 export interface BackupRecord {

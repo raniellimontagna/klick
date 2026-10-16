@@ -14,10 +14,7 @@ import type { KlickExport } from '../../src/data/repository';
 // Caminho relativo a este arquivo. Não usa `new URL(\`../fixtures/${name}\`, import.meta.url)`: no ambiente jsdom o Vite o
 // reescreve para resolver contra self.location e o fs recusa a URL (mesmo motivo do contrast.test.ts).
 const fixture = (name: string) => readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../fixtures', name), 'utf8');
-let seq = 0;
-const ctx = (existingSessions: Session[] = [], existingSolves: Solve[] = []) => ({
-  now: 1_791_500_000_000, newId: () => `id${String(++seq).padStart(15, '0')}`, existingSessions, existingSolves,
-});
+const ctx = (existingSessions: Session[] = [], existingSolves: Solve[] = []) => ({ now: 1_791_500_000_000, existingSessions, existingSolves });
 
 // --- Apoio dos testes acrescentados (os do plano ficam como vieram) ---
 
@@ -502,7 +499,29 @@ describe('csTimer', () => {
       ]);
       const ids = [...r.sessions.map((s) => s.id), ...r.solves.map((s) => s.id)];
       expect(new Set(ids).size).toBe(6);
-      expect(main.id < r.solves[0].id).toBe(true); // a sessão ganha o id antes dos solves dela
+      // Ids derivados do dado (spec 5.5): `cs-s-` nas sessões e `cs-` nos solves, mais 22 caracteres do hash.
+      expect(r.sessions.every((s) => /^cs-s-[0-9a-z]{22}$/.test(s.id))).toBe(true);
+      expect(r.solves.every((s) => /^cs-[0-9a-z]{22}$/.test(s.id))).toBe(true);
+    });
+
+    it('o mesmo arquivo importado em dois aparelhos dá os mesmos ids, mesmo em horas e com sessões diferentes (spec 5.5)', () => {
+      const parsed = parseCsTimer(fixture('cstimer-export.txt'));
+      const phone = csTimerToKlick(parsed, { session3: '333' }, ctx());
+      const desktop = csTimerToKlick(parsed, { session3: '333' }, { ...ctx([mkSession({ order: 4 })]), now: NOW + 3_600_000 });
+      expect(desktop.sessions.map((s) => s.id)).toEqual(phone.sessions.map((s) => s.id));
+      expect(desktop.solves.map((s) => s.id)).toEqual(phone.solves.map((s) => s.id));
+      expect(desktop.sessions[0].createdAt).not.toBe(phone.sessions[0].createdAt);
+    });
+
+    // Acrescentado (além do brief): com o id da sessão derivado, importar de novo o mesmo arquivo (com solves novos) acha a sessão daqui.
+    // Recriá-la com a data de agora trocaria a daqui no import ("o mais recente vence") e desfaria um renomear.
+    it('a sessão que já existe (o mesmo arquivo importado antes, depois renomeada) recebe os solves novos e não é recriada', () => {
+      const first = csTimerToKlick([csSession('session1', [csSolve(1_000, AT)])], {}, ctx());
+      const mine = { ...first.sessions[0], name: 'Renomeada', updatedAt: NOW + 5 };
+      const again = csTimerToKlick([csSession('session1', [csSolve(1_000, AT), csSolve(2_000, AT + 1_000)])], {}, ctx([mine], first.solves));
+      expect(again.sessions).toEqual([]);
+      expect(again.solves.map((s) => [s.sessionId, s.ms])).toEqual([[mine.id, 2_000]]);
+      expect(again.duplicates).toBe(1);
     });
 
     it('sem sessões que existam, a ordem parte de 0', () => {

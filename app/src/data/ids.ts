@@ -41,3 +41,31 @@ export function newId(now: number = Date.now(), rand: () => number = Math.random
   const slot = nextSlot(now);
   return encode(slot.ms, TIME_DIGITS) + encode(slot.count, COUNTER_DIGITS) + encode(rand() * 36 ** RANDOM_DIGITS, RANDOM_DIGITS);
 }
+
+// --- Ids derivados (spec 5.5): o mesmo dado dá o mesmo id em qualquer aparelho ---
+
+// cyrb53 (domínio público, de bryc): um hash de 53 bits, rápido e sem dependência. Duas sementes dão 106 bits, longe de colidir num
+// histórico de dezenas de milhares de solves.
+function cyrb53(text: string, seed: number): number {
+  let h1 = 0xdeadbeef ^ seed;
+  let h2 = 0x41c6ce57 ^ seed;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
+  h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
+  h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return 4294967296 * (2097151 & h2) + (h1 >>> 0);
+}
+
+// `prefix` mais 22 caracteres [0-9a-z] tirados das partes. Ids derivados não ordenam pelo tempo, ao contrário de newId.
+export function derivedId(prefix: string, parts: readonly (string | number)[]): string {
+  const text = parts.join('\u001f');
+  return prefix + cyrb53(text, 1).toString(36).padStart(11, '0') + cyrb53(text, 2).toString(36).padStart(11, '0');
+}
+
+// A sessão padrão de um aparelho sem sessões (spec 5.5): o mesmo id em todo aparelho novo, e o sync as junta.
+export const defaultSessionId = (event: string): string => `default-${event}`;

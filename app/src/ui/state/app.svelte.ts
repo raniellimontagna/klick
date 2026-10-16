@@ -11,7 +11,7 @@ import { defaultSettings } from '../../core/types';
 import type { EventId, Meta, Penalty, Practice, Profile, SeasonState, Session, Solve } from '../../core/types';
 import type { BackupRecord } from '../../data/db';
 import { backupFileName, type DirHandleLike, folderGranted, pickFolder, saveToFolder } from '../../data/folder';
-import { newId } from '../../data/ids';
+import { defaultSessionId, newId } from '../../data/ids';
 import type { ChangeKind, KlickExport, NewSolve, ProfilePatch, Repository } from '../../data/repository';
 import {
   countSolveSaved,
@@ -116,6 +116,7 @@ export interface ImportSummary {
   offerNotMarked?: boolean; // os solves entraram, mas a marca "oferta feita" não foi gravada (a importação pode ser refeita)
   settingsApplied?: boolean; // o arquivo do Klick trouxe perfil: os ajustes e o progresso dele valem agora
   repeated?: number; // solves com o mesmo id repetido no arquivo do Klick: entrou a versão mais nova, e estes ficaram de fora
+  refused?: number; // registros que o sync recusaria (um id que não serve de chave, por exemplo): ficaram de fora (spec 6.6)
 }
 
 const DEFAULT_EVENT: EventId = '333';
@@ -922,6 +923,7 @@ export class AppState {
         missed: 0,
         settingsApplied: data.profile !== null,
         repeated,
+        refused: report.refused,
       };
       return { summary, adopt: null }; // no Klick, a sessão atual vem do perfil do arquivo (o repositório decide)
     });
@@ -937,7 +939,7 @@ export class AppState {
         repo,
       );
       const now = this.now();
-      const plan = csTimerToKlick(sessions, mapping, { now, newId: () => newId(now), existingSessions, existingSolves });
+      const plan = csTimerToKlick(sessions, mapping, { now, existingSessions, existingSolves });
       const report = await this.repo.importAll({
         format: 'klick',
         version: 1,
@@ -948,7 +950,14 @@ export class AppState {
       });
       // Os solves do plano são novos pela conta do conversor: o que o repositório deixou de fora (skipped) não pode sumir do resumo.
       return {
-        summary: { solves: report.solvesAdded, existing: plan.duplicates, skippedSessions: plan.skippedSessions, unreadable: 0, missed: report.skipped },
+        summary: {
+          solves: report.solvesAdded,
+          existing: plan.duplicates,
+          skippedSessions: plan.skippedSessions,
+          unreadable: 0,
+          missed: report.skipped,
+          refused: report.refused,
+        },
         adopt: report.solvesAdded > 0 ? busiestSession(plan.solves) : null,
       };
     });
@@ -1007,6 +1016,7 @@ export class AppState {
           unreadable,
           missed: report.skipped,
           offerNotMarked: !offerMarked,
+          refused: report.refused,
         },
         adopt: report.solvesAdded > 0 ? busiestSession(plan.solves) : null,
       };
@@ -1380,7 +1390,8 @@ export class AppState {
 
   // Sem sessão atual viva: a primeira que sobrou assume (ou uma de 3×3, se não sobrou nenhuma), e a escolha é gravada.
   private async replaceCurrent(): Promise<Session> {
-    const session = this.sessions[0] ?? (await this.repo.createSession({ event: DEFAULT_EVENT }));
+    // Sem sessão nenhuma, a padrão tem id fixo por evento (spec 5.5): dois aparelhos novos criam a mesma, e o sync as junta.
+    const session = this.sessions[0] ?? (await this.repo.createSession({ event: DEFAULT_EVENT, id: defaultSessionId(DEFAULT_EVENT) }));
     await this.repo.saveProfile({ currentSessionId: session.id });
     await this.reload();
     return this.currentSession ?? session;

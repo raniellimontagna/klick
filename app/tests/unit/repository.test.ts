@@ -129,8 +129,10 @@ describe('repositório', () => {
     edited.solves[0].note = 'mais novo';
     edited.solves[0].updatedAt += 10;
     expect((await other.importAll(edited)).solvesUpdated).toBe(1);
+    // Restaurar uma cópia vazia é gravação (spec 5.5): o que existia vai para a lixeira, nada some sem rastro.
     await other.replaceAll({ ...data, solves: [], sessions: [] });
-    expect(await other.listSolves({ includeDeleted: true })).toEqual([]);
+    expect(await other.listSolves()).toEqual([]);
+    expect((await other.listTrash()).solves.map((x) => x.id)).toEqual(data.solves.map((x) => x.id));
   });
 
   it('guarda e lista cópias, mais recente primeiro', async () => {
@@ -1051,13 +1053,13 @@ describe('repositório: sessões, solves e lixeira', () => {
     const base = await repo.addSolve(ns(s.id, 60000, 1000));
     const odd: unknown[] = [null, undefined, true, {}];
     const solves = odd.map((sessionId, i) => ({ ...base, id: `estranho-${i}`, sessionId: sessionId as never, deletedAt: t, updatedAt: t }));
-    await repo.replaceAll({ format: 'klick', version: 1, exportedAt: t, sessions: [s], solves, profile: null });
+    await repo.replaceAll({ format: 'klick', version: 1, exportedAt: t, sessions: [s], solves: [base, ...solves], profile: null });
     expect((await repo.listTrash()).solves).toHaveLength(odd.length);
     const seen: string[] = [];
     repo.onChange((k) => seen.push(k));
 
     for (const solve of solves) await repo.restoreSolve(solve.id); // sem DataError
-    expect((await repo.listSolves()).map((x) => x.id)).toEqual(solves.map((x) => x.id));
+    expect((await repo.listSolves()).map((x) => x.id)).toEqual([base.id, ...solves.map((x) => x.id)]);
     expect((await repo.listTrash()).solves).toEqual([]);
     expect(seen).toEqual(odd.map(() => 'solves')); // nenhuma sessão envolvida, nenhum aviso de sessions
   });
@@ -1174,7 +1176,7 @@ describe('repositório: exportar e importar', () => {
     expect(p?.settings).toEqual({ ...DEFAULT_SETTINGS, holdMs: 450 });
   });
 
-  it('importar não troca a sessão que já existe, mesmo com o arquivo mais novo, e não a conta', async () => {
+  it('importar troca a sessão que já existe quando o arquivo é mais novo (spec 5.5), sem contá-la como nova', async () => {
     const s = await repo.createSession({ event: '333', name: 'Original' });
     const data = await repo.exportAll();
     const other = await fresh();
@@ -1183,7 +1185,9 @@ describe('repositório: exportar e importar', () => {
     renamed.sessions[0].name = 'Renomeada';
     renamed.sessions[0].updatedAt += 10;
     expect(await other.importAll(renamed)).toEqual({ sessionsAdded: 0, solvesAdded: 0, solvesUpdated: 0, skipped: 0 });
-    expect((await other.listSessions())[0]).toMatchObject({ id: s.id, name: 'Original' });
+    expect((await other.listSessions())[0]).toMatchObject({ id: s.id, name: 'Renomeada' });
+    expect(await other.importAll(data)).toEqual({ sessionsAdded: 0, solvesAdded: 0, solvesUpdated: 0, skipped: 0 }); // o mais velho não volta
+    expect((await other.listSessions())[0]).toMatchObject({ name: 'Renomeada' });
   });
 
   it('importar traz a exclusão mais nova, pula o mais velho e junta solves repetidos no arquivo', async () => {
@@ -1322,7 +1326,7 @@ describe('repositório: exportar e importar', () => {
     expect(await repo.getFolderHandle()).toEqual({ name: 'pasta' });
 
     await repo.replaceAll({ format: 'klick', version: 1, exportedAt: t, sessions: [], solves: [], profile: null });
-    expect((await repo.exportAll()).profile).toBeNull(); // o arquivo sem perfil limpa o perfil
+    expect(await repo.getProfile()).toEqual(await (await fresh()).getProfile()); // o arquivo sem perfil volta o perfil aos padrões
   });
 
   it('importar com um solve inválido no meio desfaz tudo: nada do arquivo entra e nada do que já existia muda', async () => {
@@ -1339,7 +1343,9 @@ describe('repositório: exportar e importar', () => {
       solves: [
         { ...a, note: 'mais novo', updatedAt: a.updatedAt + 10 }, // atualização válida do que já existe
         { ...a, id: 'solve-novo', ms: 1 }, // solve novo e válido
-        { ...a, id: 'solve-ruim', scramble: (() => 1) as unknown as string }, // uma função não passa pelo clone estruturado
+        // Um campo a mais passa intacto pela forma do sync (o import não o recusa), mas uma função não passa pelo clone estruturado. Num
+        // campo do Klick (o embaralhamento) a função seria recusada antes, pelo import, e a transação nem chegaria a falhar.
+        Object.assign({ ...a, id: 'solve-ruim' }, { extra: () => 1 }),
       ],
       profile: { ...(await repo.getProfile()), finish: 'gelo' },
     };
@@ -1483,14 +1489,16 @@ describe('repositório: exportar e importar', () => {
       expect(seen).toEqual([]);
     });
 
-    it('solve com sessionId que não é chave do IndexedDB entra sem derrubar a importação', async () => {
+    // O sync recusaria um solve sem sessão (spec 6.6), então o import o deixa de fora e conta (antes, ele entrava): o que este teste
+    // segura continua sendo que um sessionId assim não derruba a importação nem mexe na sessão da lixeira.
+    it('solve com sessionId que não é chave do IndexedDB fica de fora, contado, sem derrubar a importação', async () => {
       const { old } = await trashedSession();
       const file = fileOf([
         { ...old, id: 'estranho-1', sessionId: null as never, deletedAt: null },
         { ...old, id: 'estranho-2', sessionId: undefined as never, deletedAt: null },
       ]);
-      expect(await repo.importAll(file)).toEqual({ sessionsAdded: 0, solvesAdded: 2, solvesUpdated: 0, skipped: 0 });
-      expect((await repo.listSolves()).map((x) => x.id)).toEqual(['estranho-1', 'estranho-2']);
+      expect(await repo.importAll(file)).toEqual({ sessionsAdded: 0, solvesAdded: 0, solvesUpdated: 0, skipped: 0, refused: 2 });
+      expect(await repo.listSolves()).toEqual([]);
       expect(await repo.listSessions()).toEqual([]); // a sessão da lixeira continua lá: esses solves não são dela
     });
   });

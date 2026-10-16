@@ -9,6 +9,7 @@ import { seasonFrom } from '../core/season';
 import { algChoiceFrom, lessonAtFrom, practiceFrom, trainOffFrom } from '../core/trail/validate';
 import type { EventId, FinishId, Penalty, Session, Settings, Solve } from '../core/types';
 import { T, TRAIL } from '../strings';
+import { derivedId } from './ids';
 import type { KlickExport, ProfilePatch } from './repository';
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -250,16 +251,25 @@ export function toCsTimerJson(sessions: Session[], solves: Solve[]): string {
 // exato, exportar para o csTimer e importar o arquivo de volta duplicaria tudo.
 const timeKey = (ms: number, at: number): string => `${ms}@${Math.floor(at / 1000)}`;
 
-// Cada sessão do arquivo vira uma sessão nova. Fica de fora a que não tem evento (nem do tipo de embaralhamento, nem do
-// mapeamento) e a que só traz solves que já existem; os que já existem (inclusive os excluídos, como vieram em ctx) ou se
-// repetem no próprio arquivo contam em `duplicates`.
+// Os ids vêm do próprio dado (spec 5.5): o mesmo arquivo importado em dois aparelhos dá os mesmos ids, e o sync junta em vez de
+// duplicar. O solve é `cs-` mais um hash do evento, do instante, do tempo e do embaralhamento; a sessão, `cs-s-` mais um hash do
+// evento, do nome e do instante do primeiro solve dela no arquivo.
+export const csTimerSolveId = (event: EventId, s: Pick<CsTimerSolve, 'at' | 'ms' | 'scramble'>): string => derivedId('cs-', [event, s.at, s.ms, s.scramble]);
+const csTimerSessionId = (event: EventId, p: CsTimerSession): string => derivedId('cs-s-', [event, p.name, p.solves[0]?.at ?? 0]);
+
+// Cada sessão do arquivo vira uma sessão (nova, ou a mesma que outro aparelho criou com o mesmo arquivo). Fica de fora a que não tem
+// evento (nem do tipo de embaralhamento, nem do mapeamento) e a que só traz solves que já existem; os que já existem (inclusive os
+// excluídos, como vieram em ctx) ou se repetem no próprio arquivo contam em `duplicates`. A sessão que já existe aqui (o mesmo arquivo
+// importado antes, mesmo na lixeira) recebe os solves novos e não é recriada: com a data de agora, ela trocaria a daqui no import e
+// desfaria um renomear.
 export function csTimerToKlick(
   parsed: CsTimerSession[],
   mapping: Record<string, EventId | undefined>,
-  ctx: { now: number; newId: () => string; existingSessions: Session[]; existingSolves: Solve[] },
+  ctx: { now: number; existingSessions: Session[]; existingSolves: Solve[] },
 ): ImportResult {
   const result: ImportResult = { sessions: [], solves: [], duplicates: 0, skippedSessions: 0 };
   const seen = new Set(ctx.existingSolves.map((s) => timeKey(s.ms, s.at)));
+  const known = new Set(ctx.existingSessions.map((s) => s.id));
   let order = nextOrder(ctx.existingSessions);
   for (const p of parsed) {
     const mapped = mapping[p.key];
@@ -279,11 +289,14 @@ export function csTimerToKlick(
       fresh.push(s);
     }
     if (fresh.length === 0) continue;
-    const sessionId = ctx.newId();
-    result.sessions.push({ id: sessionId, name: p.name, event, order: order++, createdAt: ctx.now, updatedAt: ctx.now, deletedAt: null });
+    const sessionId = csTimerSessionId(event, p);
+    if (!known.has(sessionId)) {
+      known.add(sessionId);
+      result.sessions.push({ id: sessionId, name: p.name, event, order: order++, createdAt: ctx.now, updatedAt: ctx.now, deletedAt: null });
+    }
     for (const s of fresh) {
       result.solves.push({
-        id: ctx.newId(), sessionId, event, ms: s.ms, penalty: s.penalty, at: s.at, scramble: s.scramble, note: s.note,
+        id: csTimerSolveId(event, s), sessionId, event, ms: s.ms, penalty: s.penalty, at: s.at, scramble: s.scramble, note: s.note,
         createdAt: ctx.now, updatedAt: ctx.now, deletedAt: null,
       });
     }

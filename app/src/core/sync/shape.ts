@@ -9,6 +9,8 @@ export const MAX_DATA_CHARS = 16_384;
 export const MAX_SEASON_CHARS = 65_536;
 export const MAX_DEPTH = 32; // o Klick usa até uns 4 níveis de objeto/lista (a temporada: ela, current, marks, cada marca)
 const ID = /^[\w.-]{1,96}$/;
+// Um texto que serve de id no sync. O import usa também para o `sessionId` de um solve: uma sessão com outro id não pode existir.
+export const isSyncId = (v: unknown): v is string => typeof v === 'string' && ID.test(v);
 
 const isRec = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -59,7 +61,7 @@ export function checkChange(raw: unknown): Checked {
   if (!isRec(raw)) return { ok: false, reason: 'mudança não é objeto' };
   const { store, id, data, updatedAt, deletedAt, deletionStamp } = raw;
   if (typeof store !== 'string' || !(SYNC_STORES as readonly string[]).includes(store)) return { ok: false, reason: 'store desconhecida' };
-  if (typeof id !== 'string' || !ID.test(id)) return { ok: false, reason: 'id inválido' };
+  if (!isSyncId(id)) return { ok: false, reason: 'id inválido' };
   if (!isStamp(updatedAt) || !isStamp(deletionStamp) || !(deletedAt === null || isStamp(deletedAt))) return { ok: false, reason: 'datas inválidas' };
   const limit = store === 'prefs' && id === 'season' ? MAX_SEASON_CHARS : MAX_DATA_CHARS;
   if (tooDeep(data) || canonicalJson(data).length > limit) return { ok: false, reason: 'grande demais' };

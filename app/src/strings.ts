@@ -480,6 +480,10 @@ export const T = Object.freeze({
     skippedSessions: (n: number): string => `${n} ${n === 1 ? 'sessão ficou' : 'sessões ficaram'} de fora por não ter um evento conhecido.`,
     unreadable: (n: number): string =>
       n === 1 ? '1 registro da versão anterior não pôde ser lido.' : `${n} registros da versão anterior não puderam ser lidos.`,
+    refused: (n: number): string =>
+      n === 1
+        ? '1 registro do arquivo ficou de fora por não estar num formato que o Klick aceita.'
+        : `${n} registros do arquivo ficaram de fora por não estarem num formato que o Klick aceita.`,
     offerNotMarked: 'Os solves entraram, mas não consegui guardar que a oferta foi feita. Importar de novo não duplica os solves.',
     repeated: (n: number): string =>
       n === 1 ? '1 solve aparecia repetido no arquivo: entrou só a versão mais recente.' : `${n} solves apareciam repetidos no arquivo: entrou só a versão mais recente de cada um.`,

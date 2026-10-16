@@ -11,6 +11,15 @@ export interface StampedRecord {
   deletionStamp: number;
 }
 
+// Uma data do sync tirada de uma data do registro. O servidor só aceita inteiros seguros >= 0 (shape.ts), e um registro de antes pode
+// trazer uma data com fração ou negativa (um arquivo editado à mão, um relógio antes de 1970): fica o inteiro de baixo, dentro da faixa;
+// o que nem é número vira 0, a data mais antiga, que não vence a exclusão de outro aparelho. Mora aqui (e não no banco) porque restaurar
+// uma cópia (restore.ts) também a usa, no aparelho e no servidor.
+export function stampOf(v: unknown): number {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return 0;
+  return Math.min(Math.max(Math.floor(v), 0), Number.MAX_SAFE_INTEGER);
+}
+
 export function toChange(store: RecordStore, record: StampedRecord): Change {
   const { id, updatedAt, deletedAt, deletionStamp, ...data } = record as StampedRecord & Record<string, unknown>;
   return { store, id, data, updatedAt, deletedAt, deletionStamp };

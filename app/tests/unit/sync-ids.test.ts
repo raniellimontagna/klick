@@ -5,7 +5,7 @@ import { checkChange } from '../../src/core/sync/shape';
 import { CASES } from '../../src/core/trail/cases';
 import { defaultSettings, type Profile } from '../../src/core/types';
 import { defaultSeason } from '../../src/core/season';
-import { newId } from '../../src/data/ids';
+import { defaultSessionId, newId } from '../../src/data/ids';
 import { csTimerToKlick, parseCsTimer, v1ToKlick } from '../../src/data/transfer';
 
 // Todo id que o app gera (ou guardou de uma importação) tem de passar na regra de id do servidor (spec 6.6: um registro gerado pelo
@@ -32,14 +32,13 @@ describe('os formatos de id do app passam na regra do servidor (spec 6.6)', () =
     for (const id of ids) expect(sessionWith(id)).toMatchObject({ ok: true });
   });
 
-  it('ids de uma importação do csTimer, como o app os grava hoje (newId), e os derivados que a Task 6 vai gravar', () => {
+  it('ids de uma importação do csTimer (derivados do dado, spec 5.5) e a sessão padrão de cada evento', () => {
     const file = JSON.stringify({ session1: [[[0, 30_000], 'R U', '', 1_791_500_000]], properties: { sessionData: JSON.stringify({ 1: { name: 'A', opt: { scrType: '333' } } }) } });
-    const now = 1_791_500_000_000;
-    const plan = csTimerToKlick(parseCsTimer(file), {}, { now, newId: () => newId(now), existingSessions: [], existingSolves: [] });
+    const plan = csTimerToKlick(parseCsTimer(file), {}, { now: 1_791_500_000_000, existingSessions: [], existingSolves: [] });
     const ids = [...plan.sessions.map((s) => s.id), ...plan.solves.map((s) => s.id)];
-    expect(ids).toHaveLength(2);
-    // O formato que a Task 6 promete: `cs-` e `cs-s-` mais 22 caracteres [0-9a-z], e a sessão padrão `default-<evento>`.
-    ids.push('cs-0123456789abcdefghijkl', 'cs-s-zyxwvutsrqponmlkjihgf', ...EVENT_IDS.map((e) => `default-${e}`));
+    // `cs-s-` na sessão e `cs-` no solve, mais 22 caracteres [0-9a-z]; e a sessão padrão `default-<evento>`.
+    expect(ids).toEqual([expect.stringMatching(/^cs-s-[0-9a-z]{22}$/), expect.stringMatching(/^cs-[0-9a-z]{22}$/)]);
+    ids.push('cs-0123456789abcdefghijkl', 'cs-s-zyxwvutsrqponmlkjihgf', ...EVENT_IDS.map((e) => defaultSessionId(e)));
     for (const id of ids) expect(sessionWith(id)).toMatchObject({ ok: true });
   });
 
