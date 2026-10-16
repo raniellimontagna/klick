@@ -851,8 +851,8 @@
       onNoteClose={closeNoteAndFocus}
     />
     <!-- Lembrete de exportar: acima dos tiles. Só aparece parado (inativo ou com o solve pronto para a reação), nunca na inspeção, armado,
-         pronto ou rodando. -->
-    {#if app.exportReminder && !app.timerBusy}
+         pronto ou rodando. Quem tem conta não o vê (spec 9.4): entrar pelo convite o tira da tela. -->
+    {#if app.exportReminder && !app.timerBusy && !app.account?.signedIn}
       <div class="export-reminder" data-export-reminder>
         <p>{T.reminder.text}</p>
         <span class="data-actions">

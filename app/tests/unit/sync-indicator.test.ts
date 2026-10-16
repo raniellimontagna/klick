@@ -64,6 +64,23 @@ describe('o convite no lembrete de exportar (spec 9.4)', () => {
     expect(screen.queryByRole('button', { name: 'Proteger na nuvem' })).toBeNull();
   });
 
+  it('entrar na conta pelo convite tira o lembrete da tela, e sem conta no ambiente ele fica como era (spec 9.4)', async () => {
+    const { app, repo } = await appWithAccount(fakeApi(new FakeServer()).api);
+    await vi.waitFor(() => expect(app.account!.available).toBe(true));
+    app.exportReminder = true;
+    const { container } = render(TimerScreen, { app });
+    await screen.findByRole('button', { name: 'Proteger na nuvem' });
+    expect(container.querySelector('[data-export-reminder]')).not.toBeNull();
+    await repo.saveSyncState({ accountId: 'conta-1', email: 'ranielli@exemplo.com', signedIn: true }); // o primeiro login terminou
+    await app.account!.refresh();
+    await vi.waitFor(() => expect(container.querySelector('[data-export-reminder]')).toBeNull());
+    const off = await appWithAccount(fakeApi(new FakeServer(), { accounts: false, turnstileSiteKey: null }).api);
+    off.app.exportReminder = true;
+    const other = render(TimerScreen, { app: off.app });
+    await other.findByRole('button', { name: T.reminder.later });
+    expect(other.container.querySelector('[data-export-reminder]')).not.toBeNull();
+  });
+
   it('quem tem conta não vê mais o lembrete de exportar', async () => {
     const { app, repo } = await appWithAccount(fakeApi(new FakeServer()).api, { signedIn: true });
     await vi.waitFor(() => expect(app.account!.signedIn).toBe(true));
