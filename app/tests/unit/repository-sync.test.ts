@@ -5,7 +5,7 @@ import { toChange } from '../../src/core/sync/records';
 import { SYNC_BATCH, SYNC_PROTOCOL, syncKey, type Change } from '../../src/core/sync/types';
 import type { SeasonProgress } from '../../src/core/types';
 import { openKlickDb, type KlickDB } from '../../src/data/db';
-import { createRepository, PendingChangesError, type ChangeKind, type ChangeOrigin, type Repository } from '../../src/data/repository';
+import { createRepository, createSyncClock, PendingChangesError, type ChangeKind, type ChangeOrigin, type Repository } from '../../src/data/repository';
 import { FakeServer } from './sync-fakes';
 
 let n = 0;
@@ -84,8 +84,11 @@ describe('a fila no envio (spec 5.3 e 6.1)', () => {
     const batch = await repo.outboxBatch(500);
     expect(batch.changes.map((c) => syncKey(c.store, c.id))).toEqual([`sessions/${s.id}`, `solves/${ok.id}`]);
     expect(batch.sent.map((e) => syncKey(e.store, e.id))).toEqual([`sessions/${s.id}`, `solves/${ok.id}`]);
-    expect(batch.refused).toBe(1);
-    expect(lines).toEqual(['sync: fora da fila, o servidor recusaria solves/torto (datas inválidas)']);
+    expect([batch.refused, batch.missing]).toEqual([1, 1]);
+    expect(lines).toEqual([
+      'sync: fora da fila, o registro não existe mais: solves/sumiu',
+      'sync: fora da fila, o servidor recusaria solves/torto (datas inválidas)',
+    ]);
     expect(await keys(db)).toEqual([`sessions/${s.id}`, `solves/${ok.id}`].sort());
     expect(await db.get('solves', 'torto')).toBeDefined(); // o registro fica no aparelho; só não sobe
   });
@@ -184,6 +187,46 @@ describe('juntar um lote do servidor (spec 6.1 e 6.3)', () => {
     ).toEqual({ applied: 0, rejected: 2 });
     expect((await repo.getSyncState()).clock).toBe(clock);
   });
+
+  it('o relógio sobe também até a data de uma mudança que passa da hora do servidor', async () => {
+    const { repo } = await fresh();
+    const s = await repo.createSession({ event: '333' });
+    await repo.applyRemote([remoteSolve('adiante', s.id, { updatedAt: t + 5000, deletionStamp: t + 4000 })], t);
+    expect((await repo.getSyncState()).clock).toBe(t + 5000);
+  });
+
+  it('uma data perto de 2^53 não prende o relógio: fica de fora, e a gravação seguinte continua aceitável', async () => {
+    const { db, repo } = await fresh();
+    const s = await repo.createSession({ event: '333' });
+    const clock = (await repo.getSyncState()).clock;
+    const near = Number.MAX_SAFE_INTEGER - 1;
+    const result = await repo.applyRemote([remoteSolve('longe', s.id, { updatedAt: near, deletionStamp: near })], near);
+    expect(result).toEqual({ applied: 1, rejected: 0 }); // o registro é válido e entra
+    expect((await repo.getSyncState()).clock).toBe(clock);
+    await repo.saveSyncState({ clock: near }); // o motor guarda a hora do servidor por aqui: o mesmo teto
+    expect((await repo.getSyncState()).clock).toBe(clock);
+    const x = await repo.addSolve(ns(s.id, 1000));
+    expect(Number.isSafeInteger((await db.get('solves', x.id))!.updatedAt + 1)).toBe(true);
+  });
+});
+
+describe('o relógio de uma escrita (spec 5.4)', () => {
+  it('stamp() é o mesmo até o relógio subir; depois de raise, o próximo sai depois dele', () => {
+    const clock = createSyncClock(10, () => 5);
+    expect([clock.stamp(), clock.stamp()]).toEqual([11, 11]);
+    clock.raise(100);
+    expect([clock.stamp(), clock.value()]).toEqual([101, 101]);
+    clock.raise(50); // abaixo: nada muda
+    expect(clock.stamp()).toBe(101);
+  });
+
+  it('raise ignora o que não é inteiro seguro >= 0 e o que passa de MAX_SAFE_INTEGER - 2^32', () => {
+    const clock = createSyncClock(10, () => 5);
+    for (const bad of [Number.NaN, -1, 1.5, 1e300, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER - 2 ** 32 + 1]) clock.raise(bad);
+    expect(clock.value()).toBe(10);
+    clock.raise(Number.MAX_SAFE_INTEGER - 2 ** 32);
+    expect(clock.value()).toBe(Number.MAX_SAFE_INTEGER - 2 ** 32);
+  });
 });
 
 describe('primeiro login num aparelho com dados (spec 6.5)', () => {
@@ -193,7 +236,7 @@ describe('primeiro login num aparelho com dados (spec 6.5)', () => {
     const extra = await repo.createSession({ event: '333', name: 'Treino daqui' });
     const twin = await repo.addSolve(ns(extra.id, 9000, t - 99)); // o mesmo csTimer importado antes, com id diferente
     const own = await repo.addSolve(ns(extra.id, 12_000, t - 50));
-    await repo.enqueueAll();
+    await repo.beginFirstSync({ accountId: 'conta-1', email: 'a@b.c' });
     expect((await db.getAllKeys('outbox')).length).toBe(4);
     // A conta inteira chega (pull) antes de subir qualquer coisa.
     await repo.applyRemote([remoteSession('conta-s'), remoteSolve('conta-x', 'conta-s', { ms: 9000, at: t - 99 })], t);
@@ -202,6 +245,59 @@ describe('primeiro login num aparelho com dados (spec 6.5)', () => {
     expect((await db.get('sessions', local.id))?.deletedAt).not.toBeNull();
     expect(((await db.getAllKeys('outbox')) as string[]).sort()).toEqual([`sessions/${extra.id}`, `solves/${own.id}`].sort());
     expect((await repo.listSolves()).map((s) => s.id).sort()).toEqual(['conta-x', own.id].sort());
+    expect(await repo.dedupeFirstLogin()).toEqual({ solves: 0, sessions: 0 }); // de novo (o app fechou antes de firstSync sair): nada
+  });
+
+  it('a nota do solve repetido vai para o da conta, como edição que sobe', async () => {
+    const { db, repo } = await fresh();
+    const s = await repo.createSession({ event: '333', name: 'Daqui' });
+    const notes: [string, string][] = [
+      ['', 'daqui'], // vazia lá: fica a daqui
+      ['de lá', 'daqui'], // diferentes: as duas
+      ['igual', 'igual'], // iguais: nada muda
+      ['só lá', ''], // vazia aqui: nada muda
+    ];
+    for (const [i, [, mine]] of notes.entries()) {
+      const x = await repo.addSolve(ns(s.id, 1000 + i, t - 100));
+      if (mine) await repo.updateSolve(x.id, { note: mine });
+    }
+    await repo.beginFirstSync({ accountId: 'conta-1', email: 'a@b.c' });
+    await repo.applyRemote(
+      [remoteSession('conta-s'), ...notes.map(([theirs], i) => remoteSolve(`conta-${i}`, 'conta-s', { ms: 1000 + i, at: t - 100, note: theirs }))],
+      t,
+    );
+    t += 10;
+    expect(await repo.dedupeFirstLogin()).toEqual({ solves: 4, sessions: 0 });
+    const after = await Promise.all(notes.map((_, i) => db.get('solves', `conta-${i}`)));
+    expect(after.map((x) => x?.note)).toEqual(['daqui', 'de lá / daqui', 'igual', 'só lá']);
+    expect(after.map((x) => x?.updatedAt)).toEqual([t, t, t - 10, t - 10]); // a edição tem a data do relógio
+    expect(await keys(db)).toEqual([`sessions/${s.id}`, 'solves/conta-0', 'solves/conta-1'].sort());
+  });
+
+  it('o registro daqui que o servidor recusaria não é da conta: não tira da fila o gêmeo válido nem a "Sessão 1"', async () => {
+    const { db, repo } = await fresh();
+    const empty = await repo.createSession({ event: '333' }); // "Sessão 1", vazia
+    const other = await repo.createSession({ event: '333', name: 'Treino' });
+    const v = await repo.addSolve(ns(other.id, 9000, t - 99));
+    // Gravados por outro caminho (de antes da v3, tortos): ficam fora da fila no primeiro login, e não são da conta.
+    await db.put('solves', { ...(await db.get('solves', v.id))!, id: 'com espaço' });
+    await db.put('sessions', { ...(await db.get('sessions', other.id))!, id: 'torta', name: 'Velha', updatedAt: 1.5 });
+    expect(await repo.beginFirstSync({ accountId: 'conta-1', email: 'a@b.c' })).toBe(2);
+    expect(await repo.dedupeFirstLogin()).toEqual({ solves: 0, sessions: 0 });
+    expect((await db.get('solves', v.id))?.deletedAt).toBeNull();
+    expect((await db.get('sessions', empty.id))?.deletedAt).toBeNull();
+    expect(await keys(db)).toEqual([`sessions/${empty.id}`, `sessions/${other.id}`, `solves/${v.id}`].sort());
+  });
+
+  it('o gêmeo da conta que está na lixeira dela não leva o solve daqui', async () => {
+    const { db, repo } = await fresh();
+    const s = await repo.createSession({ event: '333', name: 'Daqui' });
+    const v = await repo.addSolve(ns(s.id, 9000, t - 99));
+    await repo.beginFirstSync({ accountId: 'conta-1', email: 'a@b.c' });
+    await repo.applyRemote([remoteSession('conta-s'), remoteSolve('conta-x', 'conta-s', { ms: 9000, at: t - 99, deletedAt: t, deletionStamp: t })], t);
+    expect(await repo.dedupeFirstLogin()).toEqual({ solves: 0, sessions: 0 });
+    expect((await db.get('solves', v.id))?.deletedAt).toBeNull();
+    expect(await keys(db)).toContain(`solves/${v.id}`);
   });
 
   it('uma "Sessão 1" com solve na lixeira que vai subir não está vazia: fica', async () => {
@@ -209,7 +305,7 @@ describe('primeiro login num aparelho com dados (spec 6.5)', () => {
     const local = await repo.createSession({ event: '333' });
     const x = await repo.addSolve(ns(local.id, 4321));
     await repo.deleteSolve(x.id);
-    await repo.enqueueAll();
+    await repo.beginFirstSync({ accountId: 'conta-1', email: 'a@b.c' });
     await repo.applyRemote([remoteSession('conta-s')], t);
     expect(await repo.dedupeFirstLogin()).toEqual({ solves: 0, sessions: 0 });
     expect((await db.get('sessions', local.id))?.deletedAt).toBeNull();
@@ -229,8 +325,7 @@ describe('primeiro login num aparelho com dados (spec 6.5)', () => {
     await b.repo.createSession({ event: '333', id: 'default-333' });
     const daqui = await b.repo.createSession({ event: '333', name: 'Do B' });
     await b.repo.addSolve(ns(daqui.id, 12_000, t - 10));
-    await b.repo.saveSyncState({ accountId: 'conta-1', signedIn: true });
-    expect(await b.repo.enqueueAll()).toBe(0);
+    expect(await b.repo.beginFirstSync({ accountId: 'conta-1', email: 'a@b.c' })).toBe(0);
     await syncRound(b.repo, server, false); // a conta inteira chega antes de subir qualquer coisa
     expect(await b.repo.dedupeFirstLogin()).toEqual({ solves: 0, sessions: 0 });
     await syncRound(b.repo, server);
@@ -242,14 +337,41 @@ describe('primeiro login num aparelho com dados (spec 6.5)', () => {
     expect(await b.repo.outboxCount()).toBe(0);
   });
 
+  it('o começo do primeiro login grava o estado da conta e põe tudo na fila na mesma transação: ou os dois, ou nenhum', async () => {
+    const { db, repo } = await fresh(null);
+    const s = await repo.createSession({ event: '333' });
+    await repo.addSolve(ns(s.id, 1000));
+    await repo.addSolve(ns(s.id, 2000));
+    await repo.saveSyncState({ cursor: 7 });
+    // O app morre no meio (aqui, a cota acaba na segunda entrada da fila): nem a fila nem o estado ficam pela metade.
+    const real = IDBObjectStore.prototype.put;
+    let puts = 0;
+    const spy = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (this: IDBObjectStore, ...args: Parameters<IDBObjectStore['put']>) {
+      if (this.name === 'outbox' && ++puts === 2) throw new DOMException('sem espaço', 'QuotaExceededError');
+      return real.apply(this, args);
+    });
+    try {
+      await expect(repo.beginFirstSync({ accountId: 'conta-1', email: 'a@b.c' })).rejects.toThrow('sem espaço');
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await repo.getSyncState()).toMatchObject({ accountId: null, email: null, signedIn: false, firstSync: false, cursor: 7 });
+    expect(await keys(db)).toEqual([]);
+    const heard: ChangeKind[] = [];
+    repo.onChange((k) => heard.push(k));
+    expect(await repo.beginFirstSync({ accountId: 'conta-1', email: 'a@b.c' })).toBe(0);
+    expect(await repo.getSyncState()).toMatchObject({ accountId: 'conta-1', email: 'a@b.c', signedIn: true, firstSync: true, cursor: 0, lastSyncAt: null });
+    expect(await keys(db)).toHaveLength(3);
+    expect(heard).toEqual(['sync']);
+  });
+
   it('o que o servidor recusaria fica fora da fila no primeiro login, contado e no log local', async () => {
     const { db, repo, lines } = await fresh(null);
     const s = await repo.createSession({ event: '333' });
     const ok = await repo.addSolve(ns(s.id, 1000));
     await db.put('solves', { ...(await db.get('solves', ok.id))!, id: 'com espaço' });
-    await repo.saveSyncState({ accountId: 'conta-1', signedIn: true });
     await db.put('outbox', { store: 'solves', id: 'com espaço', queuedAt: 0 }, 'solves/com espaço'); // entrou antes, por outro caminho
-    expect(await repo.enqueueAll()).toBe(1);
+    expect(await repo.beginFirstSync({ accountId: 'conta-1', email: 'a@b.c' })).toBe(1);
     expect(await keys(db)).toEqual([`sessions/${s.id}`, `solves/${ok.id}`].sort());
     expect(lines).toEqual(['sync: fora da fila, o servidor recusaria solves/com espaço (id inválido)']);
   });

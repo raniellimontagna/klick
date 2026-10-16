@@ -94,27 +94,34 @@ export interface Repository {
   // --- Sync (spec 5.3 e 6) ---
   // Até `limit` entradas da fila, as mais antigas primeiro, com o registro atual de cada uma: várias edições do mesmo registro sobem uma vez.
   // O que o servidor recusaria (spec 6.6: um registro de antes da v3 com a própria data torta, por exemplo) não sobe: a entrada sai da fila
-  // e vai para o log local, só com store, id e motivo, contada em `refused`. A entrada de um registro que não existe mais sai sem aviso.
-  outboxBatch(limit: number): Promise<{ changes: Change[]; sent: OutboxEntry[]; refused: number }>;
+  // e vai para o log local, só com store, id e motivo, contada em `refused`. A entrada de um registro que não existe mais também sai, contada
+  // em `missing` e no log (store e id).
+  outboxBatch(limit: number): Promise<{ changes: Change[]; sent: OutboxEntry[]; refused: number; missing: number }>;
   confirmSent(sent: readonly OutboxEntry[]): Promise<void>; // tira da fila as entradas que não mudaram desde que saíram
   outboxCount(): Promise<number>;
   countRemoteDeletions(changes: readonly unknown[]): Promise<number>; // quantos solves ativos daqui o lote apagaria (spec 6.6)
   // Junta um lote do servidor (applyChanges, no modo do aparelho): grava o que muda, põe na fila o que a cascata mudou, sobe o relógio e
   // avisa as telas (desta aba e das outras) como uma mudança de fora.
   applyRemote(changes: readonly unknown[], serverTime: number): Promise<RemoteResult>;
-  // Primeiro login (spec 6.5): todo registro daqui entra na fila, menos o que o servidor recusaria (fica fora, no log local como em
-  // outboxBatch). Devolve quantos ficaram de fora.
-  enqueueAll(): Promise<number>;
+  // O começo do primeiro login (spec 6.5), numa transação só: o estado do sync passa a ser o da conta (accountId, email, signedIn,
+  // firstSync, cursor 0, lastSyncAt null; o relógio e o resto ficam) e todo registro daqui entra na fila, menos o que o servidor recusaria
+  // (fica fora, no log local como em outboxBatch). Acontecem os dois ou nenhum: o app fechado no meio (ou a cota cheia) não deixa
+  // firstSync ligado com a fila vazia, o que faria a deduplicação tomar tudo daqui como da conta, nada subiria, e wipeData passaria a
+  // apagar a única cópia. Se falhar, rejeita e nada muda; o motor chama de novo. Avisa 'sync'. Devolve quantos ficaram fora da fila.
+  beginFirstSync(account: { accountId: string; email: string }): Promise<number>;
   // Depois de baixar a conta inteira no primeiro login (spec 6.5): um solve daqui igual a um da conta, com outro id, e uma sessão daqui vazia
-  // com o nome padrão, de um evento que já tem sessão na conta, recebem marca de exclusão e saem da fila. "Daqui" é o que está na fila. A
-  // sessão padrão (`default-<evento>`) nunca sai: o id é o mesmo em todo aparelho, e o sync a junta.
+  // com o nome padrão, de um evento que já tem sessão na conta, recebem marca de exclusão e saem da fila. "Daqui" é o que está na fila; "da
+  // conta" é o que não está e o servidor aceitaria (um registro daqui que ficou fora da fila por ser torto não é da conta). A nota do solve
+  // daqui vai para o da conta, como edição que sobe. A sessão padrão (`default-<evento>`) nunca sai: o id é o mesmo em todo aparelho, e o
+  // sync a junta. Rodar de novo não muda nada.
   dedupeFirstLogin(): Promise<{ solves: number; sessions: number }>;
   // Apaga os dados deste aparelho (spec 7.6 e 7.7): solves, sessões, treino, conta, fila e cópias. Ficam os ajustes do aparelho; o estado
   // do sync volta ao padrão, com o relógio. Com mudanças esperando para subir, recusa (PendingChangesError) e não apaga nada (decisão 12):
   // apagar perderia o que ainda não está na conta.
   wipeData(): Promise<void>;
   getSyncState(): Promise<SyncState>; // o bloco sync do meta (spec 5.4); o padrão antes do primeiro login
-  // Muda o estado do sync e avisa 'sync'. O relógio só sobe: um clock menor que o gravado, ou que não é inteiro seguro >= 0, é ignorado.
+  // Muda o estado do sync e avisa 'sync'. O relógio só sobe: um clock menor que o gravado, que não é inteiro seguro >= 0 ou que passa do teto
+  // (MAX_CLOCK) é ignorado.
   saveSyncState(patch: Partial<SyncState>): Promise<SyncState>;
   getFolderHandle(): Promise<unknown | null>;
   saveFolderHandle(h: unknown | null): Promise<void>;
@@ -257,11 +264,40 @@ export const defaultSyncState = (): SyncState => ({
 });
 const syncStateOrDefault = (stored: SyncState | undefined): SyncState => ({ ...defaultSyncState(), ...stored });
 
-// O que uma escrita acompanhada pelo sync recebe (syncWrite): a próxima data do relógio e a fila de saída.
+// O teto do relógio: 2^32 ms (uns 50 dias) abaixo do maior inteiro seguro. Uma data válida, mas perto de 2^53, que subisse o relógio o
+// prenderia: clock + 1 deixaria de ser inteiro seguro, e o servidor recusaria em silêncio toda gravação seguinte deste aparelho.
+const MAX_CLOCK = Number.MAX_SAFE_INTEGER - 2 ** 32;
+const isClockValue = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0 && (v as number) <= MAX_CLOCK;
+
+// O relógio de uma escrita do sync (spec 5.4), a partir do gravado. `stamp()` é a data da escrita, max(agora, clock + 1), a mesma enquanto
+// o relógio não sobe; `raise(at)` sobe o relógio até `at` (a hora do servidor, as datas recebidas), e o stamp() seguinte já sai depois
+// dele. O que não é inteiro seguro >= 0, ou passa de MAX_CLOCK, não sobe nada. `value()` é o relógio a gravar.
+export interface SyncClock {
+  stamp(): number;
+  raise(at: number): void;
+  value(): number;
+}
+export function createSyncClock(start: number, now: () => number): SyncClock {
+  let clock = start;
+  let at: number | null = null;
+  return {
+    stamp: () => (at ??= clock = Math.max(now(), clock + 1)),
+    raise: (to) => {
+      if (!isClockValue(to) || to <= clock) return;
+      clock = to;
+      at = null; // uma data já dada nesta escrita ficou para trás
+    },
+    value: () => clock,
+  };
+}
+
+// O que uma escrita acompanhada pelo sync recebe (syncWrite): a próxima data do relógio, a fila de saída e o estado do sync.
 interface SyncCtx {
-  stamp(): number; // a data desta escrita, uma só por transação: max(agora, clock + 1), nunca menor que uma data já vista (spec 5.4)
+  stamp(): number; // a data desta escrita: max(agora, clock + 1), nunca menor que uma data já vista (spec 5.4); muda só depois de um raise
   track(store: SyncStore, id: string): Promise<void>; // põe o registro na fila de saída, se o aparelho tem conta (spec 5.3), com a data desta escrita
-  raise(at: number): void; // o relógio sobe até `at` (a hora do servidor e as datas recebidas, spec 5.4); o que não é inteiro seguro >= 0 não conta
+  raise(at: number): void; // o relógio sobe até `at` (a hora do servidor e as datas recebidas, spec 5.4); ver createSyncClock
+  // Muda o estado do sync na mesma transação (gravado no fim, com o relógio). O track seguinte já usa o novo accountId.
+  setState(patch: Partial<Omit<SyncState, 'clock'>>): void;
 }
 
 // Um lote do servidor, como o motor recebe e o repositório junta (spec 6.1).
@@ -286,6 +322,13 @@ const isKeyed = (c: unknown): c is Change =>
 const fingerprint = (s: Solve): string => JSON.stringify([s.event, s.at, s.ms, s.penalty, s.scramble]);
 // A sessão padrão (defaultSessionId): o mesmo id em todo aparelho novo, que o sync junta, e que a deduplicação nunca manda para a lixeira.
 const isDefaultSession = (id: string): boolean => id.startsWith(defaultSessionId(''));
+// A nota do solve da conta depois de receber a de um gêmeo daqui (spec 6.5): vazia lá, fica a daqui; vazia aqui ou igual, nada muda;
+// diferentes, as duas.
+const isBlank = (note: unknown): boolean => typeof note !== 'string' || note.trim() === '';
+const joinedNote = (theirs: string, mine: string): string => {
+  if (isBlank(mine) || mine === theirs) return theirs;
+  return isBlank(theirs) ? mine : `${theirs} / ${mine}`;
+};
 const metaOrNew = (stored: Meta | undefined, at: number): Meta =>
   stored ? { ...META_DEFAULTS, ...stored } : { ...META_DEFAULTS, deviceId: newId(at) };
 
@@ -412,6 +455,7 @@ async function joinIn(tx: SyncTx, changes: readonly unknown[], opts: ApplyOption
 
 // Uma linha do log local para o que o servidor recusaria (spec 6.6): store, id e motivo, nunca o conteúdo (spec 8.5).
 const refusalLine = (store: SyncStore, id: string, reason: string): string => `sync: fora da fila, o servidor recusaria ${syncKey(store, id)} (${reason})`;
+const missingLine = (store: SyncStore, id: string): string => `sync: fora da fila, o registro não existe mais: ${syncKey(store, id)}`;
 
 // Quem assina os avisos entre abas: um id e uma sequência que sobe de um em um. A página cria um e o passa a cada conexão que abre
 // (boot.ts): uma reabertura continua a mesma sequência, e a outra aba não confunde a reabertura com um remetente novo.
@@ -590,26 +634,25 @@ export function createRepository(
   async function syncWrite<R>(stores: StoreNames<KlickDB>[], work: (tx: WriteTx, ctx: SyncCtx) => Promise<R>): Promise<R> {
     return write([...stores, 'meta', 'outbox'], async (tx) => {
       const meta = tx.objectStore('meta');
-      const state = syncStateOrDefault((await meta.get('sync')) as SyncState | undefined);
+      const stored = syncStateOrDefault((await meta.get('sync')) as SyncState | undefined);
+      let state = stored;
       const outbox = tx.objectStore('outbox');
-      let clock = state.clock;
-      let at: number | null = null;
-      const stamp = (): number => (at ??= clock = Math.max(now(), clock + 1));
+      const clock = createSyncClock(stored.clock, now);
       const ctx: SyncCtx = {
-        stamp,
+        stamp: clock.stamp,
         // A data da fila é a da gravação (a do relógio nesta transação), a mesma para tudo o que a transação põe nela, mesmo quando o
         // registro entra antes de qualquer outra data ser pedida (uma importação): o clock de antes, ainda zero num aparelho novo,
         // misturaria a ordem do índice byQueued.
         track: async (store, id) => {
-          if (state.accountId !== null) await outbox.put({ store, id, queuedAt: stamp() }, syncKey(store, id));
+          if (state.accountId !== null) await outbox.put({ store, id, queuedAt: clock.stamp() }, syncKey(store, id));
         },
-        // Só inteiros seguros >= 0, como saveSyncState: um NaN ou 1e300 viraria o relógio de toda gravação seguinte.
-        raise: (to) => {
-          if (Number.isSafeInteger(to) && to >= 0) clock = Math.max(clock, to);
+        raise: clock.raise,
+        setState: (patch) => {
+          state = { ...state, ...definedOnly(patch) };
         },
       };
       const result = await work(tx, ctx);
-      if (clock !== state.clock) await meta.put({ ...state, clock }, 'sync');
+      if (state !== stored || clock.value() !== stored.clock) await meta.put({ ...state, clock: clock.value() }, 'sync');
       return result;
     });
   }
@@ -921,7 +964,9 @@ export function createRepository(
 
     // Uma transação de escrita: ler a fila e os registros dela vem do mesmo instante, e a entrada do que não sobe sai junto.
     async outboxBatch(limit) {
-      const refusals: string[] = [];
+      const lines: string[] = [];
+      let refused = 0;
+      let missing = 0;
       const batch = await write(['outbox', 'solves', 'sessions', 'practice', 'prefs'], async (tx) => {
         const outbox = tx.objectStore('outbox');
         const entries = await outbox.index('byQueued').getAll(undefined, limit);
@@ -938,13 +983,19 @@ export function createRepository(
             return;
           }
           dropped.push(syncKey(entry.store, entry.id));
-          if (checked && !checked.ok) refusals.push(refusalLine(entry.store, entry.id, checked.reason));
+          if (checked && !checked.ok) {
+            refused++;
+            lines.push(refusalLine(entry.store, entry.id, checked.reason));
+          } else {
+            missing++;
+            lines.push(missingLine(entry.store, entry.id));
+          }
         });
         await each(dropped, (key) => outbox.delete(key));
         return { changes, sent };
       });
-      for (const line of refusals) log(line);
-      return { ...batch, refused: refusals.length };
+      for (const line of lines) log(line);
+      return { ...batch, refused, missing };
     },
 
     async confirmSent(sent) {
@@ -998,9 +1049,11 @@ export function createRepository(
       return { applied: joined.writes.length, rejected: joined.rejected.length };
     },
 
-    async enqueueAll() {
+    async beginFirstSync({ accountId, email }) {
       const refusals: string[] = [];
       await syncWrite(['solves', 'sessions', 'practice', 'prefs'], async (tx, ctx) => {
+        // O estado vem primeiro: o track seguinte já vê a conta. Ele só é gravado no fim, junto com a fila (syncWrite).
+        ctx.setState({ accountId, email, signedIn: true, firstSync: true, cursor: 0, lastSyncAt: null });
         const [solves, sessions, practice, prefs] = await Promise.all([
           tx.objectStore('solves').getAll(),
           tx.objectStore('sessions').getAll(),
@@ -1029,6 +1082,7 @@ export function createRepository(
         await each(left, (c) => outbox.delete(syncKey(c.store, c.id)));
       });
       for (const line of refusals) log(line);
+      announce('sync');
       return refusals.length;
     },
 
@@ -1039,22 +1093,40 @@ export function createRepository(
         const mine = (store: SyncStore, id: string): boolean => waiting.has(syncKey(store, id));
         const solves = tx.objectStore('solves');
         const sessions = tx.objectStore('sessions');
-        // A conta é o que não está na fila: acabou de chegar do servidor.
+        // A conta é o que não está na fila e o servidor aceitaria: acabou de chegar dele (o que vem do servidor sempre passa). Um registro
+        // daqui que ficou fora da fila por ser torto não é da conta: senão o gêmeo válido dele sairia da fila e nunca subiria.
         const allSolves = await solves.getAll();
         const live = allSolves.filter((s) => s.deletedAt === null);
-        const theirs = new Set(live.filter((s) => !mine('solves', s.id)).map(fingerprint));
+        const theirs = new Map<string, StoredSolve>(); // pela marca; com dois iguais na conta, o primeiro pelo id
+        for (const s of live) {
+          if (mine('solves', s.id) || !syncable('solves', s)) continue;
+          const mark = fingerprint(s);
+          if (!theirs.has(mark)) theirs.set(mark, s);
+        }
         const twins = live.filter((s) => mine('solves', s.id) && theirs.has(fingerprint(s)));
         await each(twins, (s) => {
           const at = ctx.stamp();
           return solves.put({ ...s, deletedAt: at, updatedAt: at, deletionStamp: at });
         });
         await each(twins, (s) => outbox.delete(syncKey('solves', s.id))); // a marca não sobe: o solve da conta é o mesmo
+        // A nota do gêmeo daqui não se perde: vai para o solve da conta, como uma edição (data do relógio, na fila). Dois gêmeos do mesmo
+        // solve da conta somam as notas.
+        const noted = new Map<string, StoredSolve>();
+        for (const s of twins) {
+          const target = theirs.get(fingerprint(s))!;
+          const current = noted.get(target.id) ?? target;
+          const note = joinedNote(current.note, s.note);
+          if (note !== current.note) noted.set(target.id, { ...current, note });
+        }
+        const edits = [...noted.values()].map((s) => ({ ...s, updatedAt: ctx.stamp() }));
+        await each(edits, (s) => solves.put(s));
+        await each(edits, (s) => ctx.track('solves', s.id));
         // Vazia: nenhum solve dela fica ativo nem sobe (um da lixeira que está na fila subiria apontando para ela). A sessão padrão nunca
         // sai: a da conta tem o mesmo id, e a marca daqui não subiria (os dois lados ficariam diferentes para sempre).
         const gone = new Set(twins.map((s) => s.id));
         const used = new Set(allSolves.filter((s) => !gone.has(s.id) && (s.deletedAt === null || mine('solves', s.id))).map((s) => s.sessionId));
         const liveSessions = (await sessions.getAll()).filter((s) => s.deletedAt === null);
-        const accountEvents = new Set(liveSessions.filter((s) => !mine('sessions', s.id)).map((s) => s.event));
+        const accountEvents = new Set(liveSessions.filter((s) => !mine('sessions', s.id) && syncable('sessions', s)).map((s) => s.event));
         const empty = liveSessions.filter(
           (s) =>
             mine('sessions', s.id) &&
@@ -1068,10 +1140,10 @@ export function createRepository(
           return sessions.put({ ...s, deletedAt: at, updatedAt: at, deletionStamp: at });
         });
         await each(empty, (s) => outbox.delete(syncKey('sessions', s.id)));
-        return { solves: twins.map((s) => s.id), sessions: empty.map((s) => s.id) };
+        return { solves: twins.map((s) => s.id), noted: edits.map((s) => s.id), sessions: empty.map((s) => s.id) };
       });
       announceSynced([
-        ...outcome.solves.map((id) => ({ store: 'solves' as const, id })),
+        ...[...outcome.solves, ...outcome.noted].map((id) => ({ store: 'solves' as const, id })),
         ...outcome.sessions.map((id) => ({ store: 'sessions' as const, id })),
       ]);
       return { solves: outcome.solves.length, sessions: outcome.sessions.length };
@@ -1105,9 +1177,10 @@ export function createRepository(
       const state = await write(['meta'], async (tx) => {
         const store = tx.objectStore('meta');
         const stored = syncStateOrDefault((await store.get('sync')) as SyncState | undefined);
-        // O relógio só sobe, e só por um inteiro seguro >= 0: um NaN viraria NaN para sempre e o servidor recusaria toda mudança.
+        // O relógio só sobe, e só por um inteiro seguro >= 0 até MAX_CLOCK: um NaN viraria NaN para sempre, e um perto de 2^53 o prenderia;
+        // nos dois, o servidor recusaria toda mudança.
         const given = patch.clock;
-        const clock = typeof given === 'number' && Number.isSafeInteger(given) && given >= 0 ? Math.max(stored.clock, given) : stored.clock;
+        const clock = isClockValue(given) ? Math.max(stored.clock, given) : stored.clock;
         const merged: SyncState = { ...stored, ...definedOnly(patch), clock };
         await store.put(merged, 'sync');
         return merged;
