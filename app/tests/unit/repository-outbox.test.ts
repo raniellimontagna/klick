@@ -140,6 +140,25 @@ describe('fila de saída (spec 5.3)', () => {
     expect(heard).toEqual(['sync', 'sync']);
   });
 
+  it('um relógio que não é inteiro seguro >= 0 é ignorado, e o relógio gravado continua valendo para as datas', async () => {
+    const { db, repo } = await fresh();
+    await repo.saveSyncState({ clock: 500 });
+    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -1, 1.5, Number.MAX_SAFE_INTEGER + 2]) {
+      const state = await repo.saveSyncState({ clock: bad, cursor: 3 });
+      expect(state.clock, String(bad)).toBe(500);
+      expect(state.cursor).toBe(3); // o resto do patch vale
+    }
+    expect((await repo.getSyncState()).clock).toBe(500);
+    await repo.createSession({ event: '333' });
+    const [session] = await db.getAll('sessions');
+    expect(Number.isSafeInteger(session.updatedAt)).toBe(true);
+    expect((await repo.getSyncState()).clock).toBe(session.updatedAt);
+    const empty = await fresh(null);
+    expect((await empty.repo.saveSyncState({ clock: Number.NaN })).clock).toBe(0);
+    expect((await empty.repo.saveSyncState({ clock: 0 })).clock).toBe(0);
+    expect((await empty.repo.saveSyncState({ clock: 7 })).clock).toBe(7);
+  });
+
   it('o aviso "sync" chega à outra aba, e uma chave ausente no patch não apaga o que está gravado', async () => {
     const members: ChannelLike[] = [];
     const make = (): ChannelLike => {
@@ -209,20 +228,65 @@ describe('lixeira com sync (spec 5.5)', () => {
     expect(await db.get('practice', 'p1')).toMatchObject({ deletedAt: expect.any(Number) });
   });
 
-  it('a sessão excluída que espera na fila fica, e leva os solves dela só quando eles também saírem da fila', async () => {
-    const { db, repo } = await fresh();
+  it('a sessão excluída que espera na fila fica, com os solves que saíram junto', async () => {
+    const { repo, db } = await fresh();
     const s = await repo.createSession({ event: '333' });
     const a = await repo.addSolve(ns(s.id, 1000));
     await repo.deleteSession(s.id); // a sessão e o solve entram na fila
     t += 31 * DAY;
     expect(await repo.purgeTrash(30 * DAY)).toBe(0);
-    await db.delete('outbox', `sessions/${s.id}`);
-    expect(await repo.purgeTrash(30 * DAY)).toBe(1);
+    expect(await db.get('sessions', s.id)).toBeDefined();
+    expect(await db.get('solves', a.id)).toBeDefined();
+  });
+
+  it('a sessão confirmada e vencida fica até o último solve dela sair; os dois saem quando o solve é confirmado', async () => {
+    const { repo, db } = await fresh();
+    const s = await repo.createSession({ event: '333' });
+    const a = await repo.addSolve(ns(s.id, 1000));
+    await repo.deleteSession(s.id);
+    await db.delete('outbox', `sessions/${s.id}`); // a sessão subiu primeiro; o solve dela ainda espera (um lote a menos, uma rodada que falhou)
+    t += 31 * DAY;
+    expect(await repo.purgeTrash(30 * DAY)).toBe(0);
+    expect(await db.get('sessions', s.id)).toBeDefined();
+    expect(await db.get('solves', a.id)).toBeDefined();
+    await db.delete('outbox', `solves/${a.id}`); // o servidor confirmou o solve
+    expect(await repo.purgeTrash(30 * DAY)).toBe(2);
     expect(await db.get('sessions', s.id)).toBeUndefined();
-    expect(await db.get('solves', a.id)).toBeDefined(); // o solve ainda espera
-    await db.delete('outbox', `solves/${a.id}`);
-    expect(await repo.purgeTrash(30 * DAY)).toBe(1);
     expect(await db.get('solves', a.id)).toBeUndefined();
+  });
+
+  it('restaurar o solve que a sessão vencida poupou devolve a sessão (solve ativo => sessão ativa)', async () => {
+    const { repo, db } = await fresh();
+    const s = await repo.createSession({ event: '333' });
+    const a = await repo.addSolve(ns(s.id, 1000));
+    await repo.deleteSession(s.id);
+    await db.delete('outbox', `sessions/${s.id}`);
+    t += 31 * DAY;
+    expect(await repo.purgeTrash(30 * DAY)).toBe(0);
+    await repo.restoreSolve(a.id);
+    expect((await repo.listSessions()).map((x) => x.id)).toEqual([s.id]);
+    expect((await repo.listSolves({ sessionId: s.id })).map((x) => x.id)).toEqual([a.id]);
+    expect(await repo.listTrash()).toEqual({ sessions: [], solves: [] });
+  });
+
+  it('a sessão vencida fica enquanto um solve dela ainda não venceu, ou está ativo, mesmo fora da fila', async () => {
+    const { repo, db } = await fresh();
+    const s = await repo.createSession({ event: '333' });
+    const young = await repo.addSolve(ns(s.id, 1000));
+    const live = await repo.addSolve(ns(s.id, 2000));
+    await repo.deleteSession(s.id);
+    await db.clear('outbox');
+    t += 31 * DAY;
+    // Um solve excluído há um dia (mais novo que a sessão) e um ativo (dado fora do invariante): nenhum dos dois pode ficar sem sessão.
+    await db.put('solves', { ...(await db.get('solves', young.id))!, deletedAt: t - DAY });
+    await db.put('solves', { ...(await db.get('solves', live.id))!, deletedAt: null });
+    expect(await repo.purgeTrash(30 * DAY)).toBe(0);
+    expect(await db.get('sessions', s.id)).toBeDefined();
+    await db.put('solves', { ...(await db.get('solves', live.id))!, deletedAt: t - 40 * DAY });
+    t += 30 * DAY; // o excluído há um dia também vence
+    expect(await repo.purgeTrash(30 * DAY)).toBe(3);
+    expect(await db.get('sessions', s.id)).toBeUndefined();
+    expect(await db.getAllKeys('solves')).toEqual([]);
   });
 
   it('sem conta, a lixeira esvazia como antes', async () => {

@@ -71,7 +71,8 @@ export interface Repository {
   restoreSolve(id: string): Promise<void>; // devolve o solve; se a sessão dele está na lixeira, devolve também o registro dela (só ele: os outros solves excluídos da sessão continuam na lixeira)
   listTrash(): Promise<{ sessions: Session[]; solves: Solve[] }>; // o excluído mais recentemente primeiro, sessões e solves
   // Apaga de vez o excluído antes de now - olderThanMs (no limite exato ainda fica), menos o que espera na fila de saída: a marca de exclusão
-  // só some depois que o servidor a tem (spec 5.5). Devolve quantos itens (sessões e solves); as marcas do treino saem junto, sem contar.
+  // só some depois que o servidor a tem (spec 5.5). Uma sessão só sai depois do último solve dela (fica enquanto algum sobrar, na fila,
+  // por vencer ou ativo). Devolve quantos itens (sessões e solves); as marcas do treino saem junto, sem contar.
   purgeTrash(olderThanMs: number): Promise<number>;
   getProfile(): Promise<Profile>; // padrão se ausente (e não grava o padrão)
   saveProfile(patch: ProfilePatch): Promise<Profile>; // settings faz merge raso, sound faz merge
@@ -81,7 +82,7 @@ export interface Repository {
   getMeta(): Promise<Meta>; // padrão se ausente (deviceId novo), gravado na primeira leitura
   saveMeta(patch: Partial<Meta>): Promise<Meta>;
   getSyncState(): Promise<SyncState>; // o bloco sync do meta (spec 5.4); o padrão antes do primeiro login
-  // Muda o estado do sync e avisa 'sync'. O relógio só sobe: um clock menor que o gravado é ignorado.
+  // Muda o estado do sync e avisa 'sync'. O relógio só sobe: um clock menor que o gravado, ou que não é inteiro seguro >= 0, é ignorado.
   saveSyncState(patch: Partial<SyncState>): Promise<SyncState>;
   getFolderHandle(): Promise<unknown | null>;
   saveFolderHandle(h: unknown | null): Promise<void>;
@@ -676,8 +677,14 @@ export function createRepository(
         const practice = tx.objectStore('practice');
         const waiting = new Set(await tx.objectStore('outbox').getAllKeys());
         const gone = (store: SyncStore) => (r: { id: string; deletedAt: number | null }) => expired(r) && !waiting.has(syncKey(store, r.id));
-        const oldSessions = (await sessions.getAll()).filter(gone('sessions'));
-        const oldSolves = (await solves.getAll()).filter(gone('solves'));
+        const allSolves = await solves.getAll();
+        const oldSolves = allSolves.filter(gone('solves'));
+        // Uma sessão só some depois do último solve dela: um que ainda espera na fila (a sessão pode ter subido antes, num lote seguinte
+        // ou numa rodada que falhou no meio), que ainda não venceu ou que está ativo ficaria sem sessão, e restaurá-lo quebraria o
+        // invariante do topo (solve ativo => sessão ativa).
+        const leaving = new Set(oldSolves.map((s) => s.id));
+        const parents = new Set(allSolves.filter((s) => !leaving.has(s.id)).map((s) => s.sessionId));
+        const oldSessions = (await sessions.getAll()).filter((s) => gone('sessions')(s) && !parents.has(s.id));
         const oldPractice = (await practice.getAll()).filter(gone('practice'));
         await each(oldSessions, (s) => sessions.delete(s.id));
         await each(oldSolves, (s) => solves.delete(s.id));
@@ -752,7 +759,10 @@ export function createRepository(
       const state = await write(['meta'], async (tx) => {
         const store = tx.objectStore('meta');
         const stored = syncStateOrDefault((await store.get('sync')) as SyncState | undefined);
-        const merged: SyncState = { ...stored, ...definedOnly(patch), clock: Math.max(stored.clock, patch.clock ?? 0) };
+        // O relógio só sobe, e só por um inteiro seguro >= 0: um NaN viraria NaN para sempre e o servidor recusaria toda mudança.
+        const given = patch.clock;
+        const clock = typeof given === 'number' && Number.isSafeInteger(given) && given >= 0 ? Math.max(stored.clock, given) : stored.clock;
+        const merged: SyncState = { ...stored, ...definedOnly(patch), clock };
         await store.put(merged, 'sync');
         return merged;
       });
