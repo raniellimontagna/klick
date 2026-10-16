@@ -1,8 +1,9 @@
 // As rotas do Worker (spec 8.1). /api/health sem sessão; com ACCOUNTS_ENABLED diferente de 'true', o resto de /api responde 404 (spec 8.4).
-// /api/auth/* é do Better Auth; as outras rotas da conta pedem sessão e falam com o Durable Object dela. O que não é /api são os arquivos
-// do app. Os logs levam só ids, contagens, durações e erros (spec 8.5).
+// Sem um BETTER_AUTH_SECRET de verdade, as rotas da conta respondem 503. De /api/auth/*, só as rotas do Better Auth que o app usa; as outras
+// rotas da conta pedem sessão e falam com o Durable Object dela. O que não é /api são os arquivos do app. Os logs levam só ids, contagens,
+// durações e erros (spec 8.5).
 import { SYNC_BATCH, SYNC_PROTOCOL, type SyncRequest, type SyncResponse } from '../src/core/sync/types';
-import { createAuth, sessionUser, type User } from './auth';
+import { authSecretOk, createAuth, sessionUser, type User } from './auth';
 import type { Env } from './env';
 import { e2eMailbox, e2eMailer, missingMailer, type Mailer } from './mail';
 
@@ -15,6 +16,25 @@ export interface Deps {
 // Em caracteres do corpo. Um lote cheio de verdade, 500 mudanças de até 16 KB (a temporada, até 64 KB) mais o envelope de cada uma, dá
 // uns 8,4 MB: com a folga, ele nunca leva 413.
 export const MAX_BODY = 10_000_000;
+export const MAX_AUTH_BODY = 65_536; // um pedido de login: e-mail e código, ou a resposta WebAuthn de uma passkey (poucos KB)
+
+// As rotas do Better Auth 1.7.7 que o app usa (Tasks 14 e 15), cada uma com o seu método; o resto de /api/auth/* é 404. A biblioteca
+// expõe mais do que o login por código e a passkey precisam: senha, verificação de e-mail, e conferir o código sem consumir a tentativa
+// (check-verification-otp, que aceita palpites em paralelo além das 5 tentativas). Uma versão nova pode acrescentar rotas: a lista é
+// daqui, não do disabledPaths do Better Auth.
+const AUTH_ROUTES = new Map<string, string>([
+  ['/api/auth/email-otp/send-verification-otp', 'POST'],
+  ['/api/auth/sign-in/email-otp', 'POST'],
+  ['/api/auth/get-session', 'GET'],
+  ['/api/auth/sign-out', 'POST'],
+  ['/api/auth/revoke-sessions', 'POST'],
+  ['/api/auth/passkey/generate-register-options', 'GET'],
+  ['/api/auth/passkey/verify-registration', 'POST'],
+  ['/api/auth/passkey/generate-authenticate-options', 'GET'],
+  ['/api/auth/passkey/verify-authentication', 'POST'],
+  ['/api/auth/passkey/list-user-passkeys', 'GET'],
+  ['/api/auth/passkey/delete-passkey', 'POST'],
+]);
 
 export function defaultDeps(env: Env): Deps {
   const mailer = env.E2E_MAILBOX === 'true' ? e2eMailer : missingMailer;
@@ -34,33 +54,61 @@ function writeGuard(request: Request, env: Env): Response | null {
   return null;
 }
 
-// O corpo é lido aos pedaços, e a leitura para assim que passa de MAX_BODY caracteres: um pedido grande demais nunca fica inteiro na
-// memória, nem um corpo em partes, que não tem Content-Length. Quando o Content-Length vem, ele barra antes de ler: um caractere ocupa até
-// 3 bytes em UTF-8, então mais de 3 × MAX_BODY bytes não cabem em MAX_BODY caracteres.
-async function readJson(request: Request): Promise<unknown> {
-  if (Number(request.headers.get('Content-Length')) > 3 * MAX_BODY) return fail(413, 'too-big');
+// O corpo é lido aos pedaços, e a leitura para assim que passa de `max` caracteres: um pedido grande demais nunca fica inteiro na memória,
+// nem um corpo em partes, que não tem Content-Length. Quando o Content-Length vem, ele barra antes de ler: um caractere ocupa até 3 bytes
+// em UTF-8, então mais de 3 × max bytes não cabem em `max` caracteres.
+async function readText(request: Request, max: number): Promise<string | Response> {
+  if (Number(request.headers.get('Content-Length')) > 3 * max) return fail(413, 'too-big');
   let text = '';
   if (request.body) {
     const reader = request.body.getReader();
     const decoder = new TextDecoder();
     for (let part = await reader.read(); !part.done; part = await reader.read()) {
       text += decoder.decode(part.value, { stream: true });
-      if (text.length > MAX_BODY) {
+      if (text.length > max) {
         await reader.cancel().catch(() => undefined);
         return fail(413, 'too-big');
       }
     }
     text += decoder.decode();
   }
-  if (text.length > MAX_BODY) return fail(413, 'too-big');
+  return text.length > max ? fail(413, 'too-big') : text;
+}
+
+const parseJson = (text: string): unknown => {
   try {
     return JSON.parse(text) as unknown;
   } catch {
-    return fail(400, 'json');
+    return undefined;
   }
+};
+
+async function readJson(request: Request): Promise<unknown> {
+  const text = await readText(request, MAX_BODY);
+  if (text instanceof Response) return text;
+  const body = parseJson(text);
+  return body === undefined ? fail(400, 'json') : body;
 }
 
 const isRec = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+// Uma rota de /api/auth/* vai ao Better Auth só se está na lista, com o método dela. O corpo de um POST é lido aqui, com limite, e segue
+// num pedido novo. Pedir o código só vale para entrar: os outros tipos (senha, verificação de e-mail) gravam a mais no D1 para um e-mail
+// sem conta, e o tempo da resposta denunciaria quem tem conta (spec 7.5).
+async function authRoute(request: Request, path: string, env: Env, ctx: ExecutionContext, mailer: Mailer): Promise<Response> {
+  if (AUTH_ROUTES.get(path) !== request.method) return fail(404, 'not-found');
+  const auth = createAuth(env, ctx, mailer);
+  if (request.method !== 'POST') return auth.handler(request);
+  const text = await readText(request, MAX_AUTH_BODY);
+  if (text instanceof Response) return text;
+  if (path === '/api/auth/email-otp/send-verification-otp') {
+    const body = parseJson(text);
+    if (!isRec(body) || body.type !== 'sign-in') return fail(400, 'bad-request');
+  }
+  const headers = new Headers(request.headers);
+  headers.delete('Content-Length');
+  return auth.handler(new Request(request.url, { method: 'POST', headers, body: text }));
+}
 
 // A caixa do ponta a ponta local (E2E_MAILBOX): só com a variável ligada e só em localhost. Na nuvem, 404.
 function e2eCode(url: URL, env: Env): Response {
@@ -88,7 +136,11 @@ export async function handle(request: Request, env: Env, ctx: ExecutionContext, 
   if (path === '/api/health') return json({ ok: true, accounts: accountsOn(env), turnstileSiteKey: accountsOn(env) ? env.TURNSTILE_SITE_KEY : null });
   if (!accountsOn(env)) return fail(404, 'not-found');
   if (path === '/api/__e2e/otp') return e2eCode(url, env);
-  if (path.startsWith('/api/auth/')) return createAuth(env, ctx, deps.mailer).handler(request);
+  if (!authSecretOk(env)) {
+    log({ evt: 'auth-secret-missing' });
+    return fail(503, 'unavailable');
+  }
+  if (path.startsWith('/api/auth/')) return authRoute(request, path, env, ctx, deps.mailer);
 
   const user = await deps.resolveUser(request, env, ctx);
   if (!user) return fail(401, 'auth');

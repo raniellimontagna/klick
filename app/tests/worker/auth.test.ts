@@ -1,11 +1,11 @@
 import { createExecutionContext } from 'cloudflare:test';
 import { getMigrations } from 'better-auth/db/migration';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { SyncResponse } from '../../src/core/sync/types';
 import { createAuth, SESSION_DAYS } from '../../worker/auth';
-import { codeEmail, e2eMailbox } from '../../worker/mail';
-import { defaultDeps, handle } from '../../worker/router';
-import { authDeps, call, fakeMailer, postJson, signIn, T0, testEnv } from './helpers';
+import { codeEmail, e2eMailbox, type Mailer } from '../../worker/mail';
+import { defaultDeps, handle, MAX_AUTH_BODY } from '../../worker/router';
+import { authDeps, call, fakeMailer, ORIGIN, postJson, signIn, T0, testDeps, testEnv } from './helpers';
 
 const syncBody = (changes: unknown[] = []) => ({ v: 1, deviceId: 'd1', cursor: 0, clock: T0, changes });
 const solve = (id: string) => ({
@@ -95,5 +95,145 @@ describe('login por código (spec 7.1 a 7.3)', () => {
     await deps.mailer.sendCode('E2E@exemplo.com', '654321');
     expect(e2eMailbox.get('e2e@exemplo.com')).toBe('654321');
     expect(await (await local('/api/__e2e/otp?email=e2e@exemplo.com')).json()).toEqual({ code: '654321' });
+    const off = testEnv(); // em localhost, mas sem E2E_MAILBOX
+    expect((await handle(new Request('http://localhost:8787/api/__e2e/otp?email=e2e@exemplo.com'), off, createExecutionContext(), defaultDeps(off))).status).toBe(404);
+  });
+
+  it('o código fica no D1 só em hash (decisão 23)', async () => {
+    const deps = authDeps();
+    const email = 'hash@exemplo.com';
+    await call('/api/auth/email-otp/send-verification-otp', postJson({ email, type: 'sign-in' }), { deps });
+    const { code } = deps.mailer.sent.at(-1)!;
+    const rows = await testEnv().DB.prepare('SELECT value FROM verification WHERE identifier LIKE ?').bind(`%${email}`).all<{ value: string }>();
+    expect(rows.results).toHaveLength(1);
+    expect(rows.results[0].value).not.toContain(code);
+  });
+
+  it('a falha do carteiro vai para o log só com o nome do erro: sem o e-mail, sem o código (spec 8.5)', async () => {
+    let code = '';
+    const leaky: Mailer = {
+      async sendCode(email, otp) {
+        code = otp;
+        throw new Error(`não entregue para ${email}, código ${otp}`);
+      },
+    };
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const res = await call('/api/auth/email-otp/send-verification-otp', postJson({ email: 'vaza@exemplo.com', type: 'sign-in' }), { deps: { ...authDeps(), mailer: leaky } });
+      expect(res.status).toBe(200);
+      const logged = spy.mock.calls.flat().map(String).join('\n');
+      expect(logged).toContain('mail-failed');
+      expect(code).toMatch(/^\d{6}$/);
+      expect(logged).not.toContain('vaza@exemplo.com');
+      expect(logged).not.toContain(code);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('um cookie adulterado, ou usado depois de sair, não abre /api/sync (401)', async () => {
+    const deps = authDeps();
+    const cookie = await signIn('cookie@exemplo.com', deps);
+    const sync = (c: string) => call('/api/sync', postJson(syncBody(), { Cookie: c }), { deps });
+    const tampered = cookie.replace(/(session_token=)(.)/, (_, name: string, c: string) => name + (c === 'A' ? 'B' : 'A'));
+    expect(tampered).not.toBe(cookie);
+    expect((await sync(tampered)).status).toBe(401);
+    expect((await sync(cookie)).status).toBe(200);
+    expect((await call('/api/auth/sign-out', postJson({}, { Cookie: cookie }), { deps })).status).toBe(200);
+    expect((await sync(cookie)).status).toBe(401);
+  });
+});
+
+describe('/api/auth/*: só as rotas que o app usa (spec 7.1 e 7.2)', () => {
+  const notFound = { error: 'not-found' };
+
+  it('conferir o código sem consumir a tentativa não existe: a rajada de palpites dá 404, e o código continua valendo', async () => {
+    const deps = authDeps();
+    const email = 'rajada@exemplo.com';
+    await call('/api/auth/email-otp/send-verification-otp', postJson({ email, type: 'sign-in' }), { deps });
+    const { code } = deps.mailer.sent.at(-1)!;
+    const guesses = Array.from({ length: 41 }, (_, i) => String(i).padStart(6, '0'));
+    const burst = await Promise.all(guesses.map((otp) => call('/api/auth/email-otp/check-verification-otp', postJson({ email, type: 'sign-in', otp }), { deps })));
+    expect(new Set(burst.map((r) => r.status))).toEqual(new Set([404]));
+    expect((await call('/api/auth/sign-in/email-otp', postJson({ email, otp: code }), { deps })).status).toBe(200);
+  });
+
+  it('senha, verificação de e-mail, rotas desconhecidas e método errado: 404', async () => {
+    const deps = authDeps();
+    const cookie = await signIn('fora-da-lista@exemplo.com', deps);
+    const post = (path: string, body: unknown) => call(path, postJson(body, { Cookie: cookie }), { deps });
+    for (const res of [
+      await post('/api/auth/email-otp/verify-email', { email: 'fora-da-lista@exemplo.com', otp: '000000' }),
+      await post('/api/auth/email-otp/request-password-reset', { email: 'fora-da-lista@exemplo.com' }),
+      await post('/api/auth/forget-password/email-otp', { email: 'fora-da-lista@exemplo.com' }),
+      await post('/api/auth/email-otp/reset-password', { email: 'fora-da-lista@exemplo.com', otp: '000000', password: 'senha-nova-123' }),
+      await post('/api/auth/update-user', { name: 'x' }),
+      await post('/api/auth/x', {}),
+      await call('/api/auth/sign-out', { headers: { Cookie: cookie } }, { deps }), // GET numa rota de POST
+      await call('/api/auth/GET-SESSION', { headers: { Cookie: cookie } }, { deps }),
+    ]) {
+      expect([res.status, await res.json()]).toEqual([404, notFound]);
+    }
+  });
+
+  it('pedir o código só vale para entrar: outro tipo é recusado antes de tocar no D1, e nada é enviado', async () => {
+    const deps = authDeps();
+    const email = 'outro-tipo@exemplo.com';
+    for (const type of ['forget-password', 'email-verification', 'change-email', undefined]) {
+      const res = await call('/api/auth/email-otp/send-verification-otp', postJson({ email, type }), { deps });
+      expect([res.status, await res.json()]).toEqual([400, { error: 'bad-request' }]);
+    }
+    expect(deps.mailer.sent).toEqual([]);
+    const rows = await testEnv().DB.prepare('SELECT count(*) AS n FROM verification WHERE identifier LIKE ?').bind(`%${email}`).first<{ n: number }>();
+    expect(rows?.n).toBe(0);
+  });
+
+  it('as rotas da lista chegam ao Better Auth: sessão, sair de todos, e a passkey com o rpID do ambiente (decisão 22)', async () => {
+    const deps = authDeps();
+    const cookie = await signIn('lista@exemplo.com', deps);
+    const get = (path: string) => call(path, { headers: { Cookie: cookie } }, { deps });
+    const post = (path: string, body: unknown) => call(path, postJson(body, { Cookie: cookie }), { deps });
+    const session = await get('/api/auth/get-session');
+    expect(((await session.json()) as { user: { email: string } }).user.email).toBe('lista@exemplo.com');
+    const register = await get('/api/auth/passkey/generate-register-options');
+    expect(((await register.json()) as { rp: { id: string } }).rp.id).toBe(new URL(ORIGIN).hostname);
+    const authenticate = await get('/api/auth/passkey/generate-authenticate-options');
+    expect(((await authenticate.json()) as { rpId: string }).rpId).toBe(new URL(ORIGIN).hostname);
+    const list = await get('/api/auth/passkey/list-user-passkeys');
+    expect([list.status, await list.json()]).toEqual([200, []]);
+    // Sem um autenticador de verdade, o Better Auth recusa; o que importa aqui é que o pedido chegou a ele (não é o 404 do router).
+    const codes = [];
+    for (const res of [
+      await post('/api/auth/passkey/verify-registration', { response: {} }),
+      await post('/api/auth/passkey/verify-authentication', { response: {} }),
+      await post('/api/auth/passkey/delete-passkey', { id: 'nao-existe' }),
+    ]) {
+      codes.push(((await res.json()) as { code?: string }).code);
+    }
+    expect(codes).toEqual(['CHALLENGE_NOT_FOUND', 'CHALLENGE_NOT_FOUND', 'PASSKEY_NOT_FOUND']);
+    expect((await post('/api/auth/revoke-sessions', {})).status).toBe(200);
+    expect((await call('/api/sync', postJson(syncBody(), { Cookie: cookie }), { deps })).status).toBe(401);
+  });
+
+  it('o corpo de um pedido de login tem limite (413), sem ser lido inteiro', async () => {
+    const deps = authDeps();
+    const big = postJson({ email: 'grande@exemplo.com', otp: '0'.repeat(MAX_AUTH_BODY) });
+    expect((await call('/api/auth/sign-in/email-otp', big, { deps })).status).toBe(413);
+    const declared = { ...postJson({}), headers: { 'Content-Type': 'application/json', Origin: ORIGIN, 'Content-Length': String(3 * MAX_AUTH_BODY + 1) } };
+    expect((await call('/api/auth/sign-in/email-otp', declared, { deps })).status).toBe(413);
+  });
+});
+
+describe('o segredo do Better Auth (spec 8.4)', () => {
+  it('sem BETTER_AUTH_SECRET, ou com menos de 32 caracteres, /api/auth/* e /api/sync respondem 503, nunca com um segredo padrão', async () => {
+    const bad = [testEnv({ BETTER_AUTH_SECRET: undefined as unknown as string }), testEnv({ BETTER_AUTH_SECRET: '' }), testEnv({ BETTER_AUTH_SECRET: 'x'.repeat(31) })];
+    for (const env of bad) {
+      expect((await call('/api/auth/get-session', {}, { env, deps: authDeps() })).status).toBe(503);
+      expect((await call('/api/auth/email-otp/send-verification-otp', postJson({ email: 'x@exemplo.com', type: 'sign-in' }), { env, deps: authDeps() })).status).toBe(503);
+      expect((await call('/api/sync', postJson(syncBody()), { env, deps: testDeps({ user: 'conta-sem-segredo' }) })).status).toBe(503);
+      expect(() => createAuth(env, createExecutionContext(), fakeMailer())).toThrow();
+    }
+    expect(testEnv().BETTER_AUTH_SECRET.length).toBeGreaterThanOrEqual(32);
+    expect((await call('/api/health', {}, { env: bad[0] })).status).toBe(200);
   });
 });

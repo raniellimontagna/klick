@@ -1,7 +1,7 @@
 // O e-mail com o código (spec 7.4): só o código, a validade e "se não foi você, ignore", em texto simples com uma versão HTML mínima. Nos
 // testes, um carteiro falso; no ponta a ponta local, a caixa do E2E_MAILBOX; o envio de verdade (Resend) entra com a conta dele.
 
-// O erro de sendCode vai para o log (auth.ts): a mensagem não leva o e-mail nem o código (spec 8.5).
+// Uma falha de sendCode vai para o log só pelo nome do erro (auth.ts): nunca o e-mail nem o código (spec 8.5).
 export interface Mailer {
   sendCode(email: string, code: string): Promise<void>;
 }
@@ -27,6 +27,8 @@ export const e2eMailer: Mailer = {
 
 export const missingMailer: Mailer = {
   async sendCode() {
-    throw new Error('mail-not-configured');
+    const err = new Error('mail-not-configured');
+    err.name = 'MailNotConfigured';
+    throw err;
   },
 };
