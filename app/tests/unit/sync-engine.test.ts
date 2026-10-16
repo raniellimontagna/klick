@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { seasonOne } from '../../src/core/season';
-import type { SyncRequest, SyncResponse } from '../../src/core/sync/types';
+import type { SyncRequest, SyncResponse, SyncState } from '../../src/core/sync/types';
 import { openKlickDb } from '../../src/data/db';
 import { defaultSessionId } from '../../src/data/ids';
 import { createRepository, type Repository } from '../../src/data/repository';
@@ -61,6 +61,13 @@ function engineFor(repo: Repository, net: ReturnType<typeof network>, extra: Par
     ...extra,
   });
   return { engine, statuses, backups };
+}
+
+// Uma promessa que o teste resolve na hora que quer (um pedido que fica "na rede").
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => (resolve = r));
+  return { promise, resolve };
 }
 
 const activeSolves = (server: FakeServer) => [...server.active().values()].filter((c) => c.store === 'solves');
@@ -256,6 +263,258 @@ describe('motor do sync (spec 6.1 e 6.2)', () => {
     expect(await desktop.listSolves()).toEqual([]);
   });
 
+  it('426: o servidor pede um app mais novo, sem nova tentativa; outro 4xx (429) tenta de novo', async () => {
+    const repo = await device();
+    const net = network(new FakeServer());
+    const waits: number[] = [];
+    const { engine } = engineFor(repo, net, {
+      schedule: (_fn, ms) => {
+        waits.push(ms);
+        return () => undefined;
+      },
+    });
+    net.failNext(new ApiError('update', 426));
+    expect(await engine.run()).toMatchObject({ phase: 'error', error: 'update' });
+    expect(waits).toEqual([]);
+    net.failNext(new ApiError('client', 429));
+    expect(await engine.run()).toMatchObject({ phase: 'error', error: 'server' });
+    expect(waits).toEqual([RETRY_MS[0]]);
+  });
+
+  it('uma resposta fora da forma não tira nada da fila: erro do servidor e nova tentativa (spec 6.1)', async () => {
+    const repo = await device();
+    await repo.createSession({ event: '333' });
+    const api = createSyncApi(async () => Response.json({ accepted: 1, changes: 'nada', cursor: 1, more: false, serverTime: 1 }));
+    const waits: number[] = [];
+    const { engine } = engineFor(repo, { ...network(new FakeServer()), api }, {
+      schedule: (_fn, ms) => {
+        waits.push(ms);
+        return () => undefined;
+      },
+    });
+    expect(await engine.run()).toMatchObject({ phase: 'error', error: 'server', pending: 1 });
+    expect(await repo.outboxCount()).toBe(1);
+    expect(waits).toEqual([RETRY_MS[0]]);
+  });
+
+  it('o servidor que diz `more` sem avançar o cursor não prende a rodada: log, erro do servidor e nova tentativa', async () => {
+    const lines: string[] = [];
+    const waits: number[] = [];
+    const extra = {
+      schedule: (_fn: () => void, ms: number) => {
+        waits.push(ms);
+        return () => undefined;
+      },
+      log: (l: string) => lines.push(l),
+    };
+    const stuck = (net: ReturnType<typeof network>) => {
+      const real = net.api.sync;
+      net.api.sync = async (req) => ({ ...(await real(req)), cursor: req.cursor, more: true });
+      return net;
+    };
+    // Na subida: nada confirmado, nada juntado.
+    const repo = await device();
+    await repo.createSession({ event: '333' });
+    const net = stuck(network(new FakeServer()));
+    expect(await engineFor(repo, net, extra).engine.run()).toMatchObject({ phase: 'error', error: 'server', pending: 1 });
+    expect(net.calls).toHaveLength(1);
+    expect(await repo.outboxCount()).toBe(1);
+    // Na descida do primeiro login, também.
+    const fresh = await device(null);
+    const pull = stuck(network(new FakeServer()));
+    expect(await engineFor(fresh, pull, extra).engine.firstLogin(ACCOUNT)).toMatchObject({ phase: 'error', error: 'server' });
+    expect(pull.calls).toHaveLength(1);
+    expect((await fresh.getSyncState()).firstSync).toBe(true);
+    expect(waits).toEqual([RETRY_MS[0], RETRY_MS[0]]);
+    expect(lines).toEqual(['sync: o servidor mandou mais sem avançar o cursor (0)', 'sync: o servidor mandou mais sem avançar o cursor (0)']);
+  });
+
+  it('pedidos durante uma rodada viram uma rodada a mais, só uma, dividida por todos (decisão 20)', async () => {
+    const repo = await device();
+    const net = network(new FakeServer());
+    const real = net.api.sync;
+    const gate = deferred();
+    const inFlight = deferred();
+    net.api.sync = async (req) => {
+      if (net.calls.length === 0) {
+        inFlight.resolve();
+        await gate.promise;
+      }
+      return real(req);
+    };
+    const { engine } = engineFor(repo, net);
+    const a = engine.run();
+    await inFlight.promise;
+    const b = engine.run();
+    const c = engine.run();
+    expect(b).toBe(c);
+    expect(b).not.toBe(a);
+    gate.resolve();
+    expect((await Promise.all([a, b, c])).map((x) => x.phase)).toEqual(['idle', 'idle', 'idle']);
+    expect(net.calls).toHaveLength(2);
+    await engine.run();
+    expect(net.calls).toHaveLength(3);
+  });
+
+  it('uma rodada que rejeita não prende a rodada a mais pedida durante ela (decisão 20)', async () => {
+    const repo = await device();
+    const net = network(new FakeServer());
+    let shown = 0;
+    const { engine } = engineFor(repo, net, {
+      onStatus: () => {
+        if (++shown <= 2) throw new Error('a tela caiu'); // o aviso da rodada e o do erro dela
+      },
+    });
+    const a = engine.run();
+    const b = engine.run();
+    await expect(a).rejects.toThrow('a tela caiu');
+    expect((await b).phase).toBe('idle');
+    expect(net.calls).toHaveLength(1);
+  });
+
+  it('Sair e apagar: o stop() espera a rodada em andamento, e depois dele nada é gravado nem pedido (spec 7.7)', async () => {
+    const server = new FakeServer();
+    const phone = await device();
+    const ps = await phone.createSession({ event: '333' });
+    await phone.addSolve(ns(ps.id, 1000));
+    await engineFor(phone, network(server)).engine.run();
+    const desktop = await device();
+    const net = network(server);
+    const real = net.api.sync;
+    const gate = deferred();
+    const inFlight = deferred();
+    net.api.sync = async (req) => {
+      inFlight.resolve();
+      await gate.promise;
+      return real(req);
+    };
+    const { engine } = engineFor(desktop, net);
+    const round = engine.run();
+    await inFlight.promise;
+    let drained = false;
+    const stopped = engine.stop().then(() => {
+      drained = true;
+    });
+    expect(engine.run()).not.toBe(round); // parado: um gatilho não pede a rodada a mais
+    await new Promise((r) => setTimeout(r, 10));
+    expect(drained).toBe(false); // a resposta ainda está na rede
+    gate.resolve();
+    await stopped;
+    expect((await round).phase).toBe('idle'); // terminou antes do stop() resolver
+    // O que a Task 15 faz depois do stop(): a fila vazia deixa apagar.
+    expect(await desktop.outboxCount()).toBe(0);
+    await desktop.wipeData();
+    expect((await engine.run()).phase).toBe('idle'); // parado: devolve o estado, sem rodada
+    expect(net.calls).toHaveLength(1);
+    expect(await desktop.listSolves({ includeDeleted: true })).toEqual([]);
+    expect(await desktop.listSessions({ includeDeleted: true })).toEqual([]);
+    expect(await desktop.getSyncState()).toMatchObject({ accountId: null, cursor: 0 });
+    engine.resume();
+    expect(await engine.run()).toMatchObject({ phase: 'off', pending: 0 });
+    expect(net.calls).toHaveLength(1);
+  });
+
+  it('a conta que sai no meio da rodada, sem esperar o motor: a resposta é descartada, sem confirmar, juntar nem guardar o cursor', async () => {
+    const server = new FakeServer();
+    const phone = await device();
+    const ps = await phone.createSession({ event: '333' });
+    await phone.addSolve(ns(ps.id, 1000));
+    await engineFor(phone, network(server)).engine.run();
+    const desktop = await device();
+    await desktop.createSession({ event: '333' }); // na fila
+    const net = network(server);
+    const real = net.api.sync;
+    net.api.sync = async (req) => {
+      const res = await real(req);
+      await desktop.saveSyncState({ signedIn: false });
+      return res;
+    };
+    const lines: string[] = [];
+    const schedule = vi.fn(() => () => undefined);
+    const { engine } = engineFor(desktop, net, { log: (l) => lines.push(l), schedule });
+    expect(await engine.run()).toMatchObject({ phase: 'off', pending: 1 });
+    expect(await desktop.outboxCount()).toBe(1); // sem confirmSent
+    expect(await desktop.listSolves({ includeDeleted: true })).toEqual([]); // sem applyRemote
+    expect((await desktop.getSyncState()).cursor).toBe(0);
+    expect(schedule).not.toHaveBeenCalled();
+    expect(lines).toEqual(['sync: a conta mudou durante a rodada; a resposta foi descartada']);
+  });
+
+  it('a conta que sai enquanto a volta espera o solve terminar: a resposta também é descartada', async () => {
+    const server = new FakeServer();
+    const phone = await device();
+    const ps = await phone.createSession({ event: '333' });
+    await phone.addSolve(ns(ps.id, 1000));
+    await engineFor(phone, network(server)).engine.run();
+    const desktop = await device();
+    const net = network(server);
+    const real = net.api.sync;
+    let busy = false;
+    net.api.sync = async (req) => {
+      const res = await real(req);
+      busy = true;
+      return res;
+    };
+    const { engine } = engineFor(desktop, net, {
+      busy: () => busy,
+      sleep: async () => {
+        await desktop.saveSyncState({ signedIn: false }); // saiu durante o solve
+        busy = false;
+      },
+    });
+    expect((await engine.run()).phase).toBe('off');
+    expect(await desktop.listSolves({ includeDeleted: true })).toEqual([]);
+    expect((await desktop.getSyncState()).cursor).toBe(0);
+  });
+
+  it('dados apagados no meio da rodada: nada da conta fica no aparelho, e o primeiro login noutra conta não leva nada dela', async () => {
+    const server = new FakeServer();
+    const phone = await device();
+    const ps = await phone.createSession({ event: '333' });
+    await phone.addSolve(ns(ps.id, 1000));
+    await engineFor(phone, network(server)).engine.run();
+    const desktop = await device();
+    const net = network(server);
+    const real = net.api.sync;
+    net.api.sync = async (req) => {
+      const res = await real(req);
+      await desktop.wipeData();
+      return res;
+    };
+    expect((await engineFor(desktop, net).engine.run()).phase).toBe('off');
+    expect(await desktop.listSolves({ includeDeleted: true })).toEqual([]);
+    expect(await desktop.listSessions({ includeDeleted: true })).toEqual([]);
+    const other = new FakeServer();
+    await engineFor(desktop, network(other)).engine.firstLogin({ accountId: 'conta-2', email: 'b@c.d' });
+    expect(other.records.size).toBe(0);
+  });
+
+  it('a conta que troca no meio da rodada: nada é juntado, e a nova tentativa relê o estado', async () => {
+    const server = new FakeServer();
+    const phone = await device();
+    const ps = await phone.createSession({ event: '333' });
+    await phone.addSolve(ns(ps.id, 1000));
+    await engineFor(phone, network(server)).engine.run();
+    const desktop = await device();
+    const net = network(server);
+    const real = net.api.sync;
+    net.api.sync = async (req) => {
+      const res = await real(req);
+      await desktop.saveSyncState({ accountId: 'conta-2' });
+      return res;
+    };
+    const waits: number[] = [];
+    const { engine } = engineFor(desktop, net, {
+      schedule: (_fn, ms) => {
+        waits.push(ms);
+        return () => undefined;
+      },
+    });
+    expect(await engine.run()).toMatchObject({ phase: 'error', error: 'server' });
+    expect(await desktop.listSolves({ includeDeleted: true })).toEqual([]);
+    expect(waits).toEqual([RETRY_MS[0]]);
+  });
+
   it('a temporada que acabou de subir adota a que o servidor decidiu: a fila é confirmada antes de juntar a volta (spec 6.4)', async () => {
     const server = new FakeServer();
     const phone = await device();
@@ -353,6 +612,67 @@ describe('primeiro login (spec 6.5)', () => {
     expect(await desktop.listSolves()).toHaveLength(5);
   });
 
+  it('a fila do primeiro login e a deduplicação esperam o solve que começou durante a cópia ou a descida (spec 6.2)', async () => {
+    const server = new FakeServer();
+    const desktop = await device(null);
+    const ds = await desktop.createSession({ event: '333' });
+    await desktop.addSolve(ns(ds.id, 4242));
+    let busy = false;
+    // O repositório visto pelo motor: cada lote gravado (o cursor) liga o timer, como um solve que começa logo depois.
+    const watched = new Proxy(desktop, {
+      get(target, key) {
+        if (key === 'saveSyncState')
+          return async (patch: Partial<SyncState>) => {
+            const saved = await target.saveSyncState(patch);
+            if ('cursor' in patch) busy = true;
+            return saved;
+          };
+        const value = Reflect.get(target, key) as unknown;
+        return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+      },
+    });
+    const seen: string[] = [];
+    const { engine } = engineFor(desktop, network(server), {
+      repo: () => watched,
+      busy: () => busy,
+      backup: async () => {
+        await createBackup(desktop, 'pre-sync', t);
+        busy = true; // o solve começou durante a cópia
+      },
+      sleep: async () => {
+        const state = await desktop.getSyncState();
+        seen.push(`${state.accountId ?? 'sem conta'} firstSync=${state.firstSync} fila=${await desktop.outboxCount()}`);
+        busy = false;
+      },
+    });
+    expect(await engine.firstLogin(ACCOUNT)).toMatchObject({ phase: 'idle', pending: 0 });
+    expect(seen).toEqual([
+      'sem conta firstSync=false fila=0', // a fila ainda não foi montada
+      'conta-1 firstSync=true fila=2', // a deduplicação ainda não rodou
+    ]);
+  });
+
+  it('o progresso de um primeiro sync em lotes: recebidos na descida, enviados na subida', async () => {
+    const server = new FakeServer(2);
+    const phone = await device();
+    const ps = await phone.createSession({ event: '333' });
+    for (let i = 0; i < 3; i++) await phone.addSolve(ns(ps.id, 5000 + i, t + i));
+    await engineFor(phone, network(server)).engine.run();
+    const desktop = await device(null);
+    const ds = await desktop.createSession({ event: '333' });
+    await desktop.addSolve(ns(ds.id, 7777));
+    const d = engineFor(desktop, network(server));
+    await d.engine.firstLogin(ACCOUNT);
+    expect(d.statuses.map((s) => s.phase)).toEqual(['syncing', 'syncing', 'syncing', 'syncing', 'idle']);
+    expect(d.statuses.map((s) => s.progress)).toEqual([
+      { sent: 0, total: 2, received: 0 },
+      { sent: 0, total: 2, received: 2 }, // a conta desce de 2 em 2
+      { sent: 0, total: 2, received: 4 },
+      { sent: 2, total: 2, received: 6 }, // o que é daqui sobe, e volta com a revisão
+      null,
+    ]);
+  });
+
   it('se o app fecha no meio do primeiro login, a próxima abertura continua do cursor, sem nova cópia e sem duplicar', async () => {
     const server = new FakeServer(2);
     const phone = await device();
@@ -412,6 +732,27 @@ describe('primeiro login (spec 6.5)', () => {
     expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0 });
     expect(backups).toHaveLength(1);
     expect(activeSolves(server).map((c) => (c.data as { ms: number }).ms)).toEqual([4242]);
+  });
+
+  it('o stop() descarta o primeiro login que ainda não começou: depois de sair, nada entra sozinho', async () => {
+    const desktop = await device(null);
+    const net = network(new FakeServer());
+    let failCopy = true;
+    const { engine, backups } = engineFor(desktop, net, {
+      backup: async () => {
+        if (failCopy) throw new DOMException('sem espaço', 'QuotaExceededError');
+        backups.push(t);
+      },
+      schedule: () => () => undefined,
+    });
+    expect(await engine.firstLogin(ACCOUNT)).toMatchObject({ phase: 'error', error: 'server' });
+    await engine.stop(); // saiu
+    engine.resume();
+    failCopy = false;
+    expect((await engine.run()).phase).toBe('off');
+    expect(backups).toEqual([]);
+    expect(net.calls).toEqual([]);
+    expect((await desktop.getSyncState()).accountId).toBeNull();
   });
 
   it('a mesma conta que volta depois de sair não ganha cópia nem primeiro login: sobe o que mudou enquanto estava fora', async () => {
@@ -512,18 +853,41 @@ describe('relógio adiantado (decisão do controlador na Task 8)', () => {
     expect(server.records.get(`sessions/${s.id}`)?.deletionStamp).toBeLessThanOrEqual(server.now + 10);
   });
 
+  it('um relógio certo fica sem ajuste, qualquer que seja a latência do pedido', async () => {
+    const server = new FakeServer();
+    const clock = createServerClock(now);
+    const repo = createRepository(await openKlickDb(`engine-${++n}`), { now: clock.now, channel: null });
+    await repo.saveSyncState({ accountId: 'conta-1', email: 'a@b.c', signedIn: true });
+    const net = network(server);
+    const real = net.api.sync;
+    net.api.sync = async (req) => {
+      t += 120; // a ida
+      server.now = t;
+      const res = await real(req);
+      t += 250; // a volta
+      return res;
+    };
+    await engineFor(repo, net, { clock }).engine.run();
+    expect(clock.offset()).toBe(0);
+  });
+
   it('o relógio só atrasa: um aparelho atrasado não é adiantado, e uma resposta sem hora não mexe nele', () => {
     let device = 10_000;
     const clock = createServerClock(() => device);
-    clock.observe(50_000);
+    const answer = (serverTime: number, latency = 300) => {
+      const done = clock.send();
+      device += latency;
+      done(serverTime);
+    };
+    answer(50_000);
     expect(clock.offset()).toBe(0);
-    clock.observe(4_000);
-    expect([clock.offset(), clock.now()]).toEqual([-6_000, 4_000]);
-    clock.observe(0);
-    clock.observe(Number.NaN);
-    expect(clock.offset()).toBe(-6_000);
+    answer(4_000); // saiu em 10_300: o aparelho está 6_300 adiantado
+    expect([clock.offset(), clock.now()]).toEqual([-6_300, 4_300]);
+    answer(0);
+    answer(Number.NaN);
+    expect(clock.offset()).toBe(-6_300);
     device = 20_000;
-    clock.observe(20_000); // o relógio do aparelho foi acertado
+    answer(20_050, 100); // o relógio do aparelho foi acertado
     expect(clock.offset()).toBe(0);
   });
 });
@@ -539,6 +903,15 @@ describe('cliente HTTP (spec 6.1)', () => {
     await expect(createSyncApi(async () => new Response('<!doctype html>', { status: 200 })).sync({} as SyncRequest)).rejects.toMatchObject({ kind: 'server' });
     expect(await createSyncApi(async () => new Response('<!doctype html>', { status: 200 })).health()).toBeNull();
     expect(await createSyncApi(async () => Response.json({ accounts: true, turnstileSiteKey: 'k' })).health()).toEqual({ accounts: true, turnstileSiteKey: 'k' });
+  });
+
+  it('uma resposta do sync fora da forma vira erro do servidor; sem `rejected`, a lista vem vazia', async () => {
+    const body = (b: unknown) => createSyncApi(async () => Response.json(b)).sync({} as SyncRequest);
+    const ok = { accepted: 0, changes: [], cursor: 3, more: false, serverTime: 1 };
+    expect(await body(ok)).toEqual({ ...ok, rejected: [] });
+    for (const bad of [null, [], { ...ok, cursor: '3' }, { ...ok, cursor: -1 }, { ...ok, changes: {} }, { ...ok, more: 'não' }, { ...ok, rejected: {} }]) {
+      await expect(body(bad)).rejects.toMatchObject({ kind: 'server' });
+    }
   });
 
   it('o pedido de sync vai como JSON, na mesma origem', async () => {
