@@ -12,12 +12,19 @@ import { FakeServer } from './sync-fakes';
 
 let n = 0;
 
-// Os gatilhos falsos: o teste dispara o "5 s depois" (e as novas tentativas do motor, que usam o mesmo schedule) e o resto na mão.
+// Os gatilhos falsos: o teste dispara o "5 s depois" (e as novas tentativas e esperas do motor, e o prazo de parar, que usam o mesmo
+// schedule), o voltar online e o ficar visível na mão.
 export function manualEnv() {
   const delayed: (() => void)[] = [];
+  const online = new Set<() => void>();
+  const visible = new Set<() => void>();
+  const listen = (set: Set<() => void>) => (fn: () => void) => {
+    set.add(fn);
+    return () => void set.delete(fn);
+  };
   const env: TriggerEnv = {
-    onOnline: () => () => undefined,
-    onVisible: () => () => undefined,
+    onOnline: listen(online),
+    onVisible: listen(visible),
     schedule: (fn) => {
       delayed.push(fn);
       return () => {
@@ -27,7 +34,12 @@ export function manualEnv() {
     },
     every: () => () => undefined,
   };
-  return { env, pending: () => delayed.length, fireDelayed: () => delayed.splice(0).forEach((fn) => fn()) };
+  return {
+    env,
+    pending: () => delayed.length,
+    fireDelayed: () => delayed.splice(0).forEach((fn) => fn()),
+    fire: { online: () => [...online].forEach((fn) => fn()), visible: () => [...visible].forEach((fn) => fn()) },
+  };
 }
 
 // A API falsa: /api/health e /api/sync, com o servidor falso de uma conta.
@@ -43,19 +55,22 @@ export function fakeApi(server: FakeServer, health: Health | null = { accounts: 
   return { api, fail: (e: Error | null) => (failure = e) };
 }
 
-// Um canal entre "abas" na memória.
+// Um canal entre "abas" na memória. `mute(ch)`: a aba daquele canal está suspensa (não recebe nem manda nada).
 export function bus() {
   const members: ChannelLike[] = [];
-  return () => {
+  const muted = new Set<ChannelLike>();
+  const make = (): ChannelLike => {
     const ch: ChannelLike = {
       onmessage: null,
       postMessage(data) {
-        for (const m of members) if (m !== ch) m.onmessage?.({ data: structuredClone(data) });
+        if (muted.has(ch)) return;
+        for (const m of members) if (m !== ch && !muted.has(m)) m.onmessage?.({ data: structuredClone(data) });
       },
     };
     members.push(ch);
     return ch;
   };
+  return Object.assign(make, { mute: (ch: ChannelLike) => void muted.add(ch) });
 }
 
 export interface AccountOptions {

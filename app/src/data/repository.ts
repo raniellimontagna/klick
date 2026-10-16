@@ -103,8 +103,15 @@ export interface Repository {
   // Junta um lote do servidor (applyChanges, no modo do aparelho): grava o que muda, põe na fila o que a cascata mudou, sobe o relógio e
   // avisa as telas (desta aba e das outras) como uma mudança de fora. `accountId` é a conta da rodada que pediu o lote: se a conta gravada
   // já é outra (ou nenhuma: outra aba apagou os dados ou trocou de conta no meio), lança AccountChangedError, conferido dentro da mesma
-  // transação, e nada muda: nem registro, nem fila, nem relógio. Sem ele (os testes do repositório), não confere.
-  applyRemote(changes: readonly unknown[], serverTime: number, accountId?: string): Promise<RemoteResult>;
+  // transação, e nada muda: nem registro, nem fila, nem relógio. Sem ele (os testes do repositório), não confere. `after` é o cursor e a hora
+  // do sync desta volta, gravados na mesma transação (e avisados como 'sync'): uma aba que congela entre juntar e gravar o cursor não grava
+  // depois o cursor de uma conta no estado de outra.
+  applyRemote(
+    changes: readonly unknown[],
+    serverTime: number,
+    accountId?: string,
+    after?: Pick<SyncState, 'cursor' | 'lastSyncAt'>,
+  ): Promise<RemoteResult>;
   // O começo do primeiro login (spec 6.5), numa transação só: o estado do sync passa a ser o da conta (accountId, email, signedIn,
   // firstSync, cursor 0, lastSyncAt null; o relógio e o resto ficam) e todo registro daqui entra na fila, menos o que o servidor recusaria
   // (fica fora, no log local como em outboxBatch). Acontecem os dois ou nenhum: o app fechado no meio (ou a cota cheia) não deixa
@@ -1035,7 +1042,7 @@ export function createRepository(
       });
     },
 
-    async applyRemote(changes, serverTime, accountId) {
+    async applyRemote(changes, serverTime, accountId, after) {
       const joined = await syncWrite(['solves', 'sessions', 'practice', 'prefs'], async (tx, ctx) => {
         // Na mesma transação que grava: um wipeData ou uma troca de conta de outra aba entre a conferência do motor e aqui não recebe o lote.
         if (accountId !== undefined && ctx.state().accountId !== accountId) throw new AccountChangedError();
@@ -1059,9 +1066,11 @@ export function createRepository(
           result.writes.filter((c) => derived.has(syncKey(c.store, c.id))),
           (c) => ctx.track(c.store, c.id),
         );
+        if (after) ctx.setState({ cursor: after.cursor, lastSyncAt: after.lastSyncAt });
         return result;
       });
       announceSynced(joined.writes);
+      if (after) announce('sync');
       return { applied: joined.writes.length, rejected: joined.rejected.length };
     },
 

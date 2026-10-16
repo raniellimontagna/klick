@@ -230,6 +230,17 @@ describe('o lote de outra conta (Task 13: a conferência dentro da transação)'
     expect(await repo.applyRemote([remoteSolve('de-la', s.id, { updatedAt: t + 5000 })], t + 9000, 'conta-2')).toEqual({ applied: 1, rejected: 0 });
   });
 
+  it('o cursor e a hora do sync vão na mesma transação que junta o lote, e saem num aviso "sync"; com a conta errada, não mudam', async () => {
+    const { repo } = await fresh('conta-1');
+    const seen: ChangeKind[] = [];
+    repo.onChange((kind) => seen.push(kind));
+    await repo.applyRemote([remoteSession('da-conta')], t + 9000, 'conta-1', { cursor: 7, lastSyncAt: t });
+    expect(await repo.getSyncState()).toMatchObject({ cursor: 7, lastSyncAt: t, clock: t + 9000 });
+    expect(seen).toEqual(['sessions', 'sync']);
+    await expect(repo.applyRemote([], t + 9999, 'conta-2', { cursor: 99, lastSyncAt: t + 1 })).rejects.toBeInstanceOf(AccountChangedError);
+    expect(await repo.getSyncState()).toMatchObject({ cursor: 7, lastSyncAt: t, clock: t + 9000 });
+  });
+
   it('sem conta gravada (os dados foram apagados), o lote da rodada também não entra', async () => {
     const { repo } = await fresh(null);
     await expect(repo.applyRemote([remoteSession('da-conta')], t, 'conta-1')).rejects.toBeInstanceOf(AccountChangedError);

@@ -275,6 +275,40 @@ describe('tela do Timer: solve, reação e nota', () => {
     await waitFor(() => expect(a.profile.season.current.n).toBe(3));
   });
 
+  it('na troca de penalidade, a virada que um solve de outro aparelho fechou, juntado durante a gravação, não é anunciada aqui (spec 6.4)', async () => {
+    const { a, repo } = await app();
+    await a.updateSettings({ inspection: false });
+    const startedAt = Date.now() - 60000;
+    await repo.saveProfile({
+      season: {
+        current: { n: 2, startedAt, marks: Array.from({ length: 9 }, () => ({ kind: 'count' as const, target: 2 })), basis: { single: 50000, ao5: 50000, ao12: 50000 } },
+        past: [{ n: 1, startedAt: 1, endedAt: 2, solves: 1000, startAo12: null, endAo12: 50000 }],
+      },
+    });
+    await a.reload();
+    const announce = vi.spyOn(a, 'announce');
+    render(TimerScreen, { app: a });
+    await solveByKeys();
+    await waitFor(() => expect(document.querySelector('[data-actions]')).not.toHaveAttribute('hidden'));
+    await waitFor(() => expect(announce.mock.calls.filter(([text]) => text.startsWith('Tempo final'))).toHaveLength(1), { timeout: 3000 });
+    const sessionId = a.activeSession!.id;
+    const at = startedAt + 1000;
+    const editar = repo.updateSolve.bind(repo);
+    repo.updateSolve = async (id, patch) => {
+      const data = { sessionId, event: '333', ms: 30000, penalty: null, at, scramble: 'R U', note: '', createdAt: at };
+      await repo.applyRemote([{ store: 'solves', id: 'do-outro', data, updatedAt: at, deletedAt: null, deletionStamp: at }], at);
+      await waitFor(() => expect(a.solves.some((x) => x.id === 'do-outro')).toBe(true));
+      return editar(id, patch);
+    };
+    await fireEvent.click(document.querySelector('[data-act="plus2"]') as HTMLButtonElement);
+    await waitFor(() => expect(announce.mock.calls.filter(([text]) => text.startsWith('Tempo final'))).toHaveLength(2), { timeout: 3000 });
+    await sleep(100);
+    expect(a.solves.find((x) => x.id !== 'do-outro')?.penalty).toBe('+2');
+    expect(screen.queryByText(/Temporada 2 completa/)).toBeNull();
+    expect(announce.mock.calls.filter(([text]) => text.includes('Temporada 2 completa'))).toEqual([]);
+    await waitFor(() => expect(a.profile.season.current.n).toBe(3)); // a temporada vira assim mesmo, em silêncio
+  });
+
   it('uma penalidade que fecha a temporada mostra o fim de temporada no coach e pisca a face de cima, como depois de um solve', async () => {
     const { a } = await seasonByPenalty();
     // A face de cima, vista a cada mudança: cheia na virada, vazia depois (a janela cheia é curta para conferir com um instante só).

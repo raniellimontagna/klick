@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { seasonOne } from '../../src/core/season';
-import type { SyncRequest, SyncResponse, SyncState } from '../../src/core/sync/types';
+import type { SyncRequest, SyncResponse } from '../../src/core/sync/types';
 import { openKlickDb } from '../../src/data/db';
 import { defaultSessionId } from '../../src/data/ids';
 import { createRepository, type Repository } from '../../src/data/repository';
 import { createBackup, decodeSnapshot } from '../../src/data/safety';
-import { ApiError, createSyncApi } from '../../src/sync/api';
+import { ApiError, createSyncApi, type Fetcher, HEALTH_TIMEOUT_MS, SYNC_TIMEOUT_MS } from '../../src/sync/api';
 import { createServerClock, createSyncEngine, MASS_DELETE, RETRY_MS, type EngineDeps, type SyncStatus } from '../../src/sync/engine';
 import { FakeServer } from './sync-fakes';
 
@@ -634,14 +634,14 @@ describe('primeiro login (spec 6.5)', () => {
     const ds = await desktop.createSession({ event: '333' });
     await desktop.addSolve(ns(ds.id, 4242));
     let busy = false;
-    // O repositório visto pelo motor: cada lote gravado (o cursor) liga o timer, como um solve que começa logo depois.
+    // O repositório visto pelo motor: cada lote juntado (com o cursor) liga o timer, como um solve que começa logo depois.
     const watched = new Proxy(desktop, {
       get(target, key) {
-        if (key === 'saveSyncState')
-          return async (patch: Partial<SyncState>) => {
-            const saved = await target.saveSyncState(patch);
-            if ('cursor' in patch) busy = true;
-            return saved;
+        if (key === 'applyRemote')
+          return async (...args: Parameters<Repository['applyRemote']>) => {
+            const joined = await target.applyRemote(...args);
+            if (args[3]) busy = true;
+            return joined;
           };
         const value = Reflect.get(target, key) as unknown;
         return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
@@ -805,6 +805,30 @@ describe('primeiro login (spec 6.5)', () => {
     expect(await desktop.listSolves()).toHaveLength(4);
   });
 
+  it('o stop() durante a cópia do primeiro login: a conta não entra, nada vai para a fila e nenhum pedido sai', async () => {
+    const desktop = await device(null);
+    const ds = await desktop.createSession({ event: '333' });
+    await desktop.addSolve(ns(ds.id, 4242));
+    const net = network(new FakeServer());
+    const copying = deferred();
+    const copied = deferred();
+    const { engine } = engineFor(desktop, net, {
+      backup: async () => {
+        copying.resolve();
+        await copied.promise;
+      },
+    });
+    const round = engine.firstLogin(ACCOUNT);
+    await copying.promise;
+    const stopped = engine.stop(); // saiu enquanto a cópia era feita
+    copied.resolve();
+    await stopped;
+    expect((await round).phase).toBe('off');
+    expect(await desktop.getSyncState()).toMatchObject({ accountId: null, signedIn: false });
+    expect(await desktop.outboxCount()).toBe(0);
+    expect(net.calls).toEqual([]);
+  });
+
   it('um primeiro login pedido enquanto o stop() espera não é esperado por ele', async () => {
     const desktop = await device(null);
     const net = network(new FakeServer());
@@ -857,6 +881,72 @@ describe('primeiro login (spec 6.5)', () => {
     expect(await desktop.listSessions({ includeDeleted: true })).toEqual([]);
     expect(await desktop.getSyncState()).toMatchObject({ accountId: null, cursor: 0 });
     expect(lines).toEqual(['sync: a conta mudou durante a rodada; a resposta foi descartada']);
+  });
+
+  it('o cursor é gravado na mesma transação que junta o lote: a conta que troca logo depois não recebe o cursor da anterior', async () => {
+    const server = new FakeServer();
+    const phone = await device();
+    const ps = await phone.createSession({ event: '333' });
+    await phone.addSolve(ns(ps.id, 1000));
+    await engineFor(phone, network(server)).engine.run();
+    const desktop = await device();
+    const real = desktop.applyRemote.bind(desktop);
+    let switched = false;
+    desktop.applyRemote = async (...args) => {
+      const result = await real(...args);
+      if (!switched) {
+        switched = true;
+        // A líder congelou aqui; enquanto isso, outra aba trocou de conta (o primeiro login da conta 2).
+        await desktop.beginFirstSync({ accountId: 'conta-2', email: 'b@c.d' });
+      }
+      return result;
+    };
+    const { engine } = engineFor(desktop, network(server), { schedule: () => () => undefined });
+    await engine.run();
+    expect(await desktop.getSyncState()).toMatchObject({ accountId: 'conta-2', firstSync: true, cursor: 0, lastSyncAt: null });
+  });
+
+  it('o stop() não espera o solve terminar: a rodada que espera o timer para ali, sem pedido', async () => {
+    const repo = await device();
+    const net = network(new FakeServer());
+    const { engine } = engineFor(repo, net, { busy: () => true, sleep: () => new Promise((r) => setTimeout(r, 1)) });
+    const round = engine.run();
+    await new Promise((r) => setTimeout(r, 5));
+    await engine.stop();
+    expect((await round).phase).toBe('off');
+    expect(net.calls).toHaveLength(0);
+  });
+
+  it('o stop() com a volta esperando o solve terminar: a volta não é juntada nem o cursor anda; a próxima rodada a recebe', async () => {
+    const server = new FakeServer();
+    const phone = await device();
+    const ps = await phone.createSession({ event: '333' });
+    await phone.addSolve(ns(ps.id, 1000));
+    await engineFor(phone, network(server)).engine.run();
+    const desktop = await device();
+    const net = network(server);
+    const real = net.api.sync;
+    let busy = false;
+    const answered = deferred();
+    net.api.sync = async (req) => {
+      const res = await real(req);
+      if (net.calls.length === 1) {
+        busy = true; // a primeira resposta chegou durante um solve
+        answered.resolve();
+      }
+      return res;
+    };
+    const { engine } = engineFor(desktop, net, { busy: () => busy, sleep: () => new Promise((r) => setTimeout(r, 1)) });
+    const round = engine.run();
+    await answered.promise;
+    await engine.stop();
+    expect((await round).phase).toBe('off');
+    expect(await desktop.listSolves()).toEqual([]);
+    expect((await desktop.getSyncState()).cursor).toBe(0);
+    busy = false;
+    engine.resume();
+    expect((await engine.run()).phase).toBe('idle');
+    expect(await desktop.listSolves()).toHaveLength(1);
   });
 
   it('a mesma conta que volta depois de sair não ganha cópia nem primeiro login: sobe o que mudou enquanto estava fora', async () => {
@@ -1018,6 +1108,27 @@ describe('cliente HTTP (spec 6.1)', () => {
     }
   });
 
+  it('um pedido que não responde desiste no prazo: /api/health vira null e o sync, sem rede (sair não fica preso)', async () => {
+    expect([HEALTH_TIMEOUT_MS, SYNC_TIMEOUT_MS]).toEqual([15_000, 60_000]);
+    const hang: Fetcher = (_url, init) =>
+      new Promise((_, reject) => init?.signal?.addEventListener('abort', () => reject(new DOMException('prazo', 'TimeoutError'))));
+    const api = createSyncApi(hang, '', { health: 20, sync: 20 });
+    expect(await api.health()).toBeNull();
+    await expect(api.sync({ v: 1, deviceId: 'd', cursor: 0, clock: 0, changes: [] })).rejects.toMatchObject({ kind: 'offline' });
+    // Os cabeçalhos chegaram e o corpo parou: o sync desiste também (erro do servidor, nova tentativa).
+    const stalledBody: Fetcher = async (_url, init) =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            init?.signal?.addEventListener('abort', () => controller.error(new DOMException('prazo', 'TimeoutError')));
+          },
+        }),
+      );
+    await expect(createSyncApi(stalledBody, '', { health: 20, sync: 20 }).sync({ v: 1, deviceId: 'd', cursor: 0, clock: 0, changes: [] })).rejects.toMatchObject({
+      kind: 'server',
+    });
+  });
+
   it('o pedido de sync vai como JSON, na mesma origem', async () => {
     const seen: { url: string; init?: RequestInit }[] = [];
     const api = createSyncApi(async (url, init) => {
@@ -1026,6 +1137,7 @@ describe('cliente HTTP (spec 6.1)', () => {
     });
     await api.sync({ v: 1, deviceId: 'd', cursor: 0, clock: 0, changes: [] });
     expect(seen[0].url).toBe('/api/sync');
+    expect(seen[0].init?.signal).toBeInstanceOf(AbortSignal); // com prazo
     expect(seen[0].init).toMatchObject({ method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' } });
   });
 });

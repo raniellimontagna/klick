@@ -4,7 +4,9 @@ import { openKlickDb } from '../../src/data/db';
 import { createRepository, type Repository } from '../../src/data/repository';
 import { T } from '../../src/strings';
 import { ApiError } from '../../src/sync/api';
+import type { SyncEngine } from '../../src/sync/engine';
 import type { LocksLike } from '../../src/sync/triggers';
+import type { AppState } from '../../src/ui/state/app.svelte';
 import { appWithAccount, bus, fakeApi, manualEnv } from './sync-account';
 import { FakeServer } from './sync-fakes';
 
@@ -24,6 +26,21 @@ function firstWins(): LocksLike {
   };
 }
 
+// Locks com fila, como os do navegador: quem pediu antes lidera; quando a líder solta (a aba fecha), a próxima da fila assume.
+function queueLocks(): LocksLike {
+  let held: Promise<unknown> = Promise.resolve();
+  return {
+    request(_name, callback) {
+      const turn = held.then(() => callback());
+      held = turn.catch(() => undefined);
+      return turn;
+    },
+  };
+}
+
+const ACCOUNT = { accountId: 'conta-1', email: 'ranielli@exemplo.com' };
+const engineOf = (app: AppState): SyncEngine => (app.account as unknown as { engine: SyncEngine }).engine;
+
 // Uma promessa que o teste resolve na hora que quer (um pedido que fica "na rede").
 function deferred() {
   let resolve!: () => void;
@@ -31,11 +48,18 @@ function deferred() {
   return { promise, resolve };
 }
 
-// Duas "abas": dois repositórios no mesmo banco, ligados pelo canal dos dados, como no navegador.
-async function twoTabRepos(): Promise<[Repository, Repository]> {
+// "Abas": repositórios no mesmo banco, ligados pelo canal dos dados, como no navegador.
+async function tabRepos(count: number): Promise<Repository[]> {
   const name = `abas-${++dbs}`;
   const data = bus();
-  return [createRepository(await openKlickDb(name), { channel: data() }), createRepository(await openKlickDb(name), { channel: data() })];
+  const repos: Repository[] = [];
+  for (let i = 0; i < count; i++) repos.push(createRepository(await openKlickDb(name), { channel: data() }));
+  return repos;
+}
+
+async function twoTabRepos(): Promise<[Repository, Repository]> {
+  const [a, b] = await tabRepos(2);
+  return [a, b];
 }
 
 const hasSolve = (server: FakeServer) => [...server.records.keys()].some((k) => k.startsWith('solves/'));
@@ -196,6 +220,11 @@ describe('a conta no app (spec 6.2 e 8.4)', () => {
     await sleep(10);
     expect(syncs).not.toHaveBeenCalled();
     app.timerBusy = false;
+    app.pendingInspect = true; // o espaço segurado antes da inspeção
+    env.fireDelayed();
+    await sleep(10);
+    expect(syncs).not.toHaveBeenCalled();
+    app.pendingInspect = false;
     env.fireDelayed();
     await round;
     expect(syncs).toHaveBeenCalled();
@@ -336,6 +365,209 @@ describe('uma aba só sincroniza (spec 6.2)', () => {
     const syncs = vi.spyOn(net.api, 'sync');
     await app.account!.syncNow();
     expect(syncs).not.toHaveBeenCalled();
+  });
+
+  it('voltar a ficar visível ou online numa aba que não lidera pede o sync à líder (spec 6.2)', async () => {
+    const server = new FakeServer();
+    const make = bus();
+    const locks = firstWins();
+    const net = fakeApi(server);
+    const env = manualEnv();
+    const first = await appWithAccount(net.api, { signedIn: true, locks, channel: make() });
+    const second = await appWithAccount(net.api, { signedIn: true, locks, channel: make(), repo: first.repo, env: env.env });
+    await vi.waitFor(() => expect(first.app.account!.status.phase).toBe('idle'));
+    const syncs = vi.spyOn(net.api, 'sync');
+    env.fire.visible();
+    await vi.waitFor(() => expect(syncs).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(first.app.account!.status.phase).toBe('idle'));
+    env.fire.online();
+    await vi.waitFor(() => expect(syncs).toHaveBeenCalledTimes(2));
+    expect(second.app.account!.leader).toBe(false);
+  });
+
+  it('a parada pedida a uma líder que não responde (suspensa) desiste no prazo, pelo relógio dos gatilhos', async () => {
+    const make = bus();
+    const locks = firstWins();
+    const net = fakeApi(new FakeServer());
+    const env = manualEnv();
+    const leaderChannel = make();
+    const first = await appWithAccount(net.api, { signedIn: true, locks, channel: leaderChannel });
+    const second = await appWithAccount(net.api, { signedIn: true, locks, channel: make(), repo: first.repo, env: env.env });
+    await vi.waitFor(() => expect(first.app.account!.status.phase).toBe('idle'));
+    make.mute(leaderChannel);
+    let stopped = false;
+    const stopping = second.app.account!.stopSync().then(() => {
+      stopped = true;
+    });
+    await sleep(10);
+    expect(stopped).toBe(false);
+    env.fireDelayed(); // passou o prazo
+    await stopping;
+  });
+
+  it('a parada pedida à líder que fecha sem responder: a aba que assume para o próprio motor e responde', async () => {
+    const make = bus();
+    const locks = queueLocks();
+    const net = fakeApi(new FakeServer());
+    const env = manualEnv();
+    const leaderChannel = make();
+    const [mine, other] = await twoTabRepos();
+    const first = await appWithAccount(net.api, { signedIn: true, locks, channel: leaderChannel, repo: mine });
+    const second = await appWithAccount(net.api, { locks, channel: make(), repo: other, env: env.env });
+    await vi.waitFor(() => expect(first.app.account!.leader).toBe(true));
+    make.mute(leaderChannel); // suspensa: não recebe o pedido
+    const stopping = second.app.account!.stopSync();
+    first.app.account!.stop(); // a aba da líder fecha
+    await stopping; // sem disparar o prazo (env.fireDelayed)
+    expect(second.app.account!.leader).toBe(true);
+    const syncs = vi.spyOn(net.api, 'sync');
+    await second.app.account!.syncNow();
+    expect(syncs).not.toHaveBeenCalled(); // parado
+  });
+
+  it('o primeiro login pedido a uma líder que some antes de atender não se perde: a aba que assume o faz (Task 14)', async () => {
+    const server = new FakeServer();
+    const make = bus();
+    const locks = queueLocks();
+    const net = fakeApi(server);
+    const leaderChannel = make();
+    const [mine, other] = await twoTabRepos();
+    const first = await appWithAccount(net.api, { locks, channel: leaderChannel, repo: mine });
+    const second = await appWithAccount(net.api, { locks, channel: make(), repo: other });
+    await vi.waitFor(() => expect(first.app.account!.leader).toBe(true));
+    await first.app.addSolve({ ms: 6_000, penalty: null, at: Date.now() });
+    make.mute(leaderChannel); // suspensa: o pedido se perde
+    await second.app.account!.firstLogin(ACCOUNT);
+    await sleep(10);
+    expect(second.app.account!.signedIn).toBe(false);
+    first.app.account!.stop(); // a aba da líder fecha
+    await vi.waitFor(() => expect(second.app.account!.leader).toBe(true));
+    await vi.waitFor(() => expect(hasSolve(server)).toBe(true));
+    await vi.waitFor(() => expect(second.app.account!.signedIn).toBe(true));
+  });
+
+  it('a volta da conta pedida a uma líder que some antes de atender não se perde (Task 15)', async () => {
+    const make = bus();
+    const locks = queueLocks();
+    const net = fakeApi(new FakeServer());
+    const leaderChannel = make();
+    const [mine, other] = await twoTabRepos();
+    const first = await appWithAccount(net.api, { signedIn: true, locks, channel: leaderChannel, repo: mine });
+    const second = await appWithAccount(net.api, { locks, channel: make(), repo: other });
+    await vi.waitFor(() => expect(first.app.account!.status.phase).toBe('idle'));
+    await second.app.account!.stopSync(); // saiu (a líder parou e respondeu)
+    make.mute(leaderChannel);
+    second.app.account!.resumeSync(); // entrou de novo, mas a líder está suspensa
+    const syncs = vi.spyOn(net.api, 'sync');
+    first.app.account!.stop();
+    await vi.waitFor(() => expect(second.app.account!.leader).toBe(true));
+    await vi.waitFor(() => expect(syncs).toHaveBeenCalled()); // a rodada de abrir da nova líder sai
+    await vi.waitFor(() => expect(second.app.account!.status.phase).toBe('idle'));
+  });
+
+  it('o primeiro login perdido pela líder que some é feito pela aba que assume, mesmo que não seja a que pediu (Task 14)', async () => {
+    const server = new FakeServer();
+    const make = bus();
+    const locks = queueLocks();
+    const net = fakeApi(server);
+    const leaderChannel = make();
+    const [a, b, c] = await tabRepos(3);
+    const first = await appWithAccount(net.api, { locks, channel: leaderChannel, repo: a });
+    const next = await appWithAccount(net.api, { locks, channel: make(), repo: b }); // a próxima da fila
+    const asking = await appWithAccount(net.api, { locks, channel: make(), repo: c });
+    await vi.waitFor(() => expect(first.app.account!.leader).toBe(true));
+    await first.app.addSolve({ ms: 6_000, penalty: null, at: Date.now() });
+    make.mute(leaderChannel); // suspensa: o pedido se perde
+    await asking.app.account!.firstLogin(ACCOUNT);
+    await sleep(10);
+    expect(asking.app.account!.signedIn).toBe(false);
+    first.app.account!.stop(); // a aba da líder fecha
+    await vi.waitFor(() => expect(next.app.account!.leader).toBe(true));
+    await vi.waitFor(() => expect(hasSolve(server)).toBe(true));
+    await vi.waitFor(() => expect(asking.app.account!.signedIn).toBe(true));
+    expect(asking.app.account!.leader).toBe(false);
+  });
+
+  it('sair depois de pedir o primeiro login desfaz o pedido em todas as abas: a que assume não entra na conta', async () => {
+    const server = new FakeServer();
+    const make = bus();
+    const locks = queueLocks();
+    const net = fakeApi(server);
+    const env = manualEnv();
+    const leaderChannel = make();
+    const [a, b, c] = await tabRepos(3);
+    const first = await appWithAccount(net.api, { locks, channel: leaderChannel, repo: a });
+    const next = await appWithAccount(net.api, { locks, channel: make(), repo: b });
+    const asking = await appWithAccount(net.api, { locks, channel: make(), repo: c, env: env.env });
+    await vi.waitFor(() => expect(first.app.account!.leader).toBe(true));
+    make.mute(leaderChannel);
+    await asking.app.account!.firstLogin(ACCOUNT);
+    const stopping = asking.app.account!.stopSync(); // saiu logo depois (a líder suspensa não responde)
+    first.app.account!.stop();
+    await vi.waitFor(() => expect(next.app.account!.leader).toBe(true));
+    await sleep(20);
+    env.fireDelayed(); // o prazo de parar
+    await stopping;
+    expect(await a.getSyncState()).toMatchObject({ accountId: null, signedIn: false });
+    expect(server.records.size).toBe(0);
+  });
+
+  it('a aba que parou o próprio motor ao sair e assume depois de outra aba entrar de novo sincroniza (Task 15)', async () => {
+    const make = bus();
+    const locks = queueLocks();
+    const net = fakeApi(new FakeServer());
+    const [a, b, c] = await tabRepos(3);
+    const first = await appWithAccount(net.api, { signedIn: true, locks, channel: make(), repo: a });
+    const second = await appWithAccount(net.api, { locks, channel: make(), repo: b }); // a próxima da fila
+    const third = await appWithAccount(net.api, { locks, channel: make(), repo: c });
+    await vi.waitFor(() => expect(first.app.account!.status.phase).toBe('idle'));
+    await second.app.account!.stopSync(); // saiu nesta aba: o motor dela e o da líder param
+    third.app.account!.resumeSync(); // a mesma conta entrou de novo pela terceira aba
+    await sleep(10);
+    first.app.account!.stop(); // a líder fecha
+    await vi.waitFor(() => expect(second.app.account!.leader).toBe(true));
+    const syncs = vi.spyOn(net.api, 'sync');
+    await second.app.account!.syncNow();
+    expect(syncs).toHaveBeenCalled();
+  });
+
+  it('a aba que assume faz o que foi pedido por último: parar e depois entrar de novo entra na conta', async () => {
+    const server = new FakeServer();
+    const make = bus();
+    const locks = queueLocks();
+    const net = fakeApi(server);
+    const env = manualEnv();
+    const leaderChannel = make();
+    const [mine, other] = await twoTabRepos();
+    const first = await appWithAccount(net.api, { locks, channel: leaderChannel, repo: mine });
+    const second = await appWithAccount(net.api, { locks, channel: make(), repo: other, env: env.env });
+    await vi.waitFor(() => expect(first.app.account!.leader).toBe(true));
+    await first.app.addSolve({ ms: 6_000, penalty: null, at: Date.now() });
+    make.mute(leaderChannel); // suspensa: não recebe nem a parada nem o login
+    const stopping = second.app.account!.stopSync();
+    await second.app.account!.firstLogin(ACCOUNT);
+    first.app.account!.stop(); // a aba da líder fecha
+    await stopping; // a aba que assume para o motor e responde, sem disparar o prazo
+    await vi.waitFor(() => expect(hasSolve(server)).toBe(true));
+    await vi.waitFor(() => expect(second.app.account!.signedIn).toBe(true));
+  });
+
+  it('o primeiro login que a líder já começou não é repetido pela aba que assume depois', async () => {
+    const server = new FakeServer();
+    const make = bus();
+    const locks = queueLocks();
+    const net = fakeApi(server);
+    const [mine, other] = await twoTabRepos();
+    const first = await appWithAccount(net.api, { locks, channel: make(), repo: mine });
+    const second = await appWithAccount(net.api, { locks, channel: make(), repo: other });
+    await vi.waitFor(() => expect(first.app.account!.leader).toBe(true));
+    const replays = vi.spyOn(engineOf(second.app), 'firstLogin');
+    await second.app.account!.firstLogin(ACCOUNT);
+    await vi.waitFor(() => expect(second.app.account!.signedIn).toBe(true)); // o aviso 'sync' do começo do primeiro login chegou
+    first.app.account!.stop();
+    await vi.waitFor(() => expect(second.app.account!.leader).toBe(true));
+    await sleep(10);
+    expect(replays).not.toHaveBeenCalled();
   });
 
   it('o primeiro login pedido numa aba que não lidera roda na líder', async () => {

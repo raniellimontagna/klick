@@ -81,7 +81,8 @@ export interface SyncEngine {
   firstLogin(account: Account): Promise<SyncStatus>;
   status(): SyncStatus;
   // Para o motor: cancela a nova tentativa agendada e o primeiro login que ainda não começou, e resolve quando o pedido em andamento voltou
-  // e foi juntado: a rodada para ali ('off', sem nova tentativa), e um primeiro sync em lotes continua depois, de onde parou. Depois disso
+  // e foi juntado: a rodada para ali ('off', sem nova tentativa), e um primeiro sync em lotes continua depois, de onde parou. Uma rodada que
+  // espera o timer (um solve, o treino) não o espera mais: para na hora, e uma volta que esperava o solve fica para a próxima. Depois disso
   // nenhuma rodada começa, nem pelos gatilhos, até resume() ou firstLogin(); um deles pedido durante a espera a encerra (a rodada dele não é
   // esperada). Sair da conta e apagar os dados (Task 15) espera o stop() antes de auth.signOut e de wipeData: senão a rodada em andamento,
   // que já confirmou a fila, juntaria a volta do servidor no banco recém-apagado, e o primeiro login seguinte, em qualquer conta, subiria
@@ -136,8 +137,19 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
     deps.onStatus?.(status);
   }
 
-  async function waitIdle(): Promise<void> {
-    while (deps.busy?.()) await sleep(BUSY_POLL_MS);
+  // Espera o timer parar (spec 6.2). Parado (stop) com o timer ainda ocupado, não espera mais e devolve false: sair da conta não fica preso
+  // a um solve (ou ao treino) que não acaba.
+  async function waitIdle(): Promise<boolean> {
+    while (deps.busy?.()) {
+      if (paused) return false;
+      await sleep(BUSY_POLL_MS);
+    }
+    return true;
+  }
+
+  // Antes de cada passo da rodada: espera o timer e, parado (stop), a rodada para ali, sem pedir nem gravar nada.
+  async function idle(): Promise<void> {
+    if (!(await waitIdle()) || paused) throw new Paused();
   }
 
   // A conta da rodada continua aqui, dentro? Senão, nada da volta pode ser gravado (nem a fila confirmada): o banco pode ter acabado de ser
@@ -153,9 +165,7 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
   // antes de juntar um lote que apaga MASS_DELETE solves daqui ou mais, contando a cascata (spec 6.6). `accountId` é a conta de quando a
   // rodada começou: um pedido não sai com o cursor de outra conta, e a volta só entra nela.
   async function exchange(push: boolean, accountId: string): Promise<{ more: boolean; sent: number; received: number }> {
-    if (paused) throw new Paused();
-    await waitIdle();
-    if (paused) throw new Paused(); // parou durante o solve
+    await idle();
     const [state, meta] = await Promise.all([deps.repo().getSyncState(), deps.repo().getMeta()]);
     if (!isAccount(state, accountId)) throw new AccountChangedError();
     const batch = push ? await deps.repo().outboxBatch(SYNC_BATCH) : { changes: [], sent: [], refused: 0, missing: 0 };
@@ -169,11 +179,15 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
     await deps.repo().confirmSent(batch.sent);
     refused += res.rejected.length;
     for (const r of res.rejected) log(`sync: o servidor recusou ${r.store}/${r.id} (${r.reason})`);
-    await waitIdle(); // a resposta chegou durante um solve: junta depois dele
+    // A resposta chegou durante um solve: junta depois dele. Parado sem solve, junta (o stop() espera o pedido em andamento voltar e ser
+    // juntado). Parado com a volta esperando o solve, não espera mais: a volta não é juntada nem o cursor anda (a próxima rodada a recebe de
+    // novo); o que subiu já saiu da fila, e o servidor o tem.
+    if (!(await waitIdle())) throw new Paused();
     if (hasDeletion(res.changes) && (await deps.repo().countRemoteDeletions(res.changes)) >= MASS_DELETE) await deps.backup();
     await sameAccount(accountId); // de novo: a espera e a cópia levam tempo
-    await deps.repo().applyRemote(res.changes, res.serverTime, accountId); // e o repositório confere dentro da transação (outra aba)
-    await deps.repo().saveSyncState({ cursor: res.cursor, lastSyncAt: now(), clock: res.serverTime });
+    // O repositório confere a conta dentro da transação (outra aba) e grava o cursor nela: juntar e andar o cursor acontecem juntos ou não.
+    // O relógio sobe até a hora do servidor ali também.
+    await deps.repo().applyRemote(res.changes, res.serverTime, accountId, { cursor: res.cursor, lastSyncAt: now() });
     return { more: res.more, sent: batch.sent.length, received: res.changes.length };
   }
 
@@ -185,7 +199,9 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
     const state = await deps.repo().getSyncState();
     if (state.accountId !== account.accountId) {
       await deps.backup();
-      await waitIdle(); // a transação que põe tudo na fila é grande: não cai num solve que começou durante a cópia
+      // A transação que põe tudo na fila é grande: não cai num solve que começou durante a cópia. Parado durante a cópia, o primeiro login não
+      // começa.
+      await idle();
       refused += await deps.repo().beginFirstSync(account);
     } else if (!state.signedIn || state.email !== account.email) {
       await deps.repo().saveSyncState({ signedIn: true, email: account.email });
@@ -194,7 +210,7 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
   }
 
   async function round(): Promise<void> {
-    await waitIdle();
+    await idle();
     if (login) await begin(login);
     const state = await deps.repo().getSyncState();
     if (!state.signedIn || state.accountId === null) {
@@ -212,7 +228,7 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
         set({ progress: { ...progress } });
         more = r.more;
       }
-      await waitIdle();
+      await idle();
       await deps.repo().dedupeFirstLogin(); // desliga firstSync na mesma transação
       progress.total = await deps.repo().outboxCount();
     }

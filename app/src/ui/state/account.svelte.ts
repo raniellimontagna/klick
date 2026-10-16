@@ -40,8 +40,9 @@ type Message =
   | { type: 'status'; status: SyncStatus } // o estado do motor da líder
   | { type: 'stop'; id: string } // sair numa aba que não lidera: a líder para o motor...
   | { type: 'stopped'; id: string } // ...e responde quando ele parou
-  | { type: 'resume' } // a mesma conta voltou
-  | { type: 'login'; account: Account }; // o primeiro login (ou a outra conta) pedido numa aba que não lidera
+  | { type: 'resume' } // a mesma conta voltou: todas as abas tiram o motor da parada...
+  | { type: 'resumed' } // ...e a líder responde que voltou a aceitar rodadas
+  | { type: 'login'; account: Account }; // o primeiro login (ou a outra conta) pedido numa aba que não lidera (a resposta é o aviso 'sync')
 
 // As mudanças que a fila de saída leva: uma gravação delas pede o sync 5 s depois da última ('meta' e 'sync' não sobem).
 const SYNCED_KINDS: readonly ChangeKind[] = ['solves', 'sessions', 'practice', 'profile', 'all'];
@@ -81,6 +82,13 @@ export class AccountState {
   private closed = false;
   private failing = false; // a região aria-live já disse que o sync parou: só volta a falar quando ele voltar
   private readonly waits = new Map<string, () => void>(); // as paradas pedidas à líder, à espera da resposta
+  // O primeiro login e a volta da conta pedidos à líder e ainda sem resposta. Se a líder some antes de atender (fechando, ou soltando o lock),
+  // o pedido não se perde: a aba que passa a liderar o refaz. O login fica em todas as abas que o viram passar (a que assume pode não ser a
+  // que pediu) até o estado gravado mostrar a conta, dentro (o aviso 'sync' do começo dele); a volta, nesta aba, até a líder responder
+  // 'resumed'. Sair (stopSync, ou o 'stop' de outra aba) desfaz os dois.
+  private pendingLogin: Account | null = null;
+  private pendingResume = false;
+  private unlisten: (() => void)[] = [];
 
   constructor(host: AccountHost, deps: AccountDeps) {
     this.host = host;
@@ -125,6 +133,11 @@ export class AccountState {
 
   private async begin(): Promise<void> {
     if (this.channel) this.channel.onmessage = (ev) => this.receive(ev.data);
+    // Voltar a ficar visível ou online vale em qualquer aba (spec 6.2): a que não lidera pede o sync à líder. A líder tem os próprios gatilhos.
+    const nudge = (): void => {
+      if (!this.leader && !this.closed) this.post({ type: 'now' });
+    };
+    this.unlisten = [this.env.onOnline(nudge), this.env.onVisible(nudge)];
     await this.refresh();
     await this.checkHealth();
     if (this.closed) return;
@@ -132,12 +145,22 @@ export class AccountState {
     this.release = acquireLeadership(this.deps.locks === undefined ? defaultLocks() : this.deps.locks, () => this.lead());
   }
 
+  // Esta aba passa a sincronizar. Antes dos gatilhos, refaz o que foi pedido à líder anterior e ela não atendeu, na ordem em que pode ter sido
+  // pedido: a parada antes (sair desfaz o login e a volta pedidos antes dela, então o que sobrou veio depois). Repetir é seguro: a parada de um
+  // motor parado não espera nada, a volta só tira o motor da parada, e o primeiro login de uma conta já gravada não recomeça nada.
   private lead(): void {
     if (this.closed) return;
     this.leader = true;
-    this.triggers = startTriggers(() => void this.tick(), this.env);
-    // Uma parada pedida à líder anterior, que fechou sem responder: esta aba é a líder agora, e o motor dela para.
+    // Uma parada pedida à líder anterior, que fechou sem responder: o motor desta aba para, e a espera termina.
     if (this.waits.size > 0) void this.engine.stop().then(() => [...this.waits.values()].forEach((done) => done()));
+    if (this.pendingResume) {
+      this.pendingResume = false;
+      this.engine.resume();
+    }
+    const login = this.pendingLogin;
+    this.pendingLogin = null;
+    if (login) void this.engine.firstLogin(login);
+    this.triggers = startTriggers(() => void this.tick(), this.env);
   }
 
   async checkHealth(): Promise<void> {
@@ -154,7 +177,10 @@ export class AccountState {
 
   async refresh(): Promise<void> {
     try {
-      this.sync = await this.host.repo().getSyncState();
+      const state = await this.host.repo().getSyncState();
+      this.sync = state;
+      // O primeiro login pedido à líder começou: a conta está gravada, dentro. Não precisa mais ser refeito.
+      if (this.pendingLogin && state.signedIn && state.accountId === this.pendingLogin.accountId) this.pendingLogin = null;
     } catch {
       // A conexão caiu (o AppState a reabre): o próximo aviso 'sync' relê.
     }
@@ -181,7 +207,7 @@ export class AccountState {
   }
 
   // O primeiro login (spec 6.5) ou juntar à outra conta (spec 7.6): roda na líder. A promessa resolve quando a rodada da líder terminou
-  // (nesta aba) ou quando o pedido saiu (nas outras: o estado chega pelo canal).
+  // (nesta aba) ou quando o pedido saiu (nas outras: o estado chega pelo canal). Se a líder some antes de começá-lo, a aba que assume o faz.
   async firstLogin(account: Account): Promise<void> {
     const plain = { accountId: account.accountId, email: account.email };
     if (this.leader || !this.channel) {
@@ -189,33 +215,39 @@ export class AccountState {
       return;
     }
     this.engine.resume(); // se esta aba liderar depois, o motor dela não fica parado
+    this.pendingLogin = plain;
     this.post({ type: 'login', account: plain });
   }
 
   // Para o sync em todas as abas antes de sair ou apagar os dados (Task 15, spec 7.7): na líder, espera o motor dela parar (o pedido em
-  // andamento voltar e ser juntado); nas outras, pede à líder pelo canal e espera a resposta, por no máximo STOP_WAIT_MS. O motor fica parado
-  // até resumeSync() ou firstLogin().
+  // andamento voltar e ser juntado; uma rodada que espera o timer para na hora); nas outras, pede à líder pelo canal e espera a resposta, por
+  // no máximo STOP_WAIT_MS (pelo relógio dos gatilhos). O motor fica parado até resumeSync() ou firstLogin().
   async stopSync(): Promise<void> {
+    this.pendingLogin = null; // sair vale por cima do que ainda esperava a líder
+    this.pendingResume = false;
     const own = this.engine.stop();
     if (this.leader || !this.channel) return own;
     await own; // o motor desta aba não tem rodada (ela não lidera): só fica parado, se ela liderar depois
     const id = newId(this.host.now());
     await new Promise<void>((resolve) => {
+      let cancel: () => void = () => undefined;
       const done = (): void => {
-        clearTimeout(timer);
+        cancel();
         this.waits.delete(id);
         resolve();
       };
-      const timer = setTimeout(done, STOP_WAIT_MS);
       this.waits.set(id, done);
+      cancel = this.env.schedule(done, STOP_WAIT_MS);
       this.post({ type: 'stop', id });
     });
   }
 
-  // A mesma conta voltou (Task 15): o motor volta a aceitar rodadas, nesta aba e na líder.
+  // A mesma conta voltou (Task 15): o motor volta a aceitar rodadas, nesta aba, na líder e nas outras (uma delas pode liderar depois).
   resumeSync(): void {
     this.engine.resume();
-    if (!this.leader) this.post({ type: 'resume' });
+    if (this.leader) return;
+    this.pendingResume = true;
+    this.post({ type: 'resume' });
   }
 
   // A aba fecha (ou o AppState é trocado): solta o lock, para os gatilhos e o motor.
@@ -227,6 +259,8 @@ export class AccountState {
     this.release?.();
     this.release = null;
     this.leader = false;
+    for (const off of this.unlisten) off();
+    this.unlisten = [];
     for (const done of [...this.waits.values()]) done();
     if (this.channel) this.channel.onmessage = null;
     if (this.ownsChannel) this.channel?.close?.();
@@ -284,6 +318,9 @@ export class AccountState {
         if (!this.leader && isStatus(m.status)) this.show(m.status);
         break;
       case 'stop':
+        // Sair, numa aba: o que ainda esperava a líder fica para trás em todas.
+        this.pendingLogin = null;
+        this.pendingResume = false;
         if (this.leader && typeof m.id === 'string') {
           const id = m.id;
           void this.engine.stop().then(() => this.post({ type: 'stopped', id }));
@@ -293,10 +330,22 @@ export class AccountState {
         if (typeof m.id === 'string') this.waits.get(m.id)?.();
         break;
       case 'resume':
-        if (this.leader) this.engine.resume();
+        // Também nas abas que não lideram: uma delas pode ter parado o próprio motor ao sair, e liderar depois.
+        this.engine.resume();
+        if (this.leader) this.post({ type: 'resumed' });
+        break;
+      case 'resumed':
+        this.pendingResume = false;
         break;
       case 'login':
-        if (this.leader && isAccount(m.account)) void this.engine.firstLogin({ accountId: m.account.accountId, email: m.account.email });
+        if (!isAccount(m.account)) break;
+        if (this.leader) void this.engine.firstLogin({ accountId: m.account.accountId, email: m.account.email });
+        else {
+          // Fica até o estado mostrar a conta: se a líder some antes de atender e esta aba assume, ela o faz. O motor daqui sai da parada,
+          // como o da aba que pediu.
+          this.engine.resume();
+          this.pendingLogin = { accountId: m.account.accountId, email: m.account.email };
+        }
         break;
     }
   }
