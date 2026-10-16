@@ -2,6 +2,8 @@
 import type { Env } from './env';
 import { defaultDeps, handle } from './router';
 
+export { AccountStore } from './account-store';
+
 export default {
   fetch(request, env, ctx) {
     return handle(request, env, ctx, defaultDeps(env));

@@ -8,12 +8,17 @@ import { handle, type Deps } from '../../worker/router';
 export const ORIGIN = 'https://beta.klick.ranimontagna.com';
 export const T0 = 1_791_500_000_000;
 
+// O limite de rajada sempre deixa passar nos testes (o binding do Miniflare conta de verdade); os testes de limite passam o deles.
+export const allow: RateLimit = { limit: async () => ({ success: true }) };
+
 export function testEnv(over: Partial<Env> = {}): Env {
-  return { ...(env as unknown as Env), ACCOUNTS_ENABLED: 'true', ...over };
+  return { ...(env as unknown as Env), ACCOUNTS_ENABLED: 'true', API_BURST: allow, ...over };
 }
 
-export function testDeps(over: Partial<Deps> = {}): Deps {
-  return { now: () => T0, ...over };
+// `user`: quem tem sessão neste pedido (sem login de verdade, etapa 3); null, ninguém.
+export function testDeps(over: Partial<Deps> & { user?: string | null } = {}): Deps {
+  const { user = null, ...rest } = over;
+  return { now: () => T0, resolveUser: async () => (user ? { id: user, email: `${user}@exemplo.com` } : null), ...rest };
 }
 
 export async function call(path: string, init: RequestInit = {}, o: { env?: Env; deps?: Deps } = {}): Promise<Response> {

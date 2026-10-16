@@ -15,6 +15,10 @@
   "observability": { "enabled": true },
   "routes": [{ "pattern": "beta.klick.ranimontagna.com", "custom_domain": true }],
   "assets": { "directory": "./dist", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": ["/api/*"] },
+  // Um Durable Object com SQLite por conta (spec 8.2). As migrações valem para os dois ambientes; cada um tem o próprio namespace.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["AccountStore"] }],
+  "durable_objects": { "bindings": [{ "name": "ACCOUNT", "class_name": "AccountStore" }] },
+  "ratelimits": [{ "name": "API_BURST", "namespace_id": "1101", "simple": { "limit": 120, "period": 60 } }],
   "vars": {
     "ACCOUNTS_ENABLED": "false",
     "APP_ORIGIN": "https://beta.klick.ranimontagna.com",
@@ -27,6 +31,8 @@
       "workers_dev": false,
       "routes": [{ "pattern": "klick.ranimontagna.com", "custom_domain": true }],
       "assets": { "directory": "./dist", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": ["/api/*"] },
+      "durable_objects": { "bindings": [{ "name": "ACCOUNT", "class_name": "AccountStore" }] },
+      "ratelimits": [{ "name": "API_BURST", "namespace_id": "2101", "simple": { "limit": 120, "period": 60 } }],
       "vars": {
         "ACCOUNTS_ENABLED": "false",
         "APP_ORIGIN": "https://klick.ranimontagna.com",
