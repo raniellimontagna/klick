@@ -18,5 +18,7 @@
     "moduleDetection": "force",
     "strict": true
   },
-  "include": ["src/**/*.ts", "src/**/*.js", "src/**/*.svelte", "tests/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.js", "src/**/*.svelte", "tests/**/*.ts"],
+  // Os testes do Worker rodam no workerd, com os tipos dele (tests/worker/tsconfig.json).
+  "exclude": ["tests/worker"]
 }

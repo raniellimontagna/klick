@@ -1,0 +1,17 @@
+{
+  // O Worker e o núcleo que ele importa (src/core), sem os tipos do navegador: só os do runtime da Cloudflare.
+  // src/core/sync entra já (e, pelos imports, o que ele usa: core/season, core/stats, core/events, core/trail/cases, src/strings):
+  // se algo ali passar a depender do navegador, o `pnpm check` acusa antes de o Worker importar.
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["es2023"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "types": ["@cloudflare/workers-types"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "isolatedModules": true
+  },
+  "include": ["./**/*.ts", "../src/core/sync/**/*.ts"]
+}

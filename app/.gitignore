@@ -12,8 +12,10 @@ dist
 dist-ssr
 *.local
 
-# Klick: cubing.js empacotado (gerado), relatórios do Playwright, build
+# Klick: cubing.js empacotado (gerado), relatórios do Playwright, build, o estado local do wrangler e os segredos locais
 public/vendor/
+.wrangler/
+.dev.vars*
 test-results/
 playwright-report/
 dist/

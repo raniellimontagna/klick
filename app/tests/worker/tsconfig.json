@@ -1,0 +1,15 @@
+{
+  // Os testes do Worker rodam dentro do workerd (vitest.worker.config.ts): os tipos do runtime e os de cloudflare:test.
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["es2023"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "types": ["@cloudflare/workers-types", "@cloudflare/vitest-plugin/types"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "isolatedModules": true
+  },
+  "include": ["./**/*.ts", "../../worker/**/*.ts"]
+}
