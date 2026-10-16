@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { Practice, Profile } from '../../src/core/types';
-import { DB_VERSION, openKlickDb } from '../../src/data/db';
+import type { DeviceProfile } from '../../src/core/sync/types';
+import type { Meta, Practice } from '../../src/core/types';
+import { DB_VERSION, openKlickDb, type StoredSession, type StoredSolve } from '../../src/data/db';
 import { createRepository, type ChangeKind, type KlickExport, type Repository } from '../../src/data/repository';
 import { createBackup, restoreBackup } from '../../src/data/safety';
 import { parseKlickJson, toKlickJson } from '../../src/data/transfer';
@@ -18,37 +19,34 @@ const pr = (o: Partial<Practice> = {}): Practice => ({
 });
 
 describe('banco versão 2: a migração cria o treino e não mexe no resto (spec 9.1)', () => {
-  it('um banco da versão 1 com solves, sessão, perfil e meta abre na 2 com tudo igual e o treino vazio', async () => {
+  // Gravado direto no banco da versão 1, como a versão daquela época gravava: o repositório de hoje só abre a versão atual.
+  it('um banco da versão 1 com solves, sessão, perfil e meta abre na versão atual com tudo igual e o treino vazio', async () => {
     const db = name();
-    const v1 = createRepository(await openKlickDb(db, {}, 1), { now, channel: null });
-    const session = await v1.createSession({ event: '333' });
-    const solve = await v1.addSolve({ sessionId: session.id, event: '333', ms: 61_000, penalty: null, at: t, scramble: "R U R'" });
-    await v1.saveProfile({ trail: [true, true, false, false, false, false, false, false, false], finish: 'fosco', currentSessionId: session.id });
-    const meta = await v1.saveMeta({ solvesSinceBackup: 7 });
+    const v1 = await openKlickDb(db, {}, 1);
+    const session = { id: 's1', name: 'Sessão 1', event: '333', order: 0, createdAt: t, updatedAt: t, deletedAt: null } as const;
+    const solve = { id: 'x1', sessionId: 's1', event: '333', ms: 61_000, penalty: null, at: t, scramble: "R U R'", note: '', createdAt: t, updatedAt: t, deletedAt: null } as const;
+    await v1.put('sessions', session as unknown as StoredSession);
+    await v1.put('solves', solve as unknown as StoredSolve);
+    const settings = (await createRepository(await openKlickDb(name()), { channel: null }).getProfile()).settings;
+    const old = { settings, trail: [true, true, false, false, false, false, false, false, false], finish: 'fosco', onboarded: true, currentSessionId: 's1' };
+    await v1.put('profile', old as unknown as DeviceProfile, 'current');
+    await v1.put('meta', { schemaVersion: 1, deviceId: 'd1', solvesSinceBackup: 7 } as Meta, 'current');
     v1.close();
 
     const handle = await openKlickDb(db);
     expect(handle.version).toBe(DB_VERSION);
-    expect([...handle.objectStoreNames].sort()).toEqual(['backups', 'meta', 'practice', 'profile', 'sessions', 'solves']);
-    const v2 = createRepository(handle, { now, channel: null });
-    expect(await v2.listSolves()).toEqual([solve]);
-    expect(await v2.listSessions()).toEqual([session]);
-    const profile = await v2.getProfile();
+    expect([...handle.objectStoreNames].sort()).toEqual(['backups', 'meta', 'outbox', 'practice', 'prefs', 'profile', 'sessions', 'solves']);
+    const repo = createRepository(handle, { now, channel: null });
+    expect(await repo.listSolves()).toEqual([solve]);
+    expect(await repo.listSessions()).toEqual([session]);
+    const profile = await repo.getProfile();
     expect(profile.trail.slice(0, 3)).toEqual([true, true, false]);
-    expect(profile.currentSessionId).toBe(session.id);
-    expect((await v2.getMeta()).solvesSinceBackup).toBe(meta.solvesSinceBackup);
-    expect(await v2.listPractice()).toEqual([]);
-    v2.close();
-  });
-
-  it('perfil e meta gravados antes do treino leem os padrões novos: {}, {}, [] e o aviso não dispensado', async () => {
-    const db = await openKlickDb(name());
-    const old = { settings: (await createRepository(db, { channel: null }).getProfile()).settings, trail: Array<boolean>(9).fill(false), finish: 'fosco', onboarded: true, currentSessionId: null };
-    await db.put('profile', old as unknown as Profile, 'current');
-    const repo = createRepository(db, { now, channel: null });
-    const p = await repo.getProfile();
-    expect([p.lessonAt, p.algChoice, p.trainOff]).toEqual([{}, {}, []]);
+    expect(profile.currentSessionId).toBe('s1');
+    expect([profile.lessonAt, profile.algChoice, profile.trainOff]).toEqual([{}, {}, []]);
+    expect((await repo.getMeta()).solvesSinceBackup).toBe(7);
     expect((await repo.getMeta()).trailPromptDismissed).toBe(false);
+    expect(await repo.listPractice()).toEqual([]);
+    repo.close();
   });
 });
 

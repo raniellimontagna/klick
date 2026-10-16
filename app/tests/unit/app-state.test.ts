@@ -849,8 +849,9 @@ describe('estado do app: fix round 1 (brief 9b)', () => {
       const adding = app.addSolve(newSolve(61_000));
       let done = false;
       void adding.then(() => { done = true; });
-      // O banco de teste também anda no relógio falso: avança em passos, bem além dos 8 s do prazo da contagem.
-      for (let i = 0; i < 20 && !done; i++) await vi.advanceTimersByTimeAsync(2_500);
+      // O banco de teste também anda no relógio falso: avança em passos curtos (a gravação do solve, com o relógio do sync e a fila de
+      // saída na mesma transação, leva várias voltas e não pode passar dos 8 s do prazo dela), até bem além dos 8 s do prazo da contagem.
+      for (let i = 0; i < 200 && !done; i++) await vi.advanceTimersByTimeAsync(250);
       expect(done).toBe(true);
       expect((await adding)?.ms).toBe(61_000);
       expect(app.solves.map((x) => x.ms)).toEqual([61_000]);

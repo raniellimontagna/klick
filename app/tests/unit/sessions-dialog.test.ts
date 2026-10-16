@@ -86,7 +86,7 @@ describe('diálogo de sessões', () => {
     render(SessionsDialog, { app: a, open: true });
     await fireEvent.click(await screen.findByRole('button', { name: /^Excluir Descartável/ }));
     await vi.waitFor(async () => expect((await repo.listTrash()).sessions.map((s) => s.id)).toContain(id), { timeout: 3000 });
-    expect(screen.queryByRole('button', { name: /^Descartável/ })).toBeNull();
+    await vi.waitFor(() => expect(screen.queryByRole('button', { name: /^Descartável/ })).toBeNull());
   });
 
   it('clicar no respiro não fecha; clicar no fundo fecha e libera app.dialog', async () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { SeasonTracker } from '../../src/core/season';
 import type { SeasonState, Session, Solve } from '../../src/core/types';
-import { openKlickDb } from '../../src/data/db';
+import { openKlickDb, type StoredSolve } from '../../src/data/db';
 import { createRepository, type KlickExport, type Repository } from '../../src/data/repository';
 import { createScrambleQueue } from '../../src/scramble/queue';
 import { T } from '../../src/strings';
@@ -166,7 +166,7 @@ describe('temporada no AppState', () => {
     // Gravado direto no banco, sem a validação do repositório: um solve de "fto" de uma versão mais nova, depois de voltar a esta.
     const db = await openKlickDb(name);
     const at = END - 10 * DAY + 50 * 60000 + 1;
-    await db.put('solves', { id: 'alien', sessionId: 'hs', event: 'fto', ms: 1000, penalty: null, at, scramble: '', note: '', createdAt: at, updatedAt: at, deletedAt: null } as unknown as Solve);
+    await db.put('solves', { id: 'alien', sessionId: 'hs', event: 'fto', ms: 1000, penalty: null, at, scramble: '', note: '', createdAt: at, updatedAt: at, deletedAt: null, deletionStamp: at } as unknown as StoredSolve);
     db.close();
     const a = make(repo);
     await a.init();

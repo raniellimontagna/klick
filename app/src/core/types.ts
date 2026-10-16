@@ -127,6 +127,23 @@ export interface Meta {
   trailPromptDismissed: boolean; // o aviso "Já resolve? Marque o que já sabe" foi dispensado neste aparelho
 }
 
+// Alteração do perfil. Os ajustes (e o grupo de sons) podem vir parciais: o repositório junta com o que está gravado dentro
+// da própria transação, e duas abas que mudam ajustes diferentes não desfazem uma à outra.
+export type ProfilePatch = Omit<Partial<Profile>, 'settings'> & {
+  settings?: Partial<Omit<Settings, 'sound'>> & { sound?: Partial<Settings['sound']> };
+};
+
+// O arquivo do Klick (exportar, importar, cópias). Mora aqui, e não no repositório, porque o Worker também o escreve (as cópias diárias).
+export interface KlickExport {
+  format: 'klick';
+  version: 1;
+  exportedAt: number;
+  sessions: Session[];
+  solves: Solve[];
+  profile: ProfilePatch | null; // o export sai completo; o que vem de um arquivo pode faltar campo (quem grava junta com o perfil daqui)
+  practice?: Practice[]; // o treino (spec do sub-projeto 4, seção 9.3); um arquivo de antes do treino não tem
+}
+
 // Congelado por inteiro, inclusive o grupo de sons: quem precisar alterar trabalha numa cópia (defaultSettings).
 export const DEFAULT_SETTINGS: Settings = Object.freeze({
   inspection: true,

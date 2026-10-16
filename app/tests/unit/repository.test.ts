@@ -2,7 +2,8 @@ import type { IDBPDatabase } from 'idb';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defaultSeason } from '../../src/core/season';
 import { DEFAULT_SETTINGS } from '../../src/core/types';
-import type { FinishId, Profile, SeasonProgress, SeasonRecord, SeasonState } from '../../src/core/types';
+import type { FinishId, SeasonProgress, SeasonRecord, SeasonState } from '../../src/core/types';
+import type { DeviceProfile } from '../../src/core/sync/types';
 import { openKlickDb, type KlickDB } from '../../src/data/db';
 import { createRepository, createSender, type ChannelLike, type KlickExport, type Repository } from '../../src/data/repository';
 
@@ -61,7 +62,8 @@ describe('repositório', () => {
     await repo.addSolve(ns(s.id, 58000, 1000));
     const list = await repo.listSolves({ sessionId: s.id });
     expect(list.map((x) => x.ms)).toEqual([58000, 60000]);
-    expect(list[0]).toMatchObject({ note: '', penalty: null, deletedAt: null, createdAt: t, updatedAt: t });
+    // As datas vêm do relógio do app (spec 5.4): com o tempo parado do teste, cada gravação sobe 1 ms.
+    expect(list[0]).toMatchObject({ note: '', penalty: null, deletedAt: null, createdAt: t + 2, updatedAt: t + 2 });
     expect((await repo.listSolves({ event: '333' })).length).toBe(2);
     expect((await repo.listSolves({ event: '222' })).length).toBe(0);
   });
@@ -892,7 +894,7 @@ describe('repositório: sessões, solves e lixeira', () => {
     const s = await repo.createSession({ event: '333' });
     const a = await repo.addSolve(ns(s.id, 60000, 1000));
     await repo.deleteSolve(a.id);
-    const firstAt = t;
+    const firstAt = (await repo.listTrash()).solves[0].deletedAt;
     t += 5000;
     await repo.deleteSolve(a.id);
     expect((await repo.listTrash()).solves[0].deletedAt).toBe(firstAt);
@@ -1113,9 +1115,8 @@ describe('repositório: sessões, solves e lixeira', () => {
     const day = 86_400_000;
     const s = await repo.createSession({ event: '333' });
     const a = await repo.addSolve(ns(s.id, 60000, 1000));
-    await repo.deleteSolve(a.id);
     await repo.deleteSession(s.id); // o solve e a sessão com a mesma marca de exclusão
-    t += 30 * day; // exatamente 30 dias depois
+    t = (await repo.listTrash()).sessions[0].deletedAt! + 30 * day; // exatamente 30 dias depois
     expect(await repo.purgeTrash(30 * day)).toBe(0);
     const trash = await repo.listTrash();
     expect(trash.solves.map((x) => x.id)).toEqual([a.id]);
@@ -1650,9 +1651,13 @@ describe('temporadas no perfil', () => {
 
   it('perfil novo e perfil antigo, sem temporada, começam na T1', async () => {
     expect((await repo.getProfile()).season).toEqual(defaultSeason());
-    const db = await openKlickDb(`klick-test-${++dbn}`);
+    // O perfil antigo só existe antes da versão 3: gravado na versão 2, ele passa pela migração.
+    const name = `klick-test-${++dbn}`;
+    const v2 = await openKlickDb(name, {}, 2);
     const old = { settings: { ...DEFAULT_SETTINGS, sound: { ...DEFAULT_SETTINGS.sound } }, trail: Array<boolean>(9).fill(false), finish: 'fosco', onboarded: true, currentSessionId: null };
-    await db.put('profile', old as unknown as Profile, 'current');
+    await v2.put('profile', old as unknown as DeviceProfile, 'current');
+    v2.close();
+    const db = await openKlickDb(name);
     const p = await createRepository(db, { now, channel: null }).getProfile();
     expect(p.season).toEqual(defaultSeason());
     expect(p.onboarded).toBe(true);

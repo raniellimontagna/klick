@@ -78,7 +78,7 @@
       {#each backups as b (b.id)}
         {@const when = `${dateLabel(b.createdAt)}, ${timeOfDay(b.createdAt)}`}
         <li class="setting">
-          <span>{T.backupsDialog.reason[b.reason]}<small>{when} · {T.backupsDialog.solves(b.solveCount)}</small></span>
+          <span>{b.label ? T.backupsDialog.label[b.label] : T.backupsDialog.reason[b.reason]}<small>{when} · {T.backupsDialog.solves(b.solveCount)}</small></span>
           <button
             type="button"
             class="btn{asking === b.id ? ' danger' : ''}"

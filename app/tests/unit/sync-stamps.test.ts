@@ -1,0 +1,178 @@
+import { describe, expect, it } from 'vitest';
+import { prefToChange, toChange } from '../../src/core/sync/records';
+import { checkChange } from '../../src/core/sync/shape';
+import type { Practice, Profile, Session, Solve } from '../../src/core/types';
+import { defaultSettings } from '../../src/core/types';
+import { defaultSeason } from '../../src/core/season';
+import { openKlickDb, type StoredPractice, type StoredSession, type StoredSolve } from '../../src/data/db';
+import { createRepository } from '../../src/data/repository';
+
+let n = 0;
+let t = 1_791_500_000_000;
+const now = () => t;
+
+async function fresh() {
+  const db = await openKlickDb(`stamps-${++n}`);
+  return { db, repo: createRepository(db, { now, channel: null }) };
+}
+
+const solveIn = (sessionId: string) => ({ sessionId, event: '333' as const, ms: 30_000, penalty: null, at: t, scramble: 'R U' });
+
+describe('editar não mexe no deletionStamp; apagar e restaurar mexem nele e em updatedAt (spec 6.3, regra 2; decisão 10)', () => {
+  it('a nota de um solve apagado muda só updatedAt: o deletionStamp e a marca de exclusão ficam', async () => {
+    const { db, repo } = await fresh();
+    const s = await repo.createSession({ event: '333' });
+    const a = await repo.addSolve(solveIn(s.id));
+    t += 1000;
+    await repo.deleteSolve(a.id);
+    const deleted = (await db.get('solves', a.id))!;
+    expect(deleted.deletionStamp).toBe(t);
+    expect(deleted.updatedAt).toBe(t);
+    t += 1000;
+    await repo.updateSolve(a.id, { note: 'boa', penalty: '+2' });
+    const edited = (await db.get('solves', a.id))!;
+    expect(edited).toMatchObject({ note: 'boa', penalty: '+2', updatedAt: t, deletedAt: deleted.deletedAt, deletionStamp: deleted.deletionStamp });
+    t += 1000;
+    await repo.restoreSolve(a.id);
+    expect(await db.get('solves', a.id)).toMatchObject({ deletedAt: null, updatedAt: t, deletionStamp: t });
+  });
+
+  it('renomear uma sessão e corrigir uma tentativa mudam só updatedAt', async () => {
+    const { db, repo } = await fresh();
+    const s = await repo.createSession({ event: '333' });
+    const p = await repo.addPractice({ id: 'p1', caseId: 'oll2-sune', ms: 2500, ok: true, helped: false, at: t });
+    const born = { session: (await db.get('sessions', s.id))!.deletionStamp, practice: (await db.get('practice', 'p1'))!.deletionStamp };
+    t += 1000;
+    await repo.renameSession(s.id, 'Outra');
+    await repo.updatePractice(p.id, { ok: false });
+    expect(await db.get('sessions', s.id)).toMatchObject({ name: 'Outra', updatedAt: t, deletionStamp: born.session });
+    expect(await db.get('practice', 'p1')).toMatchObject({ ok: false, updatedAt: t + 1, deletionStamp: born.practice });
+  });
+
+  it('apagar uma sessão leva a data aos solves dela; restaurar devolve com uma data nova', async () => {
+    const { db, repo } = await fresh();
+    const s = await repo.createSession({ event: '333' });
+    const a = await repo.addSolve(solveIn(s.id));
+    t += 1000;
+    await repo.deleteSession(s.id);
+    expect(await db.get('sessions', s.id)).toMatchObject({ deletedAt: t, updatedAt: t, deletionStamp: t });
+    expect(await db.get('solves', a.id)).toMatchObject({ deletedAt: t, updatedAt: t, deletionStamp: t });
+    t += 1000;
+    await repo.restoreSession(s.id);
+    expect(await db.get('sessions', s.id)).toMatchObject({ deletedAt: null, deletionStamp: t });
+    expect(await db.get('solves', a.id)).toMatchObject({ deletedAt: null, deletionStamp: t });
+  });
+
+  it('importar um solve que já existe: o deletionStamp daqui fica se a exclusão não muda; muda para o updatedAt do arquivo se muda', async () => {
+    const { db, repo } = await fresh();
+    const s = await repo.createSession({ event: '333' });
+    const a = await repo.addSolve(solveIn(s.id));
+    const b = await repo.addSolve(solveIn(s.id));
+    const stampA = (await db.get('solves', a.id))!.deletionStamp;
+    const file = await repo.exportAll();
+    const later = t + 50_000;
+    await repo.importAll({
+      ...file,
+      solves: file.solves.map((x) => (x.id === a.id ? { ...x, note: 'do arquivo', updatedAt: later } : { ...x, deletedAt: later, updatedAt: later })),
+    });
+    expect(await db.get('solves', a.id)).toMatchObject({ note: 'do arquivo', deletionStamp: stampA });
+    expect(await db.get('solves', b.id)).toMatchObject({ deletedAt: later, deletionStamp: later });
+  });
+});
+
+describe('apagar uma tentativa vira marca de exclusão (spec 5.1)', () => {
+  it('some da lista e do export, fica no banco com a data, e importar o arquivo antigo não a traz de volta', async () => {
+    const { db, repo } = await fresh();
+    const kept = await repo.addPractice({ id: 'p1', caseId: 'oll2-sune', ms: 2500, ok: true, helped: false, at: t });
+    await repo.addPractice({ id: 'p2', caseId: 'oll2-sune', ms: 2600, ok: true, helped: false, at: t + 1 });
+    const before = await repo.exportAll();
+    t += 1000;
+    await repo.deletePractice('p2');
+    expect(await db.get('practice', 'p2')).toMatchObject({ deletedAt: t, updatedAt: t, deletionStamp: t });
+    expect(await repo.listPractice()).toEqual([kept]);
+    expect((await repo.exportAll()).practice).toEqual([kept]);
+    await repo.importAll(before);
+    expect(await repo.listPractice()).toEqual([kept]);
+    await expect(repo.updatePractice('p2', { ok: false })).rejects.toThrow('p2');
+  });
+});
+
+describe('as datas que a migração grava são inteiros seguros >= 0 (shape.ts), mesmo de um registro com data quebrada', () => {
+  it('uma data com fração vira o inteiro de baixo; uma negativa vira 0; os campos do registro ficam como estavam', async () => {
+    const name = `stamps-${++n}`;
+    const v2 = await openKlickDb(name, {}, 2);
+    const session: Session = { id: 'neg', name: 'Antes de 1970', event: '333', order: 0, createdAt: -86_400_000, updatedAt: 5, deletedAt: null };
+    const solves: Solve[] = [
+      { id: 'frac', sessionId: 'neg', event: '333', ms: 30_000, penalty: null, at: 10.5, scramble: 'R', note: '', createdAt: 1_500.75, updatedAt: 2_000, deletedAt: null },
+      { id: 'gone', sessionId: 'neg', event: '333', ms: 31_000, penalty: null, at: 11, scramble: 'R', note: '', createdAt: 11, updatedAt: 3_000, deletedAt: 2_999.9 },
+    ];
+    const practice: Practice[] = [
+      { id: 'pf', caseId: 'oll2-sune', ms: 2500, ok: true, helped: false, at: 4_000.25 },
+      { id: 'pn', caseId: 'oll2-sune', ms: 2500, ok: true, helped: false, at: -7 },
+    ];
+    await v2.put('sessions', session as never);
+    for (const s of solves) await v2.put('solves', s as never);
+    for (const p of practice) await v2.put('practice', p as never);
+    v2.close();
+
+    const db = await openKlickDb(name, {}, 3, () => 1_791_500_000_000.9);
+    const storedSession = (await db.get('sessions', 'neg')) as StoredSession;
+    const storedSolves = (await db.getAll('solves')) as StoredSolve[];
+    const storedPractice = (await db.getAll('practice')) as StoredPractice[];
+    expect(storedSession.deletionStamp).toBe(0);
+    expect(storedSolves.map((s) => [s.id, s.deletionStamp])).toEqual([['frac', 1_500], ['gone', 2_999]]);
+    expect(storedPractice.map((p) => [p.id, p.updatedAt, p.deletionStamp])).toEqual([['pf', 4_000, 4_000], ['pn', 0, 0]]);
+    // O registro em si não muda: a tela lê o mesmo de antes.
+    const repo = createRepository(db, { now, channel: null });
+    expect(await repo.listSolves({ includeDeleted: true })).toEqual(solves);
+    expect(await repo.listPractice()).toEqual([practice[1], practice[0]]);
+    // Com os campos do próprio registro dentro da faixa, o servidor aceita o que a migração gravou. ('gone' tem o próprio deletedAt com
+    // fração: esse campo é do registro, e a migração não o reescreve.)
+    for (const p of storedPractice) expect(checkChange(toChange('practice', p)), p.id).toMatchObject({ ok: true });
+    expect(checkChange(toChange('solves', storedSolves[0]))).toMatchObject({ ok: true });
+    expect((await db.getAll('backups'))[0].createdAt).toBe(1_791_500_000_000);
+  });
+
+  it('uma migração que falha no meio não deixa nada pela metade: o banco fica na versão 2, intacto', async () => {
+    const name = `stamps-${++n}`;
+    const v2 = await openKlickDb(name, {}, 2);
+    // Um valor que o IndexedDB guarda e o JSON da cópia não: a migração lança antes de terminar.
+    const broken = { id: 'big', sessionId: 's', event: '333', ms: 10n, penalty: null, at: 1, scramble: 'R', note: '', createdAt: 1, updatedAt: 1, deletedAt: null };
+    await v2.put('solves', broken as never);
+    await v2.put('sessions', { id: 's', name: 'S', event: '333', order: 0, createdAt: 1, updatedAt: 1, deletedAt: null } as never);
+    v2.close();
+    await expect(openKlickDb(name, {}, 3, () => 1_791_500_000_000)).rejects.toMatchObject({ name: 'AbortError' });
+    const again = await openKlickDb(name, {}, 2);
+    expect(again.version).toBe(2);
+    expect([...again.objectStoreNames].sort()).toEqual(['backups', 'meta', 'practice', 'profile', 'sessions', 'solves']);
+    expect(await again.getAll('backups')).toEqual([]);
+    expect(await again.get('sessions', 's')).toEqual({ id: 's', name: 'S', event: '333', order: 0, createdAt: 1, updatedAt: 1, deletedAt: null });
+    expect(await again.get('solves', 'big')).toEqual(broken);
+    again.close();
+  });
+
+  it('só itens da conta que o servidor aceita: um caso que não existe mais ou uma escolha fora dos algoritmos fica só na cópia "antes da v3"', async () => {
+    const name = `stamps-${++n}`;
+    const v2 = await openKlickDb(name, {}, 2);
+    const profile: Profile = {
+      settings: defaultSettings(),
+      trail: Array<boolean>(9).fill(false),
+      finish: 'fosco',
+      onboarded: false,
+      currentSessionId: null,
+      season: defaultSeason(),
+      lessonAt: { 1: 2, 12: 3 } as Profile['lessonAt'],
+      algChoice: { 'oll2-h': 1, 'caso-que-saiu': 1, 'oll2-sune': 99 },
+      trainOff: ['pll2-t', 'caso-que-saiu'],
+    };
+    await v2.put('profile', profile as never, 'current');
+    v2.close();
+
+    const db = await openKlickDb(name, {}, 3, () => 1_791_500_000_000);
+    const prefs = await db.getAll('prefs');
+    expect(prefs.map((p) => p.key).sort()).toEqual(['algChoice.oll2-h', 'lessonAt.1', 'trainOff.pll2-t']);
+    for (const item of prefs) expect(checkChange(prefToChange(item)), item.key).toMatchObject({ ok: true });
+    const copy = JSON.parse((await db.getAll('backups'))[0].payload) as { profile: Profile };
+    expect(copy.profile).toMatchObject({ lessonAt: { 1: 2, 12: 3 }, algChoice: { 'caso-que-saiu': 1, 'oll2-sune': 99 }, trainOff: ['pll2-t', 'caso-que-saiu'] });
+  });
+});

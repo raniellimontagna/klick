@@ -12,11 +12,14 @@
 // Leitura: o que sai do IndexedDB já é cópia. Os padrões (perfil e meta) são montados novos a cada chamada, nunca compartilhados.
 import type { IDBPDatabase, IDBPObjectStore, IDBPTransaction, StoreNames } from 'idb';
 import { defaultSeason, finishUnlocked, moreAdvanced, seasonFrom } from '../core/season';
+import { canonicalJson } from '../core/sync/merge';
+import { defaultPrefValue, joinProfile, prefsFromProfile, profileFromPrefs, splitProfile } from '../core/sync/prefs';
+import { syncKey, type DeviceProfile, type PrefItem, type SyncState, type SyncStore } from '../core/sync/types';
 import { practiceFrom } from '../core/trail/validate';
 import { defaultSettings } from '../core/types';
-import type { EventId, Meta, Penalty, Practice, Profile, SeasonRecord, SeasonState, Session, Settings, Solve } from '../core/types';
+import type { EventId, KlickExport, Meta, Penalty, Practice, Profile, ProfilePatch, SeasonRecord, SeasonState, Session, Solve } from '../core/types';
 import { T } from '../strings';
-import type { BackupRecord, KlickDB } from './db';
+import { stampOf, type BackupRecord, type KlickDB, type StoredPractice, type StoredSession, type StoredSolve } from './db';
 import { newId } from './ids';
 
 export type ChangeKind = 'solves' | 'sessions' | 'profile' | 'meta' | 'practice' | 'all';
@@ -45,15 +48,8 @@ export interface NewSolve {
   scramble: string;
 }
 
-export interface KlickExport {
-  format: 'klick';
-  version: 1;
-  exportedAt: number;
-  sessions: Session[];
-  solves: Solve[];
-  profile: ProfilePatch | null; // o export sai completo; o que vem de um arquivo pode faltar campo (quem grava junta com o perfil daqui)
-  practice?: Practice[]; // o treino (spec do sub-projeto 4, seção 9.3); um arquivo de antes do treino não tem
-}
+// O formato do arquivo mora em core/types.ts (o Worker também o escreve); quem importava daqui continua importando.
+export type { KlickExport, ProfilePatch } from '../core/types';
 
 export interface ImportReport {
   sessionsAdded: number;
@@ -61,12 +57,6 @@ export interface ImportReport {
   solvesUpdated: number;
   skipped: number;
 }
-
-// Alteração do perfil. Os ajustes (e o grupo de sons) podem vir parciais: o repositório junta com o que está gravado dentro
-// da própria transação, e duas abas que mudam ajustes diferentes não desfazem uma à outra.
-export type ProfilePatch = Omit<Partial<Profile>, 'settings'> & {
-  settings?: Partial<Omit<Settings, 'sound'>> & { sound?: Partial<Settings['sound']> };
-};
 
 export interface Repository {
   listSessions(o?: { includeDeleted?: boolean }): Promise<Session[]>; // ordenadas por order
@@ -174,8 +164,47 @@ function mergeProfile(base: Profile, patch: ProfilePatch | undefined): Profile {
   };
 }
 
-// O que está gravado com os padrões por baixo, para um campo que um dia seja acrescentado não aparecer como undefined.
-const profileOrDefault = (stored: Profile | undefined): Profile => mergeProfile(defaultProfile(), stored);
+// O perfil da tela (spec 5.2): os ajustes do aparelho (store profile) mais os itens da conta (store prefs), com os padrões por baixo.
+const composeProfile = (device: DeviceProfile | undefined, items: readonly PrefItem[]): Profile => joinProfile(device, profileFromPrefs(items));
+
+// O que a tela recebe: os registros sem as datas do sync (só o repositório e o sync as usam).
+const bareSolve = ({ deletionStamp: _d, ...solve }: StoredSolve): Solve => solve;
+const bareSession = ({ deletionStamp: _d, ...session }: StoredSession): Session => session;
+const barePractice = ({ updatedAt: _u, deletedAt: _x, deletionStamp: _d, ...practice }: StoredPractice): Practice => practice;
+
+// O deletionStamp de um solve ou sessão que vem de um arquivo (importar, restaurar). Num registro novo, como na migração (spec 5.6):
+// a marca de exclusão ou a criação. Num que já existe, o daqui quando o estado de exclusão não muda; quando muda, a data do arquivo
+// (excluir e restaurar mexem em updatedAt), para a exclusão ou a volta que o arquivo traz também valer no sync. A data do arquivo passa
+// por stampOf: o servidor só aceita inteiros seguros >= 0.
+function importedStamp(
+  local: { deletedAt: number | null; deletionStamp: number } | undefined,
+  incoming: { deletedAt: number | null; createdAt: number; updatedAt: number },
+): number {
+  if (!local) return stampOf(incoming.deletedAt ?? incoming.createdAt);
+  return local.deletedAt === incoming.deletedAt ? local.deletionStamp : stampOf(incoming.updatedAt);
+}
+
+// Uma tentativa que vem de um arquivo (importar, restaurar) ganha as datas como na migração (spec 5.6): o instante dela.
+const importedPractice = (p: Practice): StoredPractice => ({ ...p, updatedAt: stampOf(p.at), deletedAt: null, deletionStamp: stampOf(p.at) });
+
+// O estado do sync antes do primeiro login (spec 5.4).
+export const defaultSyncState = (): SyncState => ({
+  accountId: null,
+  email: null,
+  signedIn: false,
+  firstSync: false,
+  cursor: 0,
+  lastSyncAt: null,
+  clock: 0,
+  passkey: false,
+});
+const syncStateOrDefault = (stored: SyncState | undefined): SyncState => ({ ...defaultSyncState(), ...stored });
+
+// O que uma escrita acompanhada pelo sync recebe (syncWrite): a próxima data do relógio e a fila de saída.
+interface SyncCtx {
+  stamp(): number; // a data desta escrita, uma só por transação: max(agora, clock + 1), nunca menor que uma data já vista (spec 5.4)
+  track(store: SyncStore, id: string): Promise<void>; // põe o registro na fila de saída, se o aparelho tem conta (spec 5.3)
+}
 const metaOrNew = (stored: Meta | undefined, at: number): Meta =>
   stored ? { ...META_DEFAULTS, ...stored } : { ...META_DEFAULTS, deviceId: newId(at) };
 
@@ -205,16 +234,39 @@ async function each<V>(items: readonly V[], request: (item: V) => Promise<unknow
 
 // O que reviveSession usa da store de sessões, dentro de uma transação de escrita.
 type SessionStore = Pick<IDBPObjectStore<KlickDB, StoreNames<KlickDB>[], 'sessions', 'readwrite'>, 'get' | 'put'>;
+type WriteTx = IDBPTransaction<KlickDB, StoreNames<KlickDB>[], 'readwrite'>;
 
 // Mantém o invariante (ver o topo do arquivo) quando a transação grava um solve ativo: se a sessão dele está na lixeira, devolve o
 // registro dela, e só ele. Diz se a sessão voltou. Um sessionId que não é string nem é consultado: uma chave inválida lança
 // DataError no IndexedDB e desfaria a gravação do próprio solve, que não pode se perder por isso.
-async function reviveSession(sessions: SessionStore, sessionId: unknown, at: number): Promise<boolean> {
+async function reviveSession(sessions: SessionStore, sessionId: unknown, ctx: SyncCtx): Promise<boolean> {
   if (typeof sessionId !== 'string') return false;
   const session = await sessions.get(sessionId);
   if (!session || session.deletedAt === null) return false;
-  await sessions.put({ ...session, deletedAt: null, updatedAt: at });
+  const at = ctx.stamp();
+  await sessions.put({ ...session, deletedAt: null, updatedAt: at, deletionStamp: at });
+  await ctx.track('sessions', sessionId);
   return true;
+}
+
+// Grava o perfil inteiro `next` por cima de `base` (os dois montados por composeProfile): os ajustes do aparelho na store profile e,
+// da conta, só as chaves que mudaram, com a data do relógio. Uma chave que some (uma aula concluída, uma escolha que volta ao padrão)
+// grava o valor padrão: a mudança precisa viajar. `all` grava todas as chaves da conta (restaurar uma cópia, spec 5.5). O perfil do
+// aparelho é gravado sempre que muda ou ainda não existe: um perfil salvo sai no export, como antes da divisão.
+async function writeProfile(tx: WriteTx, base: Profile, next: Profile, ctx: SyncCtx, all = false): Promise<void> {
+  const before = splitProfile(base);
+  const after = splitProfile(next);
+  const profile = tx.objectStore('profile');
+  if (canonicalJson(before.device) !== canonicalJson(after.device) || (await profile.count('current')) === 0) await profile.put(after.device, 'current');
+  const old = prefsFromProfile(before.account, { withDefaults: true });
+  const now = prefsFromProfile(after.account, { withDefaults: true });
+  const prefs = tx.objectStore('prefs');
+  for (const key of new Set([...old.keys(), ...now.keys()])) {
+    const value = now.has(key) ? now.get(key) : defaultPrefValue(key);
+    if (!all && canonicalJson(value) === canonicalJson(old.has(key) ? old.get(key) : defaultPrefValue(key))) continue;
+    await prefs.put({ key, value, updatedAt: ctx.stamp() });
+    await ctx.track('prefs', key);
+  }
 }
 
 // Quem assina os avisos entre abas: um id e uma sequência que sobe de um em um. A página cria um e o passa a cada conexão que abre
@@ -366,34 +418,65 @@ export function createRepository(
     }
   }
 
-  // Lê o solve, deixa `change` montar o novo (ou null se nada muda) e grava, tudo numa transação.
-  async function changeSolve(id: string, change: (solve: Solve, at: number) => Solve | null): Promise<Solve> {
-    const { solve, changed } = await write(['solves'], async (tx) => {
+  // Uma escrita que o sync acompanha (spec 5.3 e 5.4): a mesma transação lê e grava o relógio (meta 'sync') e a fila de saída. `stamp()`
+  // é a próxima data, max(agora, clock + 1); `track(store, id)` põe o registro na fila quando o aparelho tem conta (accountId). Sem
+  // conta, a fila não é preenchida, e o relógio só garante que nenhuma data volta para trás.
+  async function syncWrite<R>(stores: StoreNames<KlickDB>[], work: (tx: WriteTx, ctx: SyncCtx) => Promise<R>): Promise<R> {
+    return write([...stores, 'meta', 'outbox'], async (tx) => {
+      const meta = tx.objectStore('meta');
+      const state = syncStateOrDefault((await meta.get('sync')) as SyncState | undefined);
+      const outbox = tx.objectStore('outbox');
+      let clock = state.clock;
+      let at: number | null = null;
+      const ctx: SyncCtx = {
+        stamp: () => (at ??= clock = Math.max(now(), clock + 1)),
+        track: async (store, id) => {
+          if (state.accountId !== null) await outbox.put({ store, id, queuedAt: clock }, syncKey(store, id));
+        },
+      };
+      const result = await work(tx, ctx);
+      if (clock !== state.clock) await meta.put({ ...state, clock }, 'sync');
+      return result;
+    });
+  }
+
+  // Lê o solve, deixa `change` montar o novo (ou null se nada muda) e grava, tudo numa transação. `at` é a data do relógio.
+  async function changeSolve(id: string, change: (solve: StoredSolve, at: () => number) => StoredSolve | null): Promise<Solve> {
+    const { solve, changed } = await syncWrite(['solves'], async (tx, ctx) => {
       const store = tx.objectStore('solves');
       const current = await store.get(id);
       if (!current) throw new Error(`Solve não encontrado: ${id}`);
-      const next = change(current, now());
-      if (next) await store.put(next);
+      const next = change(current, ctx.stamp);
+      if (next) {
+        await store.put(next);
+        await ctx.track('solves', id);
+      }
       return { solve: next ?? current, changed: next !== null };
     });
     if (changed) announceSolves([id]);
-    return solve;
+    return bareSolve(solve);
+  }
+
+  // O perfil gravado agora, dentro da transação (as duas stores).
+  async function storedProfile(tx: WriteTx): Promise<Profile> {
+    const [device, items] = await Promise.all([tx.objectStore('profile').get('current'), tx.objectStore('prefs').getAll()]);
+    return composeProfile(device, items);
   }
 
   return {
     async listSessions({ includeDeleted = false } = {}) {
       const all = await db.getAll('sessions');
-      return all.filter((s) => includeDeleted || s.deletedAt === null).sort(bySessionOrder);
+      return all.filter((s) => includeDeleted || s.deletedAt === null).map(bareSession).sort(bySessionOrder);
     },
 
     async createSession({ event, name }) {
-      const session = await write(['sessions'], async (tx) => {
+      const session = await syncWrite(['sessions'], async (tx, ctx) => {
         const store = tx.objectStore('sessions');
         const all = await store.getAll();
-        const at = now();
+        const at = ctx.stamp();
         // A numeração parte do maior "Sessão N" entre as sessões ativas do evento.
         const lastNumber = Math.max(0, ...all.filter((s) => s.event === event && s.deletedAt === null).map((s) => T.session.defaultNameNumber(s.name) ?? 0));
-        const created: Session = {
+        const created: StoredSession = {
           id: newId(at),
           name: name?.trim() || T.session.defaultName(lastNumber + 1),
           event,
@@ -401,40 +484,45 @@ export function createRepository(
           createdAt: at,
           updatedAt: at,
           deletedAt: null,
+          deletionStamp: at,
         };
         await store.add(created);
+        await ctx.track('sessions', created.id);
         return created;
       });
       announce('sessions');
-      return session;
+      return bareSession(session);
     },
 
     async renameSession(id, name) {
       const trimmed = name.trim();
       if (!trimmed) return;
-      const changed = await write(['sessions'], async (tx) => {
+      const changed = await syncWrite(['sessions'], async (tx, ctx) => {
         const store = tx.objectStore('sessions');
         const session = await store.get(id);
         if (!session) throw new Error(`Sessão não encontrada: ${id}`);
         if (session.name === trimmed) return false;
-        await store.put({ ...session, name: trimmed, updatedAt: now() });
+        await store.put({ ...session, name: trimmed, updatedAt: ctx.stamp() });
+        await ctx.track('sessions', id);
         return true;
       });
       if (changed) announce('sessions');
     },
 
     async deleteSession(id) {
-      const touched = await write(['sessions', 'solves'], async (tx) => {
+      const touched = await syncWrite(['sessions', 'solves'], async (tx, ctx) => {
         const sessions = tx.objectStore('sessions');
         const session = await sessions.get(id);
         if (!session) throw new Error(`Sessão não encontrada: ${id}`);
         if (session.deletedAt !== null) return null;
-        const at = now();
-        await sessions.put({ ...session, deletedAt: at, updatedAt: at });
+        const at = ctx.stamp();
+        await sessions.put({ ...session, deletedAt: at, updatedAt: at, deletionStamp: at });
+        await ctx.track('sessions', id);
         // Os solves já excluídos antes ficam com a marca antiga, para restoreSession não trazê-los de volta.
         const solves = tx.objectStore('solves');
         const live = (await solves.index('bySession').getAll(keyRange(id))).filter((s) => s.deletedAt === null);
-        await each(live, (s) => solves.put({ ...s, deletedAt: at, updatedAt: at }));
+        await each(live, (s) => solves.put({ ...s, deletedAt: at, updatedAt: at, deletionStamp: at }));
+        await each(live, (s) => ctx.track('solves', s.id));
         return live.map((s) => s.id);
       });
       if (touched === null) return;
@@ -443,17 +531,19 @@ export function createRepository(
     },
 
     async restoreSession(id) {
-      const touched = await write(['sessions', 'solves'], async (tx) => {
+      const touched = await syncWrite(['sessions', 'solves'], async (tx, ctx) => {
         const sessions = tx.objectStore('sessions');
         const session = await sessions.get(id);
         if (!session) throw new Error(`Sessão não encontrada: ${id}`);
         if (session.deletedAt === null) return null;
-        const at = now();
-        await sessions.put({ ...session, deletedAt: null, updatedAt: at });
+        const at = ctx.stamp();
+        await sessions.put({ ...session, deletedAt: null, updatedAt: at, deletionStamp: at });
+        await ctx.track('sessions', id);
         // Volta só o que saiu junto com a sessão: os solves com a mesma marca de exclusão.
         const solves = tx.objectStore('solves');
         const together = (await solves.index('bySession').getAll(keyRange(id))).filter((s) => s.deletedAt === session.deletedAt);
-        await each(together, (s) => solves.put({ ...s, deletedAt: null, updatedAt: at }));
+        await each(together, (s) => solves.put({ ...s, deletedAt: null, updatedAt: at, deletionStamp: at }));
+        await each(together, (s) => ctx.track('solves', s.id));
         return together.map((s) => s.id);
       });
       if (touched === null) return;
@@ -462,7 +552,7 @@ export function createRepository(
     },
 
     async listSolves({ sessionId, event, includeDeleted = false } = {}) {
-      let list: Solve[];
+      let list: StoredSolve[];
       if (sessionId !== undefined) {
         list = await db.getAllFromIndex('solves', 'bySession', keyRange(sessionId));
         if (event !== undefined) list = list.filter((s) => s.event === event);
@@ -471,18 +561,22 @@ export function createRepository(
       } else {
         list = (await db.getAll('solves')).sort(bySolveTime);
       }
-      return includeDeleted ? list : list.filter((s) => s.deletedAt === null);
+      return (includeDeleted ? list : list.filter((s) => s.deletedAt === null)).map(bareSolve);
     },
 
     async addSolve(s) {
-      const stamp = now();
-      const id = s.id ?? newId(stamp);
-      const { solve, sessionBack } = await write(['solves', 'sessions'], async (tx) => {
+      const id = s.id ?? newId(now());
+      const { solve, sessionBack } = await syncWrite(['solves', 'sessions'], async (tx, ctx) => {
         const solves = tx.objectStore('solves');
         // Um id já gravado é o mesmo solve: a repetição não escreve nada. Uma tentativa atrasada não pode desfazer uma edição
         // feita depois (penalidade, nota). O que já está gravado vale.
         const stored = await solves.get(id);
-        const solve: Solve = stored ?? {
+        if (stored) {
+          const back = stored.deletedAt === null && (await reviveSession(tx.objectStore('sessions'), stored.sessionId, ctx));
+          return { solve: stored, sessionBack: back };
+        }
+        const stamp = ctx.stamp();
+        const solve: StoredSolve = {
           id,
           sessionId: s.sessionId,
           event: s.event,
@@ -494,16 +588,18 @@ export function createRepository(
           createdAt: stamp,
           updatedAt: stamp,
           deletedAt: null,
+          deletionStamp: stamp,
         };
-        if (stored === undefined) await solves.put(solve);
+        await solves.put(solve);
+        await ctx.track('solves', id);
         // Uma aba que ainda mostra uma sessão que outra aba excluiu: o solve não se perde nem fica escondido, e a sessão volta.
         // Só solve ativo pede a sessão ativa (o invariante do topo).
-        const back = solve.deletedAt === null && (await reviveSession(tx.objectStore('sessions'), solve.sessionId, stamp));
+        const back = await reviveSession(tx.objectStore('sessions'), solve.sessionId, ctx);
         return { solve, sessionBack: back };
       });
       announceSolves([solve.id]);
       if (sessionBack) announce('sessions');
-      return solve;
+      return bareSolve(solve);
     },
 
     updateSolve(id, patch) {
@@ -513,26 +609,31 @@ export function createRepository(
           ...solve,
           penalty: patch.penalty === undefined ? solve.penalty : patch.penalty,
           note: patch.note ?? solve.note,
-          updatedAt: at,
+          updatedAt: at(),
         };
       });
     },
 
     async deleteSolve(id) {
-      await changeSolve(id, (solve, at) => (solve.deletedAt === null ? { ...solve, deletedAt: at, updatedAt: at } : null));
+      await changeSolve(id, (solve, at) => {
+        if (solve.deletedAt !== null) return null;
+        const stamp = at();
+        return { ...solve, deletedAt: stamp, updatedAt: stamp, deletionStamp: stamp };
+      });
     },
 
     async restoreSolve(id) {
-      const restored = await write(['solves', 'sessions'], async (tx) => {
+      const restored = await syncWrite(['solves', 'sessions'], async (tx, ctx) => {
         const solves = tx.objectStore('solves');
         const solve = await solves.get(id);
         if (!solve) throw new Error(`Solve não encontrado: ${id}`);
         if (solve.deletedAt === null) return null;
-        const at = now();
-        await solves.put({ ...solve, deletedAt: null, updatedAt: at });
+        const at = ctx.stamp();
+        await solves.put({ ...solve, deletedAt: null, updatedAt: at, deletionStamp: at });
+        await ctx.track('solves', id);
         // Invariante: o solve volta ativo, então a sessão dele, se estiver na lixeira, volta junto: só o registro dela. Os outros
         // solves excluídos da sessão continuam na lixeira e voltam um a um.
-        return { session: await reviveSession(tx.objectStore('sessions'), solve.sessionId, at) };
+        return { session: await reviveSession(tx.objectStore('sessions'), solve.sessionId, ctx) };
       });
       if (restored === null) return;
       announceSolves([id]);
@@ -540,10 +641,11 @@ export function createRepository(
     },
 
     async getSolves(ids) {
-      return read(['solves'], (tx) => {
+      const found = await read(['solves'], (tx) => {
         const store = tx.objectStore('solves');
         return Promise.all(ids.map((id) => store.get(id)));
       });
+      return found.map((s) => (s ? bareSolve(s) : undefined));
     },
 
     async listTrash() {
@@ -551,8 +653,8 @@ export function createRepository(
         Promise.all([tx.objectStore('sessions').getAll(), tx.objectStore('solves').getAll()]),
       );
       return {
-        sessions: sessions.filter((s) => s.deletedAt !== null).sort(newestDeletedFirst),
-        solves: solves.filter((s) => s.deletedAt !== null).sort(newestDeletedFirst),
+        sessions: sessions.filter((s) => s.deletedAt !== null).map(bareSession).sort(newestDeletedFirst),
+        solves: solves.filter((s) => s.deletedAt !== null).map(bareSolve).sort(newestDeletedFirst),
       };
     },
 
@@ -574,14 +676,17 @@ export function createRepository(
     },
 
     async getProfile() {
-      return profileOrDefault(await db.get('profile', 'current'));
+      const [device, items] = await read(['profile', 'prefs'], (tx) =>
+        Promise.all([tx.objectStore('profile').get('current'), tx.objectStore('prefs').getAll()]),
+      );
+      return composeProfile(device, items);
     },
 
     async saveProfile(patch) {
-      const profile = await write(['profile'], async (tx) => {
-        const store = tx.objectStore('profile');
-        const merged = mergeProfile(profileOrDefault(await store.get('current')), patch);
-        await store.put(merged, 'current');
+      const profile = await syncWrite(['profile', 'prefs'], async (tx, ctx) => {
+        const base = await storedProfile(tx);
+        const merged = mergeProfile(base, patch);
+        await writeProfile(tx, base, merged, ctx);
         return merged;
       });
       announce('profile');
@@ -589,12 +694,11 @@ export function createRepository(
     },
 
     async advanceSeason(fromN, record, next) {
-      const outcome = await write(['profile'], async (tx) => {
-        const store = tx.objectStore('profile');
-        const base = profileOrDefault(await store.get('current'));
+      const outcome = await syncWrite(['profile', 'prefs'], async (tx, ctx) => {
+        const base = await storedProfile(tx);
         if (base.season.current.n !== fromN) return { profile: base, saved: false };
         const advanced: Profile = { ...base, season: { current: next, past: [...base.season.past, record] } };
-        await store.put(advanced, 'current');
+        await writeProfile(tx, base, advanced, ctx);
         return { profile: advanced, saved: true };
       });
       if (outcome.saved) announce('profile');
@@ -661,32 +765,33 @@ export function createRepository(
 
     async exportAll({ includeDeleted = true } = {}) {
       // Uma transação só, para sessões, solves, perfil e treino virem do mesmo instante.
-      const [sessions, solves, profile, practice] = await read(['sessions', 'solves', 'profile', 'practice'], (tx) =>
+      const [sessions, solves, device, items, practice] = await read(['sessions', 'solves', 'profile', 'prefs', 'practice'], (tx) =>
         Promise.all([
           tx.objectStore('sessions').getAll(),
           tx.objectStore('solves').getAll(),
           tx.objectStore('profile').get('current'),
+          tx.objectStore('prefs').getAll(),
           tx.objectStore('practice').getAll(),
         ]),
       );
       const kept = <V extends { deletedAt: number | null }>(list: V[]): V[] => (includeDeleted ? list : list.filter((x) => x.deletedAt === null));
+      // As marcas de exclusão do treino são do sync: o arquivo leva só as tentativas que existem.
       return {
         format: 'klick',
         version: 1,
         exportedAt: now(),
-        sessions: kept(sessions).sort(bySessionOrder),
-        solves: kept(solves).sort(bySolveTime),
-        profile: profile ? profileOrDefault(profile) : null,
-        practice: practice.sort(byPracticeTime),
+        sessions: kept(sessions).map(bareSession).sort(bySessionOrder),
+        solves: kept(solves).map(bareSolve).sort(bySolveTime),
+        profile: device || items.length > 0 ? composeProfile(device, items) : null,
+        practice: practice.filter((p) => p.deletedAt === null).map(barePractice).sort(byPracticeTime),
       };
     },
 
     async importAll(data) {
       const report: ImportReport = { sessionsAdded: 0, solvesAdded: 0, solvesUpdated: 0, skipped: 0 };
-      const outcome = await write(['sessions', 'solves', 'profile', 'practice'], async (tx) => {
+      const outcome = await syncWrite(['sessions', 'solves', 'profile', 'prefs', 'practice'], async (tx, ctx) => {
         const sessions = tx.objectStore('sessions');
         const solves = tx.objectStore('solves');
-        const profile = tx.objectStore('profile');
         const practice = tx.objectStore('practice');
 
         // Sessão que já existe fica como está (e não conta); só entram as novas.
@@ -698,31 +803,33 @@ export function createRepository(
           newSessions.push(s);
         }
         report.sessionsAdded = newSessions.length;
-        await each(newSessions, (s) => sessions.put(s));
+        await each(newSessions, (s) => sessions.put({ ...s, deletionStamp: importedStamp(undefined, s) }));
+        await each(newSessions, (s) => ctx.track('sessions', s.id));
 
         // Solve por id: entra o que não existe, substitui o de updatedAt menor, e o resto é pulado.
-        const knownSolves = new Map<string, number>();
-        for (const s of await solves.getAll()) knownSolves.set(s.id, s.updatedAt);
-        const incoming: Solve[] = [];
+        const knownSolves = new Map<string, StoredSolve>();
+        for (const s of await solves.getAll()) knownSolves.set(s.id, s);
+        const incoming: StoredSolve[] = [];
         for (const s of data.solves) {
           const have = knownSolves.get(s.id);
           if (have === undefined) report.solvesAdded++;
-          else if (s.updatedAt > have) report.solvesUpdated++;
+          else if (s.updatedAt > have.updatedAt) report.solvesUpdated++;
           else {
             report.skipped++;
             continue;
           }
-          knownSolves.set(s.id, s.updatedAt);
-          incoming.push(s);
+          const stored: StoredSolve = { ...s, deletionStamp: importedStamp(have, s) };
+          knownSolves.set(s.id, stored);
+          incoming.push(stored);
         }
         await each(incoming, (s) => solves.put(s));
+        await each(incoming, (s) => ctx.track('solves', s.id));
 
         // Invariante: solve ativo que chegou do arquivo não pode ficar sob uma sessão na lixeira (a daqui, por exemplo, que foi
         // excluída): ela volta, só o registro dela. Isso não entra no relatório.
-        const at = now();
         let sessionBack = false;
         for (const id of new Set(incoming.filter((s) => s.deletedAt === null).map((s) => s.sessionId))) {
-          if (await reviveSession(sessions, id, at)) sessionBack = true;
+          if (await reviveSession(sessions, id, ctx)) sessionBack = true;
         }
 
         // O perfil do arquivo vale por cima do daqui: os ajustes e o acabamento são os do arquivo, a trilha soma as duas (nada
@@ -731,8 +838,8 @@ export function createRepository(
         let profileSaved = false;
         if (data.profile) {
           const theirs = data.profile;
-          const stored = await profile.get('current');
-          const base = profileOrDefault(stored);
+          const [stored, items] = await Promise.all([tx.objectStore('profile').get('current'), tx.objectStore('prefs').getAll()]);
+          const base = composeProfile(stored, items);
           let currentSessionId = base.currentSessionId;
           if (typeof theirs.currentSessionId === 'string' && theirs.currentSessionId !== currentSessionId) {
             const target = await sessions.get(theirs.currentSessionId);
@@ -757,15 +864,17 @@ export function createRepository(
           });
           // Mesma ordem de chaves nos dois (mergeProfile monta ambos), então o JSON compara o conteúdo.
           if (!stored || JSON.stringify(merged) !== JSON.stringify(base)) {
-            await profile.put(merged, 'current');
+            await writeProfile(tx, base, merged, ctx);
             profileSaved = true;
           }
         }
 
-        // O treino junta pelo id (spec do sub-projeto 4, seção 9.3): entra o que não existe; o que já existe fica como está.
+        // O treino junta pelo id (spec do sub-projeto 4, seção 9.3): entra o que não existe; o que já existe (até uma marca de exclusão)
+        // fica como está.
         const knownPractice = new Set(await practice.getAllKeys());
         const newPractice = practiceFrom(data.practice).filter((p) => !knownPractice.has(p.id));
-        await each(newPractice, (p) => practice.put(p));
+        await each(newPractice, (p) => practice.put(importedPractice(p)));
+        await each(newPractice, (p) => ctx.track('practice', p.id));
         return { profileSaved, sessionBack, practiceAdded: newPractice.length };
       });
       const changed = report.sessionsAdded + report.solvesAdded + report.solvesUpdated + outcome.practiceAdded > 0;
@@ -779,19 +888,20 @@ export function createRepository(
       // Uma cópia de antes do treino (sem `practice`, ou com algo que não é lista) não apaga o treino daqui; com a lista, mesmo vazia, o
       // treino é o dela.
       const practice = Array.isArray(data.practice) ? practiceFrom(data.practice) : null;
-      await write(['sessions', 'solves', 'profile', 'practice'], async (tx) => {
+      await syncWrite(['sessions', 'solves', 'profile', 'prefs', 'practice'], async (tx, ctx) => {
         const sessionStore = tx.objectStore('sessions');
         const solveStore = tx.objectStore('solves');
         const profileStore = tx.objectStore('profile');
+        const prefsStore = tx.objectStore('prefs');
         const practiceStore = tx.objectStore('practice');
         // O perfil daqui é lido antes de limpar: a restauração fica com a temporada mais adiantada (spec 5.6), mesmo que a cópia não
         // tenha perfil, e uma cópia sem perfil também não tira o acabamento que a pessoa escolheu.
-        const local = profileOrDefault(await profileStore.get('current'));
+        const local = await storedProfile(tx);
         const mine = local.season;
-        await Promise.all([sessionStore.clear(), solveStore.clear(), profileStore.clear(), ...(practice ? [practiceStore.clear()] : [])]);
-        await each(sessions, (s) => sessionStore.put(s));
-        await each(solves, (s) => solveStore.put(s));
-        if (practice) await each(practice, (p) => practiceStore.put(p));
+        await Promise.all([sessionStore.clear(), solveStore.clear(), profileStore.clear(), prefsStore.clear(), ...(practice ? [practiceStore.clear()] : [])]);
+        await each(sessions, (s) => sessionStore.put({ ...s, deletionStamp: importedStamp(undefined, s) }));
+        await each(solves, (s) => solveStore.put({ ...s, deletionStamp: importedStamp(undefined, s) }));
+        if (practice) await each(practice, (p) => practiceStore.put(importedPractice(p)));
         // O que é do treino e a cópia não traz (uma cópia de antes do treino) fica o daqui.
         const kept: ProfilePatch = { lessonAt: local.lessonAt, algChoice: local.algChoice, trainOff: local.trainOff };
         const restored = profile ? mergeProfile(defaultProfile(), { ...kept, ...profile }) : null;
@@ -802,45 +912,56 @@ export function createRepository(
         if (restored || season.past.length > 0) {
           const base = restored ?? mergeProfile(defaultProfile(), { ...kept, finish: local.finish });
           const finish = finishUnlocked(base.finish, season.past.length) ? base.finish : 'fosco';
-          await profileStore.put({ ...base, season, finish }, 'current');
+          await writeProfile(tx, defaultProfile(), { ...base, season, finish }, ctx);
         }
       });
       announce('all');
     },
 
     async addPractice(p) {
-      const outcome = await write(['practice'], async (tx) => {
+      const outcome = await syncWrite(['practice'], async (tx, ctx) => {
         const store = tx.objectStore('practice');
         const stored = await store.get(p.id);
         if (stored) return { practice: stored, added: false };
-        await store.add(p);
-        return { practice: p, added: true };
+        const at = ctx.stamp();
+        const record: StoredPractice = { ...p, updatedAt: at, deletedAt: null, deletionStamp: at };
+        await store.add(record);
+        await ctx.track('practice', p.id);
+        return { practice: record, added: true };
       });
       if (outcome.added) announce('practice');
-      return structuredClone(outcome.practice);
+      return structuredClone(barePractice(outcome.practice));
     },
 
     async listPractice({ caseId } = {}) {
       const list = caseId === undefined ? await db.getAll('practice') : await db.getAllFromIndex('practice', 'byCase', keyRange(caseId));
-      return list.sort(byPracticeTime);
+      return list.filter((p) => p.deletedAt === null).map(barePractice).sort(byPracticeTime);
     },
 
+    // Corrigir o acerto muda updatedAt (spec 5.1). Uma tentativa apagada não se corrige.
     async updatePractice(id, patch) {
-      const updated = await write(['practice'], async (tx) => {
+      const updated = await syncWrite(['practice'], async (tx, ctx) => {
         const store = tx.objectStore('practice');
         const current = await store.get(id);
-        if (!current) throw new Error(`Tentativa não encontrada: ${id}`);
-        const next: Practice = { ...current, ...definedOnly(patch) };
+        if (!current || current.deletedAt !== null) throw new Error(`Tentativa não encontrada: ${id}`);
+        const next: StoredPractice = { ...current, ...definedOnly(patch), updatedAt: ctx.stamp() };
         await store.put(next);
+        await ctx.track('practice', id);
         return next;
       });
       announce('practice');
-      return updated;
+      return barePractice(updated);
     },
 
+    // Apagar uma tentativa vira marca de exclusão (spec 5.1): a remoção de verdade ressuscitaria a tentativa no sync.
     async deletePractice(id) {
-      await write(['practice'], async (tx) => {
-        await tx.objectStore('practice').delete(id);
+      await syncWrite(['practice'], async (tx, ctx) => {
+        const store = tx.objectStore('practice');
+        const current = await store.get(id);
+        if (!current || current.deletedAt !== null) return;
+        const at = ctx.stamp();
+        await store.put({ ...current, deletedAt: at, updatedAt: at, deletionStamp: at });
+        await ctx.track('practice', id);
       });
       announce('practice');
     },

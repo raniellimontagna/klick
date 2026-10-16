@@ -51,3 +51,22 @@ describe('versão 2 do banco', () => {
     db.close();
   });
 });
+
+describe('versão 3 do banco (spec 5.1)', () => {
+  it('as stores da conta e da fila de saída, com o índice da fila pela data', async () => {
+    const db = await openKlickDb(fresh());
+    expect(db.transaction('prefs').objectStore('prefs').keyPath).toBe('key');
+    const outbox = db.transaction('outbox').objectStore('outbox');
+    expect(outbox.keyPath).toBeNull(); // a chave é `${store}/${id}`, fora do registro
+    expect([...outbox.indexNames]).toEqual(['byQueued']);
+    db.close();
+  });
+
+  it('abrir a versão 2 (como fazem os testes de migração) não cria as stores da 3', async () => {
+    const db = await openKlickDb(fresh(), {}, 2);
+    expect(db.objectStoreNames.contains('prefs')).toBe(false);
+    expect(db.objectStoreNames.contains('outbox')).toBe(false);
+    expect(db.objectStoreNames.contains('practice')).toBe(true);
+    db.close();
+  });
+});
