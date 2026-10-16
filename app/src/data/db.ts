@@ -1,7 +1,7 @@
 // Esquema do IndexedDB do Klick. Quem abre o banco é o repositório (repository.ts); nada fora de data/ fala com o IndexedDB.
 import { openDB, type DBSchema, type IDBPDatabase, type IDBPTransaction, type StoreNames } from 'idb';
 import { seasonFrom } from '../core/season';
-import { isPrefValue, joinProfile, prefsFromProfile, profileFromPrefs, splitProfile } from '../core/sync/prefs';
+import { joinProfile, prefsFromProfile, profileFromPrefs, splitProfile } from '../core/sync/prefs';
 import type { DeviceProfile, OutboxEntry, PrefItem, SyncState } from '../core/sync/types';
 import type { EventId, KlickExport, Meta, Practice, Profile, Session, Solve } from '../core/types';
 import { newId } from './ids';
@@ -58,6 +58,7 @@ export interface DbEvents {
   blocking?: () => void; // outra aba pede uma versão mais nova: esta conexão já foi fechada para não prender a outra
   blocked?: () => void; // esta abertura espera uma aba antiga largar o banco (uma versão velha do app, sem `blocking`)
   terminated?: () => void; // o navegador derrubou a conexão (falta de espaço, aba suspensa): quem abriu reabre
+  upgrading?: () => void; // começou a migração de um banco da versão 1 ou 2 (spec 5.6): pode demorar, e recarregar no meio a aborta
 }
 
 type UpgradeTx = IDBPTransaction<KlickDB, StoreNames<KlickDB>[], 'versionchange'>;
@@ -109,11 +110,9 @@ async function migrateToV3(tx: UpgradeTx, at: number): Promise<void> {
   for (const p of allPractice) pending.push(practice.put({ ...p, updatedAt: stampOf(p.at), deletedAt: null, deletionStamp: stampOf(p.at) }));
   const { device, account } = splitProfile(fullProfile(stored));
   if (stored) pending.push(profile.put(device, 'current'));
-  // Só as chaves fora do padrão (decisão 4) e que o servidor aceita: um caso que saiu do catálogo, ou uma escolha fora dos algoritmos
-  // dele, a tela já lia como o padrão; o valor de antes fica na cópia "antes da v3".
-  for (const [key, value] of prefsFromProfile(account)) {
-    if (isPrefValue(key, value)) pending.push(prefs.put({ key, value, updatedAt: at }));
-  }
+  // Só as chaves fora do padrão (decisão 4), e só as que o servidor aceita (prefsFromProfile tira um caso que saiu do catálogo e leva ao
+  // padrão uma escolha fora dos algoritmos, como a tela já lia); o valor de antes fica na cópia "antes da v3".
+  for (const [key, value] of prefsFromProfile(account)) pending.push(prefs.put({ key, value, updatedAt: at }));
   await Promise.all(pending);
 }
 
@@ -162,6 +161,7 @@ export async function openKlickDb(
         db.createObjectStore('prefs', { keyPath: 'key' });
         db.createObjectStore('outbox').createIndex('byQueued', 'queuedAt');
         if (oldVersion > 0) {
+          events.upgrading?.();
           // Uma falha chega a quem abriu (a abertura rejeita com AbortError); o `done` da transação de upgrade não tem quem o ouça.
           transaction.done.catch(() => {});
           migrateToV3(transaction, stampOf(now())).catch(() => {

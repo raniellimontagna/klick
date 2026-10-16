@@ -6,6 +6,7 @@ import { createRepository } from '../../src/data/repository';
 import { createScrambleQueue } from '../../src/scramble/queue';
 import { T } from '../../src/strings';
 import { AppState } from '../../src/ui/state/app.svelte';
+import { dbEvents, setDbUpgrade, trackingUpgrade } from '../../src/ui/state/db-notice.svelte';
 
 // Os testes da casca trocam o boot por um próprio (hooks.boot); sem ele, o boot padrão abre um banco de teste.
 const hooks = vi.hoisted(() => ({ boot: null as null | (() => Promise<unknown>) }));
@@ -186,6 +187,52 @@ describe('casca do app: robustez (brief 9b)', () => {
       expect(screen.getByRole('button', { name: 'Timer' })).toHaveAttribute('aria-current', 'page');
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  // A migração para a versão 3 pode passar dos 8 s num aparelho antigo com muito histórico; recarregar a aborta. Enquanto ela roda, a casca
+  // não desiste: diz que está atualizando. O prazo recomeça inteiro quando ela termina.
+  it('atualizando os dados: passa dos 8 s sem o aviso de indisponível, com o aviso calmo; depois da atualização, o prazo recomeça', async () => {
+    hooks.boot = () => {
+      dbEvents(() => null).upgrading?.();
+      return new Promise<never>(() => {});
+    };
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      render(App);
+      await tick();
+      expect(screen.getByRole('status')).toHaveTextContent(T.data.upgrading);
+      await vi.advanceTimersByTimeAsync(60_000);
+      await tick();
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(screen.getByRole('status')).toHaveTextContent(T.data.upgrading);
+      setDbUpgrade('idle'); // a atualização terminou, e o resto da abertura não
+      await tick();
+      await vi.advanceTimersByTimeAsync(7999);
+      expect(screen.queryByRole('alert')).toBeNull();
+      await vi.advanceTimersByTimeAsync(1);
+      await tick();
+      expect(screen.getByRole('alert')).toHaveTextContent(T.data.dbUnavailable);
+    } finally {
+      vi.useRealTimers();
+      setDbUpgrade('idle');
+    }
+  });
+
+  it('a atualização dos dados falha (cota cheia ou abortada): o aviso diz que os dados estão como estavam, não que o armazenamento foi bloqueado', async () => {
+    for (const name of ['QuotaExceededError', 'AbortError']) {
+      hooks.boot = () =>
+        trackingUpgrade(
+          (async () => {
+            dbEvents(() => null).upgrading?.();
+            throw new DOMException('falhou', name);
+          })(),
+        );
+      const { unmount } = render(App);
+      expect(await screen.findByRole('alert')).toHaveTextContent(T.data.upgradeFailed);
+      expect(screen.queryByText(T.data.dbUnavailable)).toBeNull();
+      unmount();
+      setDbUpgrade('idle');
     }
   });
 

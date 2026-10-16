@@ -70,3 +70,23 @@ describe('versão 3 do banco (spec 5.1)', () => {
     db.close();
   });
 });
+
+describe('o aviso de atualização dos dados (upgrading)', () => {
+  it('sai só numa atualização de verdade, de um banco da versão 1 ou 2; não numa instalação nova nem numa abertura normal', async () => {
+    const fromV1 = fresh();
+    (await openKlickDb(fromV1, {}, 1)).close();
+    const fromV2 = fresh();
+    (await openKlickDb(fromV2, {}, 2)).close();
+    for (const name of [fromV1, fromV2]) {
+      const upgrading = vi.fn();
+      (await openKlickDb(name, { upgrading })).close();
+      expect(upgrading).toHaveBeenCalledTimes(1);
+      const again = vi.fn();
+      (await openKlickDb(name, { upgrading: again })).close(); // já na versão atual: abertura normal
+      expect(again).not.toHaveBeenCalled();
+    }
+    const installed = vi.fn();
+    (await openKlickDb(fresh(), { upgrading: installed })).close(); // banco novo
+    expect(installed).not.toHaveBeenCalled();
+  });
+});

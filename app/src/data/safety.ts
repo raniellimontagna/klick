@@ -14,6 +14,11 @@ export const BACKUP_KEEP = 10;
 export const EXPORT_REMIND_EVERY = 100;
 export const FOLDER_SAVE_EVERY = 100;
 export const TRASH_MS = 30 * 86_400_000;
+// As cópias que protegem um passo sem volta (spec 5.6 e 4.3) ficam fora da poda por quantidade, e fora da conta das BACKUP_KEEP: a "antes
+// da v3" por 90 dias; as 'pre-sync' sem rótulo (antes do primeiro login e de um lote com muitas exclusões) por 30, as 5 mais novas.
+export const V3_COPY_KEEP_MS = 90 * 86_400_000;
+export const PRE_SYNC_KEEP_MS = 30 * 86_400_000;
+export const PRE_SYNC_PINNED = 5;
 
 export interface SafetyPlan {
   backup: 'auto50' | 'daily' | null;
@@ -142,8 +147,8 @@ export async function decodeSnapshot(r: Snapshot): Promise<KlickExport> {
 
 // Exporta tudo (a lixeira inclusa), codifica, grava, poda e só então zera o contador: se qualquer passo falha, rejeita e o
 // contador fica, e a próxima rodada tenta de novo. solveCount é o que a pessoa vê (solves ativos): restaurar a cópia devolve esse
-// tanto ao histórico. A poda tira a mais antiga das outras e poupa a cópia que acabou de gravar e a keepId (a que está sendo
-// restaurada).
+// tanto ao histórico. A poda tira a mais antiga das outras e poupa a cópia que acabou de gravar, a keepId (a que está sendo
+// restaurada) e as que pinnedBackups poupa.
 export async function createBackup(repo: Repository, reason: BackupRecord['reason'], now: number, keepId?: string): Promise<BackupRecord> {
   const data = await repo.exportAll();
   const { encoding, payload } = await encodeSnapshot(data);
@@ -156,14 +161,34 @@ export async function createBackup(repo: Repository, reason: BackupRecord['reaso
     payload,
   };
   await repo.saveBackup(record);
-  // A cópia nova fica sempre: com o relógio atrasado ela seria a "mais antiga" e sumiria logo depois de gravada. A keepId também,
-  // e ela ocupa uma das vagas: sobram BACKUP_KEEP - 1 - (1 se ela está na lista) para as outras.
-  const others = (await repo.listBackups()).filter((r) => r.id !== record.id);
-  const held = others.filter((r) => r.id === keepId);
-  const prunable = others.filter((r) => r.id !== keepId);
-  for (const old of prunable.slice(BACKUP_KEEP - 1 - held.length)) await repo.deleteBackup(old.id);
+  // A cópia nova fica sempre: com o relógio atrasado ela seria a "mais antiga" e sumiria logo depois de gravada. A keepId também. As
+  // duas ocupam vagas das BACKUP_KEEP (a não ser que estejam entre as poupadas, que não contam), e o resto das vagas vai às mais novas.
+  const all = await repo.listBackups();
+  const pinned = pinnedBackups(all, now);
+  const counted = all.filter((r) => !pinned.has(r.id));
+  const held = counted.filter((r) => r.id === record.id || r.id === keepId);
+  const prunable = counted.filter((r) => r.id !== record.id && r.id !== keepId);
+  for (const old of prunable.slice(Math.max(0, BACKUP_KEEP - held.length))) await repo.deleteBackup(old.id);
   await repo.saveMeta({ solvesSinceBackup: 0, lastBackupAt: now, lastBackupDay: dayKey(now) });
   return record;
+}
+
+// As cópias que a poda por quantidade não leva agora. `list` vem da mais nova para a mais antiga (listBackups). A "antes da v3" fica
+// enquanto tem menos de 90 dias; das 'pre-sync' sem rótulo com menos de 30 dias, ficam as 5 mais novas. Passado o prazo (ou fora das 5),
+// cada uma volta a ser uma cópia como as outras, e a poda de sempre decide.
+export function pinnedBackups(list: readonly BackupRecord[], now: number): Set<string> {
+  const pinned = new Set<string>();
+  let preSync = 0;
+  for (const r of list) {
+    const age = now - r.createdAt;
+    if (r.label === 'v3') {
+      if (age < V3_COPY_KEEP_MS) pinned.add(r.id);
+    } else if (r.reason === 'pre-sync' && age < PRE_SYNC_KEEP_MS && preSync < PRE_SYNC_PINNED) {
+      pinned.add(r.id);
+      preSync++;
+    }
+  }
+  return pinned;
 }
 
 // Troca tudo pelo da cópia escolhida, numa transação (replaceAll). Antes de escrever qualquer coisa, a cópia é lida e decodificada:

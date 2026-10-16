@@ -6,6 +6,7 @@ import { defaultSettings } from '../../src/core/types';
 import { defaultSeason } from '../../src/core/season';
 import { openKlickDb, type StoredPractice, type StoredSession, type StoredSolve } from '../../src/data/db';
 import { createRepository } from '../../src/data/repository';
+import { restoreBackup } from '../../src/data/safety';
 
 let n = 0;
 let t = 1_791_500_000_000;
@@ -174,5 +175,37 @@ describe('as datas que a migração grava são inteiros seguros >= 0 (shape.ts),
     for (const item of prefs) expect(checkChange(prefToChange(item)), item.key).toMatchObject({ ok: true });
     const copy = JSON.parse((await db.getAll('backups'))[0].payload) as { profile: Profile };
     expect(copy.profile).toMatchObject({ lessonAt: { 1: 2, 12: 3 }, algChoice: { 'caso-que-saiu': 1, 'oll2-sune': 99 }, trainOff: ['pll2-t', 'caso-que-saiu'] });
+  });
+
+  it('restaurar a cópia "antes da v3" (que guarda os valores de antes como vieram) não grava item da conta que o servidor recusa', async () => {
+    const name = `stamps-${++n}`;
+    const v2 = await openKlickDb(name, {}, 2);
+    const profile: Profile = {
+      settings: defaultSettings(),
+      trail: [true, false, false, false, false, false, false, false, false],
+      finish: 'fosco',
+      onboarded: true,
+      currentSessionId: null,
+      season: defaultSeason(),
+      lessonAt: { 1: 2, 12: 3 } as Profile['lessonAt'],
+      algChoice: { 'oll2-h': 1, 'oll2-sune': 99 },
+      trainOff: ['pll2-t', 'caso-que-saiu'],
+    };
+    await v2.put('profile', profile as never, 'current');
+    v2.close();
+    const db = await openKlickDb(name, {}, 3, () => 1_791_500_000_000);
+    const repo = createRepository(db, { now, channel: null });
+    const copy = (await repo.listBackups()).find((r) => r.label === 'v3')!;
+    t += 1000;
+    await repo.saveProfile({ trainOff: [], algChoice: {}, lessonAt: {} }); // mexe em tudo antes de restaurar
+    t += 1000;
+    await restoreBackup(repo, copy.id, t);
+    const prefs = await db.getAll('prefs');
+    for (const item of prefs) expect(checkChange(prefToChange(item)), item.key).toMatchObject({ ok: true });
+    const keys = prefs.map((p) => p.key);
+    expect(keys).not.toContain('trainOff.caso-que-saiu');
+    expect(keys).not.toContain('lessonAt.12');
+    expect(prefs.find((p) => p.key === 'algChoice.oll2-sune')?.value ?? 0).toBe(0);
+    expect(await repo.getProfile()).toMatchObject({ trainOff: ['pll2-t'], algChoice: { 'oll2-h': 1 }, lessonAt: { 1: 2 }, onboarded: true });
   });
 });

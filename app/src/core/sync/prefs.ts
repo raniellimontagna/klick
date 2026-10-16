@@ -86,6 +86,15 @@ export function prefsFromProfile(p: AccountProfile, { withDefaults = false }: { 
   out.set('settings.inspection', p.settings.inspection);
   out.set('settings.dailyGoal', p.settings.dailyGoal);
   out.set('season', p.season);
+  // O que o app grava o servidor aceita (spec 6.6). Um valor fora do tipo da chave (uma escolha além dos algoritmos do caso) vale o padrão,
+  // que é como a tela já o lia; uma chave que esta versão não conhece (um caso que saiu do catálogo) não vira item. Todo caminho que grava
+  // a conta passa por aqui (a migração e writeProfile), e todos filtram igual.
+  for (const [key, value] of out) {
+    if (isPrefValue(key, value)) continue;
+    const fallback = defaultPrefValue(key);
+    if (isPrefValue(key, fallback)) out.set(key, fallback);
+    else out.delete(key);
+  }
   if (withDefaults) return out;
   for (const [key, value] of out) if (canonicalJson(value) === canonicalJson(defaultPrefValue(key))) out.delete(key);
   return out;

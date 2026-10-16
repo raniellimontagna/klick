@@ -16,7 +16,7 @@
   import ShortcutsDialog from './dialogs/ShortcutsDialog.svelte';
   import UpdatePrompt from './dialogs/UpdatePrompt.svelte';
   import DbNotice from './dialogs/DbNotice.svelte';
-  import { dbNotice } from './state/db-notice.svelte';
+  import { dbNotice, dbUpgrade } from './state/db-notice.svelte';
   import TimerScreen from './timer/TimerScreen.svelte';
 
   // Quanto o boot pode demorar antes de a casca desistir e mostrar o aviso de banco indisponível.
@@ -62,11 +62,19 @@
   });
 
   // Enquanto boot() não termina, só o fundo aparece. Se ele falha (o navegador bloqueou o IndexedDB), ou não termina no prazo,
-  // a mensagem sai no lugar. Se ele termina depois do prazo, a casca aparece no lugar da mensagem.
-  onMount(() => {
-    const deadline: ReturnType<typeof setTimeout> = setTimeout(() => {
-      if (!app) failed = true;
+  // a mensagem sai no lugar. Se ele termina depois do prazo, a casca aparece no lugar da mensagem. Enquanto o banco migra (spec 5.6), o
+  // prazo não vale: num aparelho antigo com muito histórico a migração passa dos 8 s, e recarregar a abortaria. Quando ela termina e o
+  // boot ainda não, o prazo recomeça inteiro.
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  let booting = true;
+  const armDeadline = (): void => {
+    clearTimeout(deadline);
+    deadline = setTimeout(() => {
+      if (!app && dbUpgrade() !== 'running') failed = true;
     }, BOOT_DEADLINE_MS);
+  };
+  onMount(() => {
+    armDeadline();
     boot()
       .then((ready) => {
         app = ready;
@@ -74,8 +82,20 @@
       .catch(() => {
         failed = true;
       })
-      .finally(() => clearTimeout(deadline));
-    return () => clearTimeout(deadline);
+      .finally(() => {
+        booting = false;
+        clearTimeout(deadline);
+      });
+    return () => {
+      booting = false;
+      clearTimeout(deadline);
+    };
+  });
+  let wasUpgrading = false;
+  $effect(() => {
+    const upgrading = dbUpgrade() === 'running';
+    if (wasUpgrading && !upgrading && booting) armDeadline();
+    wasUpgrading = upgrading;
   });
 
   // Fechar a aba com solve que não foi gravado: o navegador pede confirmação. Sem nada pendente, fecha sem perguntar.
@@ -279,6 +299,14 @@
       <OnboardingDialog {app} open={app.dialog === 'onboarding'} onpickfile={() => importInput?.click()} />
       <InstallGuide {app} open={app.dialog === 'install'} {installEvent} onused={() => (installEvent = null)} />
     </div>
+  {:else if dbUpgrade() === 'running'}
+    <main class="screen">
+      <p role="status">{T.data.upgrading}</p>
+    </main>
+  {:else if failed && dbUpgrade() === 'failed'}
+    <main class="screen">
+      <p role="alert">{T.data.upgradeFailed}</p>
+    </main>
   {:else if failed && dbNotice() !== 'closeOthers'}
     <main class="screen">
       <p role="alert">{T.data.dbUnavailable}</p>

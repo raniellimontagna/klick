@@ -3,7 +3,7 @@ import { openKlickDb, type BackupRecord } from '../../src/data/db';
 import { createRepository, type KlickExport, type NewSolve, type Repository } from '../../src/data/repository';
 import {
   BACKUP_KEEP, countSolveSaved, createBackup, createSaveQueue, decodeSnapshot, encodeSnapshot,
-  planAfterSolve, planOnOpen, requestPersistence, restoreBackup, storageStatus, type SaveQueue,
+  planAfterSolve, planOnOpen, PRE_SYNC_KEEP_MS, PRE_SYNC_PINNED, requestPersistence, restoreBackup, storageStatus, V3_COPY_KEEP_MS, type SaveQueue,
 } from '../../src/data/safety';
 import type { Meta, Solve } from '../../src/core/types';
 
@@ -1129,5 +1129,85 @@ describe('fila de gravação: garantias', () => {
     expect(q.pending()).toBe(0);
     expect(warnings).toEqual([1, 0]);
     expect(msOf(await repo.listSolves({ sessionId }))).toEqual([60000]);
+  });
+});
+
+// As cópias que protegem um passo sem volta não saem pela poda por quantidade (spec 5.6 e 4.3): a "antes da v3" nos primeiros 90 dias, e
+// as 'pre-sync' sem rótulo (antes do primeiro login e de um lote com muitas exclusões) por 30 dias, as 5 mais novas. Elas não contam
+// nas BACKUP_KEEP; depois do prazo, voltam a ser cópias como as outras.
+describe('cópias que a poda poupa', () => {
+  const DAY = 86_400_000;
+  const MIGRATED_AT = 1_791_500_000_000;
+
+  // Um aparelho na versão 2, com um solve, aberto na versão atual: a migração grava a cópia "antes da v3".
+  async function migrated(): Promise<Repository> {
+    const name = `safety-${++n}`;
+    const v2 = await openKlickDb(name, {}, 2);
+    await v2.put('sessions', { id: 's', name: 'S', event: '333', order: 0, createdAt: 1, updatedAt: 1, deletedAt: null } as never);
+    await v2.put('solves', { id: 'a', sessionId: 's', event: '333', ms: 30_000, penalty: null, at: 2, scramble: 'R', note: '', createdAt: 2, updatedAt: 2, deletedAt: null } as never);
+    v2.close();
+    return createRepository(await openKlickDb(name, {}, 3, () => MIGRATED_AT), { now, channel: null });
+  }
+  const v3Copy = async (repo: Repository) => (await repo.listBackups()).find((r) => r.label === 'v3');
+
+  it('a "antes da v3" fica depois de 12 cópias automáticas, fora da conta das BACKUP_KEEP', async () => {
+    const repo = await migrated();
+    const copy = await v3Copy(repo);
+    expect(copy).toMatchObject({ reason: 'pre-sync', createdAt: MIGRATED_AT });
+    t = MIGRATED_AT;
+    for (let i = 0; i < 12; i++) {
+      t += 1000;
+      await createBackup(repo, 'auto50', t);
+    }
+    const list = await repo.listBackups();
+    expect(list).toHaveLength(BACKUP_KEEP + 1);
+    expect(list.map((r) => r.id)).toContain(copy!.id);
+    expect(list.filter((r) => r.reason === 'auto50')).toHaveLength(BACKUP_KEEP);
+  });
+
+  it('com 90 dias, a "antes da v3" volta a ser uma cópia como as outras, e a mais antiga sai', async () => {
+    const repo = await migrated();
+    const copy = (await v3Copy(repo))!;
+    t = MIGRATED_AT;
+    for (let i = 0; i < BACKUP_KEEP; i++) {
+      t += 1000;
+      await createBackup(repo, 'auto50', t);
+    }
+    t = MIGRATED_AT + V3_COPY_KEEP_MS - 1; // ainda dentro do prazo
+    await createBackup(repo, 'daily', t);
+    expect((await repo.listBackups()).map((r) => r.id)).toContain(copy.id);
+    t = MIGRATED_AT + V3_COPY_KEEP_MS; // 90 dias exatos: já não é poupada
+    await createBackup(repo, 'daily', t);
+    const list = await repo.listBackups();
+    expect(list).toHaveLength(BACKUP_KEEP);
+    expect(list.map((r) => r.id)).not.toContain(copy.id);
+  });
+
+  it("'pre-sync' sem rótulo: as 5 mais novas dos últimos 30 dias ficam; a sexta e a que passou dos 30 dias saem pela poda de sempre", async () => {
+    const repo = createRepository(await openKlickDb(`safety-${++n}`), { now, channel: null });
+    t = 1_791_500_000_000;
+    const pre: string[] = [];
+    for (let i = 0; i < PRE_SYNC_PINNED + 2; i++) {
+      t += DAY;
+      pre.push((await createBackup(repo, 'pre-sync', t)).id);
+    }
+    const auto: string[] = [];
+    for (let i = 0; i < BACKUP_KEEP + 2; i++) {
+      t += 1000;
+      auto.push((await createBackup(repo, 'auto50', t)).id);
+    }
+    let ids = (await repo.listBackups()).map((r) => r.id);
+    expect(ids).toHaveLength(BACKUP_KEEP + PRE_SYNC_PINNED);
+    expect(ids).toEqual(expect.arrayContaining([...pre.slice(2), ...auto.slice(2)]));
+    expect(ids).not.toContain(pre[0]);
+    expect(ids).not.toContain(pre[1]);
+    // A mais antiga das que ficaram completa 30 dias: volta a contar, e é a mais antiga de todas.
+    const oldest = (await repo.getBackup(pre[2]))!;
+    t = oldest.createdAt + PRE_SYNC_KEEP_MS;
+    await createBackup(repo, 'auto50', t);
+    ids = (await repo.listBackups()).map((r) => r.id);
+    expect(ids).not.toContain(pre[2]);
+    expect(ids).toEqual(expect.arrayContaining(pre.slice(3)));
+    expect(ids).toHaveLength(BACKUP_KEEP + PRE_SYNC_PINNED - 1);
   });
 });
