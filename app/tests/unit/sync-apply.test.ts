@@ -50,6 +50,16 @@ describe('applyChanges: um lote (spec 6.1 e 6.3)', () => {
     expect(keys(out.writes)).toEqual(['sessions/ok']);
   });
 
+  it('o eco do que foi recusado é curto (store e id com até 96 caracteres) e nada vindo do JSON quebra a conversão em texto', () => {
+    const long = 'a'.repeat(5000);
+    const out = applyChanges(viewOf(), [{ store: long, id: long }, { store: 'solves', id: { toString: 1 } }, { store: ['x'.repeat(200)], id: 7 }], { mode: 'server' });
+    expect(out.rejected).toEqual([
+      { store: 'a'.repeat(96), id: 'a'.repeat(96), reason: 'store desconhecida' },
+      { store: 'solves', id: '[object Object]', reason: 'id inválido' },
+      { store: '[object Array]', id: '7', reason: 'store desconhecida' },
+    ]);
+  });
+
   it('no servidor, uma versão velha volta em writes com a vencedora; no aparelho não há o que gravar', () => {
     const stored = solve('a', { updatedAt: 30, data: { ...(solve('a').data as object), note: 'nova' } });
     const old = solve('a', { updatedAt: 20 });

@@ -23,6 +23,11 @@ export interface ApplyResult {
   deletedSolves: number; // solves ativos na vista que terminam excluídos (a proteção da spec 6.6)
 }
 
+// O eco de uma mudança recusada (store e id em `rejected`) vem do pedido: texto de até 96 caracteres, o tamanho de um id válido. Um objeto
+// vira o nome do tipo: o String() de um objeto do JSON com um `toString` próprio que não é função lança erro.
+const ECHO_CHARS = 96;
+const echo = (v: unknown): string => (typeof v === 'object' && v !== null ? Object.prototype.toString.call(v) : String(v)).slice(0, ECHO_CHARS);
+
 export function sameChange(a: Change | undefined, b: Change | undefined): boolean {
   if (!a || !b) return a === b;
   return (
@@ -43,7 +48,7 @@ export function applyChanges(view: RecordView, incoming: readonly unknown[], opt
     const checked = checkChange(raw);
     if (!checked.ok) {
       const r = raw as { store?: unknown; id?: unknown } | null;
-      rejected.push({ store: String(r?.store), id: String(r?.id), reason: checked.reason });
+      rejected.push({ store: echo(r?.store), id: echo(r?.id), reason: checked.reason });
       continue;
     }
     const change = checked.change;

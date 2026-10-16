@@ -2,7 +2,9 @@
 // Não é um arquivo de teste.
 import { createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
 import { env } from 'cloudflare:workers';
+import { sessionUser } from '../../worker/auth';
 import type { Env } from '../../worker/env';
+import type { Mailer } from '../../worker/mail';
 import { handle, type Deps } from '../../worker/router';
 
 export const ORIGIN = 'https://beta.klick.ranimontagna.com';
@@ -15,10 +17,37 @@ export function testEnv(over: Partial<Env> = {}): Env {
   return { ...(env as unknown as Env), ACCOUNTS_ENABLED: 'true', API_BURST: allow, ...over };
 }
 
-// `user`: quem tem sessão neste pedido (sem login de verdade, etapa 3); null, ninguém.
+// Um carteiro falso: guarda o que seria enviado.
+export function fakeMailer(): Mailer & { sent: { email: string; code: string }[] } {
+  const sent: { email: string; code: string }[] = [];
+  return {
+    sent,
+    async sendCode(email, code) {
+      sent.push({ email, code });
+    },
+  };
+}
+
+// `user`: quem tem sessão neste pedido, sem passar pelo login; null, ninguém.
 export function testDeps(over: Partial<Deps> & { user?: string | null } = {}): Deps {
   const { user = null, ...rest } = over;
-  return { now: () => T0, resolveUser: async () => (user ? { id: user, email: `${user}@exemplo.com` } : null), ...rest };
+  return { now: () => T0, mailer: fakeMailer(), resolveUser: async () => (user ? { id: user, email: `${user}@exemplo.com` } : null), ...rest };
+}
+
+// Com o login de verdade (Better Auth no D1 local) e o carteiro falso.
+export function authDeps(): Deps & { mailer: ReturnType<typeof fakeMailer> } {
+  const mailer = fakeMailer();
+  return { now: () => T0, mailer, resolveUser: (request, e, ctx) => sessionUser(request, e, ctx, mailer) };
+}
+
+// Pede o código, entra com ele e devolve o cookie de sessão, pronto para o cabeçalho Cookie.
+export async function signIn(email: string, deps: ReturnType<typeof authDeps>): Promise<string> {
+  const send = await call('/api/auth/email-otp/send-verification-otp', postJson({ email, type: 'sign-in' }, { 'x-turnstile-token': 'ok' }), { deps });
+  if (send.status !== 200) throw new Error(`pedir o código deu ${send.status}`);
+  const code = deps.mailer.sent.at(-1)!.code;
+  const res = await call('/api/auth/sign-in/email-otp', postJson({ email, otp: code }), { deps });
+  if (res.status !== 200) throw new Error(`entrar deu ${res.status}`);
+  return res.headers.getSetCookie().map((c) => c.split(';')[0]).join('; ');
 }
 
 export async function call(path: string, init: RequestInit = {}, o: { env?: Env; deps?: Deps } = {}): Promise<Response> {

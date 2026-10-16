@@ -3,7 +3,7 @@ import { canonicalJson } from '../../src/core/sync/merge';
 import { MAX_DATA_CHARS } from '../../src/core/sync/shape';
 import type { Change, SyncResponse } from '../../src/core/sync/types';
 import { MAX_BODY } from '../../worker/router';
-import { call, postJson, T0, testDeps, testEnv } from './helpers';
+import { call, ORIGIN, postJson, T0, testDeps, testEnv } from './helpers';
 
 const solve = (id: string, o: Partial<Change> & { note?: string; sessionId?: string } = {}): Change => ({
   store: 'solves',
@@ -139,6 +139,46 @@ describe('POST /api/sync (spec 6.1 e 8.2)', () => {
     expect(ok.status).toBe(200);
     expect(((await ok.json()) as SyncResponse).accepted).toBe(500);
     expect((await call('/api/sync', postJson('x'.repeat(MAX_BODY)), { deps })).status).toBe(413);
+  });
+
+  it('o corpo não é lido inteiro além do limite: Content-Length grande barra antes de ler; sem ele, a leitura para no limite (413)', async () => {
+    const deps = testDeps({ user: 'conta-corpo-stream' });
+    const headers = { 'Content-Type': 'application/json', Origin: ORIGIN };
+    // 40 MB em pedaços de 1 MB, entregues só quando alguém lê (highWaterMark 0); `pulled` conta o que foi lido.
+    const chunk = new TextEncoder().encode('x'.repeat(1_000_000));
+    const source = () => {
+      const s = {
+        pulled: 0,
+        body: new ReadableStream<Uint8Array>(
+          {
+            pull(c) {
+              if (s.pulled >= 40 * chunk.length) return c.close();
+              s.pulled += chunk.length;
+              c.enqueue(chunk);
+            },
+          },
+          { highWaterMark: 0 },
+        ),
+      };
+      return s;
+    };
+    // Um caractere ocupa até 3 bytes em UTF-8: acima de 3 × MAX_BODY bytes, o corpo não cabe em MAX_BODY caracteres.
+    const big = source();
+    const declared = await call('/api/sync', { method: 'POST', headers: { ...headers, 'Content-Length': String(3 * MAX_BODY + 1) }, body: big.body }, { deps });
+    expect([declared.status, big.pulled]).toEqual([413, 0]);
+    const parts = source();
+    const chunked = await call('/api/sync', { method: 'POST', headers, body: parts.body }, { deps });
+    expect(chunked.status).toBe(413);
+    expect(parts.pulled).toBeLessThanOrEqual(MAX_BODY + 2 * chunk.length);
+  });
+
+  it('sem `v` numérico, 400; o 426 fica para uma versão numérica que o servidor não conhece', async () => {
+    const deps = testDeps({ user: 'conta-v' });
+    const body = { deviceId: 'd', cursor: 0, clock: T0, changes: [] };
+    expect((await call('/api/sync', postJson(body), { deps })).status).toBe(400);
+    expect((await call('/api/sync', postJson({ ...body, v: '1' }), { deps })).status).toBe(400);
+    expect((await call('/api/sync', postJson({ ...body, v: null }), { deps })).status).toBe(400);
+    expect((await call('/api/sync', postJson({ ...body, v: 2 }), { deps })).status).toBe(426);
   });
 
   it('a chave ACCOUNTS_ENABLED: com "true" o sync responde; com "false", 404 mesmo com sessão (spec 8.4)', async () => {
