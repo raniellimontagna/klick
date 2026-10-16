@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { Change, CloudCopy, SyncResponse } from '../../src/core/sync/types';
 import type { KlickExport } from '../../src/core/types';
 import { emailKeyOf } from '../../worker/abuse';
+import type { Env } from '../../worker/env';
 import { dayOf, gunzipJson, nextSnapshotAt, preRestoreName, snapshotKey } from '../../worker/snapshots';
 import { call, postJson, T0, testDeps, testEnv } from './helpers';
 
@@ -16,12 +17,50 @@ const session: Change = { store: 'sessions', id: 's1', data: { name: 'Sessão 1'
 const stubOf = (user: string) => env.ACCOUNT.get(env.ACCOUNT.idFromName(user));
 const alarmOf = (user: string) => runInDurableObject(stubOf(user), (_o, state) => state.storage.getAlarm());
 
+const syncCall = (user: string, changes: Change[], cursor = 0, now = () => T0, device = 'd1'): Promise<Response> =>
+  call('/api/sync', postJson({ v: 1, deviceId: device, cursor, clock: T0, changes }), { deps: testDeps({ user, now }) });
 async function sync(user: string, changes: Change[], cursor = 0, now = () => T0, device = 'd1'): Promise<SyncResponse> {
-  const res = await call('/api/sync', postJson({ v: 1, deviceId: device, cursor, clock: T0, changes }), { deps: testDeps({ user, now }) });
-  return (await res.json()) as SyncResponse;
+  return (await (await syncCall(user, changes, cursor, now, device)).json()) as SyncResponse;
 }
 const copies = async (user: string): Promise<CloudCopy[]> =>
   ((await (await call('/api/snapshots', {}, { deps: testDeps({ user }) })).json()) as { copies: CloudCopy[] }).copies;
+const deleteAccount = (user: string): Promise<Response> =>
+  call('/api/account', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: `${user}@exemplo.com` }) }, {
+    deps: testDeps({ user }),
+  });
+
+// Segura as gravações no R2 do objeto da conta até `gate.open`: o que chega ao objeto com uma gravação no meio (as corridas que os testes
+// conferem) acontece de verdade. O objeto e o teste dividem só um objeto simples, sem promessa de um contexto resolvida no outro.
+interface Gate {
+  started: boolean;
+  open: boolean;
+}
+const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+async function until(cond: () => boolean): Promise<void> {
+  for (let i = 0; i < 1000 && !cond(); i++) await wait(2);
+  if (!cond()) throw new Error('o objeto não chegou à gravação');
+}
+async function holdUploads(user: string): Promise<Gate> {
+  const gate: Gate = { started: false, open: false };
+  await runInDurableObject(stubOf(user), (instance) => {
+    const o = instance as unknown as { env: Env };
+    const held = new Proxy(o.env.SNAPSHOTS, {
+      get(target, key) {
+        if (key === 'put') {
+          return async (...args: Parameters<R2Bucket['put']>) => {
+            gate.started = true;
+            while (!gate.open) await wait(2);
+            return target.put(...args);
+          };
+        }
+        const value = Reflect.get(target, key) as unknown;
+        return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+      },
+    });
+    o.env = { ...o.env, SNAPSHOTS: held };
+  });
+  return gate;
+}
 
 describe('a cópia diária (spec 8.3)', () => {
   it('o primeiro sync agenda o alarme pela hora de verdade; o alarme grava a cópia do dia no formato do export, e só se a conta mudou', async () => {
@@ -89,6 +128,43 @@ describe('restaurar um dia (spec 8.3)', () => {
     expect((await call('/api/snapshots/2020-01-01/restore', postJson({}), { deps, env: busy })).status).toBe(429);
     expect((await call('/api/snapshots', {}, { deps, env: busy })).status).toBe(429);
   });
+
+  it('duas restaurações no mesmo segundo: a cópia "antes de restaurar" fica com o estado de antes da primeira', async () => {
+    const user = 'conta-duas';
+    await sync(user, [session, solve('a', 1000)]);
+    await stubOf(user).snapshot(T0);
+    await sync(user, [solve('extra')]);
+    const deps = testDeps({ user, now: () => T0 + 1000 });
+    const restore = () => call(`/api/snapshots/${dayOf(T0)}/restore`, postJson({}), { deps });
+    expect((await restore()).status).toBe(204);
+    expect((await restore()).status).toBe(204); // o clique duplo
+    const object = await env.SNAPSHOTS.get(snapshotKey(user, preRestoreName(T0 + 1000)));
+    const before = (await gunzipJson(await object!.arrayBuffer())) as KlickExport;
+    expect(before.solves.map((s) => [s.id, s.deletedAt])).toEqual([['a', null], ['extra', null]]);
+    expect((await copies(user)).filter((c) => c.kind === 'pre-restore')).toHaveLength(1);
+  });
+
+  it('um sync que chega no meio de uma restauração espera ela terminar: o que ele grava não vai para a lixeira', async () => {
+    const user = 'conta-meio';
+    await sync(user, [session, solve('a', 1000)]);
+    await stubOf(user).snapshot(T0);
+    const gate = await holdUploads(user);
+    const restore = call(`/api/snapshots/${dayOf(T0)}/restore`, postJson({}), { deps: testDeps({ user, now: () => T0 + 1000 }) });
+    await until(() => gate.started); // a cópia "antes de restaurar" está a caminho do R2
+    let synced = false;
+    const during = sync(user, [solve('durante')], 0, () => T0, 'd2').then((r) => {
+      synced = true;
+      return r;
+    });
+    await wait(30);
+    expect(synced).toBe(false); // o objeto não atende ninguém enquanto restaura
+    gate.open = true;
+    expect((await restore).status).toBe(204);
+    await during;
+    const all = new Map((await sync(user, [], 0)).changes.map((c) => [c.id, c]));
+    expect(all.get('durante')!.deletedAt).toBeNull();
+    expect(all.get('a')).toMatchObject({ deletedAt: null, data: { ms: 1000 } });
+  });
 });
 
 describe('apagar a conta (spec 7.7)', () => {
@@ -116,18 +192,44 @@ describe('apagar a conta (spec 7.7)', () => {
     expect(left.results.map((r) => r.id)).toEqual(['v-outra']);
     const requests = await env.DB.prepare('SELECT count(*) AS n FROM otp_requests WHERE key = ?').bind(await emailKeyOf(email, env.BETTER_AUTH_SECRET)).first<{ n: number }>();
     expect(requests?.n).toBe(0);
-    expect((await sync(user, [], 0)).changes).toEqual([]);
+    expect((await syncCall(user, [])).status).toBe(401);
   });
 
-  it('depois de apagar, um aparelho com o cursor adiante recomeça do zero e recebe o que foi gravado depois', async () => {
+  it('o objeto apagado não volta: com a sessão ainda aberta, o sync e a restauração recebem 401, e nada é gravado nem agendado', async () => {
+    const user = 'conta-volta-nao';
+    await sync(user, [session, solve('a')]);
+    await stubOf(user).snapshot(T0);
+    expect((await deleteAccount(user)).status).toBe(204);
+    // A sessão falsa continua valendo: é o sync de outro aparelho que chega antes de as linhas do D1 sumirem.
+    expect((await syncCall(user, [solve('depois')], 0, () => T0, 'd2')).status).toBe(401);
+    expect((await call(`/api/snapshots/${dayOf(T0)}/restore`, postJson({}), { deps: testDeps({ user }) })).status).toBe(401);
+    expect(await stubOf(user).snapshot(Date.now())).toBe(false);
+    expect(await alarmOf(user)).toBeNull();
+    expect(await copies(user)).toEqual([]);
+    const count = await runInDurableObject(stubOf(user), (_o, state) => state.storage.sql.exec<{ n: number }>('SELECT count(*) AS n FROM records').one().n);
+    expect(count).toBe(0);
+    expect((await deleteAccount(user)).status).toBe(204); // apagar de novo (um pedido que falhou no meio) funciona
+  });
+
+  it('um alarme no meio da cópia não traz a conta de volta: apagar espera a cópia terminar e a leva junto', async () => {
+    const user = 'conta-alarme-meio';
+    await sync(user, [session, solve('a')]);
+    const gate = await holdUploads(user);
+    const alarm = runDurableObjectAlarm(stubOf(user));
+    await until(() => gate.started); // a cópia do dia está a caminho do R2
+    const deleted = deleteAccount(user);
+    await wait(30); // sem a espera do objeto, a exclusão terminaria aqui, antes de a cópia chegar ao R2
+    gate.open = true;
+    expect(await alarm).toBe(true);
+    expect((await deleted).status).toBe(204);
+    expect(await copies(user)).toEqual([]);
+    expect(await alarmOf(user)).toBeNull();
+  });
+
+  it('um cursor além da revisão da conta recomeça do zero', async () => {
     const user = 'conta-recomeca';
-    const first = await sync(user, [session, solve('a'), solve('b')]);
-    expect(first.cursor).toBe(3);
-    await stubOf(user).wipe();
-    const pushed = await sync(user, [solve('novo')], first.cursor);
-    expect(pushed.changes.map((c) => c.id)).toEqual(['novo']);
-    expect(pushed.cursor).toBe(1);
-    const other = await sync(user, [], first.cursor, () => T0, 'd2'); // o outro aparelho, parado na revisão de antes
-    expect([other.changes.map((c) => c.id), other.cursor]).toEqual([['novo'], 1]);
+    await sync(user, [session, solve('a'), solve('b')]);
+    const ahead = await sync(user, [solve('novo')], 50, () => T0, 'd2'); // um cursor que este servidor nunca deu
+    expect([ahead.changes.map((c) => c.id), ahead.cursor]).toEqual([['s1', 'a', 'b', 'novo'], 4]);
   });
 });

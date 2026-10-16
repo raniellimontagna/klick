@@ -214,7 +214,8 @@ export async function handle(request: Request, env: Env, ctx: ExecutionContext, 
     if (req === null) return fail(400, 'bad-request');
     const started = deps.now();
     // O tipo do stub (RPC) não acompanha `data: unknown`; o objeto que volta é o SyncResponse do Durable Object.
-    const res = (await account.syncBatch(user.id, req, started)) as unknown as SyncResponse;
+    const res = (await account.syncBatch(user.id, req, started)) as unknown as SyncResponse | 'deleted';
+    if (res === 'deleted') return fail(401, 'auth'); // a conta foi apagada: o aparelho sai, como numa sessão revogada
     log({ evt: 'sync', user: user.id, pushed: req.changes.length, rejected: res.rejected.length, pulled: res.changes.length, ms: deps.now() - started });
     return json(res);
   }
@@ -234,12 +235,14 @@ export async function handle(request: Request, env: Env, ctx: ExecutionContext, 
     if (!(await env.API_BURST.limit({ key: user.id })).success) return fail(429, 'limited');
     const outcome = await account.restoreSnapshot(name, deps.now());
     log({ evt: 'restore', user: user.id, outcome });
+    if (outcome === 'deleted') return fail(401, 'auth');
     return outcome === 'ok' ? new Response(null, { status: 204 }) : fail(404, 'not-found');
   }
 
   // Apagar a conta (spec 7.7): o e-mail digitado confirma; somem na hora o objeto da conta, as cópias no R2 e as linhas no D1, com os
-  // códigos pendentes e os pedidos de código do e-mail. O D1 vai por último: se algo falhar no meio, a sessão continua e o pedido pode ser
-  // refeito.
+  // códigos pendentes e os pedidos de código do e-mail. O objeto vai primeiro e fica marcado como apagado: dali em diante ele recusa
+  // tudo (401), mesmo com a sessão ainda aberta, e só fica pronto depois da cópia em andamento, que então entra na lista do R2. O D1 vai
+  // por último: se algo falhar no meio, a sessão continua e o mesmo pedido refaz tudo (cada passo pode rodar de novo).
   if (path === '/api/account' && request.method === 'DELETE') {
     const guard = writeGuard(request, env);
     if (guard) return guard;
