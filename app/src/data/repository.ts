@@ -12,21 +12,23 @@
 // Leitura: o que sai do IndexedDB já é cópia. Os padrões (perfil e meta) são montados novos a cada chamada, nunca compartilhados.
 import type { IDBPDatabase, IDBPObjectStore, IDBPTransaction, StoreNames } from 'idb';
 import { defaultSeason, finishUnlocked, moreAdvanced, seasonFrom } from '../core/season';
+import { applyChanges, type ApplyOptions, type ApplyResult, type RecordView } from '../core/sync/apply';
 import { canonicalJson } from '../core/sync/merge';
 import { defaultPrefValue, isPrefValue, joinProfile, prefsFromProfile, profileFromPrefs, splitProfile } from '../core/sync/prefs';
-import { changeToPref, fromChange, prefToChange, stampOf, toChange, type RecordStore, type StampedRecord } from '../core/sync/records';
+import { changeToPref, fromChange, prefToChange, sessionOfChange, stampOf, toChange, type RecordStore, type StampedRecord } from '../core/sync/records';
 import { restoreChanges } from '../core/sync/restore';
 import { checkChange, isSyncId } from '../core/sync/shape';
-import { syncKey, type Change, type DeviceProfile, type PrefItem, type SyncState, type SyncStore } from '../core/sync/types';
+import { SYNC_STORES, syncKey, type Change, type DeviceProfile, type OutboxEntry, type PrefItem, type SyncState, type SyncStore } from '../core/sync/types';
 import { algChoiceFrom, lessonAtFrom, practiceFrom, trainOffFrom } from '../core/trail/validate';
 import { defaultSettings } from '../core/types';
 import type { EventId, KlickExport, Meta, Penalty, Practice, Profile, ProfilePatch, SeasonRecord, SeasonState, Session, Solve } from '../core/types';
 import { T } from '../strings';
 import type { BackupRecord, KlickDB, StoredPractice, StoredSession, StoredSolve } from './db';
-import { newId } from './ids';
+import { defaultSessionId, newId } from './ids';
 
 export type ChangeKind = 'solves' | 'sessions' | 'profile' | 'meta' | 'practice' | 'sync' | 'all';
-// De onde veio o aviso: 'local' é desta aba (já está na memória de quem gravou); 'remote' é de outra aba (o canal).
+// De onde veio o aviso: 'local' é desta aba (já está na memória de quem gravou); 'remote' é de outra aba (o canal) ou do servidor (o que o
+// sync acabou de juntar: a memória desta aba também precisa reler).
 export type ChangeOrigin = 'local' | 'remote';
 // `solveIds` vem só nos avisos de solves: quais mudaram (gravados, editados, excluídos, restaurados ou apagados de vez). Sem ele (aviso
 // de uma versão antiga do app, ou mudança grande demais), quem ouve relê todos os solves.
@@ -89,6 +91,28 @@ export interface Repository {
   advanceSeason(fromN: number, record: SeasonRecord, next: SeasonState): Promise<Profile>;
   getMeta(): Promise<Meta>; // padrão se ausente (deviceId novo), gravado na primeira leitura
   saveMeta(patch: Partial<Meta>): Promise<Meta>;
+  // --- Sync (spec 5.3 e 6) ---
+  // Até `limit` entradas da fila, as mais antigas primeiro, com o registro atual de cada uma: várias edições do mesmo registro sobem uma vez.
+  // O que o servidor recusaria (spec 6.6: um registro de antes da v3 com a própria data torta, por exemplo) não sobe: a entrada sai da fila
+  // e vai para o log local, só com store, id e motivo, contada em `refused`. A entrada de um registro que não existe mais sai sem aviso.
+  outboxBatch(limit: number): Promise<{ changes: Change[]; sent: OutboxEntry[]; refused: number }>;
+  confirmSent(sent: readonly OutboxEntry[]): Promise<void>; // tira da fila as entradas que não mudaram desde que saíram
+  outboxCount(): Promise<number>;
+  countRemoteDeletions(changes: readonly unknown[]): Promise<number>; // quantos solves ativos daqui o lote apagaria (spec 6.6)
+  // Junta um lote do servidor (applyChanges, no modo do aparelho): grava o que muda, põe na fila o que a cascata mudou, sobe o relógio e
+  // avisa as telas (desta aba e das outras) como uma mudança de fora.
+  applyRemote(changes: readonly unknown[], serverTime: number): Promise<RemoteResult>;
+  // Primeiro login (spec 6.5): todo registro daqui entra na fila, menos o que o servidor recusaria (fica fora, no log local como em
+  // outboxBatch). Devolve quantos ficaram de fora.
+  enqueueAll(): Promise<number>;
+  // Depois de baixar a conta inteira no primeiro login (spec 6.5): um solve daqui igual a um da conta, com outro id, e uma sessão daqui vazia
+  // com o nome padrão, de um evento que já tem sessão na conta, recebem marca de exclusão e saem da fila. "Daqui" é o que está na fila. A
+  // sessão padrão (`default-<evento>`) nunca sai: o id é o mesmo em todo aparelho, e o sync a junta.
+  dedupeFirstLogin(): Promise<{ solves: number; sessions: number }>;
+  // Apaga os dados deste aparelho (spec 7.6 e 7.7): solves, sessões, treino, conta, fila e cópias. Ficam os ajustes do aparelho; o estado
+  // do sync volta ao padrão, com o relógio. Com mudanças esperando para subir, recusa (PendingChangesError) e não apaga nada (decisão 12):
+  // apagar perderia o que ainda não está na conta.
+  wipeData(): Promise<void>;
   getSyncState(): Promise<SyncState>; // o bloco sync do meta (spec 5.4); o padrão antes do primeiro login
   // Muda o estado do sync e avisa 'sync'. O relógio só sobe: um clock menor que o gravado, ou que não é inteiro seguro >= 0, é ignorado.
   saveSyncState(patch: Partial<SyncState>): Promise<SyncState>;
@@ -237,7 +261,31 @@ const syncStateOrDefault = (stored: SyncState | undefined): SyncState => ({ ...d
 interface SyncCtx {
   stamp(): number; // a data desta escrita, uma só por transação: max(agora, clock + 1), nunca menor que uma data já vista (spec 5.4)
   track(store: SyncStore, id: string): Promise<void>; // põe o registro na fila de saída, se o aparelho tem conta (spec 5.3), com a data desta escrita
+  raise(at: number): void; // o relógio sobe até `at` (a hora do servidor e as datas recebidas, spec 5.4); o que não é inteiro seguro >= 0 não conta
 }
+
+// Um lote do servidor, como o motor recebe e o repositório junta (spec 6.1).
+export interface RemoteResult {
+  applied: number; // registros que mudaram aqui
+  rejected: number; // mudanças tortas, ignoradas
+}
+
+// wipeData com mudanças esperando para subir (decisão 12): quem chama mostra o porquê.
+export class PendingChangesError extends Error {
+  constructor() {
+    super('Há mudanças esperando para subir: apagar os dados deste aparelho as perderia');
+    this.name = 'PendingChangesError';
+  }
+}
+
+// Uma mudança com store do sync e id de texto: dá para procurar o registro daqui (o resto, applyChanges confere).
+const isKeyed = (c: unknown): c is Change =>
+  typeof c === 'object' && c !== null && (SYNC_STORES as readonly unknown[]).includes((c as Change).store) && typeof (c as Change).id === 'string';
+// A marca de um solve para a deduplicação do primeiro login (spec 6.5): evento, instante, tempo, penalidade e embaralhamento. Tem de ser a
+// mesma do script que traz os dados da v1 (Task 20): o mesmo solve dos dois lados precisa dar a mesma marca.
+const fingerprint = (s: Solve): string => JSON.stringify([s.event, s.at, s.ms, s.penalty, s.scramble]);
+// A sessão padrão (defaultSessionId): o mesmo id em todo aparelho novo, que o sync junta, e que a deduplicação nunca manda para a lixeira.
+const isDefaultSession = (id: string): boolean => id.startsWith(defaultSessionId(''));
 const metaOrNew = (stored: Meta | undefined, at: number): Meta =>
   stored ? { ...META_DEFAULTS, ...stored } : { ...META_DEFAULTS, deviceId: newId(at) };
 
@@ -268,6 +316,7 @@ async function each<V>(items: readonly V[], request: (item: V) => Promise<unknow
 // O que reviveSession usa da store de sessões, dentro de uma transação de escrita.
 type SessionStore = Pick<IDBPObjectStore<KlickDB, StoreNames<KlickDB>[], 'sessions', 'readwrite'>, 'get' | 'put'>;
 type WriteTx = IDBPTransaction<KlickDB, StoreNames<KlickDB>[], 'readwrite'>;
+type SyncTx = IDBPTransaction<KlickDB, StoreNames<KlickDB>[], 'readonly' | 'readwrite'>;
 
 // Mantém o invariante (ver o topo do arquivo) quando a transação grava um solve ativo: se a sessão dele está na lixeira, devolve o
 // registro dela, e só ele. Diz se a sessão voltou. Um sessionId que não é string nem é consultado: uma chave inválida lança
@@ -302,6 +351,68 @@ async function writeProfile(tx: WriteTx, base: Profile, next: Profile, ctx: Sync
   }
 }
 
+// O registro daqui de uma chave do sync, como mudança (spec 6.1); undefined se não existe. Uma store fora do sync (uma entrada da fila
+// torta) não tem registro: pedi-la à transação lançaria e derrubaria a rodada inteira.
+async function recordOf(tx: SyncTx, store: SyncStore, id: string): Promise<Change | undefined> {
+  if (store === 'prefs') {
+    const item = await tx.objectStore('prefs').get(id);
+    return item && prefToChange(item);
+  }
+  if (!(SYNC_STORES as readonly string[]).includes(store)) return undefined;
+  const record = await tx.objectStore(store).get(id);
+  return record && toChange(store, record);
+}
+
+// Junta um lote com os registros daqui (spec 6.3). applyChanges é síncrono, então a vista é um mapa lido antes: os registros do lote e as
+// sessões deles (a do solve que chega e a do solve gravado, que pode ser outra). Os solves de uma sessão só são lidos quando applyChanges
+// os pede (a cascata, numa sessão excluída), e ele roda de novo com eles: no primeiro sync de uma conta grande, nenhuma sessão ativa tem
+// os solves lidos à toa. O que ele pede na segunda vez já foi lido (as sessões vêm do lote e da vista, não dos solves), então são duas
+// voltas no máximo.
+async function joinIn(tx: SyncTx, changes: readonly unknown[], opts: ApplyOptions): Promise<ApplyResult> {
+  const records = new Map<string, Change>();
+  const remember = (c: Change | undefined): void => {
+    if (c) records.set(syncKey(c.store, c.id), c);
+  };
+  const sessions = new Set<string>();
+  await Promise.all(
+    changes.filter(isKeyed).map(async (c) => {
+      const record = await recordOf(tx, c.store, c.id);
+      remember(record);
+      if (c.store === 'sessions') sessions.add(c.id);
+      for (const sid of [sessionOfChange(c), record && sessionOfChange(record)]) if (sid) sessions.add(sid);
+    }),
+  );
+  await Promise.all([...sessions].map(async (sid) => remember(await recordOf(tx, 'sessions', sid))));
+  const bySession = new Map<string, Change[]>();
+  const asked = new Set<string>();
+  const view: RecordView = {
+    get: (store, id) => records.get(syncKey(store, id)),
+    solvesOf: (sid) => {
+      const solves = bySession.get(sid);
+      if (solves) return solves;
+      asked.add(sid);
+      return [];
+    },
+  };
+  let result = applyChanges(view, changes, opts);
+  while (asked.size > 0) {
+    const sids = [...asked];
+    asked.clear();
+    await Promise.all(
+      sids.map(async (sid) => {
+        const solves = (await tx.objectStore('solves').index('bySession').getAll(keyRange(sid))).map((s) => toChange('solves', s));
+        bySession.set(sid, solves);
+        solves.forEach(remember);
+      }),
+    );
+    result = applyChanges(view, changes, opts);
+  }
+  return result;
+}
+
+// Uma linha do log local para o que o servidor recusaria (spec 6.6): store, id e motivo, nunca o conteúdo (spec 8.5).
+const refusalLine = (store: SyncStore, id: string, reason: string): string => `sync: fora da fila, o servidor recusaria ${syncKey(store, id)} (${reason})`;
+
 // Quem assina os avisos entre abas: um id e uma sequência que sobe de um em um. A página cria um e o passa a cada conexão que abre
 // (boot.ts): uma reabertura continua a mesma sequência, e a outra aba não confunde a reabertura com um remetente novo.
 export interface ChangeSender {
@@ -322,11 +433,13 @@ export function createRepository(
     channel = defaultChannel(),
     onError = rethrowLater,
     sender = createSender(now),
+    log = (line: string) => console.warn(line),
   }: {
     now?: () => number;
     sender?: ChangeSender; // omitido: um só desta conexão
     channel?: ChannelLike | null; // omitido: BroadcastChannel('klick-data') se o ambiente tiver; null: sem canal
     onError?: (err: unknown) => void; // erro de um ouvinte ou do envio ao canal; a gravação já foi confirmada. Se ele lançar, o erro sai por relançar-depois
+    log?: (line: string) => void; // o log local do sync (spec 6.6 e 8.5): store, id, contagens e motivos, nunca o conteúdo de um registro
   } = {},
 ): Repository {
   const listeners = new Set<{ fn: ChangeListener }>();
@@ -387,6 +500,26 @@ export function createRepository(
     const solveIds = ids.length <= MAX_NOTIFY_IDS ? [...ids] : undefined;
     if (!closed) emit('solves', 'local', solveIds);
     post(solveIds ? { kind: 'solves', solveIds } : { kind: 'solves' });
+  }
+
+  // O aviso do que o sync gravou (um lote do servidor, a deduplicação): chega às telas desta aba como mudança de fora ('remote'), porque a
+  // memória delas não sabe dele, e vai às outras abas pelo canal. Solves primeiro, com os ids, e depois sessões, treino e perfil.
+  function announceSynced(writes: readonly { store: SyncStore; id: string }[]): void {
+    const solveIds = writes.filter((c) => c.store === 'solves').map((c) => c.id);
+    if (solveIds.length > 0) {
+      const ids = solveIds.length <= MAX_NOTIFY_IDS ? solveIds : undefined;
+      if (!closed) emit('solves', 'remote', ids);
+      post(ids ? { kind: 'solves', solveIds: ids } : { kind: 'solves' });
+    }
+    const stores = new Set(writes.map((c) => c.store));
+    const kinds: ChangeKind[] = [];
+    if (stores.has('sessions')) kinds.push('sessions');
+    if (stores.has('practice')) kinds.push('practice');
+    if (stores.has('prefs')) kinds.push('profile');
+    for (const kind of kinds) {
+      if (!closed) emit(kind, 'remote');
+      post({ kind });
+    }
   }
 
   if (channel) {
@@ -469,6 +602,10 @@ export function createRepository(
         // misturaria a ordem do índice byQueued.
         track: async (store, id) => {
           if (state.accountId !== null) await outbox.put({ store, id, queuedAt: stamp() }, syncKey(store, id));
+        },
+        // Só inteiros seguros >= 0, como saveSyncState: um NaN ou 1e300 viraria o relógio de toda gravação seguinte.
+        raise: (to) => {
+          if (Number.isSafeInteger(to) && to >= 0) clock = Math.max(clock, to);
         },
       };
       const result = await work(tx, ctx);
@@ -780,6 +917,184 @@ export function createRepository(
       });
       announce('meta');
       return meta;
+    },
+
+    // Uma transação de escrita: ler a fila e os registros dela vem do mesmo instante, e a entrada do que não sobe sai junto.
+    async outboxBatch(limit) {
+      const refusals: string[] = [];
+      const batch = await write(['outbox', 'solves', 'sessions', 'practice', 'prefs'], async (tx) => {
+        const outbox = tx.objectStore('outbox');
+        const entries = await outbox.index('byQueued').getAll(undefined, limit);
+        const current = await Promise.all(entries.map((e) => recordOf(tx, e.store, e.id)));
+        const changes: Change[] = [];
+        const sent: OutboxEntry[] = [];
+        const dropped: string[] = [];
+        entries.forEach((entry, i) => {
+          const change = current[i];
+          const checked = change && checkChange(change);
+          if (change && checked?.ok) {
+            changes.push(change);
+            sent.push(entry);
+            return;
+          }
+          dropped.push(syncKey(entry.store, entry.id));
+          if (checked && !checked.ok) refusals.push(refusalLine(entry.store, entry.id, checked.reason));
+        });
+        await each(dropped, (key) => outbox.delete(key));
+        return { changes, sent };
+      });
+      for (const line of refusals) log(line);
+      return { ...batch, refused: refusals.length };
+    },
+
+    async confirmSent(sent) {
+      await write(['outbox'], async (tx) => {
+        const outbox = tx.objectStore('outbox');
+        for (const e of sent) {
+          const key = syncKey(e.store, e.id);
+          const queued = await outbox.get(key);
+          // Gravado de novo durante o pedido (outra data na fila): o que subiu já é velho, e a entrada fica para o próximo lote.
+          if (queued && queued.queuedAt === e.queuedAt) await outbox.delete(key);
+        }
+      });
+    },
+
+    async outboxCount() {
+      return db.count('outbox');
+    },
+
+    async countRemoteDeletions(changes) {
+      return read(['solves', 'sessions', 'practice', 'prefs', 'outbox'], async (tx) => {
+        const waiting = new Set(await tx.objectStore('outbox').getAllKeys());
+        return (await joinIn(tx, changes, { mode: 'client', pending: (s, id) => waiting.has(syncKey(s, id)) })).deletedSolves;
+      });
+    },
+
+    async applyRemote(changes, serverTime) {
+      const joined = await syncWrite(['solves', 'sessions', 'practice', 'prefs'], async (tx, ctx) => {
+        const waiting = new Set(await tx.objectStore('outbox').getAllKeys());
+        const result = await joinIn(tx, changes, { mode: 'client', pending: (s, id) => waiting.has(syncKey(s, id)) });
+        // O relógio sobe até a hora do servidor e as datas que chegaram (spec 5.4): só as de mudanças que passam por checkChange.
+        ctx.raise(serverTime);
+        for (const raw of changes) {
+          const checked = checkChange(raw);
+          if (checked.ok) ctx.raise(Math.max(checked.change.updatedAt, checked.change.deletionStamp));
+        }
+        await each(result.writes, (c) => {
+          if (c.store === 'prefs') return tx.objectStore('prefs').put(changeToPref(c));
+          if (c.store === 'solves') return tx.objectStore('solves').put(fromChange<StoredSolve>(c));
+          if (c.store === 'sessions') return tx.objectStore('sessions').put(fromChange<StoredSession>(c));
+          return tx.objectStore('practice').put(fromChange<StoredPractice>(c));
+        });
+        // O que a cascata mudou aqui sobe (decisão 5); o que veio do lote o servidor já tem.
+        const derived = new Set(result.derived);
+        await each(
+          result.writes.filter((c) => derived.has(syncKey(c.store, c.id))),
+          (c) => ctx.track(c.store, c.id),
+        );
+        return result;
+      });
+      announceSynced(joined.writes);
+      return { applied: joined.writes.length, rejected: joined.rejected.length };
+    },
+
+    async enqueueAll() {
+      const refusals: string[] = [];
+      await syncWrite(['solves', 'sessions', 'practice', 'prefs'], async (tx, ctx) => {
+        const [solves, sessions, practice, prefs] = await Promise.all([
+          tx.objectStore('solves').getAll(),
+          tx.objectStore('sessions').getAll(),
+          tx.objectStore('practice').getAll(),
+          tx.objectStore('prefs').getAll(),
+        ]);
+        const all: Change[] = [
+          ...solves.map((s) => toChange('solves', s)),
+          ...sessions.map((s) => toChange('sessions', s)),
+          ...practice.map((p) => toChange('practice', p)),
+          ...prefs.map(prefToChange),
+        ];
+        const queued: Change[] = [];
+        const left: Change[] = [];
+        for (const c of all) {
+          const checked = checkChange(c);
+          if (checked.ok) queued.push(c);
+          else {
+            left.push(c);
+            refusals.push(refusalLine(c.store, c.id, checked.reason));
+          }
+        }
+        await each(queued, (c) => ctx.track(c.store, c.id));
+        // Uma entrada que já estava na fila (gravada antes por outro caminho) também sai: a contagem do que vai subir fica certa.
+        const outbox = tx.objectStore('outbox');
+        await each(left, (c) => outbox.delete(syncKey(c.store, c.id)));
+      });
+      for (const line of refusals) log(line);
+      return refusals.length;
+    },
+
+    async dedupeFirstLogin() {
+      const outcome = await syncWrite(['solves', 'sessions'], async (tx, ctx) => {
+        const outbox = tx.objectStore('outbox');
+        const waiting = new Set(await outbox.getAllKeys());
+        const mine = (store: SyncStore, id: string): boolean => waiting.has(syncKey(store, id));
+        const solves = tx.objectStore('solves');
+        const sessions = tx.objectStore('sessions');
+        // A conta é o que não está na fila: acabou de chegar do servidor.
+        const allSolves = await solves.getAll();
+        const live = allSolves.filter((s) => s.deletedAt === null);
+        const theirs = new Set(live.filter((s) => !mine('solves', s.id)).map(fingerprint));
+        const twins = live.filter((s) => mine('solves', s.id) && theirs.has(fingerprint(s)));
+        await each(twins, (s) => {
+          const at = ctx.stamp();
+          return solves.put({ ...s, deletedAt: at, updatedAt: at, deletionStamp: at });
+        });
+        await each(twins, (s) => outbox.delete(syncKey('solves', s.id))); // a marca não sobe: o solve da conta é o mesmo
+        // Vazia: nenhum solve dela fica ativo nem sobe (um da lixeira que está na fila subiria apontando para ela). A sessão padrão nunca
+        // sai: a da conta tem o mesmo id, e a marca daqui não subiria (os dois lados ficariam diferentes para sempre).
+        const gone = new Set(twins.map((s) => s.id));
+        const used = new Set(allSolves.filter((s) => !gone.has(s.id) && (s.deletedAt === null || mine('solves', s.id))).map((s) => s.sessionId));
+        const liveSessions = (await sessions.getAll()).filter((s) => s.deletedAt === null);
+        const accountEvents = new Set(liveSessions.filter((s) => !mine('sessions', s.id)).map((s) => s.event));
+        const empty = liveSessions.filter(
+          (s) =>
+            mine('sessions', s.id) &&
+            !isDefaultSession(s.id) &&
+            !used.has(s.id) &&
+            T.session.defaultNameNumber(s.name) !== null &&
+            accountEvents.has(s.event),
+        );
+        await each(empty, (s) => {
+          const at = ctx.stamp();
+          return sessions.put({ ...s, deletedAt: at, updatedAt: at, deletionStamp: at });
+        });
+        await each(empty, (s) => outbox.delete(syncKey('sessions', s.id)));
+        return { solves: twins.map((s) => s.id), sessions: empty.map((s) => s.id) };
+      });
+      announceSynced([
+        ...outcome.solves.map((id) => ({ store: 'solves' as const, id })),
+        ...outcome.sessions.map((id) => ({ store: 'sessions' as const, id })),
+      ]);
+      return { solves: outcome.solves.length, sessions: outcome.sessions.length };
+    },
+
+    async wipeData() {
+      await write(['solves', 'sessions', 'practice', 'prefs', 'outbox', 'backups', 'profile', 'meta'], async (tx) => {
+        // Na mesma transação que apaga: uma gravação entre a conferência de quem chama e aqui não se perde.
+        if ((await tx.objectStore('outbox').count()) > 0) throw new PendingChangesError();
+        await Promise.all([
+          tx.objectStore('solves').clear(),
+          tx.objectStore('sessions').clear(),
+          tx.objectStore('practice').clear(),
+          tx.objectStore('prefs').clear(),
+          tx.objectStore('backups').clear(),
+        ]);
+        const device = await tx.objectStore('profile').get('current');
+        if (device) await tx.objectStore('profile').put({ ...device, currentSessionId: null }, 'current');
+        const meta = tx.objectStore('meta');
+        const state = syncStateOrDefault((await meta.get('sync')) as SyncState | undefined);
+        await meta.put({ ...defaultSyncState(), clock: state.clock }, 'sync');
+      });
+      announce('all', 'sync');
     },
 
     async getSyncState() {
