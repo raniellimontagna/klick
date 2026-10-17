@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { SyncRequest, SyncResponse } from '../../src/core/sync/types';
+import type { Change, SyncRequest, SyncResponse } from '../../src/core/sync/types';
 import { defaultSessionId } from '../../src/data/ids';
 import type { Health, SyncApi } from '../../src/sync/api';
 import type { AuthClientLike } from '../../src/sync/auth';
 import { type Captcha, CaptchaError } from '../../src/sync/captcha';
-import { appWithAccount, fakeApi, fakeAuth } from './sync-account';
+import { appWithAccount, fakeApi, fakeAuth, manualEnv, twoAccounts } from './sync-account';
 import { FakeServer } from './sync-fakes';
 
 const EMAIL = 'ranielli@exemplo.com';
@@ -367,5 +367,81 @@ describe('passkeys e a sessão', () => {
     await vi.waitFor(() => expect(calls).toContain('get-session'));
     await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
     expect(app.account!.signedIn).toBe(true);
+  });
+});
+
+// A revisão final (C1): a conta deste aparelho e a da sessão (o cookie) nunca eram comparadas. Num aparelho na conta A com erro de login,
+// entrar com o e-mail de B deixava o cookie de B valendo com o estado ainda dizendo "A, dentro"; recarregar antes da escolha (ou fechar o
+// passo 4, ou uma volta pedida por outra aba) mandava a fila de A para a conta de B e trazia B para o banco de A.
+describe('a conta daqui e a da sessão (C1)', () => {
+  const ofB: Change = {
+    store: 'solves',
+    id: 'solve-de-b',
+    data: { sessionId: 'sessao-de-b', event: '333', ms: 4_242, penalty: null, at: 1_791_000_000_000, scramble: 'R', note: '', createdAt: 1_791_000_000_000 },
+    updatedAt: 1_791_000_000_000,
+    deletedAt: null,
+    deletionStamp: 1_791_000_000_000,
+  };
+
+  // O aparelho na conta A (conta-1), com uma mudança na fila e o erro de login (sem cookie: 401); a conta B (conta-2) já tem um solve.
+  async function deviceOnA(strict: boolean) {
+    const net = twoAccounts(strict);
+    net.servers.get('conta-2')!.sync({ v: 1, account: 'conta-2', deviceId: 'b', cursor: 0, clock: 0, changes: [ofB] });
+    const { auth, calls } = fakeAuth(OTHER);
+    const signedAuth = net.signIn(auth);
+    const { app, repo } = await appWithAccount(net.api, { signedIn: true, auth: signedAuth });
+    await vi.waitFor(() => expect(app.account!.status.error).toBe('auth'));
+    await app.addSolve({ ms: 7_777, penalty: null, at: Date.now() });
+    return { net, app, repo, calls, auth: signedAuth };
+  }
+  const solvesOn = (server: FakeServer) => [...server.records.values()].filter((c) => c.store === 'solves').map((c) => c.id);
+
+  it('B entra e a aba recarrega antes da escolha: nada de A sobe para B, nada de B desce, e não diz "Sincronizado"', async () => {
+    const { net, app, repo, auth } = await deviceOnA(false); // o Worker de antes: o pedido ia para a conta do cookie
+    const waiting = await repo.outboxCount();
+    expect(await app.account!.verifyCode(OTHER.email, '123456')).toEqual({ ok: true, next: 'other-account' });
+    expect(net.session.user).toBe('conta-2');
+    app.account!.stop(); // a aba recarrega (ou perde a liderança) antes da escolha
+    const again = await appWithAccount(net.api, { repo, auth });
+    await again.app.account!.syncNow();
+    await sleep(20);
+    expect(solvesOn(net.servers.get('conta-2')!)).toEqual(['solve-de-b']);
+    expect((await repo.listSolves()).map((s) => s.ms)).toEqual([7_777]);
+    expect(await repo.outboxCount()).toBe(waiting); // a mudança de A espera, para subir quando A entrar de novo
+    expect(await repo.getSyncState()).toMatchObject({ accountId: 'conta-1', email: EMAIL, signedIn: false });
+    expect(again.app.account!.status.phase).not.toBe('idle');
+  });
+
+  it('desistir da outra conta sai da sessão de B e deixa o aparelho em A, com "Entrar de novo"', async () => {
+    const { net, app, repo, calls } = await deviceOnA(true);
+    expect(await app.account!.verifyCode(OTHER.email, '123456')).toEqual({ ok: true, next: 'other-account' });
+    expect(await repo.getSyncState()).toMatchObject({ accountId: 'conta-1', signedIn: false }); // fora de A até a escolha
+    await app.account!.cancelSignIn();
+    expect(calls).toContain('sign-out');
+    expect(net.session.user).toBeNull();
+    expect(await repo.getSyncState()).toMatchObject({ accountId: 'conta-1', email: EMAIL, signedIn: true });
+    expect(app.account!.signedIn).toBe(true);
+    expect(app.account!.status.error).toBe('auth'); // Ajustes mostra "Entrar de novo"
+  });
+
+  it('com o estado ainda dizendo "A, dentro" e o cookie de B, o servidor recusa (401): o erro aparece, nada sobe nem desce, e o motor não insiste', async () => {
+    const { net, app, repo, auth } = await deviceOnA(true);
+    const waiting = await repo.outboxCount();
+    expect(await app.account!.verifyCode(OTHER.email, '123456')).toEqual({ ok: true, next: 'other-account' });
+    app.account!.stop();
+    await repo.saveSyncState({ signedIn: true }); // o que a defesa 1 não cobre: um app de antes da correção, ou outra aba
+    const env = manualEnv();
+    const again = await appWithAccount(net.api, { repo, auth, env: env.env });
+    await vi.waitFor(() => expect(again.app.account!.status.error).toBe('auth'));
+    const sent = net.requests.length;
+    expect(net.requests.at(-1)).toMatchObject({ account: 'conta-1' });
+    await again.app.account!.syncNow();
+    env.fire.online();
+    env.fireDelayed();
+    await sleep(20);
+    expect(net.requests).toHaveLength(sent); // sem nova tentativa: o erro de sessão espera a pessoa entrar de novo
+    expect(solvesOn(net.servers.get('conta-2')!)).toEqual(['solve-de-b']);
+    expect((await repo.listSolves()).map((s) => s.ms)).toEqual([7_777]);
+    expect(await repo.outboxCount()).toBe(waiting);
   });
 });

@@ -175,7 +175,7 @@ interface Change {
 ```
 
 `POST /api/sync`:
-- **Pedido:** `{ deviceId, cursor, clock, changes: Change[] }`, com até 500 mudanças por pedido.
+- **Pedido:** `{ account, deviceId, cursor, clock, changes: Change[] }`, com até 500 mudanças por pedido. `account` é a conta que o aparelho espera (seção 16, decisão 27).
 - **Resposta:** `{ accepted, changes: Change[], cursor, more, serverTime }`. `changes` traz até 500 mudanças com revisão maior que o cursor, e `more` diz se há mais.
 
 O servidor faz, nesta ordem:
@@ -286,6 +286,8 @@ Se o aparelho tem dados de uma conta (`meta.sync.accountId`) e a pessoa entra co
 - juntar os dados deste aparelho à nova conta;
 - apagar os dados deste aparelho antes de entrar;
 - cancelar.
+
+Logo depois do código, antes da escolha, o aparelho sai da conta de antes: os dados, a fila e o cursor ficam. Assim, recarregar a aba no meio não mistura as duas contas. Cancelar devolve a conta de antes como estava (seção 16, decisão 28).
 
 ### 7.7 Sair e apagar a conta
 
@@ -551,3 +553,9 @@ O plano `docs/superpowers/plans/2026-10-15-klick-conta-sync.md` ajustou esta spe
 24. `KlickExport` e `ProfilePatch` moram em `core/types.ts`.
 25. A cópia "antes da v3" é JSON puro, gravada dentro da transação da migração.
 26. `TURNSTILE_SECRET` e `RESEND_API_KEY` entram pelo terminal do Ranielli; `BETTER_AUTH_SECRET` é gerado direto para o `wrangler secret put`.
+
+A revisão final da branch acrescentou:
+
+27. O pedido de sync leva `account`, a conta que o aparelho espera. As outras rotas da conta (listar e restaurar as cópias, apagar a conta) a levam no cabeçalho `x-klick-account`. Quando ela não é a da sessão, o Worker responde 401; sem ela, 400. Assim, o cookie de outra conta nunca lê nem grava na conta do aparelho. Com o 401, o app mostra "Entrar de novo" e o motor para de pedir; um 409 viraria erro do servidor e nova tentativa.
+28. Entrar com outra conta (seção 7.6) tira o aparelho da conta de antes logo depois do código, com `signedIn: false`. Cancelar sai da sessão nova e devolve a conta de antes como estava: dentro, com o erro de login. Só uma entrada de verdade, pelo código ou pela passkey da mesma conta, tira o erro de sessão do motor, em qualquer aba. Desfazer uma parada (sair, apagar ou trocar de conta que falhou) não o tira.
+29. Uma entrada que não continua no passo 4 é desfeita, como diz a seção 9.2, também com o diálogo já fechado. São os casos de mudanças esperando, do modo recusado e da falha do banco. Só "mudanças esperando" com o diálogo aberto volta à pergunta da outra conta.

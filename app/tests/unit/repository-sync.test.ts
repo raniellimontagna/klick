@@ -47,7 +47,7 @@ async function syncRound(repo: Repository, server: FakeServer, push = true): Pro
   for (let guard = 0; guard < 50; guard++) {
     const state = await repo.getSyncState();
     const batch = push ? await repo.outboxBatch(SYNC_BATCH) : { changes: [], sent: [] };
-    const req = { v: SYNC_PROTOCOL, deviceId: 'teste', cursor: state.cursor, clock: state.clock, changes: batch.changes };
+    const req = { v: SYNC_PROTOCOL, account: 'conta-1', deviceId: 'teste', cursor: state.cursor, clock: state.clock, changes: batch.changes };
     const res = structuredClone(server.sync(structuredClone(req)));
     await repo.confirmSent(batch.sent);
     await repo.applyRemote(res.changes, res.serverTime);

@@ -5,9 +5,10 @@ import type { SyncResponse } from '../../src/core/sync/types';
 import { createAuth, SESSION_DAYS } from '../../worker/auth';
 import { codeEmail, e2eMailbox, type Mailer } from '../../worker/mail';
 import { defaultDeps, handle, MAX_AUTH_BODY } from '../../worker/router';
-import { authDeps, call, fakeMailer, ORIGIN, postJson, signIn, T0, testDeps, testEnv } from './helpers';
+import { accountOf, authDeps, call, fakeMailer, ORIGIN, postJson, signIn, T0, testDeps, testEnv } from './helpers';
 
-const syncBody = (changes: unknown[] = []) => ({ v: 1, deviceId: 'd1', cursor: 0, clock: T0, changes });
+// `account`: a conta que o aparelho espera (C1), a da sessão quando o teste quer 200.
+const syncBody = (changes: unknown[] = [], account = 'qualquer') => ({ v: 1, account, deviceId: 'd1', cursor: 0, clock: T0, changes });
 const solve = (id: string) => ({
   store: 'solves', id, updatedAt: T0, deletedAt: null, deletionStamp: T0,
   data: { sessionId: 's', event: '333', ms: 1, penalty: null, at: T0, scramble: 'R', note: '', createdAt: T0 },
@@ -66,8 +67,9 @@ describe('login por código (spec 7.1 a 7.3)', () => {
     const deps = authDeps();
     const a = await signIn('a@exemplo.com', deps);
     const b = await signIn('b@exemplo.com', deps);
-    expect((await call('/api/sync', postJson(syncBody([solve('da-a')]), { Cookie: a }), { deps })).status).toBe(200);
-    const seen = (await (await call('/api/sync', postJson(syncBody(), { Cookie: b }), { deps })).json()) as SyncResponse;
+    const [idA, idB] = [await accountOf(a, deps), await accountOf(b, deps)];
+    expect((await call('/api/sync', postJson(syncBody([solve('da-a')], idA), { Cookie: a }), { deps })).status).toBe(200);
+    const seen = (await (await call('/api/sync', postJson(syncBody([], idB), { Cookie: b }), { deps })).json()) as SyncResponse;
     expect(seen.changes).toEqual([]);
     expect((await call('/api/sync', postJson(syncBody()), { deps })).status).toBe(401);
   });
@@ -76,7 +78,7 @@ describe('login por código (spec 7.1 a 7.3)', () => {
     const deps = authDeps();
     const cookie = await signIn('origem@exemplo.com', deps);
     expect((await call('/api/auth/sign-out', postJson({}, { Cookie: cookie, Origin: 'https://outro.site' }), { deps })).status).toBe(403);
-    expect((await call('/api/sync', postJson(syncBody(), { Cookie: cookie }), { deps })).status).toBe(200);
+    expect((await call('/api/sync', postJson(syncBody([], await accountOf(cookie, deps)), { Cookie: cookie }), { deps })).status).toBe(200);
   });
 
   it('o e-mail tem só o código, a validade e o aviso, em texto e em HTML (spec 7.4)', () => {
@@ -151,7 +153,8 @@ describe('login por código (spec 7.1 a 7.3)', () => {
   it('um cookie adulterado, ou usado depois de sair, não abre /api/sync (401)', async () => {
     const deps = authDeps();
     const cookie = await signIn('cookie@exemplo.com', deps);
-    const sync = (c: string) => call('/api/sync', postJson(syncBody(), { Cookie: c }), { deps });
+    const id = await accountOf(cookie, deps);
+    const sync = (c: string) => call('/api/sync', postJson(syncBody([], id), { Cookie: c }), { deps });
     const tampered = cookie.replace(/(session_token=)(.)/, (_, name: string, c: string) => name + (c === 'A' ? 'B' : 'A'));
     expect(tampered).not.toBe(cookie);
     expect((await sync(tampered)).status).toBe(401);

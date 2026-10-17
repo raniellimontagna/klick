@@ -1,12 +1,14 @@
 import { runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
 import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
-import type { Change, CloudCopy, SyncResponse } from '../../src/core/sync/types';
+import { ACCOUNT_HEADER, type Change, type CloudCopy, type SyncResponse } from '../../src/core/sync/types';
 import type { KlickExport } from '../../src/core/types';
 import { emailKeyOf } from '../../worker/abuse';
 import type { Env } from '../../worker/env';
 import { dayOf, gunzipJson, nextSnapshotAt, preRestoreName, snapshotKey } from '../../worker/snapshots';
 import { authDeps, call, postJson, T0, testDeps, testEnv } from './helpers';
+
+const as = (user: string): Record<string, string> => ({ [ACCOUNT_HEADER]: user }); // a conta que o aparelho espera (C1)
 
 const HOUR = 3_600_000;
 const solve = (id: string, ms = 9000): Change => ({
@@ -18,14 +20,14 @@ const stubOf = (user: string) => env.ACCOUNT.get(env.ACCOUNT.idFromName(user));
 const alarmOf = (user: string) => runInDurableObject(stubOf(user), (_o, state) => state.storage.getAlarm());
 
 const syncCall = (user: string, changes: Change[], cursor = 0, now = () => T0, device = 'd1'): Promise<Response> =>
-  call('/api/sync', postJson({ v: 1, deviceId: device, cursor, clock: T0, changes }), { deps: testDeps({ user, now }) });
+  call('/api/sync', postJson({ v: 1, account: user, deviceId: device, cursor, clock: T0, changes }), { deps: testDeps({ user, now }) });
 async function sync(user: string, changes: Change[], cursor = 0, now = () => T0, device = 'd1'): Promise<SyncResponse> {
   return (await (await syncCall(user, changes, cursor, now, device)).json()) as SyncResponse;
 }
 const copies = async (user: string): Promise<CloudCopy[]> =>
-  ((await (await call('/api/snapshots', {}, { deps: testDeps({ user }) })).json()) as { copies: CloudCopy[] }).copies;
+  ((await (await call('/api/snapshots', { headers: as(user) }, { deps: testDeps({ user }) })).json()) as { copies: CloudCopy[] }).copies;
 const deleteAccount = (user: string): Promise<Response> =>
-  call('/api/account', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: `${user}@exemplo.com` }) }, {
+  call('/api/account', { method: 'DELETE', headers: { 'Content-Type': 'application/json', ...as(user) }, body: JSON.stringify({ email: `${user}@exemplo.com` }) }, {
     deps: testDeps({ user }),
   });
 
@@ -126,7 +128,7 @@ describe('restaurar um dia (spec 8.3)', () => {
     const stub = stubOf('conta-volta');
     expect(await stub.snapshot(T0)).toBe(true);
     await sync('conta-volta', [solve('extra'), { ...solve('a', 2000), updatedAt: T0 + 50 }]);
-    const res = await call(`/api/snapshots/${dayOf(T0)}/restore`, postJson({}), { deps: testDeps({ user: 'conta-volta', now: () => T0 + 1000 }) });
+    const res = await call(`/api/snapshots/${dayOf(T0)}/restore`, postJson({}, as('conta-volta')), { deps: testDeps({ user: 'conta-volta', now: () => T0 + 1000 }) });
     expect(res.status).toBe(204);
     const list = await copies('conta-volta');
     expect(list.map((c) => c.kind).sort()).toEqual(['daily', 'pre-restore']);
@@ -142,10 +144,10 @@ describe('restaurar um dia (spec 8.3)', () => {
     expect((await call('/api/snapshots/..%2Foutra/restore', postJson({}), { deps })).status).toBe(400);
     expect((await call('/api/snapshots/%E0%A4%A/restore', postJson({}), { deps })).status).toBe(400); // nem se lê como URI
     await sync('conta-nome', [solve('z')]);
-    expect((await call('/api/snapshots/2020-01-01/restore', postJson({}), { deps })).status).toBe(404);
+    expect((await call('/api/snapshots/2020-01-01/restore', postJson({}, as('conta-nome')), { deps })).status).toBe(404);
     const busy = testEnv({ API_BURST: { limit: async () => ({ success: false }) } });
-    expect((await call('/api/snapshots/2020-01-01/restore', postJson({}), { deps, env: busy })).status).toBe(429);
-    expect((await call('/api/snapshots', {}, { deps, env: busy })).status).toBe(429);
+    expect((await call('/api/snapshots/2020-01-01/restore', postJson({}, as('conta-nome')), { deps, env: busy })).status).toBe(429);
+    expect((await call('/api/snapshots', { headers: as('conta-nome') }, { deps, env: busy })).status).toBe(429);
   });
 
   it('duas restaurações no mesmo segundo: a cópia "antes de restaurar" fica com o estado de antes da primeira', async () => {
@@ -154,7 +156,7 @@ describe('restaurar um dia (spec 8.3)', () => {
     await stubOf(user).snapshot(T0);
     await sync(user, [solve('extra')]);
     const deps = testDeps({ user, now: () => T0 + 1000 });
-    const restore = () => call(`/api/snapshots/${dayOf(T0)}/restore`, postJson({}), { deps });
+    const restore = () => call(`/api/snapshots/${dayOf(T0)}/restore`, postJson({}, as(user)), { deps });
     expect((await restore()).status).toBe(204);
     expect((await restore()).status).toBe(204); // o clique duplo
     const object = await env.SNAPSHOTS.get(snapshotKey(user, preRestoreName(T0 + 1000)));
@@ -168,7 +170,7 @@ describe('restaurar um dia (spec 8.3)', () => {
     await sync(user, [session, solve('a', 1000)]);
     await stubOf(user).snapshot(T0);
     const gate = await holdUploads(user);
-    const restore = call(`/api/snapshots/${dayOf(T0)}/restore`, postJson({}), { deps: testDeps({ user, now: () => T0 + 1000 }) });
+    const restore = call(`/api/snapshots/${dayOf(T0)}/restore`, postJson({}, as(user)), { deps: testDeps({ user, now: () => T0 + 1000 }) });
     await until(() => gate.started); // a cópia "antes de restaurar" está a caminho do R2
     let synced = false;
     const during = sync(user, [solve('durante')], 0, () => T0, 'd2').then((r) => {
@@ -201,7 +203,8 @@ describe('apagar a conta (spec 7.7)', () => {
     await sync(user, [session, solve('a')]);
     await stubOf(user).snapshot(T0);
     const deps = testDeps({ user });
-    const del = (typed: string) => call('/api/account', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: typed }) }, { deps });
+    const del = (typed: string) =>
+      call('/api/account', { method: 'DELETE', headers: { 'Content-Type': 'application/json', ...as(user) }, body: JSON.stringify({ email: typed }) }, { deps });
     expect((await del('outro@exemplo.com')).status).toBe(400);
     expect((await del(` ${user.toUpperCase()}@EXEMPLO.COM `)).status).toBe(204);
     expect(await alarmOf(user)).toBeNull();
@@ -221,7 +224,7 @@ describe('apagar a conta (spec 7.7)', () => {
     expect((await deleteAccount(user)).status).toBe(204);
     // A sessão falsa continua valendo: é o sync de outro aparelho que chega antes de as linhas do D1 sumirem.
     expect((await syncCall(user, [solve('depois')], 0, () => T0, 'd2')).status).toBe(401);
-    expect((await call(`/api/snapshots/${dayOf(T0)}/restore`, postJson({}), { deps: testDeps({ user }) })).status).toBe(401);
+    expect((await call(`/api/snapshots/${dayOf(T0)}/restore`, postJson({}, as(user)), { deps: testDeps({ user }) })).status).toBe(401);
     expect(await stubOf(user).snapshot(Date.now())).toBe(false);
     expect(await alarmOf(user)).toBeNull();
     expect(await copies(user)).toEqual([]);
@@ -250,5 +253,40 @@ describe('apagar a conta (spec 7.7)', () => {
     await sync(user, [session, solve('a'), solve('b')]);
     const ahead = await sync(user, [solve('novo')], 50, () => T0, 'd2'); // um cursor que este servidor nunca deu
     expect([ahead.changes.map((c) => c.id), ahead.cursor]).toEqual([['s1', 'a', 'b', 'novo'], 4]);
+  });
+});
+
+// A revisão final (C1): o aparelho diz a conta que espera, e a sessão de outra conta (a pessoa entrou com outro e-mail, e o aparelho ainda
+// está na conta de antes) nunca lê nem grava nela. 401, como uma sessão que não vale para esta conta; sem a conta no pedido, 400.
+describe('a conta que o aparelho espera (C1)', () => {
+  it('o sync com o cookie de outra conta é 401 e não grava nem devolve nada, nas duas contas; sem a conta, 400', async () => {
+    await sync('conta-c1-b', [session, solve('de-b')]);
+    const deps = testDeps({ user: 'conta-c1-b' }); // o cookie é da conta B; o aparelho espera a conta A
+    const res = await call('/api/sync', postJson({ v: 1, account: 'conta-c1-a', deviceId: 'd1', cursor: 0, clock: T0, changes: [solve('de-a')] }), { deps });
+    expect([res.status, await res.json()]).toEqual([401, { error: 'auth' }]);
+    expect((await sync('conta-c1-b', [], 0, () => T0, 'd2')).changes.map((c) => c.id)).toEqual(['s1', 'de-b']);
+    expect((await sync('conta-c1-a', [], 0)).changes).toEqual([]);
+    const missing = await call('/api/sync', postJson({ v: 1, deviceId: 'd1', cursor: 0, clock: T0, changes: [] }), { deps });
+    expect(missing.status).toBe(400);
+  });
+
+  it('listar e restaurar as cópias e apagar a conta com a conta de outra sessão são 401, e nada muda; sem o cabeçalho, 400', async () => {
+    const user = 'conta-c1-dona';
+    await sync(user, [session, solve('a')]);
+    await stubOf(user).snapshot(T0);
+    const deps = testDeps({ user, now: () => T0 + 1000 });
+    const wrong = as('conta-c1-outra');
+    expect((await call('/api/snapshots', { headers: wrong }, { deps })).status).toBe(401);
+    expect((await call('/api/snapshots', {}, { deps })).status).toBe(400);
+    expect((await call(`/api/snapshots/${dayOf(T0)}/restore`, postJson({}, wrong), { deps })).status).toBe(401);
+    expect((await call(`/api/snapshots/${dayOf(T0)}/restore`, postJson({}), { deps })).status).toBe(400);
+    const del = (headers: Record<string, string>) =>
+      call('/api/account', { method: 'DELETE', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ email: `${user}@exemplo.com` }) }, { deps });
+    expect((await del(wrong)).status).toBe(401);
+    expect((await del({})).status).toBe(400);
+    // Nada mudou: só a cópia do dia (nenhuma "antes de restaurar"), e a conta continua viva, com o alarme da cópia.
+    expect((await copies(user)).map((c) => c.kind)).toEqual(['daily']);
+    expect((await sync(user, [], 0)).changes.map((c) => [c.id, c.deletedAt])).toEqual([['s1', null], ['a', null]]);
+    expect(await alarmOf(user)).not.toBeNull();
   });
 });

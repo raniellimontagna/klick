@@ -29,6 +29,9 @@
   let mode = $state<Mode>('join');
   let joining = $state(0); // solves deste aparelho que sobem (o aviso da spec 6.5)
   let requested = $state(false); // continueSignIn pediu o sync: daqui em diante, o passo 4 lê signInSync
+  // Cada abertura e cada fechamento começam uma vez nova: a resposta de continueSignIn que chega depois de fechar (ou de reabrir) não mexe
+  // na tela, só desfaz a entrada que não continuou.
+  let round = 0;
   const webauthn = typeof PublicKeyCredential !== 'undefined';
 
   const progress = $derived(requested ? (account?.signInSync ?? null) : null);
@@ -39,6 +42,7 @@
   });
 
   function reset(): void {
+    round += 1;
     step = 'email';
     email = account?.sync.email ?? '';
     code = '';
@@ -69,6 +73,7 @@
         .catch(() => 'failed' as const)
         .then((r) => (r === 'ok' ? undefined : ongoing.cancelSignIn()));
     }
+    round += 1; // o passo 4 que esperava continueSignIn: a resposta, se não continuar, só desfaz a entrada (startSync)
     step = 'email';
     if (app.dialog === 'signin') app.dialog = null;
   }
@@ -166,19 +171,28 @@
     await startSync();
   }
 
+  // A entrada que não continua (o modo recusado, o banco que falhou, ou mudanças esperando com o diálogo já fechado) é desfeita (spec
+  // 9.2): sai da sessão nova, e a conta de antes volta como estava. Só 'pending' com o diálogo aberto volta à pergunta da outra conta, que
+  // ainda dá para responder.
   async function startSync(): Promise<void> {
     if (!account || busy) return;
+    const ongoing = account;
+    const mine = round;
     joining = mode === 'join' ? app.solves.length : 0;
     requested = false;
     busy = true;
     await go('sync');
     let result: 'ok' | 'pending' | 'refused' | 'failed';
     try {
-      result = await account.continueSignIn(mode);
+      result = await ongoing.continueSignIn(mode);
     } catch {
       result = 'failed'; // o banco falhou: nada mudou aqui
     } finally {
-      busy = false;
+      if (mine === round) busy = false;
+    }
+    if (mine !== round) {
+      if (result !== 'ok') await ongoing.cancelSignIn();
+      return;
     }
     if (result === 'ok') {
       requested = true;
@@ -191,6 +205,7 @@
       error = T.conta.pendingBlock(Math.max(waiting, 1));
       return;
     }
+    await ongoing.cancelSignIn();
     await go('email');
     error = T.conta.verifyFailed;
   }

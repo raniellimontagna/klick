@@ -182,6 +182,43 @@ describe('diálogo de entrar (spec 7.2 e 9.2)', () => {
   });
 });
 
+// C1: a entrada que não continua (mudanças esperando, o modo recusado, o banco que falhou) é desfeita (spec 9.2): sai da sessão nova, em vez
+// de deixar o cookie dela valendo com o aparelho noutra conta. Também quando a pessoa fechou o passo 4 antes da resposta.
+describe('a entrada que não continua no passo 4 (C1)', () => {
+  async function atStep4(outcome: 'pending' | 'refused' | 'failed') {
+    const { auth, calls } = fakeAuth({ id: 'conta-2', email: 'outra@exemplo.com' });
+    const { app, repo } = await openDialog({ auth });
+    await repo.saveSyncState({ accountId: 'conta-1', signedIn: false });
+    await typeEmailAndCode();
+    expect(await screen.findByRole('heading', { name: 'Este aparelho tem dados de outra conta' })).toBeInTheDocument();
+    let answer!: () => void;
+    const answered = new Promise<'ok' | 'pending' | 'refused'>((resolve, reject) => {
+      answer = () => (outcome === 'failed' ? reject(new Error('o banco falhou')) : resolve(outcome));
+    });
+    vi.spyOn(app.account!, 'continueSignIn').mockReturnValue(answered);
+    await fireEvent.click(screen.getByRole('button', { name: 'Juntar os dados deste aparelho à nova conta' }));
+    await skipPasskey();
+    expect(await screen.findByRole('heading', { name: 'Primeiro sync' })).toBeInTheDocument();
+    return { app, calls, answer };
+  }
+
+  it.each(['pending', 'refused', 'failed'] as const)('fechar o passo 4 antes da resposta, que vem %s, sai da sessão nova', async (outcome) => {
+    const { app, calls, answer } = await atStep4(outcome);
+    (document.querySelector('dialog.signin') as HTMLDialogElement).close();
+    expect(app.dialog).toBeNull();
+    answer();
+    await vi.waitFor(() => expect(calls).toContain('sign-out'));
+  });
+
+  it.each(['refused', 'failed'] as const)('com o diálogo aberto, a resposta %s também desfaz a entrada e volta ao e-mail', async (outcome) => {
+    const { calls, answer } = await atStep4(outcome);
+    answer();
+    expect(await screen.findByRole('alert')).toHaveTextContent(T.conta.verifyFailed);
+    expect(screen.getByRole('textbox', { name: 'E-mail' })).toBeInTheDocument();
+    await vi.waitFor(() => expect(calls).toContain('sign-out'));
+  });
+});
+
 describe('o primeiro sync no diálogo segue o estado, não a promessa (Task 13)', () => {
   it('o primeiro login cancelado por uma parada (sair noutra aba) não diz "Pronto": mostra que parou e deixa entrar de novo', async () => {
     const make = bus();

@@ -197,7 +197,10 @@ describe('a conta no app (spec 6.2 e 8.4)', () => {
     await app.account!.syncNow();
     await sleep(10);
     expect(syncs).not.toHaveBeenCalled();
-    app.account!.resumeSync(); // a mesma conta entrou de novo (Task 15)
+    app.account!.resumeSync(); // uma saída que falhou desfaz a parada, mas a conta não entrou de novo: o erro de sessão fica (C1)
+    await app.account!.syncNow();
+    expect(syncs).not.toHaveBeenCalled();
+    app.account!.resumeSync(true); // a mesma conta entrou de novo (Task 15)
     await app.account!.syncNow();
     expect(syncs).toHaveBeenCalled();
     expect(app.account!.status).toMatchObject({ phase: 'idle', error: null, pending: 0 });
@@ -670,5 +673,32 @@ describe('uma aba só sincroniza (spec 6.2)', () => {
     await vi.waitFor(() => expect(first.app.account!.signedIn).toBe(true));
     await vi.waitFor(() => expect(second.app.account!.signedIn).toBe(true));
     await vi.waitFor(() => expect(second.app.account!.status.phase).toBe('idle'));
+  });
+
+  // C1: uma volta pedida por outra aba só tira o erro de sessão da líder quando a conta entrou de novo de verdade (o código ou a passkey
+  // conferiram a mesma conta). A de uma saída que falhou e desfez a parada não: a líder continua sem pedir nada até a pessoa entrar.
+  it('a volta pedida por outra aba sem a conta de volta não tira o erro de sessão da líder; a da mesma conta que entrou de novo, sim', async () => {
+    const make = bus();
+    const locks = firstWins();
+    const net = fakeApi(new FakeServer());
+    const [mine, other] = await twoTabRepos();
+    const first = await appWithAccount(net.api, { signedIn: true, locks, channel: make(), repo: mine });
+    const second = await appWithAccount(net.api, { locks, channel: make(), repo: other });
+    await vi.waitFor(() => expect(first.app.account!.leader).toBe(true));
+    net.fail(new ApiError('auth', 401));
+    await first.app.account!.syncNow();
+    expect(first.app.account!.status.error).toBe('auth');
+    net.fail(null);
+    const syncs = vi.spyOn(net.api, 'sync');
+    second.app.account!.resumeSync(); // uma saída que falhou na outra aba desfaz a parada dela
+    await sleep(10);
+    await first.app.account!.syncNow();
+    expect(syncs).not.toHaveBeenCalled();
+    expect(first.app.account!.status.error).toBe('auth');
+    second.app.account!.resumeSync(true); // a mesma conta entrou de novo pela outra aba
+    await sleep(10);
+    await first.app.account!.syncNow();
+    expect(syncs).toHaveBeenCalled();
+    await vi.waitFor(() => expect(first.app.account!.status.error).toBeNull());
   });
 });

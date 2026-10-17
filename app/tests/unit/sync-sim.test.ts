@@ -44,7 +44,7 @@ class Device {
     for (let guard = 0; guard < 10_000; guard++) {
       const keys = [...this.outbox.keys()].slice(0, batch);
       const sent = keys.map((k) => ({ k, q: this.outbox.get(k)!, c: this.records.get(k) })).filter((x) => x.c !== undefined);
-      const res = server.sync({ v: 1, deviceId: this.name, cursor: this.cursor, clock: this.clock, changes: sent.map((x) => x.c!) });
+      const res = server.sync({ v: 1, account: 'conta', deviceId: this.name, cursor: this.cursor, clock: this.clock, changes: sent.map((x) => x.c!) });
       for (const k of keys) if (!this.records.has(k)) this.outbox.delete(k);
       for (const x of sent) if (this.outbox.get(x.k) === x.q) this.outbox.delete(x.k);
       const result = applyChanges(new MapView(this.records), res.changes, { mode: 'client', pending: (s, id) => this.outbox.has(syncKey(s, id)) });

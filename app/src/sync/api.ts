@@ -1,6 +1,6 @@
 // O cliente HTTP do servidor do Klick (spec 6.1 e 8.1): mesma origem, com o cookie da sessão. Os erros viram tipos que o motor e as telas
 // entendem; nada aqui guarda estado.
-import type { CloudCopy, Rejected, SyncRequest, SyncResponse } from '../core/sync/types';
+import { ACCOUNT_HEADER, type CloudCopy, type Rejected, type SyncRequest, type SyncResponse } from '../core/sync/types';
 
 export type { CloudCopy } from '../core/sync/types';
 
@@ -26,9 +26,10 @@ export interface Health {
 export interface SyncApi {
   health(): Promise<Health | null>; // null: sem servidor (sem rede, ou o app servido sem o Worker, como no vite preview)
   sync(req: SyncRequest): Promise<SyncResponse>;
-  cloudCopies(): Promise<CloudCopy[]>; // as cópias dos últimos 30 dias, a mais nova primeiro (spec 8.3)
-  restoreCloudCopy(name: string): Promise<void>; // a cópia que não existe mais: ApiError com status 404
-  deleteAccount(email: string): Promise<void>; // spec 7.7: o e-mail digitado confirma
+  // As rotas da conta levam a conta que o aparelho espera (`account`, no cabeçalho ACCOUNT_HEADER): a sessão de outra conta é 401 ('auth').
+  cloudCopies(account: string): Promise<CloudCopy[]>; // as cópias dos últimos 30 dias, a mais nova primeiro (spec 8.3)
+  restoreCloudCopy(name: string, account: string): Promise<void>; // a cópia que não existe mais: ApiError com status 404
+  deleteAccount(email: string, account: string): Promise<void>; // spec 7.7: o e-mail digitado confirma
 }
 
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
@@ -82,8 +83,8 @@ export function createSyncApi(
     if (!res.ok) throw new ApiError(kindOf(res.status), res.status);
     return res;
   }
-  const post = (path: string, body: unknown, ms: number): Promise<Response> =>
-    call(path, ms, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const post = (path: string, body: unknown, ms: number, headers: Record<string, string> = {}): Promise<Response> =>
+    call(path, ms, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
 
   return {
     async health() {
@@ -108,8 +109,8 @@ export function createSyncApi(
       return parsed;
     },
     // As cópias na nuvem e apagar a conta (spec 7.7 e 8.3) usam o prazo do sync: restaurar e apagar mexem na conta inteira.
-    async cloudCopies() {
-      const res = await call('/api/snapshots', timeouts.sync);
+    async cloudCopies(account) {
+      const res = await call('/api/snapshots', timeouts.sync, { headers: { [ACCOUNT_HEADER]: account } });
       let body: unknown;
       try {
         body = await res.json();
@@ -120,11 +121,12 @@ export function createSyncApi(
       if (!Array.isArray(copies)) throw new ApiError('server', res.status);
       return copies.filter(isCopy);
     },
-    async restoreCloudCopy(name) {
-      await post(`/api/snapshots/${encodeURIComponent(name)}/restore`, {}, timeouts.sync);
+    async restoreCloudCopy(name, account) {
+      await post(`/api/snapshots/${encodeURIComponent(name)}/restore`, {}, timeouts.sync, { [ACCOUNT_HEADER]: account });
     },
-    async deleteAccount(email) {
-      const init: RequestInit = { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) };
+    async deleteAccount(email, account) {
+      const headers = { 'Content-Type': 'application/json', [ACCOUNT_HEADER]: account };
+      const init: RequestInit = { method: 'DELETE', headers, body: JSON.stringify({ email }) };
       await call('/api/account', timeouts.sync, init);
     },
   };

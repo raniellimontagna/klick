@@ -63,6 +63,12 @@ export async function signIn(email: string, deps: ReturnType<typeof authDeps>): 
   return res.headers.getSetCookie().map((c) => c.split(';')[0]).join('; ');
 }
 
+// O id da conta de um cookie (get-session): o `account` que o app manda no sync e nas outras rotas da conta (C1).
+export async function accountOf(cookie: string, deps: Deps): Promise<string> {
+  const res = await call('/api/auth/get-session', { headers: { Cookie: cookie } }, { deps });
+  return ((await res.json()) as { user: { id: string } }).user.id;
+}
+
 export async function call(path: string, init: RequestInit = {}, o: { env?: Env; deps?: Deps } = {}): Promise<Response> {
   const ctx = createExecutionContext();
   const res = await handle(new Request(ORIGIN + path, init), o.env ?? testEnv(), ctx, o.deps ?? testDeps());

@@ -75,6 +75,41 @@ export function fakeApi(server: FakeServer, health: Health | null = { accounts: 
   return { api, cloud, fail: (e: Error | null) => (failure = e) };
 }
 
+// Duas contas atrás do mesmo cookie, como o Worker as vê: `session.user` é quem tem a sessão agora (null: nenhuma, 401), e cada conta tem
+// o próprio servidor falso. `strict`: o servidor confere a conta que o aparelho espera (o `account` do pedido) contra a da sessão e
+// responde 401 quando não bate, como o Worker depois da correção C1; sem ele, como antes: o pedido vai para a conta da sessão.
+// `signIn(auth)` liga o cliente de login falso à sessão: entrar troca o cookie, e sair o apaga.
+export function twoAccounts(strict = true) {
+  const servers = new Map<string, FakeServer>([
+    ['conta-1', new FakeServer()],
+    ['conta-2', new FakeServer()],
+  ]);
+  const session = { user: null as string | null };
+  const requests: SyncRequest[] = [];
+  const api: SyncApi = {
+    ...fakeApi(new FakeServer()).api,
+    sync: async (req: SyncRequest): Promise<SyncResponse> => {
+      requests.push(structuredClone(req));
+      const user = session.user;
+      if (user === null || (strict && req.account !== user)) throw new ApiError('auth', 401);
+      return structuredClone(servers.get(user)!.sync(structuredClone(req)));
+    },
+  };
+  const signIn = (auth: AuthClientLike): AuthClientLike => ({
+    ...auth,
+    async verifyCode(email, code) {
+      const result = await auth.verifyCode(email, code);
+      if (result.ok) session.user = result.user.id;
+      return result;
+    },
+    async signOut() {
+      await auth.signOut();
+      session.user = null;
+    },
+  });
+  return { api, servers, session, requests, signIn };
+}
+
 // Um canal entre "abas" na memória. `mute(ch)`: a aba daquele canal está suspensa (não recebe nem manda nada); `unmute(ch)`: ela volta.
 export function bus() {
   const members: ChannelLike[] = [];

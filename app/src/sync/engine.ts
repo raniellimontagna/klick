@@ -1,7 +1,8 @@
 // O motor do sync no app (spec 6): manda a fila em lotes, recebe o que mudou desde o cursor, junta pelo repositório e repete enquanto
 // houver fila ou `more`. Cada lote avança o cursor: um sync que cai no meio continua de onde parou. Nunca roda com o timer ocupado.
 // Uma rodada por vez: quem pede durante uma rodada ganha mais uma, logo depois dela (decisão 20). Depois de um 401, nenhuma rodada sai até
-// a conta voltar (resume ou firstLogin): sem um pedido por gatilho.
+// a conta voltar (resume(true) ou firstLogin): sem um pedido por gatilho. Cada pedido leva a conta da rodada (`account`): o Worker recusa
+// (401) a sessão de outra conta.
 import { SYNC_BATCH, SYNC_PROTOCOL, type Change } from '../core/sync/types';
 import { AccountChangedError, type Repository } from '../data/repository';
 import { ApiError, type SyncApi } from './api';
@@ -88,7 +89,10 @@ export interface SyncEngine {
   // que já confirmou a fila, juntaria a volta do servidor no banco recém-apagado, e o primeiro login seguinte, em qualquer conta, subiria
   // esses registros para ela. O repositório confere a conta de novo dentro da transação que junta (applyRemote).
   stop(): Promise<void>;
-  resume(): void; // volta a aceitar rodadas (a mesma conta que entra de novo, também depois de um 401)
+  // Volta a aceitar rodadas depois de stop(). `signedIn`: a conta entrou de novo (o código ou a passkey conferiram a mesma conta deste
+  // aparelho), e o erro de sessão (401) sai também. Sem ele (uma saída que falhou e desfez a parada), o 401 fica: só uma entrada de
+  // verdade o tira, e um cookie de outra conta não volta a sincronizar a conta daqui (revisão final, C1).
+  resume(signedIn?: boolean): void;
 }
 
 const defaultSchedule = (fn: () => void, ms: number): (() => void) => {
@@ -172,7 +176,7 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
     refused += batch.refused;
     missing += batch.missing;
     const answered = deps.clock?.send();
-    const res = await deps.api.sync({ v: SYNC_PROTOCOL, deviceId: meta.deviceId, cursor: state.cursor, clock: state.clock, changes: batch.changes });
+    const res = await deps.api.sync({ v: SYNC_PROTOCOL, account: accountId, deviceId: meta.deviceId, cursor: state.cursor, clock: state.clock, changes: batch.changes });
     answered?.(res.serverTime);
     await sameAccount(accountId);
     if (res.more && res.cursor <= state.cursor) throw new RoundError(`o servidor mandou mais sem avançar o cursor (${res.cursor})`);
@@ -334,9 +338,9 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
       // Um firstLogin() ou resume() durante a espera tira o motor do stop: a rodada dele não é esperada (nem apagada por quem chamou).
       while (paused && running) await running.catch(() => undefined);
     },
-    resume() {
+    resume(signedIn = false) {
       paused = false;
-      authFailed = false;
+      if (signedIn) authFailed = false;
     },
   };
 }

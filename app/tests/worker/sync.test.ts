@@ -16,7 +16,7 @@ const solve = (id: string, o: Partial<Change> & { note?: string; sessionId?: str
 const session: Change = { store: 'sessions', id: 's1', data: { name: 'Sessão 1', event: '333', order: 0, createdAt: T0 }, updatedAt: T0, deletedAt: null, deletionStamp: T0 };
 
 async function sync(user: string, changes: unknown[], cursor = 0, device = 'd1'): Promise<SyncResponse> {
-  const res = await call('/api/sync', postJson({ v: 1, deviceId: device, cursor, clock: T0, changes }), { deps: testDeps({ user }) });
+  const res = await call('/api/sync', postJson({ v: 1, account: user, deviceId: device, cursor, clock: T0, changes }), { deps: testDeps({ user }) });
   expect(res.status).toBe(200);
   return (await res.json()) as SyncResponse;
 }
@@ -135,7 +135,7 @@ describe('POST /api/sync (spec 6.1 e 8.2)', () => {
     const deps = testDeps({ user: 'conta-corpo' });
     const base = canonicalJson(solve('g').data).length;
     const full = Array.from({ length: 500 }, (_, i) => solve(`g${i}-`.padEnd(96, 'g'), { note: 'n'.repeat(MAX_DATA_CHARS - base) }));
-    const ok = await call('/api/sync', postJson({ v: 1, deviceId: 'd'.repeat(64), cursor: 0, clock: T0, changes: full }), { deps });
+    const ok = await call('/api/sync', postJson({ v: 1, account: 'conta-corpo', deviceId: 'd'.repeat(64), cursor: 0, clock: T0, changes: full }), { deps });
     expect(ok.status).toBe(200);
     expect(((await ok.json()) as SyncResponse).accepted).toBe(500);
     expect((await call('/api/sync', postJson('x'.repeat(MAX_BODY)), { deps })).status).toBe(413);
@@ -183,7 +183,7 @@ describe('POST /api/sync (spec 6.1 e 8.2)', () => {
 
   it('a chave ACCOUNTS_ENABLED: com "true" o sync responde; com "false", 404 mesmo com sessão (spec 8.4)', async () => {
     const deps = testDeps({ user: 'conta-chave' });
-    const body = (): RequestInit => postJson({ v: 1, deviceId: 'd', cursor: 0, clock: T0, changes: [] });
+    const body = (): RequestInit => postJson({ v: 1, account: 'conta-chave', deviceId: 'd', cursor: 0, clock: T0, changes: [] });
     expect((await call('/api/sync', body(), { deps, env: testEnv({ ACCOUNTS_ENABLED: 'true' }) })).status).toBe(200);
     expect((await call('/api/sync', body(), { deps, env: testEnv({ ACCOUNTS_ENABLED: 'false' }) })).status).toBe(404);
   });

@@ -151,6 +151,51 @@ describe('motor do sync (spec 6.1 e 6.2)', () => {
     expect(waits.at(-1)).toBe(RETRY_MS[0]);
   });
 
+  // C1: o pedido diz a conta que este aparelho espera, e o servidor recusa (401) a sessão de outra conta. A volta não é juntada, a fila fica
+  // inteira e o motor espera a pessoa entrar de novo, como em qualquer 401.
+  it('o pedido leva a conta daqui; a sessão de outra conta (401) não tira nada da fila nem traz nada, e o motor não insiste', async () => {
+    const repo = await device();
+    const s = await repo.createSession({ event: '333' });
+    await repo.addSolve(ns(s.id, 1000));
+    const other = new FakeServer();
+    other.sync({ v: 1, account: 'conta-2', deviceId: 'b', cursor: 0, clock: 0, changes: [] });
+    const net = network(other);
+    const real = net.api.sync;
+    net.api.sync = async (req) => {
+      if (req.account !== 'conta-2') {
+        net.calls.push(structuredClone(req));
+        throw new ApiError('auth', 401); // o cookie é da conta 2
+      }
+      return real(req);
+    };
+    const schedule = vi.fn(() => () => undefined);
+    const { engine } = engineFor(repo, net, { schedule });
+    expect(await engine.run()).toMatchObject({ phase: 'error', error: 'auth', pending: 2 });
+    expect(net.calls.map((c) => c.account)).toEqual(['conta-1']);
+    expect(await engine.run()).toMatchObject({ phase: 'error', error: 'auth' });
+    expect(net.calls).toHaveLength(1);
+    expect(schedule).not.toHaveBeenCalled();
+    expect(other.records.size).toBe(0);
+    expect(await repo.outboxCount()).toBe(2);
+    expect((await repo.getSyncState()).cursor).toBe(0);
+  });
+
+  // Só uma entrada de verdade tira o 401: uma saída que falhou e desfez a parada (resume sem a conta de volta) não.
+  it('depois de um 401, resume() sem a conta de volta só tira a parada; resume(true) tira o erro de sessão', async () => {
+    const repo = await device();
+    const net = network(new FakeServer());
+    const { engine } = engineFor(repo, net, { schedule: () => () => undefined });
+    net.failNext(new ApiError('auth', 401));
+    expect(await engine.run()).toMatchObject({ error: 'auth' });
+    await engine.stop();
+    engine.resume();
+    expect(await engine.run()).toMatchObject({ error: 'auth' });
+    expect(net.calls).toHaveLength(1);
+    engine.resume(true);
+    expect(await engine.run()).toMatchObject({ phase: 'idle', error: null });
+    expect(net.calls).toHaveLength(2);
+  });
+
   it('401: erro de sessão, sem nova tentativa, e a fila guarda tudo; sem rede: esperando rede', async () => {
     const repo = await device();
     const s = await repo.createSession({ event: '333' });
@@ -165,7 +210,7 @@ describe('motor do sync (spec 6.1 e 6.2)', () => {
     // Até a conta voltar (resume ou firstLogin), nenhum gatilho chama o servidor: sem um 401 por gatilho.
     expect(await engine.run()).toMatchObject({ phase: 'error', error: 'auth' });
     expect(net.calls).toHaveLength(1);
-    engine.resume();
+    engine.resume(true); // a conta entrou de novo
     net.failNext(new ApiError('offline', 0));
     expect(await engine.run()).toMatchObject({ phase: 'offline', error: null, pending: 2 });
     expect(net.calls).toHaveLength(2);
@@ -1114,7 +1159,7 @@ describe('cliente HTTP (spec 6.1)', () => {
       new Promise((_, reject) => init?.signal?.addEventListener('abort', () => reject(new DOMException('prazo', 'TimeoutError'))));
     const api = createSyncApi(hang, '', { health: 20, sync: 20 });
     expect(await api.health()).toBeNull();
-    await expect(api.sync({ v: 1, deviceId: 'd', cursor: 0, clock: 0, changes: [] })).rejects.toMatchObject({ kind: 'offline' });
+    await expect(api.sync({ v: 1, account: 'conta-1', deviceId: 'd', cursor: 0, clock: 0, changes: [] })).rejects.toMatchObject({ kind: 'offline' });
     // Os cabeçalhos chegaram e o corpo parou: o sync desiste também (erro do servidor, nova tentativa).
     const stalledBody: Fetcher = async (_url, init) =>
       new Response(
@@ -1124,7 +1169,7 @@ describe('cliente HTTP (spec 6.1)', () => {
           },
         }),
       );
-    await expect(createSyncApi(stalledBody, '', { health: 20, sync: 20 }).sync({ v: 1, deviceId: 'd', cursor: 0, clock: 0, changes: [] })).rejects.toMatchObject({
+    await expect(createSyncApi(stalledBody, '', { health: 20, sync: 20 }).sync({ v: 1, account: 'conta-1', deviceId: 'd', cursor: 0, clock: 0, changes: [] })).rejects.toMatchObject({
       kind: 'server',
     });
   });
@@ -1135,7 +1180,7 @@ describe('cliente HTTP (spec 6.1)', () => {
       seen.push({ url, init });
       return Response.json({ accepted: 0, rejected: [], changes: [], cursor: 0, more: false, serverTime: 1 });
     });
-    await api.sync({ v: 1, deviceId: 'd', cursor: 0, clock: 0, changes: [] });
+    await api.sync({ v: 1, account: 'conta-1', deviceId: 'd', cursor: 0, clock: 0, changes: [] });
     expect(seen[0].url).toBe('/api/sync');
     expect(seen[0].init?.signal).toBeInstanceOf(AbortSignal); // com prazo
     expect(seen[0].init).toMatchObject({ method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' } });

@@ -1,8 +1,8 @@
 // As rotas do Worker (spec 8.1). /api/health sem sessão; com ACCOUNTS_ENABLED diferente de 'true', o resto de /api responde 404 (spec 8.4).
 // Sem um BETTER_AUTH_SECRET de verdade, as rotas da conta respondem 503. De /api/auth/*, só as rotas do Better Auth que o app usa; as outras
-// rotas da conta pedem sessão e falam com o Durable Object dela. O que não é /api são os arquivos do app. Os logs levam só ids, contagens,
-// durações e erros (spec 8.5).
-import { SYNC_BATCH, SYNC_PROTOCOL, type CloudCopy, type SyncRequest, type SyncResponse } from '../src/core/sync/types';
+// rotas da conta pedem sessão e a conta que o aparelho espera (a da sessão, senão 401), e falam com o Durable Object dela. O que não é /api
+// são os arquivos do app. Os logs levam só ids, contagens, durações e erros (spec 8.5).
+import { ACCOUNT_HEADER, SYNC_BATCH, SYNC_PROTOCOL, type CloudCopy, type SyncRequest, type SyncResponse } from '../src/core/sync/types';
 import { E2E_TOKEN, emailKeyOf, guardPasskeyOptions, guardSendCode, turnstileVerifier, type VerifyCaptcha } from './abuse';
 import { authSecretOk, createAuth, sessionUser, type User } from './auth';
 import type { Env } from './env';
@@ -133,16 +133,32 @@ function e2eCode(url: URL, env: Env): Response {
   return json({ code: e2eMailbox.get((url.searchParams.get('email') ?? '').toLowerCase()) ?? null });
 }
 
+// A conta que o aparelho espera, no pedido (o `account` do sync, ou o cabeçalho ACCOUNT_HEADER das outras rotas): um id de até 128 caracteres.
+const isAccountId = (v: unknown): v is string => typeof v === 'string' && v !== '' && v.length <= 128;
+
 // O pedido de sync (spec 6.1). Uma versão de protocolo que o servidor não conhece pede um app mais novo (426); sem versão numérica, o
-// pedido é que está torto (400).
+// pedido é que está torto (400). `account` é obrigatório: nenhum app publicado sincroniza sem ele (a conta não estava ligada em nenhum
+// ambiente antes dele).
 export function parseSyncRequest(body: unknown): SyncRequest | 'update' | null {
   if (!isRec(body) || typeof body.v !== 'number') return null;
   if (body.v !== SYNC_PROTOCOL) return 'update';
-  const { deviceId, cursor, clock, changes } = body;
+  const { account, deviceId, cursor, clock, changes } = body;
+  if (!isAccountId(account)) return null;
   if (typeof deviceId !== 'string' || deviceId === '' || deviceId.length > 64) return null;
   if (!Number.isInteger(cursor) || (cursor as number) < 0 || typeof clock !== 'number' || !Number.isFinite(clock)) return null;
   if (!Array.isArray(changes) || changes.length > SYNC_BATCH) return null;
-  return { v: SYNC_PROTOCOL, deviceId, cursor: cursor as number, clock, changes };
+  return { v: SYNC_PROTOCOL, account, deviceId, cursor: cursor as number, clock, changes };
+}
+
+// A conta que o aparelho espera não é a da sessão (revisão final, C1): o cookie de outra conta (a pessoa entrou com outro e-mail e o
+// aparelho ainda está na conta de antes) nunca lê nem grava na conta deste aparelho. 401, como uma sessão que não vale para esta conta: o
+// app mostra "Entrar de novo" e o motor para de pedir (um 409 viraria erro do servidor e nova tentativa a cada 5 minutos). Sem a conta no
+// pedido, 400.
+function accountGuard(expected: unknown, user: User): Response | null {
+  if (!isAccountId(expected)) return fail(400, 'bad-request');
+  if (expected === user.id) return null;
+  log({ evt: 'account-mismatch', user: user.id });
+  return fail(401, 'auth');
 }
 
 // As cópias da conta no R2, a mais nova primeiro. A ordem é a da gravação: o nome da diária leva o dia de Brasília, e o da de antes de
@@ -212,6 +228,8 @@ export async function handle(request: Request, env: Env, ctx: ExecutionContext, 
     const req = parseSyncRequest(body);
     if (req === 'update') return fail(426, 'update');
     if (req === null) return fail(400, 'bad-request');
+    const mismatch = accountGuard(req.account, user);
+    if (mismatch) return mismatch;
     const started = deps.now();
     // O tipo do stub (RPC) não acompanha `data: unknown`; o objeto que volta é o SyncResponse do Durable Object.
     const res = (await account.syncBatch(user.id, req, started)) as unknown as SyncResponse | 'deleted';
@@ -222,6 +240,8 @@ export async function handle(request: Request, env: Env, ctx: ExecutionContext, 
 
   // As cópias na nuvem (spec 8.3). Listar e restaurar passam pela mesma rajada do sync: cada pedido custa operações no R2.
   if (path === '/api/snapshots' && request.method === 'GET') {
+    const mismatch = accountGuard(request.headers.get(ACCOUNT_HEADER), user);
+    if (mismatch) return mismatch;
     if (!(await env.API_BURST.limit({ key: user.id })).success) return fail(429, 'limited');
     return json({ copies: await listCopies(env, user.id) });
   }
@@ -232,6 +252,8 @@ export async function handle(request: Request, env: Env, ctx: ExecutionContext, 
     if (guard) return guard;
     const name = copyName(restore[1]);
     if (name === null) return fail(400, 'bad-name');
+    const mismatch = accountGuard(request.headers.get(ACCOUNT_HEADER), user);
+    if (mismatch) return mismatch;
     if (!(await env.API_BURST.limit({ key: user.id })).success) return fail(429, 'limited');
     const outcome = await account.restoreSnapshot(name, deps.now());
     log({ evt: 'restore', user: user.id, outcome });
@@ -246,6 +268,8 @@ export async function handle(request: Request, env: Env, ctx: ExecutionContext, 
   if (path === '/api/account' && request.method === 'DELETE') {
     const guard = writeGuard(request, env);
     if (guard) return guard;
+    const mismatch = accountGuard(request.headers.get(ACCOUNT_HEADER), user);
+    if (mismatch) return mismatch;
     const body = await readJson(request);
     if (body instanceof Response) return body;
     const email = user.email.trim().toLowerCase();

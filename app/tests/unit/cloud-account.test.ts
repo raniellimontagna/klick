@@ -217,6 +217,30 @@ describe('o repositório esquece a conta (spec 7.7)', () => {
   });
 });
 
+// C1: as rotas da conta levam a conta deste aparelho (meta.sync.accountId), para o Worker recusar a sessão de outra conta.
+describe('a conta deste aparelho nas rotas da conta (C1)', () => {
+  it('listar, restaurar e apagar a conta mandam a conta daqui; fora de qualquer conta, nada sai', async () => {
+    const net = fakeApi(new FakeServer());
+    const sent: string[] = [];
+    net.api.cloudCopies = async (account) => {
+      sent.push(`copies:${account}`);
+      return [];
+    };
+    net.api.restoreCloudCopy = async (name, account) => void sent.push(`restore:${name}:${account}`);
+    net.api.deleteAccount = async (email, account) => void sent.push(`delete:${email}:${account}`);
+    const { app, repo } = await appWithAccount(net.api, { signedIn: true });
+    const account = app.account!;
+    await account.cloudCopies();
+    expect(await account.restoreCloudCopy('2026-10-15')).toBe('ok');
+    expect(await account.deleteAccount(EMAIL)).toBe('ok');
+    expect(sent).toEqual(['copies:conta-1', 'restore:2026-10-15:conta-1', `delete:${EMAIL}:conta-1`]);
+    expect((await repo.getSyncState()).accountId).toBeNull();
+    await expect(account.cloudCopies()).rejects.toMatchObject({ kind: 'auth' });
+    expect(await account.restoreCloudCopy('2026-10-15')).toBe('failed');
+    expect(sent).toHaveLength(3);
+  });
+});
+
 describe('cliente HTTP das cópias e da conta (Task 17)', () => {
   it('lista, restaura e apaga nas rotas do servidor; o 404 da cópia chega como 404', async () => {
     const seen: { url: string; init?: RequestInit }[] = [];
@@ -227,20 +251,26 @@ describe('cliente HTTP das cópias e da conta (Task 17)', () => {
       if (url.includes('velha')) return Response.json({ error: 'not-found' }, { status: 404 });
       return new Response(null, { status: 204 });
     });
-    expect(await api.cloudCopies()).toEqual(copies);
-    await api.restoreCloudCopy('2026-10-14T21-03-00Z-antes');
-    await api.deleteAccount(EMAIL);
-    await expect(api.restoreCloudCopy('velha')).rejects.toMatchObject({ kind: 'client', status: 404 });
+    expect(await api.cloudCopies('conta-1')).toEqual(copies);
+    await api.restoreCloudCopy('2026-10-14T21-03-00Z-antes', 'conta-1');
+    await api.deleteAccount(EMAIL, 'conta-1');
+    await expect(api.restoreCloudCopy('velha', 'conta-1')).rejects.toMatchObject({ kind: 'client', status: 404 });
     expect(seen[0].init?.method ?? 'GET').toBe('GET');
+    // A conta que o aparelho espera vai em cada rota da conta (C1): o Worker recusa a sessão de outra conta.
+    expect(seen[0].init).toMatchObject({ headers: { 'x-klick-account': 'conta-1' } });
     expect(seen[1].url).toBe('/api/snapshots/2026-10-14T21-03-00Z-antes/restore');
-    expect(seen[1].init).toMatchObject({ method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' } });
+    expect(seen[1].init).toMatchObject({ method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'x-klick-account': 'conta-1' } });
     expect(seen[2].url).toBe('/api/account');
-    expect(seen[2].init).toMatchObject({ method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: EMAIL }) });
+    expect(seen[2].init).toMatchObject({
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', 'x-klick-account': 'conta-1' },
+      body: JSON.stringify({ email: EMAIL }),
+    });
     for (const init of seen.map((s) => s.init)) expect(init?.signal).toBeInstanceOf(AbortSignal); // com prazo
   });
 
   it('uma lista fora da forma (o index.html sem o Worker) é erro do servidor', async () => {
-    await expect(createSyncApi(async () => new Response('<!doctype html>', { status: 200 })).cloudCopies()).rejects.toMatchObject({ kind: 'server' });
-    await expect(createSyncApi(async () => Response.json({ copies: 'nada' })).cloudCopies()).rejects.toMatchObject({ kind: 'server' });
+    await expect(createSyncApi(async () => new Response('<!doctype html>', { status: 200 })).cloudCopies('conta-1')).rejects.toMatchObject({ kind: 'server' });
+    await expect(createSyncApi(async () => Response.json({ copies: 'nada' })).cloudCopies('conta-1')).rejects.toMatchObject({ kind: 'server' });
   });
 });

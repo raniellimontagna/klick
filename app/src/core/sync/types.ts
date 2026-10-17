@@ -23,9 +23,13 @@ export const SYNC_BATCH = 500; // mudanças por pedido, nos dois sentidos
 // nenhum aparelho consegue passar (ele nunca mais seria editado nem apagado).
 export const MAX_STAMP = Number.MAX_SAFE_INTEGER - 2 ** 32;
 export const CAPTCHA_HEADER = 'x-turnstile-token'; // o token do Turnstile no pedido do código (spec 7.5): o app manda, o Worker confere
+// A conta que o aparelho espera, nas rotas da conta que não levam corpo de sync (as cópias na nuvem, restaurar e apagar a conta). O Worker
+// recusa (401) quando ela não é a da sessão: o cookie de outra conta nunca lê nem grava na conta deste aparelho (revisão final, C1).
+export const ACCOUNT_HEADER = 'x-klick-account';
 
 export interface SyncRequest {
   v: number;
+  account: string; // a conta que o aparelho espera (meta.sync.accountId): o Worker recusa (401) a sessão de outra conta
   deviceId: string;
   cursor: number;
   clock: number;
