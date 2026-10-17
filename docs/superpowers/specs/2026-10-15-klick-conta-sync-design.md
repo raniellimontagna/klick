@@ -225,7 +225,7 @@ O aparelho não junta a temporada por conta própria. Ele adota o valor que o se
 2. O app baixa a conta inteira antes de subir qualquer coisa, para poder deduplicar.
 3. **Deduplicação:**
    - um solve local ativo com id diferente, mas mesmo evento, `at`, `ms`, penalidade e embaralhamento de um solve da conta é o mesmo solve: o local recebe marca de exclusão e não sobe;
-   - uma sessão local vazia com o nome padrão, de um evento que já tem sessão na conta, também;
+   - uma sessão local vazia com o nome padrão, de um evento que já tem sessão na conta, também. A sessão padrão `default-<evento>` só fica quando a conta também a tem (seção 16, decisão 30);
    - a nota do solve local que saiu vai para o da conta: se só um lado tem nota, fica ela; se as duas são diferentes, ficam as duas, como `<nota da conta> / <nota daqui>`.
 4. Tudo o que sobrou entra na fila de saída e sobe.
 
@@ -559,3 +559,4 @@ A revisão final da branch acrescentou:
 27. O pedido de sync leva `account`, a conta que o aparelho espera. As outras rotas da conta (listar e restaurar as cópias, apagar a conta) a levam no cabeçalho `x-klick-account`. Quando ela não é a da sessão, o Worker responde 401; sem ela, 400. Assim, o cookie de outra conta nunca lê nem grava na conta do aparelho. Com o 401, o app mostra "Entrar de novo" e o motor para de pedir; um 409 viraria erro do servidor e nova tentativa.
 28. Entrar com outra conta (seção 7.6) tira o aparelho da conta de antes logo depois do código, com `signedIn: false`. Cancelar sai da sessão nova e devolve a conta de antes como estava: dentro, com o erro de login. Só uma entrada de verdade, pelo código ou pela passkey da mesma conta, tira o erro de sessão do motor, em qualquer aba. Desfazer uma parada (sair, apagar ou trocar de conta que falhou) não o tira.
 29. Uma entrada que não continua no passo 4 é desfeita, como diz a seção 9.2, também com o diálogo já fechado. São os casos de mudanças esperando, do modo recusado e da falha do banco. Só "mudanças esperando" com o diálogo aberto volta à pergunta da outra conta.
+30. No download do primeiro login, o app anota as sessões padrão (`default-<evento>`) que a conta devolveu. Na deduplicação, a sessão padrão daqui que a conta não devolveu é uma "Sessão 1" vazia como as outras: vai para a lixeira daqui, sai da fila e nunca sobe, quando a conta já tem sessão daquele evento. Assim, uma conta cuja "Sessão 1" veio de antes da v3 (com outro id) não ganha uma segunda "Sessão 1" a cada aparelho novo. Se o aparelho estava numa sessão que saiu (ou que não existe), ele passa para a sessão do mesmo evento com mais solves.

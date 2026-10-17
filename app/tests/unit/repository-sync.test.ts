@@ -431,6 +431,63 @@ describe('primeiro login num aparelho com dados (spec 6.5)', () => {
     expect(await b.repo.outboxCount()).toBe(0);
   });
 
+  // A revisão final (I1): numa conta cuja "Sessão 1" do 3x3 veio de antes da v3 (id aleatório), todo aparelho novo subia a própria
+  // `default-333` vazia, e a conta ficava com duas "Sessão 1", o aparelho novo parado na vazia. O iPhone com o app na tela de início tem o
+  // próprio armazenamento: é um aparelho novo no primeiro dia do beta.
+  it('a sessão padrão daqui que a conta não devolveu sai como qualquer "Sessão 1" vazia, e o aparelho passa para a mais usada da conta (I1)', async () => {
+    const server = new FakeServer();
+    server.now = t;
+    const a = await fresh();
+    const old = await a.repo.createSession({ event: '333' }); // "Sessão 1" de antes da v3: id aleatório
+    const less = await a.repo.createSession({ event: '333', name: 'Pouco usada' });
+    await a.repo.addSolve(ns(old.id, 9000, t - 30));
+    await a.repo.addSolve(ns(old.id, 9500, t - 20));
+    await a.repo.addSolve(ns(less.id, 10_000, t - 10));
+    await syncRound(a.repo, server);
+    // O aparelho novo abre (AppState.init): cria a "Sessão 1" padrão e fica nela.
+    const b = await fresh(null);
+    const mine = await b.repo.createSession({ event: '333', id: 'default-333' });
+    await b.repo.saveProfile({ currentSessionId: mine.id });
+    await b.repo.beginFirstSync({ accountId: 'conta-1', email: 'a@b.c' });
+    await syncRound(b.repo, server, false);
+    const heard: [ChangeKind, ChangeOrigin][] = [];
+    b.repo.onChange((kind, origin) => heard.push([kind, origin]));
+    expect(await b.repo.dedupeFirstLogin()).toEqual({ solves: 0, sessions: 1 });
+    expect(heard).toContainEqual(['profile', 'remote']); // a tela relê a sessão atual
+    await syncRound(b.repo, server);
+    expect(server.active().has('sessions/default-333')).toBe(false);
+    expect((await b.repo.listSessions()).map((s) => `${s.id}:${s.name}`)).toEqual([`${old.id}:Sessão 1`, `${less.id}:Pouco usada`]);
+    expect((await b.repo.getProfile()).currentSessionId).toBe(old.id);
+    expect(await b.repo.outboxCount()).toBe(0);
+    expect((await b.repo.getSyncState()).firstSync).toBe(false);
+  });
+
+  it('a sessão padrão que a conta devolveu fica, mesmo vazia, e o aparelho continua nela; a escolha do aparelho fora da padrão não muda (I1)', async () => {
+    const server = new FakeServer();
+    server.now = t;
+    const a = await fresh();
+    await a.repo.createSession({ event: '333', id: 'default-333' }); // outro aparelho novo já subiu a padrão
+    const old = await a.repo.createSession({ event: '333' });
+    await a.repo.addSolve(ns(old.id, 9000));
+    await syncRound(a.repo, server);
+    const b = await fresh(null);
+    const mine = await b.repo.createSession({ event: '333', id: 'default-333' });
+    await b.repo.saveProfile({ currentSessionId: mine.id });
+    await b.repo.beginFirstSync({ accountId: 'conta-1', email: 'a@b.c' });
+    await syncRound(b.repo, server, false);
+    expect(await b.repo.dedupeFirstLogin()).toEqual({ solves: 0, sessions: 0 });
+    expect((await b.repo.getProfile()).currentSessionId).toBe('default-333');
+    // Um aparelho com a própria sessão (não a padrão) escolhida fica nela.
+    const c = await fresh(null);
+    const own = await c.repo.createSession({ event: '333', name: 'Minha' });
+    await c.repo.addSolve(ns(own.id, 8000, t - 5));
+    await c.repo.saveProfile({ currentSessionId: own.id });
+    await c.repo.beginFirstSync({ accountId: 'conta-1', email: 'a@b.c' });
+    await syncRound(c.repo, server, false);
+    await c.repo.dedupeFirstLogin();
+    expect((await c.repo.getProfile()).currentSessionId).toBe(own.id);
+  });
+
   it('o começo do primeiro login grava o estado da conta e põe tudo na fila na mesma transação: ou os dois, ou nenhum', async () => {
     const { db, repo } = await fresh(null);
     const s = await repo.createSession({ event: '333' });

@@ -445,3 +445,28 @@ describe('a conta daqui e a da sessão (C1)', () => {
     expect(await repo.outboxCount()).toBe(waiting);
   });
 });
+
+// A revisão final (I1): o aparelho novo numa conta antiga não sobe uma segunda "Sessão 1" vazia nem fica parado nela.
+describe('o aparelho novo numa conta antiga (I1)', () => {
+  it('a "Sessão 1" padrão que abriu com o app sai sem subir, e a tela passa para a sessão mais usada da conta', async () => {
+    const server = new FakeServer();
+    const t0 = 1_791_000_000_000;
+    const session = (id: string, name: string): Change => ({
+      store: 'sessions', id, data: { name, event: '333', order: 0, createdAt: t0 }, updatedAt: t0, deletedAt: null, deletionStamp: t0,
+    });
+    const solve = (id: string, sessionId: string): Change => ({
+      store: 'solves', id, updatedAt: t0, deletedAt: null, deletionStamp: t0,
+      data: { sessionId, event: '333', ms: 9_000, penalty: null, at: t0, scramble: 'R', note: '', createdAt: t0 },
+    });
+    // A "Sessão 1" de antes da v3, com id aleatório e os solves da conta.
+    server.sync({ v: 1, account: 'conta-1', deviceId: 'antigo', cursor: 0, clock: 0, changes: [session('0legado', 'Sessão 1'), solve('s1', '0legado'), solve('s2', '0legado')] });
+    const { app } = await appWithAccount(fakeApi(server).api);
+    expect(app.activeSession?.id).toBe(defaultSessionId('333')); // o app abriu e criou a padrão
+    expect(await app.account!.verifyCode(EMAIL, '123456')).toEqual({ ok: true, next: 'first' });
+    expect(await app.account!.continueSignIn('join')).toBe('ok');
+    await vi.waitFor(() => expect(app.account!.signInSync).toBe('done'));
+    await vi.waitFor(() => expect(app.activeSession?.id).toBe('0legado'));
+    expect(app.sessions.map((s) => `${s.id}:${s.name}`)).toEqual(['0legado:Sessão 1']);
+    expect(server.active().has(`sessions/${defaultSessionId('333')}`)).toBe(false);
+  });
+});

@@ -122,9 +122,11 @@ export interface Repository {
   // Depois de baixar a conta inteira no primeiro login (spec 6.5): um solve daqui igual a um da conta, com outro id, e uma sessão daqui vazia
   // com o nome padrão, de um evento que já tem sessão na conta, recebem marca de exclusão e saem da fila. "Daqui" é o que está na fila; "da
   // conta" é o que não está e o servidor aceitaria (um registro daqui que ficou fora da fila por ser torto não é da conta). A nota do solve
-  // daqui vai para o da conta, como edição que sobe, se couber no que o servidor aceita. A sessão padrão (`default-<evento>`) nunca sai: o id
-  // é o mesmo em todo aparelho, e o sync a junta. Desliga firstSync na mesma transação: quem chama não grava firstSync: false à parte (o app
-  // fechado entre as duas gravações rodaria a deduplicação de novo). Sem firstSync, não faz nada.
+  // daqui vai para o da conta, como edição que sobe, se couber no que o servidor aceita. A sessão padrão (`default-<evento>`) só fica quando a
+  // conta também a devolveu no download (o id é o mesmo em todo aparelho, e o sync a junta); senão, sai como qualquer "Sessão 1" vazia. Se a
+  // sessão atual do aparelho saiu (ou não existe), ele passa para a do mesmo evento com mais solves, e avisa 'profile'. Desliga firstSync na
+  // mesma transação: quem chama não grava firstSync: false à parte (o app fechado entre as duas gravações rodaria a deduplicação de novo).
+  // Sem firstSync, não faz nada.
   dedupeFirstLogin(): Promise<{ solves: number; sessions: number }>;
   // Apaga os dados deste aparelho (spec 7.6 e 7.7): solves, sessões, treino, conta, fila e cópias. Ficam os ajustes do aparelho; o estado
   // do sync volta ao padrão, com o relógio. Com mudanças esperando para subir, recusa (PendingChangesError) e não apaga nada (decisão 12):
@@ -271,6 +273,7 @@ export const defaultSyncState = (): SyncState => ({
   email: null,
   signedIn: false,
   firstSync: false,
+  firstSyncDefaults: [],
   cursor: 0,
   lastSyncAt: null,
   clock: 0,
@@ -343,7 +346,8 @@ const isKeyed = (c: unknown): c is Change =>
 // A marca de um solve para a deduplicação do primeiro login (spec 6.5): evento, instante, tempo, penalidade e embaralhamento. Tem de ser a
 // mesma do script do Supabase da v1 (`mark`, em scripts/v1-supabase-map.mjs): o mesmo solve dos dois lados precisa dar a mesma marca.
 export const fingerprint = (s: Solve): string => JSON.stringify([s.event, s.at, s.ms, s.penalty, s.scramble]);
-// A sessão padrão (defaultSessionId): o mesmo id em todo aparelho novo, que o sync junta, e que a deduplicação nunca manda para a lixeira.
+// A sessão padrão (defaultSessionId): o mesmo id em todo aparelho novo, que o sync junta. A deduplicação só a manda para a lixeira quando a
+// conta não a tem (dedupeFirstLogin).
 const isDefaultSession = (id: string): boolean => id.startsWith(defaultSessionId(''));
 // A nota do solve da conta depois de receber a de um gêmeo daqui (spec 6.5): vazia lá, fica a daqui; vazia aqui ou igual, nada muda;
 // diferentes, as duas.
@@ -1069,6 +1073,17 @@ export function createRepository(
           result.writes.filter((c) => derived.has(syncKey(c.store, c.id))),
           (c) => ctx.track(c.store, c.id),
         );
+        // No download do primeiro login, as sessões padrão que a conta tem: a deduplicação só guarda a padrão daqui que a conta também tem
+        // (a revisão final, I1). Na mesma transação que junta: um download que cai no meio continua de onde parou sem perder nenhuma.
+        const state = ctx.state();
+        if (state.firstSync) {
+          const seen = changes.flatMap((raw) => {
+            const checked = checkChange(raw);
+            return checked.ok && checked.change.store === 'sessions' && isDefaultSession(checked.change.id) ? [checked.change.id] : [];
+          });
+          const known = new Set(state.firstSyncDefaults);
+          if (seen.some((id) => !known.has(id))) ctx.setState({ firstSyncDefaults: [...new Set([...known, ...seen])] });
+        }
         if (after) ctx.setState({ cursor: after.cursor, lastSyncAt: after.lastSyncAt });
         return result;
       });
@@ -1084,7 +1099,7 @@ export function createRepository(
         // conta passarem por daqui, e os gêmeos subiriam repetidos. Nada muda.
         if (ctx.state().accountId === accountId) return false;
         // O estado vem primeiro: o track seguinte já vê a conta. Ele só é gravado no fim, junto com a fila (syncWrite).
-        ctx.setState({ accountId, email, signedIn: true, firstSync: true, cursor: 0, lastSyncAt: null });
+        ctx.setState({ accountId, email, signedIn: true, firstSync: true, firstSyncDefaults: [], cursor: 0, lastSyncAt: null });
         const [solves, sessions, practice, prefs] = await Promise.all([
           tx.objectStore('solves').getAll(),
           tx.objectStore('sessions').getAll(),
@@ -1120,11 +1135,12 @@ export function createRepository(
     },
 
     async dedupeFirstLogin() {
-      const outcome = await syncWrite(['solves', 'sessions'], async (tx, ctx) => {
+      const outcome = await syncWrite(['solves', 'sessions', 'profile'], async (tx, ctx) => {
         // Só uma vez por primeiro login: firstSync desliga nesta mesma transação. Numa segunda rodada, o solve da conta que recebeu a nota
         // (agora na fila, "daqui") seria gêmeo de outro igual da conta e sairia, e os dois lados ficariam diferentes para sempre.
-        if (!ctx.state().firstSync) return { solves: [], noted: [], sessions: [] };
-        ctx.setState({ firstSync: false });
+        if (!ctx.state().firstSync) return { solves: [], noted: [], sessions: [], switched: false };
+        const returned = new Set(ctx.state().firstSyncDefaults);
+        ctx.setState({ firstSync: false, firstSyncDefaults: [] });
         const outbox = tx.objectStore('outbox');
         const waiting = new Set(await outbox.getAllKeys());
         const mine = (store: SyncStore, id: string): boolean => waiting.has(syncKey(store, id));
@@ -1162,16 +1178,19 @@ export function createRepository(
         const edits = [...noted.values()].map((s) => ({ ...s, updatedAt: ctx.stamp() }));
         await each(edits, (s) => solves.put(s));
         await each(edits, (s) => ctx.track('solves', s.id));
-        // Vazia: nenhum solve dela fica ativo nem sobe (um da lixeira que está na fila subiria apontando para ela). A sessão padrão nunca
-        // sai: a da conta tem o mesmo id, e a marca daqui não subiria (os dois lados ficariam diferentes para sempre).
+        // Vazia: nenhum solve dela fica ativo nem sobe (um da lixeira que está na fila subiria apontando para ela). A sessão padrão daqui só
+        // fica quando a conta também a devolveu: a da conta tem o mesmo id, o sync as junta, e a marca daqui não subiria (os dois lados
+        // ficariam diferentes para sempre). A que a conta não tem é uma "Sessão 1" vazia como as outras (a revisão final, I1): numa conta
+        // cuja "Sessão 1" veio de antes da v3 (outro id), ela subiria uma segunda "Sessão 1".
         const gone = new Set(twins.map((s) => s.id));
         const used = new Set(allSolves.filter((s) => !gone.has(s.id) && (s.deletedAt === null || mine('solves', s.id))).map((s) => s.sessionId));
-        const liveSessions = (await sessions.getAll()).filter((s) => s.deletedAt === null);
+        const allSessions = await sessions.getAll();
+        const liveSessions = allSessions.filter((s) => s.deletedAt === null);
         const accountEvents = new Set(liveSessions.filter((s) => !mine('sessions', s.id) && syncable('sessions', s)).map((s) => s.event));
         const empty = liveSessions.filter(
           (s) =>
             mine('sessions', s.id) &&
-            !isDefaultSession(s.id) &&
+            !(isDefaultSession(s.id) && returned.has(s.id)) &&
             !used.has(s.id) &&
             T.session.defaultNameNumber(s.name) !== null &&
             accountEvents.has(s.event),
@@ -1181,12 +1200,35 @@ export function createRepository(
           return sessions.put({ ...s, deletedAt: at, updatedAt: at, deletionStamp: at });
         });
         await each(empty, (s) => outbox.delete(syncKey('sessions', s.id)));
-        return { solves: twins.map((s) => s.id), noted: edits.map((s) => s.id), sessions: empty.map((s) => s.id) };
+        // A sessão atual do aparelho (que nunca sobe) saiu agora, ou não existe: o aparelho passa para a sessão do mesmo evento com mais
+        // solves (a mais usada da conta), senão ficaria parado na vazia, e o próximo solve a traria de volta.
+        const profile = tx.objectStore('profile');
+        const device = await profile.get('current');
+        const current = device?.currentSessionId ?? null;
+        const emptied = new Set(empty.map((s) => s.id));
+        const record = allSessions.find((s) => s.id === current);
+        let switched = false;
+        if (device && current !== null && (emptied.has(current) || !record)) {
+          const solvesOf = new Map<string, number>();
+          for (const s of allSolves) if (s.deletedAt === null && !gone.has(s.id)) solvesOf.set(s.sessionId, (solvesOf.get(s.sessionId) ?? 0) + 1);
+          const [best] = liveSessions
+            .filter((s) => !emptied.has(s.id) && (!record || s.event === record.event))
+            .sort((a, b) => (solvesOf.get(b.id) ?? 0) - (solvesOf.get(a.id) ?? 0) || bySessionOrder(a, b));
+          if (best) {
+            await profile.put({ ...device, currentSessionId: best.id }, 'current');
+            switched = true;
+          }
+        }
+        return { solves: twins.map((s) => s.id), noted: edits.map((s) => s.id), sessions: empty.map((s) => s.id), switched };
       });
       announceSynced([
         ...[...outcome.solves, ...outcome.noted].map((id) => ({ store: 'solves' as const, id })),
         ...outcome.sessions.map((id) => ({ store: 'sessions' as const, id })),
       ]);
+      if (outcome.switched) {
+        if (!closed) emit('profile', 'remote');
+        post({ kind: 'profile' });
+      }
       return { solves: outcome.solves.length, sessions: outcome.sessions.length };
     },
 

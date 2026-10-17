@@ -131,7 +131,7 @@ describe('fila de saída (spec 5.3)', () => {
 
   it('o estado do sync: padrão antes de entrar; salvar avisa "sync"; o relógio nunca desce', async () => {
     const { repo } = await fresh(null);
-    expect(await repo.getSyncState()).toEqual({ accountId: null, email: null, signedIn: false, firstSync: false, cursor: 0, lastSyncAt: null, clock: 0, passkey: false });
+    expect(await repo.getSyncState()).toEqual({ accountId: null, email: null, signedIn: false, firstSync: false, firstSyncDefaults: [], cursor: 0, lastSyncAt: null, clock: 0, passkey: false });
     const heard: ChangeKind[] = [];
     repo.onChange((k) => heard.push(k));
     await repo.saveSyncState({ accountId: 'u', email: 'a@b.c', clock: 500 });
