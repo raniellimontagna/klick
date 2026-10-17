@@ -16,11 +16,11 @@ aparece na tela), ou direto no painel do serviço. A site key do Turnstile é p�
 ## 1. Resend (o e-mail do código de acesso)
 
 1. Crie a conta em <https://resend.com>.
-2. Em **Domains**, adicione `klick.ranimontagna.com` (é o domínio do remetente `Klick <nao-responda@klick.ranimontagna.com>`).
+2. Em **Domains**, o domínio é `ranimontagna.com` (verificado em 17/10/2026; o remetente é `Klick <nao-responda@ranimontagna.com>`). O plano grátis aceita um domínio só.
 3. O Resend mostra os registros de DNS (SPF, DKIM e o MX do retorno de e-mails devolvidos, mais uma sugestão de DMARC). Mande esses
    registros para o Claude: ele cria pelo MCP de DNS da Cloudflare. Ou crie você mesmo, no painel da Cloudflare, na zona `ranimontagna.com`.
 4. Espere o domínio aparecer como **Verified** no Resend (de alguns minutos a algumas horas).
-5. Em **API Keys**, crie uma chave com **Sending access** restrita ao domínio `klick.ranimontagna.com`. Ela começa com `re_`. Deixe a
+5. Em **API Keys**, crie uma chave com **Sending access** restrita ao domínio `ranimontagna.com`. Ela começa com `re_`. Deixe a
    chave copiada na área de transferência para o passo 3. Não cole em conversa.
 
 ## 2. Turnstile (a verificação antes de pedir o código)

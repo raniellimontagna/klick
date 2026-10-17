@@ -38,7 +38,7 @@
     "APP_ORIGIN": "https://beta.klick.ranimontagna.com",
     // A site key do widget "Klick" do Turnstile (invisível, beta e raiz): é pública. O secret dele só existe como segredo do Worker.
     "TURNSTILE_SITE_KEY": "0x4AAAAAAFZP094_-Gx1c3Ik",
-    "MAIL_FROM": "Klick <nao-responda@klick.ranimontagna.com>"
+    "MAIL_FROM": "Klick <nao-responda@ranimontagna.com>"
   },
   "env": {
     "production": {
@@ -60,7 +60,7 @@
         "ACCOUNTS_ENABLED": "false",
         "APP_ORIGIN": "https://klick.ranimontagna.com",
         "TURNSTILE_SITE_KEY": "0x4AAAAAAFZP094_-Gx1c3Ik",
-        "MAIL_FROM": "Klick <nao-responda@klick.ranimontagna.com>"
+        "MAIL_FROM": "Klick <nao-responda@ranimontagna.com>"
       }
     }
   }

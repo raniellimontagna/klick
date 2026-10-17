@@ -60,7 +60,7 @@ Por isso o sub-projeto 5 foi dividido em dois:
 | D10 | Dados da v1 no Supabase | Checar se há solves do Ranielli que faltam; se houver, um script único os traz. Sem tela no app |
 | D11 | Arquitetura | Sync próprio no Cloudflare: "o mais recente vence" por registro, com marcas de exclusão e cursor de revisão. Um Durable Object com SQLite por conta, D1 para as contas e R2 para as cópias |
 | D12 | Plano do Cloudflare | Workers Paid (US$ 5 por mês) desde o início, com alerta de gasto |
-| D13 | E-mail | Resend no plano grátis, a partir de `nao-responda@klick.ranimontagna.com`, com SPF, DKIM e DMARC no DNS da Cloudflare |
+| D13 | E-mail | Resend no plano grátis, a partir de `nao-responda@ranimontagna.com` (o domínio raiz verificado no Resend: o plano grátis aceita um domínio só), com SPF, DKIM e DMARC no DNS da Cloudflare |
 
 ## 4. Princípios
 
