@@ -69,6 +69,7 @@ DNS de cada um. A v1 não está mais no ar (o projeto da Vercel foi apagado em 1
   R2 (`klick-snapshots-beta` e `klick-snapshots`, as cópias diárias, apagadas depois de 30 dias por uma regra do bucket).
 - **Segredos:** o repositório é público. `BETTER_AUTH_SECRET`, `TURNSTILE_SECRET` e `RESEND_API_KEY` entram só por
   `npx wrangler secret put NOME` (e `--env production`), nunca num arquivo.
+  O passo a passo (Resend, Turnstile e o script que coloca tudo): [`../docs/portao-c.md`](../docs/portao-c.md).
 - **Tabelas do login:** uma migração nova em `worker/migrations/` vai para cada banco com
   `npx wrangler d1 migrations apply DB --remote` (e `--env production`) antes do deploy.
 - **Política de privacidade:** `public/privacidade/index.html`, servida em `/privacidade`.
