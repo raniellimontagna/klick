@@ -224,7 +224,7 @@
             <button type="submit" class="btn primary" disabled={busy}>{busy ? T.conta.sending2 : T.conta.sendCode}</button>
           </div>
         </form>
-        <p class="muted"><a href="/privacidade" target="_blank" rel="noopener">{T.conta.privacy}</a></p>
+        <p class="muted"><a href="/privacidade/" target="_blank" rel="noopener">{T.conta.privacy}</a></p>
       {:else if step === 'code'}
         <p>{T.conta.codeIntro(email.trim())}</p>
         <form onsubmit={verify}>

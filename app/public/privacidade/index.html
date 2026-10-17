@@ -66,11 +66,11 @@
   <body>
     <main>
       <h1>Política de privacidade</h1>
-      <p class="muted">Klick, timer de cubo mágico · versão de 15 de outubro de 2026</p>
+      <p class="muted">Klick, timer de cubo mágico · versão de 16 de outubro de 2026</p>
 
       <p>
         O Klick funciona inteiro sem conta: seus solves ficam no seu aparelho. Esta política vale para quem cria uma conta para ter sync entre
-        aparelhos e cópias na nuvem.
+        aparelhos e cópias na nuvem, e também para quem só pede um código para entrar.
       </p>
 
       <div class="card">
@@ -80,30 +80,53 @@
 
       <h2>O que guardamos</h2>
       <ul>
-        <li>Seu e-mail, para entrar na conta. Enquanto um código para entrar vale (10 minutos), o e-mail também fica no registro desse código.</li>
+        <li>Seu e-mail, para entrar na conta.</li>
         <li>Seus solves, sessões e o treino de algoritmos.</li>
-        <li>Os ajustes da conta: a trilha, as temporadas, o acabamento do Centro, a inspeção e a meta diária.</li>
-        <li>Se você criar uma passkey, a chave pública dela (nunca a sua biometria).</li>
+        <li>
+          Os ajustes da conta: a trilha e as aulas, as escolhas de algoritmo e os casos fora do treino, as temporadas, o acabamento do Centro, o
+          tour do começo, a inspeção e a meta diária.
+        </li>
+        <li>
+          Se você criar uma passkey: a chave pública dela, um nome (se houver), o modelo do autenticador (como o Chaves do iCloud) e se ela fica
+          num aparelho só ou é sincronizada entre vários. Nunca a sua biometria.
+        </li>
+        <li>De cada aparelho que sincroniza, um identificador gerado no aparelho e a hora do último sync.</li>
         <li>
           De cada navegador em que você entra, a identificação do navegador que ele mesmo envia (o nome e a versão do navegador e do sistema),
-          guardada com a sessão dele. O endereço IP não fica guardado na sessão.
+          guardada com a sessão dele. A sessão não guarda o endereço IP.
         </li>
       </ul>
       <p>
-        Para barrar abusos, cada pedido de código fica registrado por uma hora, só com o e-mail e o IP embaralhados por uma chave secreta, de um
-        jeito que não dá para ler de volta. Passada uma hora, o pedido deixa de contar e é apagado na limpeza seguinte, que roda a cada novo pedido
-        de código e uma vez por dia.
+        Quando você pede um código para entrar, com ou sem conta, o código fica guardado só embaralhado (em hash), junto do seu e-mail, até ser
+        usado ou, depois que vence (em 10 minutos), até a limpeza seguinte, que roda a cada novo pedido de código e uma vez por dia: no máximo,
+        cerca de um dia.
+      </p>
+      <p>
+        Para barrar abusos, cada pedido de código fica registrado por uma hora, só com o e-mail e o IP embaralhados por uma chave secreta (HMAC),
+        de um jeito que não dá para ler de volta. Passada uma hora, o pedido deixa de contar e sai na mesma limpeza.
+      </p>
+      <p>
+        A Cloudflare recebe o endereço IP de quem acessa o Klick, para entregar cada pedido. O servidor anota registros técnicos dos pedidos: o
+        id da conta (nunca o e-mail), o que foi feito (como um sync ou uma restauração), contagens, durações e erros. A Cloudflare os guarda por até 7
+        dias.
       </p>
       <p>Ajustes do aparelho, como tema e sons, não saem dele.</p>
 
       <h2>Para quê</h2>
-      <p>Para sincronizar seus dados entre os seus aparelhos e guardar uma cópia na nuvem. A base legal é a execução do serviço que você pede ao criar a conta. Não usamos seus dados para publicidade e não os vendemos.</p>
+      <p>
+        Para sincronizar seus dados entre os seus aparelhos e guardar uma cópia na nuvem. A base legal é a execução do serviço que você pede ao
+        criar a conta. Os limites contra abuso, a verificação de que quem pede o código é uma pessoa (Turnstile) e os registros técnicos se apoiam
+        no legítimo interesse de manter o serviço seguro e funcionando. Não usamos seus dados para publicidade e não os vendemos.
+      </p>
 
       <h2>Onde</h2>
       <p>Na Cloudflare, com servidores nos Estados Unidos.</p>
 
       <h2>Por quanto tempo</h2>
-      <p>Até você apagar a conta. As cópias diárias ficam 30 dias e depois somem sozinhas; ao apagar a conta, elas somem na hora.</p>
+      <p>
+        Até você apagar a conta. As cópias diárias ficam 30 dias e depois somem sozinhas; ao apagar a conta, elas somem na hora. O registro de um
+        código e os pedidos de código seguem os prazos ditos acima, e os registros técnicos ficam até 7 dias.
+      </p>
       <p>
         A Cloudflare guarda um histórico de 30 dias dos bancos de dados (o do login e o dos seus dados), que permite voltá-los a um momento
         anterior. Por isso, depois de "Apagar minha conta", restos da conta podem ficar nesse histórico por até 30 dias, até sumirem sozinhos.
@@ -118,9 +141,22 @@
 
       <h2>Seus direitos</h2>
       <ul>
-        <li><strong>Acesso e portabilidade:</strong> em Ajustes, "Exportar" baixa tudo num arquivo.</li>
-        <li><strong>Correção:</strong> edite pelo próprio app.</li>
-        <li><strong>Exclusão:</strong> em Ajustes, "Apagar minha conta" apaga na hora a conta, os dados na nuvem e as cópias.</li>
+        <li>
+          <strong>Acesso e portabilidade:</strong> em Ajustes, "Exportar (Klick)" baixa um arquivo com suas sessões, solves, treino e ajustes. Uma
+          cópia do resto (o e-mail, as passkeys e as sessões abertas) você pede pelo e-mail de contato.
+        </li>
+        <li>
+          <strong>Correção:</strong> solves, sessões e ajustes você edita no próprio app. Para trocar o e-mail da conta, que o app ainda não faz,
+          escreva para o e-mail de contato.
+        </li>
+        <li>
+          <strong>Passkeys e sessões:</strong> em Ajustes, "Passkeys" cria e remove as suas, e "Sair de todos os aparelhos" encerra todas as sessões
+          abertas.
+        </li>
+        <li>
+          <strong>Exclusão:</strong> em Ajustes, "Apagar minha conta" apaga na hora a conta, os dados na nuvem e as cópias, com as passkeys, as
+          sessões e os códigos pendentes do seu e-mail.
+        </li>
         <li><strong>Informação:</strong> esta página.</li>
       </ul>
       <p>Para qualquer outro pedido, escreva para <a href="mailto:contato@ranimontagna.com">contato@ranimontagna.com</a>.</p>

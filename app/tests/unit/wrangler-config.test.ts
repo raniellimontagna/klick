@@ -14,12 +14,25 @@ interface R2 {
   binding: string;
   bucket_name: string;
 }
+interface Observability {
+  enabled?: boolean;
+  logs?: { enabled?: boolean; invocation_logs?: boolean };
+}
 const config = JSON.parse(text.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')) as {
   vars: Record<string, string>;
   assets: { run_worker_first: string[] };
   d1_databases: D1[];
   r2_buckets: R2[];
-  env: { production: { vars: Record<string, string>; assets: { run_worker_first: string[] }; d1_databases: D1[]; r2_buckets: R2[] } };
+  observability?: Observability;
+  env: {
+    production: {
+      vars: Record<string, string>;
+      assets: { run_worker_first: string[] };
+      d1_databases: D1[];
+      r2_buckets: R2[];
+      observability?: Observability;
+    };
+  };
 };
 const SECRETS = ['BETTER_AUTH_SECRET', 'TURNSTILE_SECRET', 'RESEND_API_KEY', 'E2E_MAILBOX'];
 
@@ -46,6 +59,16 @@ describe('wrangler.jsonc', () => {
     expect([beta.database_name, root.database_name]).toEqual(['klick-auth-beta', 'klick-auth']);
     for (const db of [beta, root]) expect(db.database_id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     expect(beta.database_id).not.toBe(root.database_id);
+  });
+
+  // Spec 8.5 e 10: o log de invocação dos Workers guarda cada pedido (com os cabeçalhos) por dias; desligado nos dois ambientes. Os nossos
+  // console.log (ids, contagens, durações e erros) continuam.
+  it('os logs ficam ligados, sem o log de invocação de cada pedido, nos dois ambientes', () => {
+    for (const o of [config.observability, config.env.production.observability]) {
+      expect(o?.enabled).toBe(true);
+      expect(o?.logs?.invocation_logs).toBe(false);
+      expect(o?.logs?.enabled).not.toBe(false);
+    }
   });
 
   it('cada ambiente tem o próprio bucket das cópias diárias', () => {

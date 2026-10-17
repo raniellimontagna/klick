@@ -12,7 +12,9 @@
   "compatibility_flags": ["nodejs_compat"],
   "main": "worker/index.ts",
   "workers_dev": false,
-  "observability": { "enabled": true },
+  // Os logs do Worker ficam (os console.log levam só ids, contagens, durações e erros, spec 8.5); o log de invocação, que guardaria cada
+  // pedido com os cabeçalhos (o navegador, o IP) por dias, não (spec 10).
+  "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false } },
   "d1_databases": [{ "binding": "DB", "database_name": "klick-auth-beta", "database_id": "8d59ce8e-5ab0-4dbd-b7c2-9daa72a7d54a", "migrations_dir": "worker/migrations" }],
   "routes": [{ "pattern": "beta.klick.ranimontagna.com", "custom_domain": true }],
   "assets": { "directory": "./dist", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": ["/api/*"] },
@@ -36,6 +38,7 @@
     "production": {
       "name": "klick-app",
       "workers_dev": false,
+      "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false } },
       "d1_databases": [{ "binding": "DB", "database_name": "klick-auth", "database_id": "ID_DO_KLICK_AUTH", "migrations_dir": "worker/migrations" }],
       "routes": [{ "pattern": "klick.ranimontagna.com", "custom_domain": true }],
       "assets": { "directory": "./dist", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": ["/api/*"] },

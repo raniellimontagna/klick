@@ -72,7 +72,10 @@ DNS de cada um. A v1 não está mais no ar (o projeto da Vercel foi apagado em 1
   O passo a passo (Resend, Turnstile e o script que coloca tudo): [`../docs/portao-c.md`](../docs/portao-c.md).
 - **Tabelas do login:** uma migração nova em `worker/migrations/` vai para cada banco com
   `npx wrangler d1 migrations apply DB --remote` (e `--env production`) antes do deploy.
-- **Política de privacidade:** `public/privacidade/index.html`, servida em `/privacidade`.
+- **Logs:** os `console.log` do Worker ficam (só ids, contagens, durações e erros); o log de invocação está desligado nos dois
+  ambientes (`observability.logs.invocation_logs: false`), porque guardaria cada pedido com os cabeçalhos por dias.
+- **Política de privacidade:** `public/privacidade/index.html`, servida em `/privacidade/` (com a barra no fim: é a URL que o service
+  worker guarda). Uma mudança no que o servidor guarda muda a política junto.
 
 ## Por que o cubing.js é empacotado à parte
 

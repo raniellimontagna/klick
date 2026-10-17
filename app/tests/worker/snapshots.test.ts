@@ -6,7 +6,7 @@ import type { KlickExport } from '../../src/core/types';
 import { emailKeyOf } from '../../worker/abuse';
 import type { Env } from '../../worker/env';
 import { dayOf, gunzipJson, nextSnapshotAt, preRestoreName, snapshotKey } from '../../worker/snapshots';
-import { call, postJson, T0, testDeps, testEnv } from './helpers';
+import { authDeps, call, postJson, T0, testDeps, testEnv } from './helpers';
 
 const HOUR = 3_600_000;
 const solve = (id: string, ms = 9000): Change => ({
@@ -89,6 +89,25 @@ describe('a cópia diária (spec 8.3)', () => {
     expect(await runDurableObjectAlarm(stubOf('conta-limpa'))).toBe(true);
     const keys = await env.DB.prepare("SELECT key FROM otp_requests WHERE key IN ('e:velho', 'i:recente')").all<{ key: string }>();
     expect(keys.results.map((r) => r.key)).toEqual(['i:recente']);
+  });
+
+  it('o alarme também apaga os códigos vencidos, de qualquer e-mail; um código ainda válido fica (spec 10)', async () => {
+    const SEND = '/api/auth/email-otp/send-verification-otp';
+    const deps = authDeps();
+    for (const [email, ip] of [['vencido@exemplo.com', '198.51.100.20'], ['valido@exemplo.com', '198.51.100.21']]) {
+      const res = await call(SEND, postJson({ email, type: 'sign-in' }, { 'x-turnstile-token': 'ok', 'cf-connecting-ip': ip }), { deps });
+      expect(res.status).toBe(200);
+    }
+    // O código do primeiro já venceu: o mesmo formato que o adaptador grava (texto ISO), um minuto atrás.
+    await env.DB.prepare('UPDATE verification SET expiresAt = ? WHERE identifier = ?')
+      .bind(new Date(Date.now() - 60_000).toISOString(), 'sign-in-otp-vencido@exemplo.com')
+      .run();
+    await sync('conta-codigos', [solve('x')]);
+    expect(await runDurableObjectAlarm(stubOf('conta-codigos'))).toBe(true);
+    const left = await env.DB.prepare("SELECT identifier FROM verification WHERE identifier IN ('sign-in-otp-vencido@exemplo.com', 'sign-in-otp-valido@exemplo.com')").all<{
+      identifier: string;
+    }>();
+    expect(left.results.map((r) => r.identifier)).toEqual(['sign-in-otp-valido@exemplo.com']);
   });
 
   it('a hora da cópia é logo depois da meia-noite em Brasília; a de antes de restaurar leva a hora em UTC', () => {

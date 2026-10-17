@@ -264,3 +264,30 @@ describe('o guarda pela rota, sem denunciar nada (spec 7.5 e 8.5)', () => {
     }
   });
 });
+
+// Spec 10: o Better Auth só apaga as linhas vencidas de verification quando alguém digita um código. Um código pedido e nunca usado
+// (também de quem nunca cria conta) deixaria "sign-in-otp-<e-mail>" no D1: a limpeza dos pedidos de código o tira depois de vencer.
+describe('os códigos vencidos saem do D1 (spec 10)', () => {
+  const SEND = '/api/auth/email-otp/send-verification-otp';
+  const codeRow = (email: string) =>
+    env.DB.prepare('SELECT expiresAt, typeof(expiresAt) AS kind FROM verification WHERE identifier = ?')
+      .bind(`sign-in-otp-${email}`)
+      .first<{ expiresAt: string; kind: string }>();
+
+  it('um código pedido pela rota e nunca usado sai no pedido de código seguinte depois de vencer; antes de vencer, fica', async () => {
+    const email = 'nunca-usado@exemplo.com';
+    const send = await call(SEND, postJson({ email, type: 'sign-in' }, { 'x-turnstile-token': 'ok', 'cf-connecting-ip': '198.51.100.7' }), {
+      deps: authDeps(),
+    });
+    expect(send.status).toBe(200);
+    // O formato que o adaptador do Better Auth grava no D1 (a data como texto ISO, em UTC): é ele que a limpeza compara.
+    const row = await codeRow(email);
+    expect(row?.kind).toBe('text');
+    expect(row?.expiresAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    const expires = Date.parse(row!.expiresAt);
+    expect(await guardSendCode(ask('outra-pessoa@exemplo.com', '198.51.100.8'), testEnv(), { now: () => expires - 1, verifyCaptcha: captchaOk })).toBeNull();
+    expect(await codeRow(email)).not.toBeNull();
+    expect(await guardSendCode(ask('mais-uma@exemplo.com', '198.51.100.9'), testEnv(), { now: () => expires + 1, verifyCaptcha: captchaOk })).toBeNull();
+    expect(await codeRow(email)).toBeNull();
+  });
+});

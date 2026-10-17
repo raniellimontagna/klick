@@ -88,8 +88,17 @@ export async function ipKeyOf(ip: string, secret: string): Promise<string> {
 // O que passou da hora sai no pedido do código (dentro do lote) e no alarme diário de cada conta (spec 10): sem novos pedidos, as linhas
 // não ficam paradas no D1. Apagar é global e idempotente: o alarme de qualquer conta limpa todas.
 const FORGET = 'DELETE FROM otp_requests WHERE at <= ?';
-export async function forgetOldRequests(db: D1Database, now: number): Promise<void> {
-  await db.prepare(FORGET).bind(now - HOUR).run();
+// Os códigos vencidos, junto (spec 10). O Better Auth só apaga as linhas vencidas de verification quando alguém digita um código: um código
+// pedido e nunca usado, também de quem nunca cria conta, deixaria "sign-in-otp-<e-mail>" no D1. Saem todas as linhas vencidas, como na
+// limpeza do próprio Better Auth (expiresAt < agora, sem olhar o identificador): depois de vencer, nenhuma vale mais, nem o desafio de uma
+// passkey. O adaptador grava as datas como texto ISO em UTC (toISOString), que se compara como texto.
+const FORGET_CODES = 'DELETE FROM verification WHERE expiresAt < ?';
+const forgetStatements = (db: D1Database, now: number): D1PreparedStatement[] => [
+  db.prepare(FORGET).bind(now - HOUR),
+  db.prepare(FORGET_CODES).bind(new Date(now).toISOString()),
+];
+export async function forgetExpired(db: D1Database, now: number): Promise<void> {
+  await db.batch(forgetStatements(db, now));
 }
 
 // As duas linhas (e-mail e IP) entram juntas, ou nenhuma: como o SELECT lê a própria tabela, o SQLite o termina antes de inserir.
@@ -99,8 +108,8 @@ const COUNTS = `SELECT (${COUNT}) AS byEmail, (${COUNT_IP}) AS byIp`;
 const INSERT = `INSERT INTO otp_requests (key, at) SELECT k, ?4 FROM (SELECT ?1 AS k UNION ALL SELECT ?2)
   WHERE (${COUNT}) < ?5 AND (${COUNT_IP}) < ?6`;
 
-// null: pode seguir para o Better Auth. Sem o Turnstile, nada é contado. Apagar o que passou da hora, contar e gravar vão num lote só, que
-// o D1 roda como uma transação: uma onda de pedidos em paralelo não passa dos limites. A janela é de uma hora exata.
+// null: pode seguir para o Better Auth. Sem o Turnstile, nada é contado. Apagar o que passou da hora (e os códigos vencidos), contar e gravar
+// vão num lote só, que o D1 roda como uma transação: uma onda de pedidos em paralelo não passa dos limites. A janela é de uma hora exata.
 export async function guardSendCode(request: Request, env: Env, deps: { now: () => number; verifyCaptcha: VerifyCaptcha }): Promise<Response | null> {
   const ip = ipOf(request);
   if (!(await env.OTP_BURST.limit({ key: `ip:${ipBucket(ip)}` })).success) return limited('send-code', 'burst');
@@ -119,8 +128,8 @@ export async function guardSendCode(request: Request, env: Env, deps: { now: () 
   const now = deps.now();
   const since = now - HOUR;
   const [emailKey, ipKey] = [await emailKeyOf(email, env.BETTER_AUTH_SECRET), await ipKeyOf(ip, env.BETTER_AUTH_SECRET)];
-  const [, before, inserted] = await env.DB.batch<{ byEmail: number; byIp: number }>([
-    env.DB.prepare(FORGET).bind(since),
+  const [, , before, inserted] = await env.DB.batch<{ byEmail: number; byIp: number }>([
+    ...forgetStatements(env.DB, now),
     env.DB.prepare(COUNTS).bind(emailKey, ipKey, since),
     env.DB.prepare(INSERT).bind(emailKey, ipKey, since, now, CODES_PER_EMAIL_HOUR, CODES_PER_IP_HOUR),
   ]);

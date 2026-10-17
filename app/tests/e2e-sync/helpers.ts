@@ -57,9 +57,16 @@ export async function signIn(page: Page, email: string): Promise<void> {
   await dialog.getByRole('button', { name: 'Fechar' }).click();
 }
 
+// Espera a rodada que o clique pede: a rodada lê o IndexedDB antes de passar a "Sincronizando…", e logo depois do clique a linha ainda diz o
+// "Sincronizado" da rodada anterior. Por isso, primeiro a resposta do POST /api/sync, depois o texto.
 export async function syncNow(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Ajustes' }).click();
-  await page.getByRole('button', { name: 'Sincronizar agora' }).click();
+  const button = page.getByRole('button', { name: 'Sincronizar agora' });
+  await expect(button).toBeEnabled({ timeout: 30_000 }); // uma rodada em andamento termina antes
+  await Promise.all([
+    page.waitForResponse((r) => new URL(r.url()).pathname === '/api/sync' && r.request().method() === 'POST', { timeout: 30_000 }),
+    button.click(),
+  ]);
   await expect(page.locator('[data-sync-line]')).toHaveText(/Sincronizado/, { timeout: 30_000 });
 }
 

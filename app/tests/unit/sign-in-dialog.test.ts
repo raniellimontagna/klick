@@ -44,7 +44,8 @@ describe('diálogo de entrar (spec 7.2 e 9.2)', () => {
   it('passo 1: e-mail com o Turnstile e o link da política; passo 2: o código aceita colar e sugere o do Mail', async () => {
     const { auth, calls } = fakeAuth();
     await openDialog({ auth });
-    expect(screen.getByRole('link', { name: 'Política de privacidade' })).toHaveAttribute('href', '/privacidade');
+    // Com a barra no fim: é a URL que o service worker guarda (privacidade/index.html), e abre também sem rede.
+    expect(screen.getByRole('link', { name: 'Política de privacidade' })).toHaveAttribute('href', '/privacidade/');
     expect(screen.getByRole('textbox', { name: 'E-mail' })).toHaveAttribute('autocomplete', 'email webauthn');
     await fireEvent.input(screen.getByRole('textbox', { name: 'E-mail' }), { target: { value: ' ranielli@exemplo.com ' } });
     await fireEvent.click(screen.getByRole('button', { name: 'Enviar código' }));
