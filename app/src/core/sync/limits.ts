@@ -6,9 +6,10 @@ import type { SyncStore } from './types';
 export type CountedStore = 'solves' | 'sessions' | 'practice';
 export type ActiveCounts = Record<CountedStore, number>;
 
-// Folgados para uso real (100 mil solves são anos de treino diário) e apertados para lixo. Os ajustes (prefs) não têm teto: isPrefValue só
-// aceita as chaves do catálogo (trilha, lições, casos), então o número deles já é limitado.
-export const ACCOUNT_LIMITS: Readonly<ActiveCounts> = Object.freeze({ solves: 100_000, sessions: 1_000, practice: 100_000 });
+// Folgados para uso real (100 mil solves são anos de treino diário; uma sessão por dia leva uns 27 anos até as 10 mil, bem depois dos 100
+// mil solves) e apertados para lixo. Os ajustes (prefs) não têm teto: isPrefValue só aceita as chaves do catálogo (trilha, lições, casos),
+// então o número deles já é limitado.
+export const ACCOUNT_LIMITS: Readonly<ActiveCounts> = Object.freeze({ solves: 100_000, sessions: 10_000, practice: 100_000 });
 
 // O motivo, em `rejected`, de um registro recusado pela cota: o aparelho o guarda fora da fila ("só neste aparelho"), em vez de tratá-lo
 // como uma recusa comum.

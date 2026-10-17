@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { defaultSeason } from '../../src/core/season';
 import { applyChanges, sameChange, type RecordView } from '../../src/core/sync/apply';
-import { QUOTA_REASON } from '../../src/core/sync/limits';
+import { ACCOUNT_LIMITS, QUOTA_REASON, type ActiveCounts } from '../../src/core/sync/limits';
 import { sessionOfChange } from '../../src/core/sync/records';
 import { syncKey, type Change, type SyncStore } from '../../src/core/sync/types';
 import type { SeasonProgress, SeasonRecord } from '../../src/core/types';
 import { MapView } from './sync-fakes';
+import { seeded } from './sync-random';
 
 const solve = (id: string, o: Partial<Change> & { sessionId?: string } = {}): Change => {
   const { sessionId = 's1', ...rest } = o;
@@ -290,5 +291,179 @@ describe('a cota (endurecimento 4.1)', () => {
       expect(keys(out.writes)).toEqual(['practice/p1', 'sessions/nova', 'solves/novo', 'solves/velho']);
       expect(out.activeDelta).toEqual({ solves: 2, sessions: 1, practice: 1 });
     }
+  });
+});
+
+// A vaga de sessão que um solve pede (revisão da Task 1): um solve que passa a ativo numa sessão que não está ativa (ausente, ou na lixeira
+// com uma exclusão anterior à dele, que a cascata devolveria) ocupa a vaga dela; sem vaga, ele também volta com o motivo da cota. Nada
+// recusado é gravado, e nenhum solve ativo gravado fica sem a sessão ativa.
+describe('a cota: a sessão que um solve pede', () => {
+  const sessionsFull = { active: { solves: 0, sessions: 1, practice: 0 }, limits: { solves: 10, sessions: 1, practice: 10 } };
+  const cota = (store: string, id: string) => ({ store, id, reason: QUOTA_REASON });
+
+  it('com as sessões cheias, a sessão nova e os solves dela são recusados, nas duas ordens, e nada é gravado', () => {
+    const view = viewOf(session('s1'));
+    const first = applyChanges(view, [session('N'), solve('n', { sessionId: 'N' })], { mode: 'server', quota: sessionsFull });
+    expect(first.rejected).toEqual([cota('sessions', 'N'), cota('solves', 'n')]);
+    expect(first.writes).toEqual([]);
+    expect(first.activeDelta).toEqual({ solves: 0, sessions: 0, practice: 0 });
+    const after = applyChanges(view, [solve('n', { sessionId: 'N' }), session('N')], { mode: 'server', quota: sessionsFull });
+    expect(after.rejected).toEqual([cota('solves', 'n'), cota('sessions', 'N')]);
+    expect(after.writes).toEqual([]);
+  });
+
+  it('restaurar uma sessão com o solve dela, com as sessões cheias: os dois são recusados, e rejected bate com writes', () => {
+    const view = viewOf(session('s1'), session('X', { deletedAt: 5, deletionStamp: 5 }), solve('a', { sessionId: 'X', deletedAt: 5, deletionStamp: 5 }));
+    const back = { updatedAt: 20, deletionStamp: 20 };
+    const out = applyChanges(view, [session('X', back), solve('a', { sessionId: 'X', ...back })], { mode: 'server', quota: sessionsFull });
+    expect(out.rejected).toEqual([cota('sessions', 'X'), cota('solves', 'a')]);
+    expect(out.writes).toEqual([]);
+    expect(out.derived).toEqual([]);
+    expect(out.activeDelta).toEqual({ solves: 0, sessions: 0, practice: 0 });
+  });
+
+  it('a sessão que um solve devolve ocupa a última vaga: a sessão nova que vem depois no lote é recusada', () => {
+    const view = viewOf(session('X', { deletedAt: 5, deletionStamp: 5 }));
+    const quota = { active: { solves: 0, sessions: 0, practice: 0 }, limits: { solves: 10, sessions: 1, practice: 10 } };
+    const out = applyChanges(view, [solve('a', { sessionId: 'X', updatedAt: 20, deletionStamp: 20 }), session('N')], { mode: 'server', quota });
+    expect(out.rejected).toEqual([cota('sessions', 'N')]);
+    expect(keys(out.writes)).toEqual(['sessions/X', 'solves/a']);
+    expect(out.activeDelta).toEqual({ solves: 1, sessions: 1, practice: 0 });
+  });
+
+  it('a vaga da sessão é pedida uma vez por lote: a restauração dela depois do solve não conta de novo', () => {
+    const view = viewOf(session('X', { deletedAt: 5, deletionStamp: 5 }));
+    const quota = { active: { solves: 0, sessions: 0, practice: 0 }, limits: { solves: 10, sessions: 1, practice: 10 } };
+    const back = { updatedAt: 20, deletionStamp: 20 };
+    const out = applyChanges(view, [solve('a', { sessionId: 'X', ...back }), session('X', back), solve('b', { sessionId: 'X', ...back })], { mode: 'server', quota });
+    expect(out.rejected).toEqual([]);
+    expect(keys(out.writes)).toEqual(['sessions/X', 'solves/a', 'solves/b']);
+    expect(out.activeDelta).toEqual({ solves: 2, sessions: 1, practice: 0 });
+  });
+
+  it('um solve que a cascata vai apagar (mais velho que a exclusão da sessão) não pede vaga', () => {
+    const view = viewOf(session('s1'), session('X', { deletedAt: 50, deletionStamp: 50 }));
+    const out = applyChanges(view, [solve('a', { sessionId: 'X', updatedAt: 20, deletionStamp: 20 })], { mode: 'server', quota: sessionsFull });
+    expect(out.rejected).toEqual([]);
+    expect(out.writes.map((c) => [c.store, c.id, c.deletedAt])).toEqual([['solves', 'a', 50]]);
+    expect(out.activeDelta).toEqual({ solves: 0, sessions: 0, practice: 0 });
+  });
+
+  it('uma sessão apagada no lote não abre vaga antes do fim do lote: a cascata ainda pode devolvê-la', () => {
+    // O solve gravado é mais novo que a exclusão que chega: a cascata devolve X, e a sessão nova não pode ter ocupado a vaga dela.
+    const view = viewOf(session('X'), solve('a', { sessionId: 'X', updatedAt: 80, deletionStamp: 80 }));
+    const out = applyChanges(view, [session('X', { updatedAt: 50, deletedAt: 50, deletionStamp: 50 }), session('N')], { mode: 'server', quota: sessionsFull });
+    expect(out.rejected).toEqual([cota('sessions', 'N')]);
+    expect(out.activeDelta).toEqual({ solves: 0, sessions: 0, practice: 0 });
+  });
+
+  it('com as sessões cheias, editar um solve ativo passa; levá-lo para uma sessão que não está ativa pede vaga', () => {
+    const view = viewOf(session('s1'), session('X', { deletedAt: 5, deletionStamp: 5 }), solve('a'));
+    const note = applyChanges(view, [solve('a', { updatedAt: 20, data: { ...(solve('a').data as object), note: 'editado' } })], { mode: 'server', quota: sessionsFull });
+    expect(note.rejected).toEqual([]);
+    const moved = applyChanges(view, [solve('a', { sessionId: 'X', updatedAt: 20 })], { mode: 'server', quota: sessionsFull });
+    expect(moved.rejected).toEqual([cota('solves', 'a')]);
+    expect(moved.writes).toEqual([]);
+  });
+});
+
+// Sorteios com semente (sync-random.ts): uma vista coerente (solve ativo só em sessão ativa) e um lote ao acaso de criar, apagar, restaurar,
+// editar e mover, com datas mais novas e mais velhas que as gravadas e tetos pequenos.
+describe('a cota: propriedades sobre lotes sorteados', () => {
+  const STORES = ['solves', 'sessions', 'practice'] as const;
+  const activeIn = (records: Iterable<Change>): ActiveCounts => {
+    const n = { solves: 0, sessions: 0, practice: 0 };
+    for (const c of records) if (c.store !== 'prefs' && c.deletedAt === null) n[c.store]++;
+    return n;
+  };
+
+  function draw(rnd: () => number): { view: MapView; batch: Change[] } {
+    const int = (n: number): number => Math.floor(rnd() * n);
+    const stamp = (): number => 1 + int(100);
+    const stored: Change[] = [];
+    for (const id of ['S0', 'S1', 'S2', 'S3']) {
+      const t = stamp();
+      const kind = int(3);
+      if (kind === 1) stored.push(session(id, { updatedAt: t, deletionStamp: t }));
+      if (kind === 2) stored.push(session(id, { updatedAt: t, deletedAt: t, deletionStamp: t }));
+    }
+    const sessions = stored.slice();
+    const fresh = ['N0', 'N1'].filter(() => rnd() < 0.5);
+    const homes = [...sessions.map((c) => c.id), ...fresh];
+    for (let i = 0; i < 8; i++) {
+      const home = sessions[int(sessions.length + 1)];
+      if (!home) continue;
+      const t = stamp();
+      const alive = home.deletedAt === null && rnd() < 0.7;
+      stored.push(solve(`a${i}`, { sessionId: home.id, updatedAt: t, deletionStamp: t, deletedAt: alive ? null : t }));
+    }
+    const batch: Change[] = [];
+    for (let i = 0, n = int(9); i < n && homes.length > 0; i++) {
+      const t = stamp();
+      const op = int(9);
+      const known = stored[int(stored.length)] as Change | undefined;
+      if (op === 0) batch.push(solve(`b${i}`, { sessionId: homes[int(homes.length)], updatedAt: t, deletionStamp: t }));
+      else if (!known) continue;
+      else if (op <= 2) batch.push({ ...known, updatedAt: t, deletedAt: t, deletionStamp: t });
+      else if (op <= 4) batch.push({ ...known, updatedAt: t, deletedAt: null, deletionStamp: t });
+      else if (op <= 6 && known.store === 'solves') batch.push({ ...known, updatedAt: t, data: { ...(known.data as object), note: `n${t}` } });
+      else if (known.store === 'solves') batch.push({ ...known, updatedAt: t, data: { ...(known.data as object), sessionId: homes[int(homes.length)] } });
+    }
+    for (const id of fresh) {
+      const t = stamp();
+      batch.splice(int(batch.length + 1), 0, session(id, { updatedAt: t, deletionStamp: t }));
+    }
+    return { view: viewOf(...stored), batch };
+  }
+
+  it('nada recusado é gravado, todo solve ativo tem a sessão ativa, nenhuma store passa do teto e activeDelta bate com a conta', () => {
+    const rnd = seeded(20261017);
+    let refused = 0;
+    let refusedSolves = 0;
+    let cascaded = 0;
+    for (let round = 0; round < 3000; round++) {
+      const { view, batch } = draw(rnd);
+      const start = activeIn(view.records.values());
+      const limits = { solves: Math.floor(rnd() * 10), sessions: Math.floor(rnd() * 5), practice: 5 };
+      const out = applyChanges(view, batch, { mode: 'server', quota: { active: start, limits } });
+      const at = `rodada ${round}`;
+
+      // O recusado nunca é gravado como chegou. A única escrita dele é a da cascata (derived), e apagada: o lote apaga a sessão gravada de um
+      // solve cuja mudança para outra sessão foi recusada, e a cascata apaga a versão gravada, que ainda está nela. A fila de saída manda
+      // uma mudança por chave; uma chave que o lote traz duas vezes pode ter uma versão recusada e outra gravada.
+      const written = new Map(out.writes.map((c) => [syncKey(c.store, c.id), c]));
+      const twice = new Set(keys(batch).filter((k, i, all) => all.indexOf(k) !== i));
+      for (const r of out.rejected) {
+        expect(r.reason, at).toBe(QUOTA_REASON);
+        const k = syncKey(r.store, r.id);
+        if (twice.has(k) || !written.has(k)) continue;
+        expect(out.derived, `${at}: ${k} recusado e gravado fora da cascata`).toContain(k);
+        expect(written.get(k)!.deletedAt, `${at}: ${k} recusado e gravado ativo`).not.toBeNull();
+        cascaded++;
+      }
+      const final = new Map(view.records);
+      for (const w of out.writes) final.set(syncKey(w.store, w.id), w);
+      for (const c of final.values()) {
+        if (c.store !== 'solves' || c.deletedAt !== null) continue;
+        expect(final.get(syncKey('sessions', sessionOfChange(c)!))?.deletedAt, `${at}: solve ativo ${c.id} sem sessão ativa`).toBeNull();
+      }
+      const end = activeIn(final.values());
+      for (const store of STORES) {
+        expect(end[store], `${at}: ${store} passou do teto`).toBeLessThanOrEqual(Math.max(start[store], limits[store]));
+        expect(out.activeDelta[store], `${at}: activeDelta de ${store}`).toBe(end[store] - start[store]);
+      }
+      refused += out.rejected.length;
+      refusedSolves += out.rejected.filter((r) => r.store === 'solves').length;
+
+      // Com folga (os tetos da conta), a cota não muda nada.
+      const roomy = applyChanges(view, batch, { mode: 'server', quota: { active: start, limits: ACCOUNT_LIMITS } });
+      const free = applyChanges(view, batch, { mode: 'server' });
+      expect(roomy.rejected, at).toEqual([]);
+      expect(roomy.writes, at).toEqual(free.writes);
+      expect(roomy.activeDelta, at).toEqual(free.activeDelta);
+    }
+    expect(refused).toBeGreaterThan(100); // o sorteio chega na cota
+    expect(refusedSolves).toBeGreaterThan(50);
+    expect(cascaded).toBeLessThan(refused / 20); // a exceção da cascata é rara
   });
 });

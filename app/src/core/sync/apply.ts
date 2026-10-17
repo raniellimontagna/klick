@@ -48,9 +48,16 @@ export function sameChange(a: Change | undefined, b: Change | undefined): boolea
 //
 // A cota (quota): um contador corrente parte dos ativos de antes do lote. Uma mudança que deixa ativo um registro contado que não estava
 // (ausente ou na lixeira) só entra com o contador da store abaixo do teto; senão volta em `rejected` com QUOTA_REASON e não muda nada (nem
-// a cascata da sessão dela). O que passa a excluído abre a vaga para o que vem depois no lote. Decide o resultado do merge, não o que
-// chegou: uma versão ativa velha de um registro apagado continua apagada e não conta. A cascata, que vem depois do lote, não passa pela
-// cota (ela só apaga solves, e só devolve uma sessão que já existe para o solve ativo dela), mas entra em activeDelta.
+// a cascata da sessão dela). Decide o resultado do merge, não o que chegou: uma versão ativa velha de um registro apagado continua apagada
+// e não conta. Um solve ou tentativa que passa a excluído abre a vaga para o que vem depois no lote.
+//
+// As sessões contam vagas, que só abrem no lote seguinte: a cascata, que vem depois do lote, devolve a sessão de um solve ativo mais novo
+// que a exclusão dela, então uma sessão que o lote apaga pode terminar ativa. Por isso, um solve que passa a ativo (ou muda de sessão) numa
+// sessão que não está ativa e que a cascata devolveria (ausente, ou na lixeira com uma exclusão anterior à dele) ocupa a vaga dela, uma vez
+// por sessão no lote; sem vaga, ele volta com o motivo da cota também. Assim nenhum recusado é gravado como chegou, nenhum solve ativo
+// gravado fica sem a sessão, e nenhuma store termina acima do teto (ou do que já tinha). A única escrita de um recusado é a da cascata, e
+// apagada: o lote apaga a sessão de um solve cuja mudança para outra sessão foi recusada, e a versão gravada, que continua nela, vai junto.
+// Editar um solve ativo sem mudar a sessão passa sempre. activeDelta conta tudo, a cascata inclusive.
 export function applyChanges(view: RecordView, incoming: readonly unknown[], opts: ApplyOptions): ApplyResult {
   const overlay = new Map<string, Change>();
   const rejected: Rejected[] = [];
@@ -66,6 +73,19 @@ export function applyChanges(view: RecordView, incoming: readonly unknown[], opt
   const current = (store: SyncStore, id: string): Change | undefined => overlay.get(syncKey(store, id)) ?? stored(store, id);
   const count = opts.quota ? { ...opts.quota.active } : null;
   const limits = opts.quota?.limits ?? ACCOUNT_LIMITS;
+  // As sessões que já têm vaga neste lote: as que entraram, as que um solve pediu e as ativas que o lote apagou.
+  const seated = new Set<string>();
+  // A sessão que precisa de vaga para `next` ficar como está: a própria, quando volta a ativa; a de um solve que passa a ativo ou muda de
+  // sessão, quando ela não está ativa e a cascata a devolveria (com uma exclusão igual ou mais nova, a cascata apaga o solve).
+  const seatFor = (before: Change | undefined, next: Change): string | null => {
+    if (next.store === 'sessions') return activeOf(next) > activeOf(before) ? next.id : null;
+    if (next.store !== 'solves' || next.deletedAt !== null) return null;
+    const sid = sessionOfChange(next);
+    if (sid === null || (before?.deletedAt === null && sessionOfChange(before) === sid)) return null;
+    const session = current('sessions', sid);
+    if (session && (session.deletedAt === null || session.deletionStamp >= next.deletionStamp)) return null;
+    return sid;
+  };
 
   for (const raw of incoming) {
     const checked = checkChange(raw);
@@ -86,11 +106,17 @@ export function applyChanges(view: RecordView, incoming: readonly unknown[], opt
     const store = next.store;
     if (count && isCounted(store)) {
       const step = activeOf(next) - activeOf(before);
-      if (step > 0 && count[store] >= limits[store]) {
+      const seat = seatFor(before, next);
+      const newSeat = seat !== null && !seated.has(seat);
+      const own = store !== 'sessions' && step > 0 && count[store] >= limits[store];
+      if (own || (newSeat && count.sessions >= limits.sessions)) {
         rejected.push({ store, id: next.id, reason: QUOTA_REASON });
         continue;
       }
-      count[store] += step;
+      if (store !== 'sessions') count[store] += step;
+      if (newSeat) count.sessions++;
+      if (seat !== null) seated.add(seat);
+      if (store === 'sessions' && step < 0) seated.add(next.id); // a vaga dela só abre no lote seguinte
     }
     const stale = opts.mode === 'server' && !sameChange(change, next);
     if (!sameChange(before, next) || stale) overlay.set(syncKey(next.store, next.id), next);
