@@ -20,8 +20,9 @@ export interface ApplyOptions {
   quota?: { active: ActiveCounts; limits?: Readonly<ActiveCounts> };
   // Uma recusa a mais, do servidor: o teto de bytes da conta (worker/account-store.ts). Vê o que a mudança deixa gravado (o resultado do
   // merge) e o que estava antes (a versão do lote, se o registro já veio antes nele), depois da cota; false recusa com QUOTA_REASON, como a
-  // cota: nada muda, nem a cascata, e a vaga da cota fica para o que vem depois.
-  admit?: (before: Change | undefined, next: Change) => boolean;
+  // cota: nada muda, nem a cascata, e a vaga da cota fica para o que vem depois. `required`: a mudança passa de qualquer jeito (a sessão que
+  // um solve do lote já pediu), e o teto só a conta.
+  admit?: (before: Change | undefined, next: Change, required: boolean) => boolean;
 }
 
 export interface ApplyResult {
@@ -63,6 +64,11 @@ export function sameChange(a: Change | undefined, b: Change | undefined): boolea
 // apagada: o lote apaga a sessão de um solve cuja mudança para outra sessão foi recusada, e a versão gravada, que continua nela, vai junto.
 // Editar um solve ativo sem mudar a sessão passa sempre. activeDelta conta tudo, a cascata inclusive.
 //
+// O teto do servidor (admit) segue a mesma regra das vagas: uma sessão que ele recusa leva junto, com o mesmo motivo, cada solve do lote que
+// pediria a vaga dela (o solve ficaria órfão nos outros aparelhos, ou a cascata devolveria a sessão recusada). E a sessão que um solve do lote
+// já pediu antes dela não pode mais ser recusada (o solve já entrou): ela passa como obrigatória, e o teto só a conta; o excesso fica no
+// tamanho de uma sessão (MAX_DATA_CHARS) por sessão assim.
+//
 // A marca compactada (records.ts) de um registro que a vista não tem (nem antes no lote) não é gravada, nos dois modos, nem recusada: um
 // aparelho que nunca teve o solve (ou já o tirou da lixeira) não ganha um registro sem campos, e o servidor não guarda uma marca que nenhum
 // aparelho mandaria. Uma recusa marcaria refusedBuild no aparelho, e cada versão nova do app baixaria a conta inteira de novo por ela.
@@ -83,6 +89,9 @@ export function applyChanges(view: RecordView, incoming: readonly unknown[], opt
   const limits = opts.quota?.limits ?? ACCOUNT_LIMITS;
   // As sessões que já têm vaga neste lote: as que entraram, as que um solve pediu e as ativas que o lote apagou.
   const seated = new Set<string>();
+  // O teto do servidor (admit): as sessões que ele recusou neste lote, e as que um solve do lote já pediu (essas ele não recusa mais).
+  const blocked = new Set<string>();
+  const asked = new Set<string>();
   // A sessão que precisa de vaga para `next` ficar como está: a própria, quando volta a ativa; a de um solve que passa a ativo ou muda de
   // sessão, quando ela não está ativa e a cascata a devolveria (com uma exclusão igual ou mais nova, a cascata apaga o solve).
   const seatFor = (before: Change | undefined, next: Change): string | null => {
@@ -113,28 +122,37 @@ export function applyChanges(view: RecordView, incoming: readonly unknown[], opt
       next = before ? merge(before, change) : change;
     }
     const store = next.store;
-    let claim: { store: CountedStore; step: number; seat: string | null; newSeat: boolean } | null = null;
+    const seat = count || opts.admit ? seatFor(before, next) : null;
+    if (store === 'solves' && seat !== null && blocked.has(seat)) {
+      rejected.push({ store, id: next.id, reason: QUOTA_REASON });
+      continue;
+    }
+    let claim: { store: CountedStore; step: number; newSeat: boolean } | null = null;
     if (count && isCounted(store)) {
       const step = activeOf(next) - activeOf(before);
-      const seat = seatFor(before, next);
       const newSeat = seat !== null && !seated.has(seat);
       const own = store !== 'sessions' && step > 0 && count[store] >= limits[store];
       if (own || (newSeat && count.sessions >= limits.sessions)) {
         rejected.push({ store, id: next.id, reason: QUOTA_REASON });
         continue;
       }
-      claim = { store, step, seat, newSeat };
+      claim = { store, step, newSeat };
     }
-    if (opts.admit && !opts.admit(before, next)) {
-      rejected.push({ store, id: next.id, reason: QUOTA_REASON });
-      continue;
+    if (opts.admit) {
+      const required = store === 'sessions' && asked.has(next.id);
+      if (!opts.admit(before, next, required) && !required) {
+        if (store === 'sessions') blocked.add(next.id);
+        rejected.push({ store, id: next.id, reason: QUOTA_REASON });
+        continue;
+      }
     }
     if (count && claim) {
       if (claim.store !== 'sessions') count[claim.store] += claim.step;
       if (claim.newSeat) count.sessions++;
-      if (claim.seat !== null) seated.add(claim.seat);
+      if (seat !== null) seated.add(seat);
       if (claim.store === 'sessions' && claim.step < 0) seated.add(next.id); // a vaga dela só abre no lote seguinte
     }
+    if (store === 'solves' && seat !== null) asked.add(seat);
     const stale = opts.mode === 'server' && !sameChange(change, next);
     if (!sameChange(before, next) || stale) overlay.set(syncKey(next.store, next.id), next);
     if (change.store === 'sessions') sessions.add(change.id);

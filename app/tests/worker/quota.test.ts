@@ -2,6 +2,7 @@
 // pelo /api/sync; os contadores de uma conta cheia são semeados direto no estado do objeto (setState), sem gravar 100 mil registros.
 import { runInDurableObject } from 'cloudflare:test';
 import { describe, expect, it, vi } from 'vitest';
+import { defaultSeason } from '../../src/core/season';
 import { QUOTA_REASON, type ActiveCounts } from '../../src/core/sync/limits';
 import { ACCOUNT_HEADER, SYNC_PROTOCOL, type Change, type SyncResponse } from '../../src/core/sync/types';
 import { ACCOUNT_BYTES_CAP, DAILY_WRITE_BUDGET, nextUtcDay, utcDay } from '../../worker/limits';
@@ -132,7 +133,46 @@ describe('o teto de bytes da conta', () => {
   });
 });
 
+describe('o teto de bytes: as exceções', () => {
+  it('no teto, apagar com o conteúdo maior conta como crescer e volta com "cota"; o solve fica como estava', async () => {
+    // Senão, "criar pequeno e apagar com 16 KB de nota" faria a conta crescer além do teto sem limite.
+    const user = 'teto-apagar';
+    await sync(user, [session(), solve('a', { note: 'curta' })]);
+    await setState(user, 'bytes', ACCOUNT_BYTES_CAP);
+    expect((await sync(user, [solve('a', { note: 'curta, e depois bem mais comprida', ...gone(T0 + 10) })])).rejected).toEqual([cota('a')]);
+    const a = byId(await sync(user, [], { device: 'd2' })).get('a')!;
+    expect([a.deletedAt, (a.data as { note: string }).note]).toEqual([null, 'curta']);
+    expect(await json(user, 'bytes')).toBe(ACCOUNT_BYTES_CAP);
+  });
+
+  it('os ajustes, a temporada inclusive, passam com a conta no teto, e contam nos bytes', async () => {
+    const user = 'teto-ajustes';
+    const pref = (id: string, data: unknown, at: number): Change => ({ store: 'prefs', id, data, updatedAt: at, deletedAt: null, deletionStamp: at });
+    await sync(user, [pref('settings.dailyGoal', 5, T0), pref('season', defaultSeason(), T0)]);
+    await setState(user, 'bytes', ACCOUNT_BYTES_CAP);
+    const past = [{ n: 1, startedAt: 0, endedAt: T0, solves: 1000, startAo12: null, endAo12: null }];
+    const closed = { ...defaultSeason(), past, current: { ...defaultSeason().current, n: 2 } }; // uma temporada fechada: o progresso cresce
+    const res = await sync(user, [pref('settings.dailyGoal', 12345, T0 + 10), pref('season', closed, T0 + 10)]);
+    expect([res.rejected, res.accepted]).toEqual([[], 2]);
+    expect(await json<number>(user, 'bytes')).toBeGreaterThan(ACCOUNT_BYTES_CAP);
+    const all = byId(await sync(user, [], { device: 'd2' }));
+    expect(all.get('settings.dailyGoal')!.data).toBe(12345);
+    expect((all.get('season')!.data as { past: unknown[] }).past).toHaveLength(1);
+  });
+});
+
 describe('o orçamento de gravações do dia (decisão 6)', () => {
+  // A hora do pedido vem do Worker que o atendeu: um atrasado não pode fazer o dia do orçamento voltar e zerar o que já foi gravado hoje.
+  it('o dia do orçamento não volta atrás: um pedido com a hora de ontem, atendido depois de um de hoje, conta no dia de hoje', async () => {
+    const user = 'orcamento-relogio';
+    const today = nextUtcDay(T0);
+    await setState(user, 'writes', { day: utcDay(today), n: DAILY_WRITE_BUDGET - 1 });
+    const late = await sync(user, [solve('x'), solve('y')], { now: T0 });
+    expect([late.accepted, late.deferred, late.retryAt]).toEqual([1, 1, nextUtcDay(today)]);
+    expect(await json(user, 'writes')).toEqual({ day: utcDay(today), n: DAILY_WRITE_BUDGET });
+    expect((await sync(user, [solve('y')], { now: today })).deferred).toBe(1);
+  });
+
   it('passado o orçamento do dia, o resto do lote volta em deferred, com retryAt à meia-noite UTC, e nada dele é gravado', async () => {
     const user = 'orcamento-fim';
     await setState(user, 'writes', { day: utcDay(T0), n: DAILY_WRITE_BUDGET - 100 });

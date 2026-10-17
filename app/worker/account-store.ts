@@ -33,7 +33,8 @@ const activeSolves = (data: KlickExport): number => data.solves.filter((s) => s.
 interface Usage {
   active: ActiveCounts;
   bytes: number;
-  writes: number; // gravadas hoje (UTC)
+  day: string; // o dia UTC do orçamento
+  writes: number; // gravadas nesse dia
 }
 
 // Os registros que um lote lê (um sync, uma restauração), cada um uma vez: applyChanges os lê pela vista, e o teto de bytes e write() pegam
@@ -45,16 +46,18 @@ interface Batch {
 }
 
 // O teto de bytes (o `admit` de applyChanges): a mudança que faria o conteúdo gravado da conta passar de ACCOUNT_BYTES_CAP volta com o
-// motivo da cota; a que encolhe ou mantém o tamanho (editar, apagar) passa sempre, mesmo numa conta já acima do teto. A conta corre pelo
-// lote: o tamanho de cada registro depois do que o lote já deixou passar, e o total.
-function bytesCap(batch: Batch, stored: number): (before: Change | undefined, next: Change) => boolean {
+// motivo da cota; a que encolhe ou mantém o tamanho (editar, apagar) passa sempre, mesmo numa conta já acima do teto. Uma exclusão que chega
+// com o conteúdo maior cresce, e conta como crescer. Passam sem conferir, mas contam: os ajustes (poucos, cada um com o tamanho limitado, e a
+// temporada, que o servidor decide) e a sessão que um solve do lote já pediu (required). A conta corre pelo lote: o tamanho de cada registro
+// depois do que o lote já deixou passar, e o total.
+function bytesCap(batch: Batch, stored: number): (before: Change | undefined, next: Change, required: boolean) => boolean {
   const sizes = new Map<string, number>();
   let total = stored;
-  return (before, next) => {
+  return (before, next, required) => {
     const key = syncKey(next.store, next.id);
     const size = utf8Bytes(batch.json(next.data));
     const growth = size - (sizes.get(key) ?? (before === undefined ? 0 : batch.storedBytes(next.store, next.id)));
-    if (growth > 0 && total + growth > ACCOUNT_BYTES_CAP) return false;
+    if (!required && next.store !== 'prefs' && growth > 0 && total + growth > ACCOUNT_BYTES_CAP) return false;
     total += growth;
     sizes.set(key, size);
     return true;
@@ -130,7 +133,9 @@ export class AccountStore extends DurableObject<Env> {
   }
 
   // Os contadores (Usage), lidos do estado. Uma conta de antes deles (as do beta) os ganha da contagem do banco, uma vez, antes de o lote
-  // gravar qualquer coisa. As gravações contam no dia UTC de `now`: num dia novo, o orçamento volta inteiro.
+  // gravar qualquer coisa. As gravações contam no dia UTC de `now`: num dia novo, o orçamento volta inteiro. O dia nunca volta atrás: um
+  // pedido com a hora de um dia que já passou (o relógio de outro Worker, atrasado), atendido depois de um do dia seguinte, conta no dia mais
+  // novo que o objeto já viu, sem zerar o que foi gravado nele.
   private usage(now: number): Usage {
     let active = this.getState('active');
     if (active === null) {
@@ -147,11 +152,13 @@ export class AccountStore extends DurableObject<Env> {
       this.setState('bytes', bytes);
     }
     const writes = JSON.parse(this.getState('writes') ?? 'null') as { day: string; n: number } | null;
-    return { active: JSON.parse(active) as ActiveCounts, bytes: Number(bytes), writes: writes?.day === utcDay(now) ? writes.n : 0 };
+    const today = utcDay(now);
+    const day = writes !== null && writes.day > today ? writes.day : today;
+    return { active: JSON.parse(active) as ActiveCounts, bytes: Number(bytes), day, writes: writes?.day === day ? writes.n : 0 };
   }
 
   // Soma nos contadores, gravando só o que mudou: um sync que só recebe não grava nada no estado.
-  private addUsage(usage: Usage, now: number, add: { active?: ActiveCounts; bytes: number; writes: number }): void {
+  private addUsage(usage: Usage, add: { active?: ActiveCounts; bytes: number; writes: number }): void {
     const delta = add.active;
     if (delta && Object.values(delta).some((n) => n !== 0)) {
       const active = { ...usage.active };
@@ -159,14 +166,14 @@ export class AccountStore extends DurableObject<Env> {
       this.setState('active', JSON.stringify(active));
     }
     if (add.bytes !== 0) this.setState('bytes', String(usage.bytes + add.bytes));
-    if (add.writes > 0) this.setState('writes', JSON.stringify({ day: utcDay(now), n: usage.writes + add.writes }));
+    if (add.writes > 0) this.setState('writes', JSON.stringify({ day: usage.day, n: usage.writes + add.writes }));
   }
 
   // Grava o que um lote mudou e acerta os contadores: os ativos pelo activeDelta, os bytes pelo que write() gravou, e cada registro gravado
   // (a cascata e a versão vencedora que volta para quem mandou a velha, inclusive) conta no orçamento do dia.
-  private commit(result: Pick<ApplyResult, 'writes' | 'activeDelta'>, batch: Batch, usage: Usage, now: number): void {
+  private commit(result: Pick<ApplyResult, 'writes' | 'activeDelta'>, batch: Batch, usage: Usage): void {
     const grew = this.write(result.writes, batch);
-    this.addUsage(usage, now, { active: result.activeDelta, bytes: grew, writes: result.writes.length });
+    this.addUsage(usage, { active: result.activeDelta, bytes: grew, writes: result.writes.length });
   }
 
   private all(): Change[] {
@@ -219,7 +226,7 @@ export class AccountStore extends DurableObject<Env> {
   // A cota (endurecimento 4.1): applyChanges recusa, com o motivo da cota, o registro que passaria do teto de ativos, e o teto de bytes
   // (bytesCap), a mudança que faria a conta passar de ACCOUNT_BYTES_CAP. O orçamento do dia (decisão 6): só as primeiras mudanças que cabem
   // no que sobra de DAILY_WRITE_BUDGET hoje são lidas; as outras não são gravadas e voltam em `deferred` (as últimas N do lote), com
-  // `retryAt`, a meia-noite UTC, quando o orçamento volta. O recebimento segue igual, com ou sem orçamento.
+  // `retryAt`, a meia-noite UTC do fim do dia do orçamento, quando ele volta. O recebimento segue igual, com ou sem orçamento.
   async syncBatch(userId: string, req: SyncRequest, now: number): Promise<SyncResponse | 'deleted'> {
     const response = this.ctx.storage.transactionSync((): SyncResponse | 'deleted' => {
       if (this.deleted()) return 'deleted';
@@ -229,7 +236,7 @@ export class AccountStore extends DurableObject<Env> {
       const read = req.changes.slice(0, Math.max(0, DAILY_WRITE_BUDGET - usage.writes));
       const batch = this.batch();
       const result = applyChanges(batch.view, read, { mode: 'server', quota: { active: usage.active }, admit: bytesCap(batch, usage.bytes) });
-      this.commit(result, batch, usage, now);
+      this.commit(result, batch, usage);
       this.sql.exec(
         'INSERT INTO devices (device_id, last_sync_at) VALUES (?, ?) ON CONFLICT(device_id) DO UPDATE SET last_sync_at = excluded.last_sync_at',
         req.deviceId, now,
@@ -244,7 +251,7 @@ export class AccountStore extends DurableObject<Env> {
         cursor: page.length > 0 ? page[page.length - 1].rev : from,
         more: rows.length > SYNC_BATCH,
         serverTime: now,
-        ...(deferred > 0 ? { deferred, retryAt: nextUtcDay(now) } : {}),
+        ...(deferred > 0 ? { deferred, retryAt: nextUtcDay(Date.parse(usage.day)) } : {}),
       };
     });
     if (response === 'deleted') return response;
@@ -282,7 +289,7 @@ export class AccountStore extends DurableObject<Env> {
         this.sql.exec(COMPACT_SOLVE, r.id);
         freed += r.bytes - COMPACTED_BYTES;
       }
-      this.addUsage(usage, now, { bytes: -freed, writes: due.length });
+      this.addUsage(usage, { bytes: -freed, writes: due.length });
       return due.length;
     });
   }
@@ -333,7 +340,7 @@ export class AccountStore extends DurableObject<Env> {
         const changes = restoreChanges(current, { sessions: copy.sessions, solves: copy.solves, practice }, accountPrefsOf(copy.profile), stamp);
         const usage = this.usage(now);
         const batch = this.batch();
-        this.commit(applyChanges(batch.view, changes, { mode: 'server' }), batch, usage, now);
+        this.commit(applyChanges(batch.view, changes, { mode: 'server' }), batch, usage);
       });
       return 'ok';
     });

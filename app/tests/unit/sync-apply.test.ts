@@ -458,6 +458,60 @@ describe('applyChanges: admit, a recusa a mais do servidor', () => {
   });
 });
 
+// O teto de bytes no limite (revisão da Task 4): o admit recusa só parte do lote. Uma sessão que ele recusa leva junto os solves que pediriam
+// a vaga dela; a sessão que um solve do lote já pediu passa (required), mesmo sem caber. Nenhum solve ativo gravado fica sem a sessão.
+describe('applyChanges: admit parcial, como o teto de bytes', () => {
+  // Um teto como o do servidor: a folga corre pelo lote, e o que cresce além dela volta, a não ser que seja obrigatório.
+  const byteCap = (room: number, calls: [string, boolean][] = []) => {
+    const size = (c: Change): number => JSON.stringify(c.data).length;
+    const sizes = new Map<string, number>();
+    let left = room;
+    return (before: Change | undefined, next: Change, required: boolean): boolean => {
+      calls.push([syncKey(next.store, next.id), required]);
+      const key = syncKey(next.store, next.id);
+      const growth = size(next) - (sizes.get(key) ?? (before ? size(before) : 0));
+      if (!required && growth > 0 && growth > left) return false;
+      left -= growth;
+      sizes.set(key, size(next));
+      return true;
+    };
+  };
+  const quota = { active: { solves: 10, sessions: 1, practice: 0 } };
+  const big = (id: string, o: Partial<Change> = {}): Change => session(id, { ...o, data: { name: 'N'.repeat(400), event: '333', order: 0, createdAt: 1 } });
+  const cota = (store: string, id: string) => ({ store, id, reason: QUOTA_REASON });
+
+  it('C1: a sessão nova que não cabe e o solve dela voltam juntos, com ou sem a cota; nada fica órfão', () => {
+    for (const opts of [{ quota }, {}]) {
+      const out = applyChanges(viewOf(session('s1')), [big('X'), solve('n', { sessionId: 'X' })], { mode: 'server', ...opts, admit: byteCap(300) });
+      expect(out.rejected).toEqual([cota('sessions', 'X'), cota('solves', 'n')]);
+      expect(out.writes).toEqual([]);
+      expect(out.activeDelta).toEqual({ solves: 0, sessions: 0, practice: 0 });
+    }
+  });
+
+  it('C1 ao contrário: o solve que pediu a vaga vem antes, e a sessão dele passa mesmo sem caber', () => {
+    const calls: [string, boolean][] = [];
+    const out = applyChanges(viewOf(session('s1')), [solve('n', { sessionId: 'X' }), big('X')], { mode: 'server', quota, admit: byteCap(300, calls) });
+    expect(out.rejected).toEqual([]);
+    expect(keys(out.writes)).toEqual(['sessions/X', 'solves/n']);
+    expect(out.activeDelta).toEqual({ solves: 1, sessions: 1, practice: 0 });
+    expect(calls).toEqual([['solves/n', false], ['sessions/X', true]]); // o teto vê o que passou, para a conta dele continuar certa
+  });
+
+  it('C2: restaurar a sessão que não cabe e o solve dela: os dois voltam, e a cascata não a devolve', () => {
+    const view = viewOf(session('s1'), session('X', { updatedAt: 50, deletedAt: 50, deletionStamp: 50 }), solve('a', { sessionId: 'X', deletedAt: 50, deletionStamp: 50 }));
+    const back = { updatedAt: 80, deletionStamp: 80 };
+    const out = applyChanges(view, [big('X', back), solve('a', { sessionId: 'X', ...back })], { mode: 'server', quota, admit: byteCap(50) });
+    expect(out.rejected).toEqual([cota('sessions', 'X'), cota('solves', 'a')]);
+    expect(out.writes).toEqual([]);
+    expect(out.derived).toEqual([]);
+    // Na ordem inversa, o solve pede a vaga primeiro, e a sessão volta com ele.
+    const reverse = applyChanges(view, [solve('a', { sessionId: 'X', ...back }), big('X', back)], { mode: 'server', quota, admit: byteCap(50) });
+    expect(reverse.rejected).toEqual([]);
+    expect(reverse.writes.map((c) => [c.store, c.id, c.deletedAt])).toEqual([['solves', 'a', null], ['sessions', 'X', null]]);
+  });
+});
+
 // Sorteios com semente (sync-random.ts): uma vista coerente (solve ativo só em sessão ativa) e um lote ao acaso de criar, apagar, restaurar,
 // editar e mover, com datas mais novas e mais velhas que as gravadas e tetos pequenos.
 describe('a cota: propriedades sobre lotes sorteados', () => {
@@ -509,42 +563,33 @@ describe('a cota: propriedades sobre lotes sorteados', () => {
 
   it('nada recusado é gravado, todo solve ativo tem a sessão ativa, nenhuma store passa do teto e activeDelta bate com a conta', () => {
     const rnd = seeded(20261017);
+    const coin = seeded(4); // as decisões do admit, sem mexer no sorteio dos lotes
     let refused = 0;
     let refusedSolves = 0;
     let cascaded = 0;
+    let admitRefused = 0;
+    let forced = 0;
     for (let round = 0; round < 3000; round++) {
       const { view, batch } = draw(rnd);
       const start = activeIn(view.records.values());
       const limits = { solves: Math.floor(rnd() * 10), sessions: Math.floor(rnd() * 5), practice: 5 };
       const out = applyChanges(view, batch, { mode: 'server', quota: { active: start, limits } });
       const at = `rodada ${round}`;
-
-      // O recusado nunca é gravado como chegou. A única escrita dele é a da cascata (derived), e apagada: o lote apaga a sessão gravada de um
-      // solve cuja mudança para outra sessão foi recusada, e a cascata apaga a versão gravada, que ainda está nela. A fila de saída manda
-      // uma mudança por chave; uma chave que o lote traz duas vezes pode ter uma versão recusada e outra gravada.
-      const written = new Map(out.writes.map((c) => [syncKey(c.store, c.id), c]));
-      const twice = new Set(keys(batch).filter((k, i, all) => all.indexOf(k) !== i));
-      for (const r of out.rejected) {
-        expect(r.reason, at).toBe(QUOTA_REASON);
-        const k = syncKey(r.store, r.id);
-        if (twice.has(k) || !written.has(k)) continue;
-        expect(out.derived, `${at}: ${k} recusado e gravado fora da cascata`).toContain(k);
-        expect(written.get(k)!.deletedAt, `${at}: ${k} recusado e gravado ativo`).not.toBeNull();
-        cascaded++;
-      }
-      const final = new Map(view.records);
-      for (const w of out.writes) final.set(syncKey(w.store, w.id), w);
-      for (const c of final.values()) {
-        if (c.store !== 'solves' || c.deletedAt !== null) continue;
-        expect(final.get(syncKey('sessions', sessionOfChange(c)!))?.deletedAt, `${at}: solve ativo ${c.id} sem sessão ativa`).toBeNull();
-      }
-      const end = activeIn(final.values());
-      for (const store of STORES) {
-        expect(end[store], `${at}: ${store} passou do teto`).toBeLessThanOrEqual(Math.max(start[store], limits[store]));
-        expect(out.activeDelta[store], `${at}: activeDelta de ${store}`).toBe(end[store] - start[store]);
-      }
+      cascaded += check(view, batch, start, limits, out, at);
       refused += out.rejected.length;
       refusedSolves += out.rejected.filter((r) => r.store === 'solves').length;
+
+      // Um teto a mais (admit, como o de bytes) que recusa parte do lote ao acaso: as mesmas garantias.
+      const withAdmit = applyChanges(view, batch, {
+        mode: 'server',
+        quota: { active: start, limits },
+        admit: (_before, _next, required) => {
+          if (required) forced++;
+          return coin() < 0.7;
+        },
+      });
+      check(view, batch, start, limits, withAdmit, `${at} (admit)`);
+      admitRefused += withAdmit.rejected.length - out.rejected.length;
 
       // Com folga (os tetos da conta), a cota não muda nada.
       const roomy = applyChanges(view, batch, { mode: 'server', quota: { active: start, limits: ACCOUNT_LIMITS } });
@@ -556,5 +601,37 @@ describe('a cota: propriedades sobre lotes sorteados', () => {
     expect(refused).toBeGreaterThan(100); // o sorteio chega na cota
     expect(refusedSolves).toBeGreaterThan(50);
     expect(cascaded).toBeLessThan(refused / 20); // a exceção da cascata é rara
+    expect(admitRefused).toBeGreaterThan(500);
+    expect(forced).toBeGreaterThan(10); // a sessão que um solve já pediu aparece no sorteio
   });
+
+  // As garantias de um lote juntado com a cota; devolve quantas vezes a exceção da cascata apareceu.
+  function check(view: MapView, batch: Change[], start: ActiveCounts, limits: ActiveCounts, out: ReturnType<typeof applyChanges>, at: string): number {
+    // O recusado nunca é gravado como chegou. A única escrita dele é a da cascata (derived), e apagada: o lote apaga a sessão gravada de um
+    // solve cuja mudança para outra sessão foi recusada, e a cascata apaga a versão gravada, que ainda está nela. A fila de saída manda
+    // uma mudança por chave; uma chave que o lote traz duas vezes pode ter uma versão recusada e outra gravada.
+    let cascaded = 0;
+    const written = new Map(out.writes.map((c) => [syncKey(c.store, c.id), c]));
+    const twice = new Set(keys(batch).filter((k, i, all) => all.indexOf(k) !== i));
+    for (const r of out.rejected) {
+      expect(r.reason, at).toBe(QUOTA_REASON);
+      const k = syncKey(r.store, r.id);
+      if (twice.has(k) || !written.has(k)) continue;
+      expect(out.derived, `${at}: ${k} recusado e gravado fora da cascata`).toContain(k);
+      expect(written.get(k)!.deletedAt, `${at}: ${k} recusado e gravado ativo`).not.toBeNull();
+      cascaded++;
+    }
+    const final = new Map(view.records);
+    for (const w of out.writes) final.set(syncKey(w.store, w.id), w);
+    for (const c of final.values()) {
+      if (c.store !== 'solves' || c.deletedAt !== null) continue;
+      expect(final.get(syncKey('sessions', sessionOfChange(c)!))?.deletedAt, `${at}: solve ativo ${c.id} sem sessão ativa`).toBeNull();
+    }
+    const end = activeIn(final.values());
+    for (const store of STORES) {
+      expect(end[store], `${at}: ${store} passou do teto`).toBeLessThanOrEqual(Math.max(start[store], limits[store]));
+      expect(out.activeDelta[store], `${at}: activeDelta de ${store}`).toBe(end[store] - start[store]);
+    }
+    return cascaded;
+  }
 });
