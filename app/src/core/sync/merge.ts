@@ -1,6 +1,7 @@
 // As regras de conflito (spec 6.3 e 6.4), como funções puras. O app e o Worker importam este arquivo. `merge` é comutativa,
 // associativa e idempotente (tests/unit/sync-merge.test.ts); a temporada é a exceção e só o servidor a decide (mergeSeason).
 import type { SeasonProgress } from '../types';
+import { isHollow } from './records';
 import type { Change } from './types';
 
 // JSON com as chaves em ordem: o mesmo valor dá o mesmo texto nos dois lados, e o desempate converge.
@@ -14,8 +15,14 @@ export function canonicalJson(v: unknown): string {
   return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson(o[k])}`).join(',')}}`;
 }
 
-// Regra 1: o conteúdo de updatedAt maior; no empate, o JSON canônico maior (arbitrário, mas igual nos dois lados).
+// Regra 1: o conteúdo de updatedAt maior; no empate, o JSON canônico maior (arbitrário, mas igual nos dois lados). Antes das datas, o
+// conteúdo de um solve vence a marca compactada (endurecimento, decisão 5; records.ts): a marca tem as datas da exclusão, e no empate o '{}'
+// venceria pelo texto ('}' vem depois de '"'), apagando o conteúdo de um aparelho que ainda o tem. A ordem olha só o que passa adiante (store
+// e data, com isHollow), nunca a exclusão: o resultado leva a exclusão do outro lado, e a ordem de um conteúdo tem de ser a mesma antes e
+// depois de juntar, senão merge deixaria de ser associativa.
 function contentOf(a: Change, b: Change): Change {
+  const ha = isHollow(a);
+  if (ha !== isHollow(b)) return ha ? b : a;
   if (a.updatedAt !== b.updatedAt) return a.updatedAt > b.updatedAt ? a : b;
   return canonicalJson(a.data) >= canonicalJson(b.data) ? a : b;
 }

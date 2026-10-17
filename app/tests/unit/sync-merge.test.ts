@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { defaultSeason } from '../../src/core/season';
 import { canonicalJson, cascade, merge, mergeSeason } from '../../src/core/sync/merge';
+import { compacted } from '../../src/core/sync/records';
 import type { Change } from '../../src/core/sync/types';
 import type { SeasonProgress, SeasonRecord } from '../../src/core/types';
 import { seeded } from './sync-random';
@@ -59,6 +60,26 @@ describe('regras de conflito (spec 6.3)', () => {
     const off: Change = { ...on, data: false, updatedAt: 11, deletionStamp: 11 };
     expect(merge(on, off).data).toBe(false);
     expect(merge(off, on).data).toBe(false);
+  });
+
+  // A marca compactada (records.ts): de um solve apagado há mais de 30 dias, o servidor guarda só as datas. Sem a regra, no empate de
+  // updatedAt o '{}' venceria pelo texto canônico ('}' vem depois de '"') e apagaria o conteúdo do aparelho.
+  it('a marca compactada nunca vence o conteúdo, nem no empate de datas', () => {
+    const full = solve({ data: { note: 'cheio', ms: 1234 }, updatedAt: 20, deletedAt: 20, deletionStamp: 20 });
+    const mark = compacted(full); // as mesmas datas: o empate exato
+    for (const out of [merge(full, mark), merge(mark, full)]) {
+      expect(out.data).toEqual(full.data);
+      expect(out.deletedAt).toBe(mark.deletedAt);
+    }
+    // Um aparelho que ficou fora com o solve ativo, mais velho que a exclusão: o conteúdo é o dele, a exclusão é a da marca.
+    const away = solve({ updatedAt: 5, deletionStamp: 5 });
+    const later = compacted(solve({ updatedAt: 40, deletedAt: 40, deletionStamp: 40 }));
+    for (const out of [merge(away, later), merge(later, away)]) expect(out).toEqual({ ...away, deletedAt: 40, deletionStamp: 40 });
+    // Restaurar da lixeira (deletionStamp novo) vence a marca, com o conteúdo de quem restaurou.
+    const restored = solve({ updatedAt: 50, deletionStamp: 50 });
+    expect(merge(later, restored)).toEqual(restored);
+    // Entre duas marcas, fica a de updatedAt maior: o conteúdo continua vazio.
+    expect(merge(mark, later)).toEqual(later);
   });
 
   it('o JSON canônico ignora a ordem das chaves e as chaves undefined', () => {
@@ -145,13 +166,20 @@ describe('propriedades de merge (spec 11): comutativa, associativa e idempotente
   const rnd = seeded(20261015);
   const int = (n: number): number => Math.floor(rnd() * n);
   // Domínios pequenos, para empatar de propósito em updatedAt, deletionStamp e conteúdo.
-  const gen = (): Change =>
-    solve({
+  const gen = (): Change => {
+    const c = solve({
       data: { note: ['a', 'b', 'c'][int(3)], ms: int(2) },
       updatedAt: 10 + int(3),
       deletedAt: rnd() < 0.5 ? 20 + int(2) : null,
       deletionStamp: 10 + int(3),
     });
+    const kind = rnd();
+    // A marca compactada: um solve apagado sem o conteúdo, com as datas do mesmo domínio (empata com os cheios).
+    if (kind < 0.25) return compacted({ ...c, deletedAt: 20 + int(2) });
+    // Um solve sem conteúdo e ativo (checkChange o recusa): a ordem do conteúdo não olha a exclusão, e as propriedades valem com ele também.
+    if (kind < 0.3) return { ...c, data: {}, deletedAt: null };
+    return c;
+  };
 
   it('vale em 5.000 trincas sorteadas', () => {
     for (let i = 0; i < 5000; i++) {

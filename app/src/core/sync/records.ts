@@ -50,3 +50,25 @@ export function sessionOfChange(change: Change): string | null {
   const d = change.data as { sessionId?: unknown } | null;
   return typeof d?.sessionId === 'string' ? d.sessionId : null;
 }
+
+// Um objeto sem chaves: as de valor undefined não contam, como no canonicalJson (merge.ts), e o JSON do sync as tira.
+const isEmptyObject = (v: unknown): boolean =>
+  typeof v === 'object' && v !== null && !Array.isArray(v) && Object.values(v).every((x) => x === undefined);
+
+// Um solve sem conteúdo, apagado ou não. A ordem do conteúdo no merge (merge.ts) usa este, que não olha a exclusão.
+export const isHollow = (c: Pick<Change, 'store' | 'data'>): boolean => c.store === 'solves' && isEmptyObject(c.data);
+
+// A marca compactada (endurecimento, decisão 5): de um solve apagado há mais de TOMBSTONE_KEEP_MS (limits.ts), o servidor guarda só as datas,
+// com `data: {}`. checkChange a aceita (shape.ts); o conteúdo de um aparelho que ainda tem o solve vence a marca (merge.ts); um aparelho que
+// nunca o teve não a grava (apply.ts); a cópia não a leva (snapshot.ts). Ativo, um solve sem conteúdo continua torto.
+export const isCompacted = (c: Pick<Change, 'store' | 'data' | 'deletedAt'>): boolean => c.deletedAt !== null && isHollow(c);
+
+// A marca compactada de um solve apagado: as mesmas datas, sem o conteúdo.
+export const compacted = (c: Change): Change => ({
+  store: c.store,
+  id: c.id,
+  data: {},
+  updatedAt: c.updatedAt,
+  deletedAt: c.deletedAt,
+  deletionStamp: c.deletionStamp,
+});

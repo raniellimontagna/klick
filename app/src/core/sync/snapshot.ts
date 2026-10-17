@@ -2,7 +2,7 @@
 // como qualquer arquivo. Puro, para o Worker e os testes de unidade.
 import type { KlickExport, Practice, Profile, ProfilePatch, Session, Solve } from '../types';
 import { defaultDeviceProfile, joinProfile, prefsFromProfile, profileFromPrefs, splitProfile } from './prefs';
-import { changeToPref, fromChange, type StampedRecord } from './records';
+import { changeToPref, fromChange, isCompacted, type StampedRecord } from './records';
 import type { Change } from './types';
 
 const bare = <R extends object>(c: Change): R => {
@@ -11,13 +11,15 @@ const bare = <R extends object>(c: Change): R => {
 };
 
 // Os registros da conta como arquivo: sessões e solves com a lixeira, o treino que existe, e o perfil da conta com os ajustes do aparelho no
-// padrão (o servidor não guarda os do aparelho).
+// padrão (o servidor não guarda os do aparelho). As marcas compactadas (records.ts) ficam de fora: sem os campos de um solve, sem `at`,
+// quebrariam a ordem, e o import do arquivo as recusaria.
 export function exportFromRecords(records: readonly Change[], at: number): KlickExport {
   const of = (store: Change['store']) => records.filter((c) => c.store === store);
   const sessions = of('sessions')
     .map((c) => bare<Session>(c))
     .sort((a, b) => a.order - b.order);
   const solves = of('solves')
+    .filter((c) => !isCompacted(c))
     .map((c) => bare<Solve>(c))
     .sort((a, b) => a.at - b.at || (a.id < b.id ? -1 : 1));
   const practice = of('practice')

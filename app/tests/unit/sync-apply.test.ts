@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { defaultSeason } from '../../src/core/season';
 import { applyChanges, sameChange, type RecordView } from '../../src/core/sync/apply';
 import { ACCOUNT_LIMITS, QUOTA_REASON, type ActiveCounts } from '../../src/core/sync/limits';
-import { sessionOfChange } from '../../src/core/sync/records';
+import { compacted, sessionOfChange } from '../../src/core/sync/records';
+import { checkChange } from '../../src/core/sync/shape';
 import { syncKey, type Change, type SyncStore } from '../../src/core/sync/types';
 import type { SeasonProgress, SeasonRecord } from '../../src/core/types';
 import { MapView } from './sync-fakes';
@@ -109,6 +110,44 @@ describe('applyChanges: um lote (spec 6.1 e 6.3)', () => {
     // ...e o daqui que espera na fila fica, para subir e o servidor decidir.
     const kept = applyChanges(view, [theirs], { mode: 'client', pending: (s, id) => s === 'prefs' && id === 'season' });
     expect(kept.writes).toEqual([]);
+  });
+});
+
+// A marca compactada (endurecimento, decisão 5): de um solve apagado há mais de 30 dias, o servidor guarda só as datas, com `data: {}`.
+describe('a marca compactada', () => {
+  const gone = { updatedAt: 40, deletedAt: 40, deletionStamp: 40 };
+  const mark = compacted(solve('a', gone));
+
+  it('uma marca compactada passa por checkChange', () => {
+    expect(mark).toEqual({ store: 'solves', id: 'a', data: {}, ...gone });
+    expect(checkChange(mark)).toEqual({ ok: true, change: mark });
+    // Só a de um solve apagado: ativo, de outra store, ou com parte do conteúdo, continua torto.
+    expect(checkChange({ ...mark, deletedAt: null })).toEqual({ ok: false, reason: 'solve inválido' });
+    expect(checkChange({ ...mark, data: { sessionId: 's1' } })).toEqual({ ok: false, reason: 'solve inválido' });
+    expect(checkChange({ ...mark, data: [] })).toEqual({ ok: false, reason: 'data não é objeto' });
+    expect(checkChange({ ...session('s1', gone), data: {} })).toEqual({ ok: false, reason: 'sessão inválida' });
+  });
+
+  it('uma marca compactada de um registro que não existe não é gravada, nos dois modos', () => {
+    for (const mode of ['server', 'client'] as const) {
+      const out = applyChanges(viewOf(session('s1')), [mark], { mode });
+      expect(out.writes, mode).toEqual([]);
+      expect(out.rejected, mode).toEqual([]);
+      expect(out.derived, mode).toEqual([]);
+      expect(out.activeDelta, mode).toEqual({ solves: 0, sessions: 0, practice: 0 });
+    }
+  });
+
+  it('a marca de um registro que existe apaga o solve e deixa o conteúdo daqui; o mesmo registro, antes no lote, também conta', () => {
+    for (const mode of ['server', 'client'] as const) {
+      const out = applyChanges(viewOf(session('s1'), solve('a')), [mark], { mode });
+      expect(out.writes, mode).toEqual([{ ...solve('a'), deletedAt: 40, deletionStamp: 40 }]);
+      expect(out.deletedSolves, mode).toBe(1);
+      const inBatch = applyChanges(viewOf(session('s1')), [solve('a'), mark], { mode });
+      expect(inBatch.writes, mode).toEqual([{ ...solve('a'), deletedAt: 40, deletionStamp: 40 }]);
+    }
+    // No aparelho que já tem o solve apagado com as mesmas datas (o empate exato), nada muda.
+    expect(applyChanges(viewOf(session('s1'), solve('a', gone)), [mark], { mode: 'client' }).writes).toEqual([]);
   });
 });
 

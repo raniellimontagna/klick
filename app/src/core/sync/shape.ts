@@ -3,6 +3,7 @@
 import { EVENT_IDS } from '../events';
 import { canonicalJson } from './merge';
 import { isPrefValue } from './prefs';
+import { isCompacted } from './records';
 import { MAX_STAMP, SYNC_STORES, type Change, type SyncStore } from './types';
 
 export const MAX_DATA_CHARS = 16_384;
@@ -42,6 +43,8 @@ function dataProblem(store: SyncStore, id: string, d: unknown, change: Record<st
   if (!isRec(d)) return 'data não é objeto';
   switch (store) {
     case 'solves':
+      // A marca compactada (records.ts): um solve apagado só com as datas. As datas já passaram por isStamp.
+      if (isCompacted({ store, data: d, deletedAt: change.deletedAt as number | null })) return null;
       return typeof d.sessionId === 'string' && d.sessionId !== '' && isEvent(d.event) && isNum(d.ms) && d.ms >= 0 && isPenalty(d.penalty) &&
         isNum(d.at) && typeof d.scramble === 'string' && typeof d.note === 'string' && isNum(d.createdAt)
         ? null

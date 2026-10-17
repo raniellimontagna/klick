@@ -3,7 +3,7 @@
 // Durable Object.
 import { ACCOUNT_LIMITS, isCounted, QUOTA_REASON, zeroCounts, type ActiveCounts } from './limits';
 import { canonicalJson, cascade, merge, mergeSeason } from './merge';
-import { sessionOfChange } from './records';
+import { isCompacted, sessionOfChange } from './records';
 import { checkChange } from './shape';
 import { syncKey, type Change, type Rejected, type SyncStore } from './types';
 
@@ -58,6 +58,10 @@ export function sameChange(a: Change | undefined, b: Change | undefined): boolea
 // gravado fica sem a sessão, e nenhuma store termina acima do teto (ou do que já tinha). A única escrita de um recusado é a da cascata, e
 // apagada: o lote apaga a sessão de um solve cuja mudança para outra sessão foi recusada, e a versão gravada, que continua nela, vai junto.
 // Editar um solve ativo sem mudar a sessão passa sempre. activeDelta conta tudo, a cascata inclusive.
+//
+// A marca compactada (records.ts) de um registro que a vista não tem (nem antes no lote) não é gravada, nos dois modos, nem recusada: um
+// aparelho que nunca teve o solve (ou já o tirou da lixeira) não ganha um registro sem campos, e o servidor não guarda uma marca que nenhum
+// aparelho mandaria. Uma recusa marcaria refusedBuild no aparelho, e cada versão nova do app baixaria a conta inteira de novo por ela.
 export function applyChanges(view: RecordView, incoming: readonly unknown[], opts: ApplyOptions): ApplyResult {
   const overlay = new Map<string, Change>();
   const rejected: Rejected[] = [];
@@ -96,6 +100,7 @@ export function applyChanges(view: RecordView, incoming: readonly unknown[], opt
     }
     const change = checked.change;
     const before = current(change.store, change.id);
+    if (before === undefined && isCompacted(change)) continue;
     let next: Change;
     if (change.store === 'prefs' && change.id === 'season') {
       if (opts.mode === 'server') next = before ? mergeSeason(before, change) : change;

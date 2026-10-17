@@ -1,7 +1,8 @@
 import type { IDBPDatabase } from 'idb';
 import { describe, expect, it, vi } from 'vitest';
 import { seasonOne } from '../../src/core/season';
-import { toChange } from '../../src/core/sync/records';
+import { TOMBSTONE_KEEP_MS } from '../../src/core/sync/limits';
+import { compacted, toChange } from '../../src/core/sync/records';
 import { checkChange } from '../../src/core/sync/shape';
 import { MAX_STAMP, SYNC_BATCH, SYNC_PROTOCOL, syncKey, type Change } from '../../src/core/sync/types';
 import type { SeasonProgress } from '../../src/core/types';
@@ -177,6 +178,36 @@ describe('juntar um lote do servidor (spec 6.1 e 6.3)', () => {
     await db.clear('outbox');
     await repo.applyRemote([{ ...change, updatedAt: t + 200, deletionStamp: t + 200 }], t + 200);
     expect((await repo.getProfile()).season.past).toHaveLength(1);
+  });
+
+  // A marca compactada (Review Focus 1): de um solve apagado há mais de 30 dias, o servidor guarda só as datas, com `data: {}`.
+  it('um aparelho que ficou fora mais de 30 dias recebe a marca compactada e guarda o conteúdo dele', async () => {
+    const { db, repo } = await fresh();
+    const s = await repo.createSession({ event: '333' });
+    const x = await repo.addSolve(ns(s.id, 1234));
+    await db.clear('outbox');
+    const gone = t + 1000; // apagado em outro aparelho; este volta mais de 30 dias depois, e o servidor já compactou
+    t = gone + TOMBSTONE_KEEP_MS + 1000;
+    const mark = compacted(remoteSolve(x.id, s.id, { updatedAt: gone, deletedAt: gone, deletionStamp: gone }));
+    expect(await repo.applyRemote([mark], t)).toEqual({ applied: 1, rejected: 0 });
+    expect(await db.get('solves', x.id)).toMatchObject({ deletedAt: gone, deletionStamp: gone, ms: 1234, scramble: "R U R'", sessionId: s.id });
+    expect(await keys(db)).toEqual([]); // nada sobe: a exclusão veio de lá
+    // O aparelho que tem o solve apagado com as mesmas datas da marca (o empate exato) também guarda o conteúdo.
+    const y = await repo.addSolve(ns(s.id, 2345));
+    await repo.deleteSolve(y.id);
+    const stored = (await db.get('solves', y.id))!;
+    expect(await repo.applyRemote([compacted(toChange('solves', stored))], t)).toEqual({ applied: 0, rejected: 0 });
+    expect(await db.get('solves', y.id)).toEqual(stored);
+  });
+
+  it('a marca compactada de um solve que este aparelho nunca teve não é gravada', async () => {
+    const { repo } = await fresh();
+    const s = await repo.createSession({ event: '333' });
+    const old = t - TOMBSTONE_KEEP_MS - 1000;
+    const mark = compacted(remoteSolve('de-la', s.id, { updatedAt: old, deletedAt: old, deletionStamp: old }));
+    // Nem recusada: uma recusa marcaria refusedBuild, e cada versão nova do app baixaria a conta inteira de novo por ela.
+    expect(await repo.applyRemote([mark], t)).toEqual({ applied: 0, rejected: 0 });
+    expect((await repo.listSolves({ includeDeleted: true })).map((x) => x.id)).not.toContain('de-la');
   });
 
   it('uma mudança torta é ignorada e contada, e as datas dela não sobem o relógio', async () => {

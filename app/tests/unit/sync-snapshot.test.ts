@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyChanges } from '../../src/core/sync/apply';
-import { prefToChange, toChange } from '../../src/core/sync/records';
+import { compacted, prefToChange, toChange } from '../../src/core/sync/records';
 import { restoreChanges } from '../../src/core/sync/restore';
 import { accountPrefsOf, exportFromRecords } from '../../src/core/sync/snapshot';
 import { syncKey, type Change } from '../../src/core/sync/types';
@@ -32,6 +32,12 @@ describe('a cópia diária no formato do export (spec 8.3)', () => {
     expect(file.solves[0]).not.toHaveProperty('deletionStamp');
     expect(file.practice).toEqual([{ id: 'p', caseId: 'oll2-h', ms: 1, ok: true, helped: false, at: T0 }]);
     expect(file.profile?.trail?.[0]).toBe(true);
+  });
+
+  // A marca compactada (records.ts) não tem os campos de um solve: sem `at` quebraria a ordem, e o import do arquivo a recusaria.
+  it('a cópia não leva solves compactados', () => {
+    const records = [session, solve('a'), solve('b', { deletedAt: T0 + 5 }), compacted(solve('c', { deletedAt: T0 + 6 }))];
+    expect(exportFromRecords(records, T0 + 9).solves.map((s) => s.id)).toEqual(['a', 'b']);
   });
 
   it('restaurar a cópia no servidor: datas novas, o que sobra vai para a lixeira, e a temporada nunca volta', () => {

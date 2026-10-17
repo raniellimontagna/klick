@@ -18,3 +18,8 @@ export const QUOTA_REASON = 'cota';
 const COUNTED: readonly SyncStore[] = Object.freeze(['solves', 'sessions', 'practice'] as const);
 export const isCounted = (store: SyncStore): store is CountedStore => COUNTED.includes(store);
 export const zeroCounts = (): ActiveCounts => ({ solves: 0, sessions: 0, practice: 0 });
+
+// A marca compactada (endurecimento, decisão 5): de um solve apagado há mais que isto, o servidor guarda só a marca de exclusão (o id e as
+// datas, com `data: {}`; records.ts), e o objeto da conta não cresce sem fim com criar e apagar. É o mesmo prazo da lixeira do aparelho
+// (TRASH_MS, data/safety.ts): até ele, um aparelho ainda restaura o solve com o conteúdo de qualquer lado.
+export const TOMBSTONE_KEEP_MS = 30 * 86_400_000;
