@@ -8,6 +8,30 @@ import type { Mailer } from './mail';
 
 export const SESSION_DAYS = 90; // spec 7.3; renova com o uso (updateAge)
 
+// O log do Better Auth (spec 8.5: nunca e-mail nem código nos logs). O padrão da biblioteca escreve a mensagem e os argumentos inteiros no
+// console, e daí nos Workers Logs: o objeto de um erro interno (o do banco, que pode citar um valor), o de uma tarefa em segundo plano, e
+// mensagens com o e-mail (o cadastro por senha avisa "Sign-up attempt for existing email: ..."; a rota está fechada no router, mas uma
+// versão nova pode abrir outra). Este guarda só o nível, a mensagem sem e-mail e sem código de 6 dígitos, e de cada erro o nome e o status.
+const EMAIL = /[^\s@<>()[\]"',;:]+@[^\s@<>()[\]"',;:]+/g;
+const CODE = /\b\d{6}\b/g;
+const redact = (text: string): string => text.replace(EMAIL, '[e-mail]').replace(CODE, '[código]').slice(0, 200);
+function errorOf(value: unknown): string | null {
+  if (typeof value !== 'object' || value === null || !('name' in value)) return null;
+  const { name, status, statusCode } = value as { name?: unknown; status?: unknown; statusCode?: unknown };
+  if (typeof name !== 'string' || !/^\w{1,60}$/.test(name)) return null;
+  const parts = [name];
+  if (typeof status === 'string' && /^[A-Z_]{1,40}$/.test(status)) parts.push(status);
+  for (const code of [status, statusCode]) if (Number.isInteger(code)) parts.push(String(code));
+  return parts.join(' ');
+}
+export function authLog(level: 'debug' | 'info' | 'warn' | 'error', message: string, ...args: unknown[]): void {
+  const errors = args.map(errorOf).filter((e): e is string => e !== null);
+  const entry = JSON.stringify({ evt: 'auth-log', level, message: redact(String(message)), ...(errors.length > 0 ? { errors } : {}) });
+  if (level === 'error') console.error(entry);
+  else if (level === 'warn') console.warn(entry);
+  else console.log(entry);
+}
+
 // Sem o segredo, o Better Auth assina sessões e tokens com uma constante pública (ele só recusa com NODE_ENV=production, que o workerd
 // não define). O router responde 503 antes de chegar aqui; createAuth recusa também, por garantia.
 export const authSecretOk = (env: Env): boolean => typeof env.BETTER_AUTH_SECRET === 'string' && env.BETTER_AUTH_SECRET.length >= 32;
@@ -22,6 +46,7 @@ export function createAuth(env: Env, ctx: ExecutionContext, mailer: Mailer) {
     basePath: '/api/auth',
     trustedOrigins: [origin],
     telemetry: { enabled: false },
+    logger: { level: 'warn', log: authLog },
     rateLimit: { enabled: false }, // os limites são os de abuse.ts, no D1: o do Better Auth fica em memória, por isolate
     session: { expiresIn: SESSION_DAYS * 86_400, updateAge: 86_400 },
     advanced: {

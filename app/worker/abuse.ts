@@ -85,8 +85,8 @@ export async function ipKeyOf(ip: string, secret: string): Promise<string> {
   return `i:${await hmac(secret, ipBucket(ip))}`;
 }
 
-// O que passou da hora sai no pedido do código (dentro do lote) e no alarme diário de cada conta (spec 10): sem novos pedidos, as linhas
-// não ficam paradas no D1. Apagar é global e idempotente: o alarme de qualquer conta limpa todas.
+// O que passou da hora sai no pedido do código (dentro do lote) e na limpeza diária do Worker (o Cron Trigger, worker/index.ts; spec 10):
+// sem novos pedidos, e sem nenhuma conta, as linhas não ficam paradas no D1. Apagar é global e idempotente.
 const FORGET = 'DELETE FROM otp_requests WHERE at <= ?';
 // Os códigos vencidos, junto (spec 10). O Better Auth só apaga as linhas vencidas de verification quando alguém digita um código: um código
 // pedido e nunca usado, também de quem nunca cria conta, deixaria "sign-in-otp-<e-mail>" no D1. Saem todas as linhas vencidas, como na

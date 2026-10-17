@@ -8,7 +8,6 @@ import { restoreChanges } from '../src/core/sync/restore';
 import { accountPrefsOf, exportFromRecords } from '../src/core/sync/snapshot';
 import { SYNC_BATCH, type Change, type SyncRequest, type SyncResponse, type SyncStore } from '../src/core/sync/types';
 import type { KlickExport } from '../src/core/types';
-import { forgetExpired } from './abuse';
 import type { Env } from './env';
 import { dayOf, gunzipJson, gzipJson, nextSnapshotAt, preRestoreName, snapshotKey } from './snapshots';
 
@@ -149,14 +148,14 @@ export class AccountStore extends DurableObject<Env> {
     return response;
   }
 
-  // Uma vez por dia (spec 8.3 e 10): a cópia do dia, só se a conta mudou desde a última, os pedidos de código que passaram da hora e os
-  // códigos vencidos. Uma conta apagada (ou sem dono) não marca o próximo.
+  // Uma vez por dia (spec 8.3): a cópia do dia, só se a conta mudou desde a última. Uma conta apagada (ou sem dono) não marca o próximo. A
+  // limpeza dos pedidos de código e dos códigos vencidos (spec 10) é do Cron Trigger do Worker (worker/index.ts): ela não pode depender de
+  // uma conta viva nem da cópia no R2 dar certo.
   async alarm(): Promise<void> {
     await this.exclusive(async () => {
       if (this.deleted() || this.getState('userId') === null) return;
       const now = Date.now();
       await this.takeSnapshot(now);
-      await forgetExpired(this.env.DB, now);
       await this.ctx.storage.setAlarm(nextSnapshotAt(now));
     });
   }

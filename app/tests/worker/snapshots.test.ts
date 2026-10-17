@@ -81,35 +81,16 @@ describe('a cópia diária (spec 8.3)', () => {
     expect(await alarmOf('conta-alarme')).toBeGreaterThan(Date.now()); // e o de amanhã já está marcado
   });
 
-  it('o alarme também apaga os pedidos de código com mais de uma hora, de qualquer conta (spec 10)', async () => {
+  // A revisão final (I5): a limpeza que a política promete (uma vez por dia) não pode depender de uma conta viva nem da cópia no R2 dar certo.
+  // Ela saiu do alarme do objeto e foi para o Cron Trigger do Worker (worker/index.ts, scheduled).
+  it('o alarme do objeto só grava a cópia: os pedidos de código velhos ficam para a limpeza diária do Worker', async () => {
     const now = Date.now();
-    await env.DB.batch([
-      env.DB.prepare('INSERT INTO otp_requests (key, at) VALUES (?, ?)').bind('e:velho', now - 2 * HOUR),
-      env.DB.prepare('INSERT INTO otp_requests (key, at) VALUES (?, ?)').bind('i:recente', now - 10 * 60_000),
-    ]);
-    await sync('conta-limpa', [solve('x')]);
-    expect(await runDurableObjectAlarm(stubOf('conta-limpa'))).toBe(true);
-    const keys = await env.DB.prepare("SELECT key FROM otp_requests WHERE key IN ('e:velho', 'i:recente')").all<{ key: string }>();
-    expect(keys.results.map((r) => r.key)).toEqual(['i:recente']);
-  });
-
-  it('o alarme também apaga os códigos vencidos, de qualquer e-mail; um código ainda válido fica (spec 10)', async () => {
-    const SEND = '/api/auth/email-otp/send-verification-otp';
-    const deps = authDeps();
-    for (const [email, ip] of [['vencido@exemplo.com', '198.51.100.20'], ['valido@exemplo.com', '198.51.100.21']]) {
-      const res = await call(SEND, postJson({ email, type: 'sign-in' }, { 'x-turnstile-token': 'ok', 'cf-connecting-ip': ip }), { deps });
-      expect(res.status).toBe(200);
-    }
-    // O código do primeiro já venceu: o mesmo formato que o adaptador grava (texto ISO), um minuto atrás.
-    await env.DB.prepare('UPDATE verification SET expiresAt = ? WHERE identifier = ?')
-      .bind(new Date(Date.now() - 60_000).toISOString(), 'sign-in-otp-vencido@exemplo.com')
-      .run();
-    await sync('conta-codigos', [solve('x')]);
-    expect(await runDurableObjectAlarm(stubOf('conta-codigos'))).toBe(true);
-    const left = await env.DB.prepare("SELECT identifier FROM verification WHERE identifier IN ('sign-in-otp-vencido@exemplo.com', 'sign-in-otp-valido@exemplo.com')").all<{
-      identifier: string;
-    }>();
-    expect(left.results.map((r) => r.identifier)).toEqual(['sign-in-otp-valido@exemplo.com']);
+    await env.DB.prepare('INSERT INTO otp_requests (key, at) VALUES (?, ?)').bind('e:fica-para-o-cron', now - 2 * HOUR).run();
+    await sync('conta-so-copia', [solve('x')]);
+    expect(await runDurableObjectAlarm(stubOf('conta-so-copia'))).toBe(true);
+    const left = await env.DB.prepare("SELECT key FROM otp_requests WHERE key = 'e:fica-para-o-cron'").all<{ key: string }>();
+    expect(left.results).toHaveLength(1);
+    await env.DB.prepare("DELETE FROM otp_requests WHERE key = 'e:fica-para-o-cron'").run();
   });
 
   it('a hora da cópia é logo depois da meia-noite em Brasília; a de antes de restaurar leva a hora em UTC', () => {

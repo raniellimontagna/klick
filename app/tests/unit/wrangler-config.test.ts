@@ -20,6 +20,7 @@ interface Observability {
 }
 const config = JSON.parse(text.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')) as {
   vars: Record<string, string>;
+  triggers?: { crons?: string[] };
   assets: { run_worker_first: string[] };
   d1_databases: D1[];
   r2_buckets: R2[];
@@ -31,6 +32,7 @@ const config = JSON.parse(text.split('\n').filter((l) => !l.trim().startsWith('/
       d1_databases: D1[];
       r2_buckets: R2[];
       observability?: Observability;
+      triggers?: { crons?: string[] };
     };
   };
 };
@@ -68,6 +70,15 @@ describe('wrangler.jsonc', () => {
       expect(o?.enabled).toBe(true);
       expect(o?.logs?.invocation_logs).toBe(false);
       expect(o?.logs?.enabled).not.toBe(false);
+    }
+  });
+
+  // Spec 10 e a revisão final (I5): a limpeza diária (os pedidos de código com mais de uma hora e os códigos vencidos) é um Cron Trigger do
+  // Worker, nos dois ambientes, e não depende de nenhuma conta: uma vez por dia, como a política diz.
+  it('a limpeza diária roda por um Cron Trigger, uma vez por dia, nos dois ambientes', () => {
+    for (const triggers of [config.triggers, config.env.production.triggers]) {
+      expect(triggers?.crons).toHaveLength(1);
+      expect(triggers?.crons?.[0]).toMatch(/^\d{1,2} \d{1,2} \* \* \*$/);
     }
   });
 

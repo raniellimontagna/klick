@@ -40,6 +40,8 @@ describe('a página /privacidade', () => {
 
   it('os direitos dizem o que o app faz de fato: o que o export leva, onde ficam passkeys e sessões, e o que se pede por e-mail', () => {
     for (const fact of ['Exportar (Klick)', 'sessões, solves, treino e ajustes', 'Passkeys', 'Sair de todos os aparelhos', 'trocar o e-mail']) expect(text).toContain(fact);
+    // O resto que se pede por e-mail inclui o registro de cada aparelho (a revisão final, I5).
+    expect(text).toMatch(/Uma cópia do resto \([^)]*o registro de cada aparelho[^)]*\)/);
     expect(text).not.toContain('baixa tudo'); // o arquivo não leva o e-mail, as passkeys nem as sessões
   });
 
