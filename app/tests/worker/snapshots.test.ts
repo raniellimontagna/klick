@@ -1,12 +1,15 @@
 import { runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
 import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
+import { TOMBSTONE_KEEP_MS } from '../../src/core/sync/limits';
 import { ACCOUNT_HEADER, SYNC_PROTOCOL, type Change, type CloudCopy, type SyncResponse } from '../../src/core/sync/types';
 import type { KlickExport } from '../../src/core/types';
 import { emailKeyOf } from '../../worker/abuse';
 import type { Env } from '../../worker/env';
+import { COMPACT_PER_DAY, DAILY_WRITE_BUDGET, utcDay } from '../../worker/limits';
+import { COMPACTABLE } from '../../worker/records-sql';
 import { dayOf, gunzipJson, nextSnapshotAt, preRestoreName, snapshotKey } from '../../worker/snapshots';
-import { authDeps, call, postJson, T0, testDeps, testEnv } from './helpers';
+import { authDeps, call, postJson, setState, stateOf, stubOf, T0, testDeps, testEnv } from './helpers';
 
 const as = (user: string): Record<string, string> => ({ [ACCOUNT_HEADER]: user }); // a conta que o aparelho espera (C1)
 
@@ -16,7 +19,6 @@ const solve = (id: string, ms = 9000): Change => ({
   data: { sessionId: 's1', event: '333', ms, penalty: null, at: T0, scramble: 'R', note: '', createdAt: T0 },
 });
 const session: Change = { store: 'sessions', id: 's1', data: { name: 'Sessão 1', event: '333', order: 0, createdAt: T0 }, updatedAt: T0, deletedAt: null, deletionStamp: T0 };
-const stubOf = (user: string) => env.ACCOUNT.get(env.ACCOUNT.idFromName(user));
 const alarmOf = (user: string) => runInDurableObject(stubOf(user), (_o, state) => state.storage.getAlarm());
 
 const syncCall = (user: string, changes: Change[], cursor = 0, now = () => T0, device = 'd1'): Promise<Response> =>
@@ -100,6 +102,95 @@ describe('a cópia diária (spec 8.3)', () => {
     expect(dayOf(t)).toBe('2026-10-14');
     expect(preRestoreName(Date.UTC(2026, 9, 15, 21, 3, 7))).toBe('2026-10-15T21-03-07Z-antes');
     expect(preRestoreName(t)).toBe('2026-10-15T02-00-00Z-antes'); // o dia e a hora em UTC, mesmo quando em Brasília ainda é dia 14
+  });
+});
+
+// A marca compactada (endurecimento, decisão 5): o alarme, antes da cópia do dia, tira o conteúdo dos solves apagados há mais de 30 dias. O
+// alarme usa a hora de verdade, então as exclusões são contadas a partir dela.
+describe('a marca compactada no alarme (decisão 5)', () => {
+  type Stored = { id: string; data: string; updated_at: number; deleted_at: number | null; deletion_stamp: number; rev: number; parent: string | null };
+  const gone = (id: string, at: number): Change => ({ ...solve(id), updatedAt: at, deletedAt: at, deletionStamp: at });
+  const solvesIn = (user: string) =>
+    runInDurableObject(stubOf(user), (_o, state) => {
+      const rows = state.storage.sql.exec<Stored>("SELECT id, data, updated_at, deleted_at, deletion_stamp, rev, parent FROM records WHERE store = 'solves'");
+      return new Map(rows.toArray().map((r) => [r.id, { ...r }]));
+    });
+  const marks = (user: string) =>
+    runInDurableObject(stubOf(user), (_o, state) => state.storage.sql.exec<{ n: number }>("SELECT count(*) AS n FROM records WHERE data = '{}'").one().n);
+
+  it('o alarme guarda só a marca dos solves apagados há mais de 30 dias: data {}, mesma revisão, mesmas datas', async () => {
+    const user = 'conta-marca';
+    const now = Date.now();
+    await sync(user, [session, gone('velho', now - TOMBSTONE_KEEP_MS - HOUR), gone('recente', now - TOMBSTONE_KEEP_MS + HOUR), solve('vivo')]);
+    const before = await solvesIn(user);
+    const [bytes, active] = [Number(await stateOf(user, 'bytes')), await stateOf(user, 'active')];
+    expect(await runDurableObjectAlarm(stubOf(user))).toBe(true);
+    const after = await solvesIn(user);
+    expect(after.get('velho')).toEqual({ ...before.get('velho'), data: '{}' }); // a sessão (parent) fica: a cascata ainda a acha
+    expect(after.get('recente')).toEqual(before.get('recente'));
+    expect(after.get('vivo')).toEqual(before.get('vivo'));
+    expect(Number(await stateOf(user, 'bytes'))).toBe(bytes - (before.get('velho')!.data.length - '{}'.length));
+    expect(await stateOf(user, 'active')).toBe(active);
+    expect((JSON.parse((await stateOf(user, 'writes'))!) as { n: number }).n).toBe(1); // conta no orçamento do dia de hoje
+  });
+
+  it('no máximo COMPACT_PER_DAY por alarme', async () => {
+    const user = 'conta-marcas';
+    const old = Date.now() - TOMBSTONE_KEEP_MS - HOUR;
+    const all = Array.from({ length: COMPACT_PER_DAY + 5 }, (_, i) => gone(`m${i}`, old));
+    for (let i = 0; i < all.length; i += 500) await sync(user, all.slice(i, i + 500));
+    // O orçamento de gravações do dia também segura a compactação: com 3 de folga, 3 marcas.
+    await setState(user, 'writes', { day: utcDay(Date.now()), n: DAILY_WRITE_BUDGET - 3 });
+    expect(await runDurableObjectAlarm(stubOf(user))).toBe(true);
+    expect(await marks(user)).toBe(3);
+    await setState(user, 'writes', { day: utcDay(Date.now()), n: 0 });
+    expect(await runDurableObjectAlarm(stubOf(user))).toBe(true);
+    expect(await marks(user)).toBe(3 + COMPACT_PER_DAY);
+    expect(await runDurableObjectAlarm(stubOf(user))).toBe(true);
+    expect(await marks(user)).toBe(COMPACT_PER_DAY + 5);
+  });
+
+  it('um aparelho que começa do zero recebe a marca e a cópia do dia não a leva', async () => {
+    const user = 'conta-marca-nova';
+    const old = Date.now() - TOMBSTONE_KEEP_MS - HOUR;
+    const first = await sync(user, [session, gone('velho', old), solve('vivo')]);
+    expect(await runDurableObjectAlarm(stubOf(user))).toBe(true);
+    const object = await env.SNAPSHOTS.get(snapshotKey(user, dayOf(Date.now())));
+    const copy = (await gunzipJson(await object!.arrayBuffer())) as KlickExport;
+    expect(copy.solves.map((s) => s.id)).toEqual(['vivo']);
+    const fresh = await sync(user, [], 0, () => T0, 'novo');
+    expect(fresh.changes.find((c) => c.id === 'velho')).toEqual({ store: 'solves', id: 'velho', data: {}, updatedAt: old, deletedAt: old, deletionStamp: old });
+    expect((await sync(user, [], first.cursor)).changes).toEqual([]); // quem já viu o solve não recebe nada
+  });
+
+  it('a cascata da sessão não mexe na marca; o aparelho que ainda tem o conteúdo o manda de novo, e o alarme seguinte o compacta outra vez', async () => {
+    const user = 'conta-marca-volta';
+    const old = Date.now() - TOMBSTONE_KEEP_MS - HOUR;
+    await sync(user, [session, gone('velho', old), solve('vivo')]);
+    expect(await runDurableObjectAlarm(stubOf(user))).toBe(true);
+    const mark = (await solvesIn(user)).get('velho')!;
+    expect(mark.data).toBe('{}');
+    await sync(user, [{ ...session, updatedAt: T0 + 10, deletedAt: T0 + 10, deletionStamp: T0 + 10 }]); // a cascata apaga o vivo
+    const afterCascade = await solvesIn(user);
+    expect(afterCascade.get('vivo')!.deleted_at).toBe(T0 + 10);
+    expect(afterCascade.get('velho')).toEqual(mark);
+    // Um aparelho que ficou fora mais de 30 dias e editou o solve na lixeira dele: o conteúdo vence a marca, com revisão nova.
+    const bytes = Number(await stateOf(user, 'bytes'));
+    const back = { ...gone('velho', old), updatedAt: T0 + 20, data: { ...(solve('velho').data as object), note: 'de volta' } };
+    expect((await sync(user, [back], 0, () => T0, 'd-antigo')).rejected).toEqual([]);
+    const reuploaded = (await solvesIn(user)).get('velho')!;
+    expect(reuploaded.rev).toBeGreaterThan(mark.rev);
+    expect(Number(await stateOf(user, 'bytes'))).toBe(bytes + reuploaded.data.length - '{}'.length);
+    expect(await runDurableObjectAlarm(stubOf(user))).toBe(true);
+    expect((await solvesIn(user)).get('velho')).toEqual({ ...reuploaded, data: '{}' });
+  });
+
+  // O alarme roda todo dia em toda conta: a busca dos que vencem lê o índice dos solves apagados com conteúdo, não a conta inteira.
+  it('a compactação procura pelo índice dos apagados com conteúdo', async () => {
+    const plan = await runInDurableObject(stubOf('conta-plano'), (_o, state) =>
+      state.storage.sql.exec<{ detail: string }>(`EXPLAIN QUERY PLAN ${COMPACTABLE}`, 0, COMPACT_PER_DAY).toArray().map((r) => r.detail),
+    );
+    expect(plan).toEqual([expect.stringContaining('USING INDEX records_tombs')]);
   });
 });
 

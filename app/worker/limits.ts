@@ -18,6 +18,9 @@ export const RESTORES_PER_DAY = 3; // restaurações por conta por dia UTC (spec
 export const COPIES_CACHE_MS = 600_000; // a lista de cópias guardada (spec 7.1)
 export const COMPACT_PER_DAY = 2_000; // marcas compactadas por alarme
 export const STORAGE_HEADROOM = 0.95; // grava só até 95% do teto do espaço
+// O conteúdo gravado de uma conta, em bytes (a soma dos `data`). A cota conta registros, não tamanho: 16 KB de nota em cada solve levariam
+// uma conta só a ~1,6 GB dos 5 GB de Durable Objects que todas dividem no grátis. Folgado: 100 mil solves comuns ficam em ~25 MB.
+export const ACCOUNT_BYTES_CAP = 50_000_000;
 
 const DAY_MS = 86_400_000;
 export const utcDay = (t: number): string => new Date(t).toISOString().slice(0, 10);

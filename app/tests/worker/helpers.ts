@@ -1,6 +1,6 @@
 // Apoio dos testes do Worker: chama o router como o Worker chamaria, com o env do wrangler.jsonc (conta ligada) e as trocas de cada teste.
 // Não é um arquivo de teste.
-import { createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
+import { createExecutionContext, runInDurableObject, waitOnExecutionContext } from 'cloudflare:test';
 import { env } from 'cloudflare:workers';
 import { sessionUser } from '../../worker/auth';
 import type { Env } from '../../worker/env';
@@ -77,6 +77,21 @@ export async function call(path: string, init: RequestInit = {}, o: { env?: Env;
   await waitOnExecutionContext(ctx);
   return res;
 }
+
+// O objeto da conta de `user`, o mesmo que o router pega.
+export const stubOf = (user: string) => env.ACCOUNT.get(env.ACCOUNT.idFromName(user));
+
+// Uma chave da tabela `state` do objeto da conta (os contadores da cota, dos bytes e do orçamento do dia), gravada ou lida direto no
+// SQLite dele: os testes partem de uma conta cheia sem gravar 100 mil registros. Um valor que não é texto vai como JSON.
+export async function setState(user: string, key: string, value: unknown): Promise<void> {
+  const text = typeof value === 'string' ? value : JSON.stringify(value);
+  await runInDurableObject(stubOf(user), (_o, state) => {
+    state.storage.sql.exec('INSERT INTO state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', key, text);
+  });
+}
+
+export const stateOf = (user: string, key: string): Promise<string | null> =>
+  runInDurableObject(stubOf(user), (_o, state) => state.storage.sql.exec<{ value: string }>('SELECT value FROM state WHERE key = ?', key).toArray()[0]?.value ?? null);
 
 export const postJson = (body: unknown, headers: Record<string, string> = {}): RequestInit => ({
   method: 'POST',

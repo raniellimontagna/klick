@@ -406,6 +406,58 @@ describe('a cota: a sessão que um solve pede', () => {
   });
 });
 
+// Uma recusa a mais, do servidor (o teto de bytes da conta, worker/account-store.ts): `admit` vê o que cada mudança deixa gravado e recusa
+// com o motivo da cota, do mesmo jeito que a cota.
+describe('applyChanges: admit, a recusa a mais do servidor', () => {
+  const note = (id: string, text: string, o: Partial<Change> = {}): Change => solve(id, { updatedAt: 20, ...o, data: { ...(solve(id).data as object), note: text } });
+
+  it('false recusa com o motivo da cota e não grava nada; a vaga da cota que ele não usou fica para o próximo', () => {
+    const quota = { active: { solves: 1, sessions: 1, practice: 0 }, limits: { solves: 2, sessions: 5, practice: 5 } };
+    const out = applyChanges(viewOf(session('s1'), solve('a')), [note('grande', 'x'.repeat(100)), solve('n')], {
+      mode: 'server',
+      quota,
+      admit: (_before, next) => next.id !== 'grande',
+    });
+    expect(out.rejected).toEqual([{ store: 'solves', id: 'grande', reason: QUOTA_REASON }]);
+    expect(keys(out.writes)).toEqual(['solves/n']);
+    expect(out.activeDelta).toEqual({ solves: 1, sessions: 0, practice: 0 });
+  });
+
+  it('vê o resultado do merge e o que estava antes, a versão do lote se o mesmo registro veio antes; o que a cota recusa nem chega a ele', () => {
+    const seen: [string | null, string | null][] = [];
+    const text = (c: Change | undefined): string | null => (c ? (c.data as { note: string }).note : null);
+    const quota = { active: { solves: 2, sessions: 1, practice: 0 }, limits: { solves: 2, sessions: 5, practice: 5 } };
+    const view = viewOf(session('s1'), note('a', 'gravada', { updatedAt: 30 }), solve('b'));
+    const batch = [note('a', 'velha'), note('b', 'primeira'), note('b', 'segunda', { updatedAt: 40 }), solve('novo'), compacted(solve('sumido', { deletedAt: 5, deletionStamp: 5 }))];
+    const out = applyChanges(view, batch, {
+      mode: 'server',
+      quota,
+      admit: (before, next) => {
+        seen.push([text(before), text(next)]);
+        return true;
+      },
+    });
+    expect(seen).toEqual([
+      ['gravada', 'gravada'], // a velha perde: fica a gravada
+      ['', 'primeira'],
+      ['primeira', 'segunda'],
+    ]);
+    expect(out.rejected).toEqual([{ store: 'solves', id: 'novo', reason: QUOTA_REASON }]);
+  });
+
+  it('uma sessão recusada não volta pela cascata, e o solve recusado não mexe na sessão dele', () => {
+    const view = viewOf(session('X', { updatedAt: 50, deletedAt: 50, deletionStamp: 50 }), solve('a', { sessionId: 'X', deletedAt: 50, deletionStamp: 50 }));
+    const back = { updatedAt: 80, deletionStamp: 80 };
+    const out = applyChanges(view, [session('X', back), solve('n', { sessionId: 'X', ...back })], { mode: 'server', admit: () => false });
+    expect(out.rejected).toEqual([
+      { store: 'sessions', id: 'X', reason: QUOTA_REASON },
+      { store: 'solves', id: 'n', reason: QUOTA_REASON },
+    ]);
+    expect(out.writes).toEqual([]);
+    expect(out.derived).toEqual([]);
+  });
+});
+
 // Sorteios com semente (sync-random.ts): uma vista coerente (solve ativo só em sessão ativa) e um lote ao acaso de criar, apagar, restaurar,
 // editar e mover, com datas mais novas e mais velhas que as gravadas e tetos pequenos.
 describe('a cota: propriedades sobre lotes sorteados', () => {

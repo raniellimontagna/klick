@@ -2,7 +2,7 @@ import { env } from 'cloudflare:workers';
 import { describe, expect, it, vi } from 'vitest';
 import { countOps, reserveMail, reserveStorage, setStorage, storageUsed, takeOps } from '../../worker/budget';
 import type { Env } from '../../worker/env';
-import { capOf, capsOf, COMPACT_PER_DAY, COPIES_CACHE_MS, DAILY_WRITE_BUDGET, nextUtcDay, RESTORES_PER_DAY, STORAGE_HEADROOM, utcDay, utcMonth } from '../../worker/limits';
+import { ACCOUNT_BYTES_CAP, capOf, capsOf, COMPACT_PER_DAY, COPIES_CACHE_MS, DAILY_WRITE_BUDGET, nextUtcDay, RESTORES_PER_DAY, STORAGE_HEADROOM, utcDay, utcMonth } from '../../worker/limits';
 
 const at = (iso: string): number => Date.parse(iso);
 const opsRow = async (month: string, cls: string) =>
@@ -25,6 +25,7 @@ describe('os tetos do Worker (spec 4, 7.1, 7.6)', () => {
     expect(COPIES_CACHE_MS).toBe(600_000);
     expect(COMPACT_PER_DAY).toBe(2_000);
     expect(STORAGE_HEADROOM).toBe(0.95);
+    expect(ACCOUNT_BYTES_CAP).toBe(50_000_000);
   });
 
   it('o dia e o mês são em UTC, e o dia seguinte começa à meia-noite UTC', () => {

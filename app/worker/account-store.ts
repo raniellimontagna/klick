@@ -1,37 +1,65 @@
 // O Durable Object de uma conta (spec 8.2): um SQLite com os registros da conta, cada um com a revisão em que mudou. Um pedido por vez: o
 // sync roda inteiro numa transação síncrona, sem espera no meio, então as revisões saem em ordem sem lock extra. As regras são as mesmas do
-// app (src/core/sync).
+// app (src/core/sync). O SQL dos registros mora em records-sql.ts.
 import { DurableObject } from 'cloudflare:workers';
-import { applyChanges, type RecordView } from '../src/core/sync/apply';
+import { applyChanges, type ApplyResult, type RecordView } from '../src/core/sync/apply';
+import { isCounted, TOMBSTONE_KEEP_MS, zeroCounts, type ActiveCounts, type CountedStore } from '../src/core/sync/limits';
 import { sessionOfChange } from '../src/core/sync/records';
 import { restoreChanges } from '../src/core/sync/restore';
 import { accountPrefsOf, exportFromRecords } from '../src/core/sync/snapshot';
-import { SYNC_BATCH, type Change, type SyncRequest, type SyncResponse, type SyncStore } from '../src/core/sync/types';
+import { SYNC_BATCH, syncKey, type Change, type SyncRequest, type SyncResponse, type SyncStore } from '../src/core/sync/types';
 import type { KlickExport } from '../src/core/types';
 import type { Env } from './env';
+import { ACCOUNT_BYTES_CAP, COMPACT_PER_DAY, DAILY_WRITE_BUDGET, nextUtcDay, utcDay } from './limits';
+import {
+  COMPACT_SOLVE,
+  COMPACTABLE,
+  COMPACTED_BYTES,
+  COUNT_ACTIVE,
+  RECORDS_SCHEMA,
+  rowToChange,
+  STORED_BYTES,
+  UPSERT_RECORD,
+  utf8Bytes,
+  type Row,
+} from './records-sql';
 import { dayOf, gunzipJson, gzipJson, nextSnapshotAt, preRestoreName, snapshotKey } from './snapshots';
 
-type Row = {
-  store: string;
-  id: string;
-  data: string;
-  updated_at: number;
-  deleted_at: number | null;
-  deletion_stamp: number;
-  rev: number;
-  parent: string | null;
-};
-
-const rowToChange = (r: Row): Change => ({
-  store: r.store as SyncStore,
-  id: r.id,
-  data: JSON.parse(r.data) as unknown,
-  updatedAt: r.updated_at,
-  deletedAt: r.deleted_at,
-  deletionStamp: r.deletion_stamp,
-});
-
 const activeSolves = (data: KlickExport): number => data.solves.filter((s) => s.deletedAt === null).length;
+
+// Os contadores da conta, na tabela `state` (endurecimento 4.1, decisões 5 e 6): os ativos de cada store (`active`, a cota), o tamanho do
+// conteúdo gravado em bytes (`bytes`, o teto de bytes) e as gravações do dia UTC (`writes`, { day, n }: o orçamento). Toda gravação de
+// registro passa por commit() ou pela compactação, que os acertam na mesma transação.
+interface Usage {
+  active: ActiveCounts;
+  bytes: number;
+  writes: number; // gravadas hoje (UTC)
+}
+
+// Os registros que um lote lê (um sync, uma restauração), cada um uma vez: applyChanges os lê pela vista, e o teto de bytes e write() pegam
+// o tamanho do conteúdo gravado de cada um sem ler de novo. `json` é o texto de um `data`, guardado: o teto o mede e write() o grava.
+interface Batch {
+  view: RecordView;
+  storedBytes(store: SyncStore, id: string): number;
+  json(data: unknown): string;
+}
+
+// O teto de bytes (o `admit` de applyChanges): a mudança que faria o conteúdo gravado da conta passar de ACCOUNT_BYTES_CAP volta com o
+// motivo da cota; a que encolhe ou mantém o tamanho (editar, apagar) passa sempre, mesmo numa conta já acima do teto. A conta corre pelo
+// lote: o tamanho de cada registro depois do que o lote já deixou passar, e o total.
+function bytesCap(batch: Batch, stored: number): (before: Change | undefined, next: Change) => boolean {
+  const sizes = new Map<string, number>();
+  let total = stored;
+  return (before, next) => {
+    const key = syncKey(next.store, next.id);
+    const size = utf8Bytes(batch.json(next.data));
+    const growth = size - (sizes.get(key) ?? (before === undefined ? 0 : batch.storedBytes(next.store, next.id)));
+    if (growth > 0 && total + growth > ACCOUNT_BYTES_CAP) return false;
+    total += growth;
+    sizes.set(key, size);
+    return true;
+  };
+}
 
 export class AccountStore extends DurableObject<Env> {
   private readonly sql: SqlStorage;
@@ -42,16 +70,9 @@ export class AccountStore extends DurableObject<Env> {
     this.migrate();
   }
 
-  // `parent` é a sessão do solve (decisão 8): a cascata (spec 6.3) acha os solves de uma sessão pelo índice.
   private migrate(): void {
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS records (
-      store TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL,
-      updated_at INTEGER NOT NULL, deleted_at INTEGER, deletion_stamp INTEGER NOT NULL,
-      rev INTEGER NOT NULL, parent TEXT, PRIMARY KEY (store, id)
-    )`);
-    this.sql.exec('CREATE INDEX IF NOT EXISTS records_rev ON records (rev)');
-    this.sql.exec('CREATE INDEX IF NOT EXISTS records_parent ON records (store, parent)');
-    // rev, userId, snapshotRev, lastSnapshotDay e deleted (a conta foi apagada: wipe)
+    for (const statement of RECORDS_SCHEMA) this.sql.exec(statement);
+    // rev, userId, snapshotRev, lastSnapshotDay, deleted (a conta foi apagada: wipe) e os contadores (active, bytes, writes: Usage)
     this.sql.exec('CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
     this.sql.exec('CREATE TABLE IF NOT EXISTS devices (device_id TEXT PRIMARY KEY, last_sync_at INTEGER NOT NULL)');
   }
@@ -64,14 +85,88 @@ export class AccountStore extends DurableObject<Env> {
     this.sql.exec('INSERT INTO state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', key, value);
   }
 
-  private view(): RecordView {
-    return {
-      get: (store, id) => {
-        const row = this.sql.exec<Row>('SELECT * FROM records WHERE store = ? AND id = ?', store, id).toArray()[0];
-        return row ? rowToChange(row) : undefined;
-      },
-      solvesOf: (sessionId) => this.sql.exec<Row>("SELECT * FROM records WHERE store = 'solves' AND parent = ?", sessionId).toArray().map(rowToChange),
+  private batch(): Batch {
+    const rows = new Map<string, Row | null>();
+    const load = (store: string, id: string): Row | null => {
+      const key = syncKey(store, id);
+      let row = rows.get(key);
+      if (row === undefined) {
+        row = this.sql.exec<Row>('SELECT * FROM records WHERE store = ? AND id = ?', store, id).toArray()[0] ?? null;
+        rows.set(key, row);
+      }
+      return row;
     };
+    const texts = new WeakMap<object, string>();
+    return {
+      view: {
+        get: (store, id) => {
+          const row = load(store, id);
+          return row ? rowToChange(row) : undefined;
+        },
+        solvesOf: (sessionId) =>
+          this.sql
+            .exec<Row>("SELECT * FROM records WHERE store = 'solves' AND parent = ?", sessionId)
+            .toArray()
+            .map((row) => {
+              const key = syncKey('solves', row.id);
+              if (!rows.has(key)) rows.set(key, row);
+              return rowToChange(row);
+            }),
+      },
+      storedBytes: (store, id) => {
+        const row = load(store, id);
+        return row ? utf8Bytes(row.data) : 0;
+      },
+      json: (data) => {
+        if (typeof data !== 'object' || data === null) return JSON.stringify(data);
+        let text = texts.get(data);
+        if (text === undefined) {
+          text = JSON.stringify(data);
+          texts.set(data, text);
+        }
+        return text;
+      },
+    };
+  }
+
+  // Os contadores (Usage), lidos do estado. Uma conta de antes deles (as do beta) os ganha da contagem do banco, uma vez, antes de o lote
+  // gravar qualquer coisa. As gravações contam no dia UTC de `now`: num dia novo, o orçamento volta inteiro.
+  private usage(now: number): Usage {
+    let active = this.getState('active');
+    if (active === null) {
+      const counts = zeroCounts();
+      for (const r of this.sql.exec<{ store: string; n: number }>(COUNT_ACTIVE)) {
+        if (isCounted(r.store as SyncStore)) counts[r.store as CountedStore] = r.n;
+      }
+      active = JSON.stringify(counts);
+      this.setState('active', active);
+    }
+    let bytes = this.getState('bytes');
+    if (bytes === null) {
+      bytes = String(this.sql.exec<{ n: number }>(STORED_BYTES).one().n);
+      this.setState('bytes', bytes);
+    }
+    const writes = JSON.parse(this.getState('writes') ?? 'null') as { day: string; n: number } | null;
+    return { active: JSON.parse(active) as ActiveCounts, bytes: Number(bytes), writes: writes?.day === utcDay(now) ? writes.n : 0 };
+  }
+
+  // Soma nos contadores, gravando só o que mudou: um sync que só recebe não grava nada no estado.
+  private addUsage(usage: Usage, now: number, add: { active?: ActiveCounts; bytes: number; writes: number }): void {
+    const delta = add.active;
+    if (delta && Object.values(delta).some((n) => n !== 0)) {
+      const active = { ...usage.active };
+      for (const store of Object.keys(delta) as CountedStore[]) active[store] += delta[store];
+      this.setState('active', JSON.stringify(active));
+    }
+    if (add.bytes !== 0) this.setState('bytes', String(usage.bytes + add.bytes));
+    if (add.writes > 0) this.setState('writes', JSON.stringify({ day: utcDay(now), n: usage.writes + add.writes }));
+  }
+
+  // Grava o que um lote mudou e acerta os contadores: os ativos pelo activeDelta, os bytes pelo que write() gravou, e cada registro gravado
+  // (a cascata e a versão vencedora que volta para quem mandou a velha, inclusive) conta no orçamento do dia.
+  private commit(result: Pick<ApplyResult, 'writes' | 'activeDelta'>, batch: Batch, usage: Usage, now: number): void {
+    const grew = this.write(result.writes, batch);
+    this.addUsage(usage, now, { active: result.activeDelta, bytes: grew, writes: result.writes.length });
   }
 
   private all(): Change[] {
@@ -100,46 +195,56 @@ export class AccountStore extends DurableObject<Env> {
     return out.value as T;
   }
 
-  // Grava cada registro que mudou com a próxima revisão da conta. `parent` segue o conteúdo gravado: um solve que passou para outra sessão
-  // sai da cascata da de antes e entra na da nova.
-  private write(changes: readonly Change[]): void {
+  // Grava cada registro que mudou com a próxima revisão da conta e devolve quanto o conteúdo gravado cresceu, em bytes (negativo: encolheu).
+  // `parent` segue o conteúdo gravado: um solve que passou para outra sessão sai da cascata da de antes e entra na da nova.
+  private write(changes: readonly Change[], batch: Batch): number {
+    if (changes.length === 0) return 0;
     let rev = Number(this.getState('rev') ?? '0');
+    let grew = 0;
     for (const c of changes) {
       rev += 1;
-      this.sql.exec(
-        `INSERT INTO records (store, id, data, updated_at, deleted_at, deletion_stamp, rev, parent) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(store, id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at, deleted_at = excluded.deleted_at,
-         deletion_stamp = excluded.deletion_stamp, rev = excluded.rev, parent = excluded.parent`,
-        c.store, c.id, JSON.stringify(c.data), c.updatedAt, c.deletedAt, c.deletionStamp, rev, sessionOfChange(c),
-      );
+      const data = batch.json(c.data);
+      grew += utf8Bytes(data) - batch.storedBytes(c.store, c.id);
+      this.sql.exec(UPSERT_RECORD, c.store, c.id, data, c.updatedAt, c.deletedAt, c.deletionStamp, rev, sessionOfChange(c));
     }
     this.setState('rev', String(rev));
+    return grew;
   }
 
   // POST /api/sync (spec 6.1): valida e junta o lote, dá revisão ao que mudou e devolve o que mudou desde o cursor, até SYNC_BATCH.
   // Um cursor além da revisão da conta não saiu daqui (o banco do objeto recomeçou por fora; uma conta apagada já recusa o sync): o aparelho
   // recomeça do zero, senão nunca mais receberia nada. A comparação é com a revisão de antes do lote, a última que algum aparelho pode ter
   // visto.
+  //
+  // A cota (endurecimento 4.1): applyChanges recusa, com o motivo da cota, o registro que passaria do teto de ativos, e o teto de bytes
+  // (bytesCap), a mudança que faria a conta passar de ACCOUNT_BYTES_CAP. O orçamento do dia (decisão 6): só as primeiras mudanças que cabem
+  // no que sobra de DAILY_WRITE_BUDGET hoje são lidas; as outras não são gravadas e voltam em `deferred` (as últimas N do lote), com
+  // `retryAt`, a meia-noite UTC, quando o orçamento volta. O recebimento segue igual, com ou sem orçamento.
   async syncBatch(userId: string, req: SyncRequest, now: number): Promise<SyncResponse | 'deleted'> {
     const response = this.ctx.storage.transactionSync((): SyncResponse | 'deleted' => {
       if (this.deleted()) return 'deleted';
       if (this.getState('userId') === null) this.setState('userId', userId);
       const from = req.cursor > Number(this.getState('rev') ?? '0') ? 0 : req.cursor;
-      const result = applyChanges(this.view(), req.changes, { mode: 'server' });
-      this.write(result.writes);
+      const usage = this.usage(now);
+      const read = req.changes.slice(0, Math.max(0, DAILY_WRITE_BUDGET - usage.writes));
+      const batch = this.batch();
+      const result = applyChanges(batch.view, read, { mode: 'server', quota: { active: usage.active }, admit: bytesCap(batch, usage.bytes) });
+      this.commit(result, batch, usage, now);
       this.sql.exec(
         'INSERT INTO devices (device_id, last_sync_at) VALUES (?, ?) ON CONFLICT(device_id) DO UPDATE SET last_sync_at = excluded.last_sync_at',
         req.deviceId, now,
       );
       const rows = this.sql.exec<Row>('SELECT * FROM records WHERE rev > ? ORDER BY rev LIMIT ?', from, SYNC_BATCH + 1).toArray();
       const page = rows.slice(0, SYNC_BATCH);
+      const deferred = req.changes.length - read.length;
       return {
-        accepted: req.changes.length - result.rejected.length,
+        accepted: read.length - result.rejected.length,
         rejected: result.rejected,
         changes: page.map(rowToChange),
         cursor: page.length > 0 ? page[page.length - 1].rev : from,
         more: rows.length > SYNC_BATCH,
         serverTime: now,
+        ...(deferred > 0 ? { deferred, retryAt: nextUtcDay(now) } : {}),
       };
     });
     if (response === 'deleted') return response;
@@ -148,15 +253,37 @@ export class AccountStore extends DurableObject<Env> {
     return response;
   }
 
-  // Uma vez por dia (spec 8.3): a cópia do dia, só se a conta mudou desde a última. Uma conta apagada (ou sem dono) não marca o próximo. A
-  // limpeza dos pedidos de código e dos códigos vencidos (spec 10) é do Cron Trigger do Worker (worker/index.ts): ela não pode depender de
-  // uma conta viva nem da cópia no R2 dar certo.
+  // Uma vez por dia (spec 8.3): a compactação e depois a cópia do dia, só se a conta mudou desde a última. Uma conta apagada (ou sem dono)
+  // não marca o próximo. A limpeza dos pedidos de código e dos códigos vencidos (spec 10) é do Cron Trigger do Worker (worker/index.ts): ela
+  // não pode depender de uma conta viva nem da cópia no R2 dar certo.
   async alarm(): Promise<void> {
     await this.exclusive(async () => {
       if (this.deleted() || this.getState('userId') === null) return;
       const now = Date.now();
+      this.compact(now);
       await this.takeSnapshot(now);
       await this.ctx.storage.setAlarm(nextSnapshotAt(now));
+    });
+  }
+
+  // A marca compactada (endurecimento, decisão 5): dos solves apagados há mais de TOMBSTONE_KEEP_MS fica só a marca (data '{}'), no máximo
+  // COMPACT_PER_DAY por dia e dentro do que sobra do orçamento de gravações do dia, onde contam. A data é a exclusão gravada, que vem do
+  // aparelho: o mesmo prazo em que ele tira o solve da lixeira. Sem revisão nova: quem já viu o solve não recebe nada, e quem ainda não
+  // chegou à revisão dele recebe a marca (que um aparelho sem o solve não grava). `parent` fica. Um aparelho que ainda tem o conteúdo e o
+  // manda de novo grava uma revisão nova, como qualquer mudança, e a compactação de outro dia o tira de novo.
+  private compact(now: number): number {
+    return this.ctx.storage.transactionSync(() => {
+      const usage = this.usage(now);
+      const limit = Math.min(COMPACT_PER_DAY, Math.max(0, DAILY_WRITE_BUDGET - usage.writes));
+      if (limit === 0) return 0;
+      const due = this.sql.exec<{ id: string; bytes: number }>(COMPACTABLE, now - TOMBSTONE_KEEP_MS, limit).toArray();
+      let freed = 0;
+      for (const r of due) {
+        this.sql.exec(COMPACT_SOLVE, r.id);
+        freed += r.bytes - COMPACTED_BYTES;
+      }
+      this.addUsage(usage, now, { bytes: -freed, writes: due.length });
+      return due.length;
     });
   }
 
@@ -180,7 +307,8 @@ export class AccountStore extends DurableObject<Env> {
 
   // POST /api/snapshots/:name/restore (spec 8.3): grava antes a cópia "antes de restaurar"; depois, cada registro da cópia com datas novas,
   // e o que existe hoje e não está nela vai para a lixeira. A temporada passa por mergeSeason, como num sync: o progresso não volta atrás.
-  // Tudo sem um sync no meio: o que a cópia de antes guarda é o que a restauração substitui. Os aparelhos recebem pelo sync normal.
+  // Tudo sem um sync no meio: o que a cópia de antes guarda é o que a restauração substitui. Os aparelhos recebem pelo sync normal. As
+  // gravações entram nos contadores como as de um sync (commit), sem a cota nem o teto de bytes: a cópia volta inteira ou não volta.
   async restoreSnapshot(name: string, now: number): Promise<'ok' | 'not-found' | 'deleted'> {
     return this.exclusive(async () => {
       if (this.deleted()) return 'deleted';
@@ -203,7 +331,9 @@ export class AccountStore extends DurableObject<Env> {
         const stamp = current.reduce((max, c) => Math.max(max, c.updatedAt + 1, c.deletionStamp + 1), now); // vence tudo o que existe
         const practice = Array.isArray(copy.practice) ? copy.practice : null;
         const changes = restoreChanges(current, { sessions: copy.sessions, solves: copy.solves, practice }, accountPrefsOf(copy.profile), stamp);
-        this.write(applyChanges(this.view(), changes, { mode: 'server' }).writes);
+        const usage = this.usage(now);
+        const batch = this.batch();
+        this.commit(applyChanges(batch.view, changes, { mode: 'server' }), batch, usage, now);
       });
       return 'ok';
     });

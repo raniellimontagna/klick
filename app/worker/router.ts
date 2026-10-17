@@ -234,7 +234,8 @@ export async function handle(request: Request, env: Env, ctx: ExecutionContext, 
     // O tipo do stub (RPC) não acompanha `data: unknown`; o objeto que volta é o SyncResponse do Durable Object.
     const res = (await account.syncBatch(user.id, req, started)) as unknown as SyncResponse | 'deleted';
     if (res === 'deleted') return fail(401, 'auth'); // a conta foi apagada: o aparelho sai, como numa sessão revogada
-    log({ evt: 'sync', user: user.id, pushed: req.changes.length, rejected: res.rejected.length, pulled: res.changes.length, ms: deps.now() - started });
+    const deferred = res.deferred ?? 0; // o resto do lote que o orçamento do dia deixou para amanhã
+    log({ evt: 'sync', user: user.id, pushed: req.changes.length, rejected: res.rejected.length, deferred, pulled: res.changes.length, ms: deps.now() - started });
     return json(res);
   }
 

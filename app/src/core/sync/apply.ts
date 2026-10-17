@@ -1,7 +1,7 @@
 // Juntar um lote (spec 6.1 e 6.3), o mesmo código no servidor, no aparelho e na simulação. Quem chama dá uma vista dos registros
 // (RecordView) e grava o que voltar em `writes`. Puro: a vista do aparelho é um mapa lido do IndexedDB antes; a do servidor, o SQLite do
 // Durable Object.
-import { ACCOUNT_LIMITS, isCounted, QUOTA_REASON, zeroCounts, type ActiveCounts } from './limits';
+import { ACCOUNT_LIMITS, isCounted, QUOTA_REASON, zeroCounts, type ActiveCounts, type CountedStore } from './limits';
 import { canonicalJson, cascade, merge, mergeSeason } from './merge';
 import { isCompacted, sessionOfChange } from './records';
 import { checkChange } from './shape';
@@ -18,6 +18,10 @@ export interface ApplyOptions {
   // A cota da conta (endurecimento 4.1), no sync do servidor: os ativos de cada store antes do lote e o teto (ACCOUNT_LIMITS, se faltar).
   // Sem ela (o aparelho, a restauração de uma cópia), nada é recusado pela cota.
   quota?: { active: ActiveCounts; limits?: Readonly<ActiveCounts> };
+  // Uma recusa a mais, do servidor: o teto de bytes da conta (worker/account-store.ts). Vê o que a mudança deixa gravado (o resultado do
+  // merge) e o que estava antes (a versão do lote, se o registro já veio antes nele), depois da cota; false recusa com QUOTA_REASON, como a
+  // cota: nada muda, nem a cascata, e a vaga da cota fica para o que vem depois.
+  admit?: (before: Change | undefined, next: Change) => boolean;
 }
 
 export interface ApplyResult {
@@ -109,6 +113,7 @@ export function applyChanges(view: RecordView, incoming: readonly unknown[], opt
       next = before ? merge(before, change) : change;
     }
     const store = next.store;
+    let claim: { store: CountedStore; step: number; seat: string | null; newSeat: boolean } | null = null;
     if (count && isCounted(store)) {
       const step = activeOf(next) - activeOf(before);
       const seat = seatFor(before, next);
@@ -118,10 +123,17 @@ export function applyChanges(view: RecordView, incoming: readonly unknown[], opt
         rejected.push({ store, id: next.id, reason: QUOTA_REASON });
         continue;
       }
-      if (store !== 'sessions') count[store] += step;
-      if (newSeat) count.sessions++;
-      if (seat !== null) seated.add(seat);
-      if (store === 'sessions' && step < 0) seated.add(next.id); // a vaga dela só abre no lote seguinte
+      claim = { store, step, seat, newSeat };
+    }
+    if (opts.admit && !opts.admit(before, next)) {
+      rejected.push({ store, id: next.id, reason: QUOTA_REASON });
+      continue;
+    }
+    if (count && claim) {
+      if (claim.store !== 'sessions') count[claim.store] += claim.step;
+      if (claim.newSeat) count.sessions++;
+      if (claim.seat !== null) seated.add(claim.seat);
+      if (claim.store === 'sessions' && claim.step < 0) seated.add(next.id); // a vaga dela só abre no lote seguinte
     }
     const stale = opts.mode === 'server' && !sameChange(change, next);
     if (!sameChange(before, next) || stale) overlay.set(syncKey(next.store, next.id), next);
