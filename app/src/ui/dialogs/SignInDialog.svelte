@@ -118,11 +118,20 @@
     if (error === T.conta.badCode) error = null;
   }
 
+  // As peças não levam o toque a uma posição: o cursor fica sempre no fim, e o Backspace sempre tira o último dígito. Só mexe quando está
+  // fora do fim (mover a seleção dispara "select" de novo, e isso não pode virar um laço).
+  function caretToEnd(e: Event): void {
+    const input = e.currentTarget as HTMLInputElement;
+    const end = input.value.length;
+    if (input.selectionStart !== end || input.selectionEnd !== end) input.setSelectionRange(end, end);
+  }
+
   async function verify(e: SubmitEvent): Promise<void> {
     e.preventDefault();
     if (!account || busy || code.length !== 6) return;
     const ongoing = account;
     busy = true;
+    error = null; // o aviso da conferência anterior sai: não fica ao lado de "Conferindo…" nem da cascata verde, e uma falha igual volta anunciada
     codeCube = 'turn'; // e a linha "Conferindo o código…" ao lado dele
     let result: VerifyOutcome;
     try {
@@ -308,7 +317,7 @@
                     style:--i={i}>{code[i] ?? ''}</span>
                 {/each}
               </span>
-              <input type="text" inputmode="numeric" autocomplete="one-time-code" value={code} oninput={onCode} data-code />
+              <input type="text" inputmode="numeric" autocomplete="one-time-code" value={code} oninput={onCode} onfocus={caretToEnd} onclick={caretToEnd} onselect={caretToEnd} data-code />
             </span>
           </label>
           <div class="row">

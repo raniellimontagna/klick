@@ -168,6 +168,38 @@ describe('diálogo de entrar (spec 7.2 e 9.2)', () => {
     expect(document.querySelector('[data-code-pieces]')).toHaveAttribute('data-code-state', 'typing');
   });
 
+  it('uma nova conferência limpa o aviso antigo: ele não fica ao lado de "Conferindo o código…"', async () => {
+    const { app } = await openDialog();
+    const account = app.account!;
+    const gate = deferred();
+    const verify = vi.spyOn(account, 'verifyCode').mockResolvedValueOnce({ ok: false, reason: 'expired' });
+    await typeEmailAndCode();
+    expect(await screen.findByRole('alert')).toHaveTextContent(T.conta.expiredCode);
+    verify.mockImplementationOnce(async () => {
+      await gate.promise;
+      return { ok: false, reason: 'expired' };
+    });
+    await fireEvent.click(screen.getByRole('button', { name: 'Entrar' }));
+    expect(await screen.findByText('Conferindo o código…')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
+    gate.resolve();
+    // a mesma falha de novo é anunciada de novo: o aviso saiu e voltou
+    expect(await screen.findByRole('alert')).toHaveTextContent(T.conta.expiredCode);
+  });
+
+  it('o cursor do código fica sempre no fim: tocar, focar ou selecionar não o leva para o meio', async () => {
+    await openDialog();
+    await fireEvent.input(screen.getByRole('textbox', { name: 'E-mail' }), { target: { value: 'ranielli@exemplo.com' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Enviar código' }));
+    const field = (await screen.findByRole('textbox', { name: 'Código' })) as HTMLInputElement;
+    await fireEvent.input(field, { target: { value: '12345' } });
+    for (const type of ['focus', 'click', 'select'] as const) {
+      field.setSelectionRange(1, 3);
+      await fireEvent[type](field);
+      expect([type, field.selectionStart, field.selectionEnd]).toEqual([type, 5, 5]);
+    }
+  });
+
   it('o código vencido: o aviso fica mesmo digitando (é preciso pedir outro), e as peças não ficam vermelhas', async () => {
     const { app } = await openDialog();
     vi.spyOn(app.account!, 'verifyCode').mockResolvedValue({ ok: false, reason: 'expired' });
