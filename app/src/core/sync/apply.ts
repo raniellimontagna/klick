@@ -21,8 +21,9 @@ export interface ApplyOptions {
   // Uma recusa a mais, do servidor: o teto de bytes da conta (worker/account-store.ts). Vê o que a mudança deixa gravado (o resultado do
   // merge) e o que estava antes (a versão do lote, se o registro já veio antes nele), depois da cota; false recusa com QUOTA_REASON, como a
   // cota: nada muda, nem a cascata, e a vaga da cota fica para o que vem depois. `required`: a mudança passa de qualquer jeito (a sessão que
-  // um solve do lote já pediu), e o teto só a conta.
-  admit?: (before: Change | undefined, next: Change, required: boolean) => boolean;
+  // um solve do lote já pediu), e o teto só a conta. `asks`: a sessão cuja vaga este solve pede, na primeira vez no lote (a sessão que vier
+  // depois dele vai passar como obrigatória: o teto a paga adiantado aqui); null nos outros casos.
+  admit?: (before: Change | undefined, next: Change, required: boolean, asks: string | null) => boolean;
 }
 
 export interface ApplyResult {
@@ -66,8 +67,8 @@ export function sameChange(a: Change | undefined, b: Change | undefined): boolea
 //
 // O teto do servidor (admit) segue a mesma regra das vagas: uma sessão que ele recusa leva junto, com o mesmo motivo, cada solve do lote que
 // pediria a vaga dela (o solve ficaria órfão nos outros aparelhos, ou a cascata devolveria a sessão recusada). E a sessão que um solve do lote
-// já pediu antes dela não pode mais ser recusada (o solve já entrou): ela passa como obrigatória, e o teto só a conta; o excesso fica no
-// tamanho de uma sessão (MAX_DATA_CHARS) por sessão assim.
+// já pediu antes dela não pode mais ser recusada (o solve já entrou): ela passa como obrigatória. Para o teto continuar sendo teto, o admit
+// sabe qual sessão o solve pede (asks) e a paga adiantado nele, que pode não crescer nada (movido, ou restaurado numa sessão da lixeira).
 //
 // A marca compactada (records.ts) de um registro que a vista não tem (nem antes no lote) não é gravada, nos dois modos, nem recusada: um
 // aparelho que nunca teve o solve (ou já o tirou da lixeira) não ganha um registro sem campos, e o servidor não guarda uma marca que nenhum
@@ -140,7 +141,8 @@ export function applyChanges(view: RecordView, incoming: readonly unknown[], opt
     }
     if (opts.admit) {
       const required = store === 'sessions' && asked.has(next.id);
-      if (!opts.admit(before, next, required) && !required) {
+      const asks = store === 'solves' && seat !== null && !asked.has(seat) ? seat : null;
+      if (!opts.admit(before, next, required, asks) && !required) {
         if (store === 'sessions') blocked.add(next.id);
         rejected.push({ store, id: next.id, reason: QUOTA_REASON });
         continue;

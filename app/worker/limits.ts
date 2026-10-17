@@ -1,6 +1,7 @@
 // Os tetos do Worker (spec 4, 7.1, 7.6 e 7.7). Os que mudam por ambiente (o espaço das cópias, as operações do R2 por mês, os e-mails por
 // dia e por mês) são vars do wrangler.jsonc, lidas por capOf/capsOf; os que valem para todos são as constantes daqui. Uma var ausente,
 // vazia ou que não seja um inteiro maior que 0 vale 0 (falha fechada: nada passa) e vai para o log, nunca "sem teto".
+import { MAX_DATA_CHARS } from '../src/core/sync/shape';
 import type { Env } from './env';
 
 export interface Caps {
@@ -21,6 +22,9 @@ export const STORAGE_HEADROOM = 0.95; // grava só até 95% do teto do espaço
 // O conteúdo gravado de uma conta, em bytes (a soma dos `data`). A cota conta registros, não tamanho: 16 KB de nota em cada solve levariam
 // uma conta só a ~1,6 GB dos 5 GB de Durable Objects que todas dividem no grátis. Folgado: 100 mil solves comuns ficam em ~25 MB.
 export const ACCOUNT_BYTES_CAP = 50_000_000;
+// O que um solve que pede a vaga de uma sessão reserva no teto de bytes, para a sessão que chega depois dele (e passa de qualquer jeito): o
+// maior `data` de uma sessão em UTF-8. MAX_DATA_CHARS conta unidades de UTF-16, e cada uma vira no máximo 3 bytes.
+export const SESSION_PREPAY = 3 * MAX_DATA_CHARS;
 
 const DAY_MS = 86_400_000;
 export const utcDay = (t: number): string => new Date(t).toISOString().slice(0, 10);

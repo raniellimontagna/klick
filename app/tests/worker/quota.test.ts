@@ -5,8 +5,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { defaultSeason } from '../../src/core/season';
 import { QUOTA_REASON, type ActiveCounts } from '../../src/core/sync/limits';
 import { ACCOUNT_HEADER, SYNC_PROTOCOL, type Change, type SyncResponse } from '../../src/core/sync/types';
-import { ACCOUNT_BYTES_CAP, DAILY_WRITE_BUDGET, nextUtcDay, utcDay } from '../../worker/limits';
+import { ACCOUNT_BYTES_CAP, DAILY_WRITE_BUDGET, nextUtcDay, SESSION_PREPAY, utcDay } from '../../worker/limits';
 import { dayOf } from '../../worker/snapshots';
+import { seeded } from '../unit/sync-random';
 import { call, postJson, setState, stateOf, stubOf, T0, testDeps } from './helpers';
 
 const solve = (id: string, o: Partial<Change> & { note?: string; sessionId?: string } = {}): Change => ({
@@ -158,6 +159,81 @@ describe('o teto de bytes: as exceções', () => {
     const all = byId(await sync(user, [], { device: 'd2' }));
     expect(all.get('settings.dailyGoal')!.data).toBe(12345);
     expect((all.get('season')!.data as { past: unknown[] }).past).toHaveLength(1);
+  });
+});
+
+// A vaga de sessão paga adiantado (revisão da Task 4): um solve que pede a vaga de uma sessão (movido para uma sessão nova, ou restaurado
+// numa sessão da lixeira) pode não crescer nada, e a sessão que chega depois dele passa como obrigatória. Por isso ele reserva o maior
+// tamanho de uma sessão (SESSION_PREPAY) no teto; sem espaço para a reserva, volta com "cota", e a sessão também.
+describe('o teto de bytes: a vaga de sessão paga adiantado', () => {
+  const named = (id: string, chars: number, o: Partial<Change> = {}): Change => session(id, { ...o, data: { name: 'N'.repeat(chars), event: '333', order: 0, createdAt: T0 } });
+
+  it('no teto, mover um solve para uma sessão nova ou restaurá-lo numa sessão da lixeira, junto com a sessão grande: tudo volta com "cota"', async () => {
+    const user = 'teto-vaga';
+    await sync(user, [session('s00'), solve('a', { sessionId: 's00' }), session('lx', gone(T0)), solve('b', { sessionId: 'lx', ...gone(T0) })]);
+    await setState(user, 'bytes', ACCOUNT_BYTES_CAP);
+    const back = { updatedAt: T0 + 10, deletionStamp: T0 + 10 };
+    const res = await sync(user, [
+      solve('a', { sessionId: 'z00', updatedAt: T0 + 10 }), // o mesmo tamanho: não cresce nada
+      named('z00', 16_000, back),
+      solve('b', { sessionId: 'lx', ...back }), // da lixeira, numa sessão da lixeira
+      named('lx', 16_000, back),
+    ]);
+    expect(res.rejected).toEqual([cota('a'), cota('z00', 'sessions'), cota('b'), cota('lx', 'sessions')]);
+    expect(await json(user, 'bytes')).toBe(ACCOUNT_BYTES_CAP);
+  });
+
+  it('com folga para uma vaga paga, o primeiro par passa e o segundo volta', async () => {
+    const user = 'teto-uma-vaga';
+    await sync(user, [session('s00'), solve('a', { sessionId: 's00' }), solve('b', { sessionId: 's00' })]);
+    await setState(user, 'bytes', ACCOUNT_BYTES_CAP - SESSION_PREPAY);
+    const res = await sync(user, [solve('a', { sessionId: 'z00', updatedAt: T0 + 10 }), named('z00', 16_000), solve('b', { sessionId: 'z01', updatedAt: T0 + 10 }), named('z01', 16_000)]);
+    expect(res.rejected).toEqual([cota('b'), cota('z01', 'sessions')]);
+    const bytes = await json<number>(user, 'bytes');
+    expect(bytes).toBeGreaterThan(ACCOUNT_BYTES_CAP - SESSION_PREPAY); // a sessão grande foi gravada
+    expect(bytes).toBeLessThanOrEqual(ACCOUNT_BYTES_CAP);
+    const all = byId(await sync(user, [], { device: 'd2' }));
+    expect([(all.get('a')!.data as { sessionId: string }).sessionId, (all.get('b')!.data as { sessionId: string }).sessionId]).toEqual(['z00', 's00']);
+    expect(all.has('z01')).toBe(false);
+  });
+
+  // Lotes sorteados de mover, restaurar, criar sessões grandes e pequenas, editar e criar solves, numa conta perto do teto ou acima dele:
+  // o conteúdo nunca passa do maior entre o teto e o de antes, e nenhum solve ativo fica sem a sessão ativa.
+  it('propriedade: nenhum lote sorteado passa do teto, e nenhum solve ativo fica sem a sessão', async () => {
+    const rnd = seeded(20261017);
+    const int = (n: number): number => Math.floor(rnd() * n);
+    const pick = <T>(list: readonly T[]): T => list[int(list.length)];
+    let refused = 0;
+    for (let round = 0; round < 24; round++) {
+      const user = `teto-sorteio-${round}`;
+      await sync(user, [session('s00'), session('lx', gone(T0)), solve('a0', { sessionId: 's00' }), solve('a1', { sessionId: 's00' }), solve('b0', { sessionId: 'lx', ...gone(T0) })]);
+      const start = ACCOUNT_BYTES_CAP + pick([2_000, 0, -1_000, -SESSION_PREPAY, -SESSION_PREPAY - 20_000, -2 * SESSION_PREPAY - 5_000]);
+      await setState(user, 'bytes', start);
+      const at = T0 + 10 + round;
+      const fresh = ['z0', 'z01', 'z002'].filter(() => rnd() < 0.7);
+      const homes = ['s00', 'lx', ...fresh];
+      const batch: Change[] = [];
+      for (let i = 0, n = 2 + int(5); i < n; i++) {
+        const op = int(4);
+        if (op === 0) batch.push(solve(pick(['a0', 'a1']), { sessionId: pick(homes), updatedAt: at, deletionStamp: at }));
+        else if (op === 1) batch.push(solve('b0', { sessionId: pick(homes), updatedAt: at, deletionStamp: at }));
+        else if (op === 2) batch.push(solve(`n${i}`, { sessionId: pick(homes), note: 'x'.repeat(int(3) * 4_000), updatedAt: at, deletionStamp: at }));
+        else batch.push(solve(pick(['a0', 'a1']), { sessionId: 's00', note: 'y'.repeat(int(2) * 3_000), updatedAt: at }));
+      }
+      // Toda sessão que um solve do lote pode pedir vem no lote, antes ou depois, grande ou pequena; a da lixeira às vezes volta também.
+      for (const id of [...fresh, ...(rnd() < 0.5 ? ['lx'] : [])]) {
+        batch.splice(int(batch.length + 1), 0, named(id, pick([1, 8_000, 16_000]), { updatedAt: at, deletionStamp: at }));
+      }
+      const res = await sync(user, batch);
+      refused += res.rejected.length;
+      expect(await json<number>(user, 'bytes'), `rodada ${round}`).toBeLessThanOrEqual(Math.max(start, ACCOUNT_BYTES_CAP));
+      const all = byId(await sync(user, [], { device: 'd2' }));
+      for (const c of all.values()) {
+        if (c.store !== 'solves' || c.deletedAt !== null) continue;
+        expect(all.get((c.data as { sessionId: string }).sessionId)?.deletedAt, `rodada ${round}: solve ativo ${c.id} sem sessão ativa`).toBeNull();
+      }
+    }
+    expect(refused).toBeGreaterThan(20); // o sorteio chega no teto
   });
 });
 

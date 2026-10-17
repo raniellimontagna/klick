@@ -498,6 +498,28 @@ describe('applyChanges: admit parcial, como o teto de bytes', () => {
     expect(calls).toEqual([['solves/n', false], ['sessions/X', true]]); // o teto vê o que passou, para a conta dele continuar certa
   });
 
+  // O teto de bytes reserva o tamanho da sessão no solve que pede a vaga dela (account-store.ts): o núcleo diz qual sessão ele pede, só na
+  // primeira vez no lote; uma sessão ativa, ou um solve que fica onde está, não pedem nada.
+  it('admit sabe a sessão cuja vaga um solve pede: só na primeira vez, e nunca a de uma sessão ativa', () => {
+    const calls: [string, boolean, string | null][] = [];
+    const view = viewOf(session('s1'), session('L', { deletedAt: 5, deletionStamp: 5 }), solve('a'), solve('b'), solve('c', { sessionId: 'L', deletedAt: 5, deletionStamp: 5 }));
+    const batch = [
+      solve('a', { sessionId: 'X', updatedAt: 20 }), // move para uma sessão que não existe
+      solve('b', { sessionId: 'X', updatedAt: 20 }), // a mesma: já pedida
+      solve('c', { sessionId: 'L', updatedAt: 20, deletionStamp: 20 }), // restaurado numa sessão da lixeira
+      solve('n'), // numa sessão ativa
+      session('X'),
+    ];
+    applyChanges(view, batch, { mode: 'server', admit: (_b, next, required, asks) => (calls.push([syncKey(next.store, next.id), required, asks]), true) });
+    expect(calls).toEqual([
+      ['solves/a', false, 'X'],
+      ['solves/b', false, null],
+      ['solves/c', false, 'L'],
+      ['solves/n', false, null],
+      ['sessions/X', true, null],
+    ]);
+  });
+
   it('C2: restaurar a sessão que não cabe e o solve dela: os dois voltam, e a cascata não a devolve', () => {
     const view = viewOf(session('s1'), session('X', { updatedAt: 50, deletedAt: 50, deletionStamp: 50 }), solve('a', { sessionId: 'X', deletedAt: 50, deletionStamp: 50 }));
     const back = { updatedAt: 80, deletionStamp: 80 };

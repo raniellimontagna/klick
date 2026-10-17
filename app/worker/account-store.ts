@@ -10,7 +10,7 @@ import { accountPrefsOf, exportFromRecords } from '../src/core/sync/snapshot';
 import { SYNC_BATCH, syncKey, type Change, type SyncRequest, type SyncResponse, type SyncStore } from '../src/core/sync/types';
 import type { KlickExport } from '../src/core/types';
 import type { Env } from './env';
-import { ACCOUNT_BYTES_CAP, COMPACT_PER_DAY, DAILY_WRITE_BUDGET, nextUtcDay, utcDay } from './limits';
+import { ACCOUNT_BYTES_CAP, COMPACT_PER_DAY, DAILY_WRITE_BUDGET, nextUtcDay, SESSION_PREPAY, utcDay } from './limits';
 import {
   COMPACT_SOLVE,
   COMPACTABLE,
@@ -47,18 +47,34 @@ interface Batch {
 
 // O teto de bytes (o `admit` de applyChanges): a mudança que faria o conteúdo gravado da conta passar de ACCOUNT_BYTES_CAP volta com o
 // motivo da cota; a que encolhe ou mantém o tamanho (editar, apagar) passa sempre, mesmo numa conta já acima do teto. Uma exclusão que chega
-// com o conteúdo maior cresce, e conta como crescer. Passam sem conferir, mas contam: os ajustes (poucos, cada um com o tamanho limitado, e a
-// temporada, que o servidor decide) e a sessão que um solve do lote já pediu (required). A conta corre pelo lote: o tamanho de cada registro
-// depois do que o lote já deixou passar, e o total.
-function bytesCap(batch: Batch, stored: number): (before: Change | undefined, next: Change, required: boolean) => boolean {
+// com o conteúdo maior cresce, e conta como crescer. Os ajustes (poucos, cada um com o tamanho limitado, e a temporada, que o servidor
+// decide) passam sem conferir, mas contam. A conta corre pelo lote: o tamanho de cada registro depois do que o lote já deixou passar, e o
+// total.
+//
+// A vaga de sessão paga adiantado: o solve que pede a vaga de uma sessão (asks) pode não crescer nada (movido para uma sessão nova,
+// restaurado numa sessão da lixeira), e a sessão que chega depois dele passa de qualquer jeito (required). Por isso ele só passa se couber
+// também o maior tamanho de uma sessão (SESSION_PREPAY), que fica reservado; quando a sessão chega, o crescimento dela sai da reserva, e o
+// que a reserva não usou só sai do total no fim do lote (o `bytes` gravado vem do que write() gravou). Assim nada passa do teto.
+function bytesCap(batch: Batch, stored: number): (before: Change | undefined, next: Change, required: boolean, asks: string | null) => boolean {
   const sizes = new Map<string, number>();
+  const prepaid = new Map<string, number>(); // sessão -> o que sobra da reserva
   let total = stored;
-  return (before, next, required) => {
+  return (before, next, required, asks) => {
     const key = syncKey(next.store, next.id);
     const size = utf8Bytes(batch.json(next.data));
     const growth = size - (sizes.get(key) ?? (before === undefined ? 0 : batch.storedBytes(next.store, next.id)));
-    if (!required && next.store !== 'prefs' && growth > 0 && total + growth > ACCOUNT_BYTES_CAP) return false;
-    total += growth;
+    const left = prepaid.get(key);
+    if (left !== undefined) {
+      total += Math.max(0, growth - left);
+      prepaid.set(key, Math.max(0, left - growth));
+      sizes.set(key, size);
+      return true;
+    }
+    const reserve = asks === null ? 0 : SESSION_PREPAY;
+    const need = Math.max(growth, 0) + reserve;
+    if (!required && next.store !== 'prefs' && need > 0 && total + need > ACCOUNT_BYTES_CAP) return false;
+    total += growth + reserve;
+    if (asks !== null) prepaid.set(syncKey('sessions', asks), reserve);
     sizes.set(key, size);
     return true;
   };
