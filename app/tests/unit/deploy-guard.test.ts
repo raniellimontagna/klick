@@ -1,15 +1,21 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import { distProblems } from '../../scripts/check-dist.mjs';
 
 // A revisão final (M3): o vitest.worker.config.ts cria um dist/ vazio (o plugin pede que ele exista). Num clone novo, `test:worker` e depois
 // `wrangler deploy` publicariam um site vazio para todo mundo. O wrangler.jsonc roda scripts/check-dist.mjs antes de todo deploy (build.command):
 // sem um build de verdade, ele recusa. Os scripts deploy:beta e deploy:production fazem o build antes.
 const app = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const tmp = (): string => mkdtempSync(join(tmpdir(), 'klick-dist-'));
+const made: string[] = [];
+const tmp = (): string => {
+  const dir = mkdtempSync(join(tmpdir(), 'klick-dist-'));
+  made.push(dir);
+  return dir;
+};
+afterAll(() => made.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
 const PAGE = '<!doctype html><html><head><script type="module" crossorigin src="/assets/index-AbC123.js"></script></head><body></body></html>';
 
 describe('o deploy não sai sem um build de verdade', () => {
