@@ -1,7 +1,7 @@
 import { runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
 import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
-import { ACCOUNT_HEADER, type Change, type CloudCopy, type SyncResponse } from '../../src/core/sync/types';
+import { ACCOUNT_HEADER, SYNC_PROTOCOL, type Change, type CloudCopy, type SyncResponse } from '../../src/core/sync/types';
 import type { KlickExport } from '../../src/core/types';
 import { emailKeyOf } from '../../worker/abuse';
 import type { Env } from '../../worker/env';
@@ -20,7 +20,7 @@ const stubOf = (user: string) => env.ACCOUNT.get(env.ACCOUNT.idFromName(user));
 const alarmOf = (user: string) => runInDurableObject(stubOf(user), (_o, state) => state.storage.getAlarm());
 
 const syncCall = (user: string, changes: Change[], cursor = 0, now = () => T0, device = 'd1'): Promise<Response> =>
-  call('/api/sync', postJson({ v: 1, account: user, deviceId: device, cursor, clock: T0, changes }), { deps: testDeps({ user, now }) });
+  call('/api/sync', postJson({ v: SYNC_PROTOCOL, account: user, deviceId: device, cursor, clock: T0, changes }), { deps: testDeps({ user, now }) });
 async function sync(user: string, changes: Change[], cursor = 0, now = () => T0, device = 'd1'): Promise<SyncResponse> {
   return (await (await syncCall(user, changes, cursor, now, device)).json()) as SyncResponse;
 }
@@ -243,11 +243,11 @@ describe('a conta que o aparelho espera (C1)', () => {
   it('o sync com o cookie de outra conta é 401 e não grava nem devolve nada, nas duas contas; sem a conta, 400', async () => {
     await sync('conta-c1-b', [session, solve('de-b')]);
     const deps = testDeps({ user: 'conta-c1-b' }); // o cookie é da conta B; o aparelho espera a conta A
-    const res = await call('/api/sync', postJson({ v: 1, account: 'conta-c1-a', deviceId: 'd1', cursor: 0, clock: T0, changes: [solve('de-a')] }), { deps });
+    const res = await call('/api/sync', postJson({ v: SYNC_PROTOCOL, account: 'conta-c1-a', deviceId: 'd1', cursor: 0, clock: T0, changes: [solve('de-a')] }), { deps });
     expect([res.status, await res.json()]).toEqual([401, { error: 'auth' }]);
     expect((await sync('conta-c1-b', [], 0, () => T0, 'd2')).changes.map((c) => c.id)).toEqual(['s1', 'de-b']);
     expect((await sync('conta-c1-a', [], 0)).changes).toEqual([]);
-    const missing = await call('/api/sync', postJson({ v: 1, deviceId: 'd1', cursor: 0, clock: T0, changes: [] }), { deps });
+    const missing = await call('/api/sync', postJson({ v: SYNC_PROTOCOL, deviceId: 'd1', cursor: 0, clock: T0, changes: [] }), { deps });
     expect(missing.status).toBe(400);
   });
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { canonicalJson } from '../../src/core/sync/merge';
 import { MAX_DATA_CHARS } from '../../src/core/sync/shape';
-import type { Change, SyncResponse } from '../../src/core/sync/types';
+import { SYNC_PROTOCOL, type Change, type SyncResponse } from '../../src/core/sync/types';
 import { MAX_BODY } from '../../worker/router';
 import { call, ORIGIN, postJson, T0, testDeps, testEnv } from './helpers';
 
@@ -16,14 +16,14 @@ const solve = (id: string, o: Partial<Change> & { note?: string; sessionId?: str
 const session: Change = { store: 'sessions', id: 's1', data: { name: 'Sessão 1', event: '333', order: 0, createdAt: T0 }, updatedAt: T0, deletedAt: null, deletionStamp: T0 };
 
 async function sync(user: string, changes: unknown[], cursor = 0, device = 'd1'): Promise<SyncResponse> {
-  const res = await call('/api/sync', postJson({ v: 1, account: user, deviceId: device, cursor, clock: T0, changes }), { deps: testDeps({ user }) });
+  const res = await call('/api/sync', postJson({ v: SYNC_PROTOCOL, account: user, deviceId: device, cursor, clock: T0, changes }), { deps: testDeps({ user }) });
   expect(res.status).toBe(200);
   return (await res.json()) as SyncResponse;
 }
 
 describe('POST /api/sync (spec 6.1 e 8.2)', () => {
   it('sem sessão, 401', async () => {
-    expect((await call('/api/sync', postJson({ v: 1, deviceId: 'd', cursor: 0, clock: 0, changes: [] }))).status).toBe(401);
+    expect((await call('/api/sync', postJson({ v: SYNC_PROTOCOL, deviceId: 'd', cursor: 0, clock: 0, changes: [] }))).status).toBe(401);
   });
 
   it('aceita o lote, dá revisões e devolve o que mudou desde o cursor; o outro aparelho recebe', async () => {
@@ -79,13 +79,13 @@ describe('POST /api/sync (spec 6.1 e 8.2)', () => {
 
   it('pedidos tortos: 426 para outra versão do protocolo, 415 sem JSON, 403 de outra origem, 400 com mais de 500 mudanças, 429 na rajada', async () => {
     const deps = testDeps({ user: 'conta-x' });
-    expect((await call('/api/sync', postJson({ v: 2, deviceId: 'd', cursor: 0, clock: 0, changes: [] }), { deps })).status).toBe(426);
+    expect((await call('/api/sync', postJson({ v: 1, deviceId: 'd', cursor: 0, clock: 0, changes: [] }), { deps })).status).toBe(426);
     expect((await call('/api/sync', { method: 'POST', body: '{}' }, { deps })).status).toBe(415);
-    expect((await call('/api/sync', postJson({ v: 1 }, { Origin: 'https://outro.site' }), { deps })).status).toBe(403);
+    expect((await call('/api/sync', postJson({ v: SYNC_PROTOCOL }, { Origin: 'https://outro.site' }), { deps })).status).toBe(403);
     const many = Array.from({ length: 501 }, (_, i) => solve(`m${i}`));
-    expect((await call('/api/sync', postJson({ v: 1, deviceId: 'd', cursor: 0, clock: 0, changes: many }), { deps })).status).toBe(400);
+    expect((await call('/api/sync', postJson({ v: SYNC_PROTOCOL, deviceId: 'd', cursor: 0, clock: 0, changes: many }), { deps })).status).toBe(400);
     const busy = testEnv({ API_BURST: { limit: async () => ({ success: false }) } });
-    expect((await call('/api/sync', postJson({ v: 1, deviceId: 'd', cursor: 0, clock: 0, changes: [] }), { deps, env: busy })).status).toBe(429);
+    expect((await call('/api/sync', postJson({ v: SYNC_PROTOCOL, deviceId: 'd', cursor: 0, clock: 0, changes: [] }), { deps, env: busy })).status).toBe(429);
   });
 
   it('a versão que perde ganha revisão nova e volta para quem a mandou; a igual à gravada não ganha (decisão 6)', async () => {
@@ -135,7 +135,7 @@ describe('POST /api/sync (spec 6.1 e 8.2)', () => {
     const deps = testDeps({ user: 'conta-corpo' });
     const base = canonicalJson(solve('g').data).length;
     const full = Array.from({ length: 500 }, (_, i) => solve(`g${i}-`.padEnd(96, 'g'), { note: 'n'.repeat(MAX_DATA_CHARS - base) }));
-    const ok = await call('/api/sync', postJson({ v: 1, account: 'conta-corpo', deviceId: 'd'.repeat(64), cursor: 0, clock: T0, changes: full }), { deps });
+    const ok = await call('/api/sync', postJson({ v: SYNC_PROTOCOL, account: 'conta-corpo', deviceId: 'd'.repeat(64), cursor: 0, clock: T0, changes: full }), { deps });
     expect(ok.status).toBe(200);
     expect(((await ok.json()) as SyncResponse).accepted).toBe(500);
     expect((await call('/api/sync', postJson('x'.repeat(MAX_BODY)), { deps })).status).toBe(413);
@@ -176,14 +176,14 @@ describe('POST /api/sync (spec 6.1 e 8.2)', () => {
     const deps = testDeps({ user: 'conta-v' });
     const body = { deviceId: 'd', cursor: 0, clock: T0, changes: [] };
     expect((await call('/api/sync', postJson(body), { deps })).status).toBe(400);
-    expect((await call('/api/sync', postJson({ ...body, v: '1' }), { deps })).status).toBe(400);
+    expect((await call('/api/sync', postJson({ ...body, v: String(SYNC_PROTOCOL) }), { deps })).status).toBe(400);
     expect((await call('/api/sync', postJson({ ...body, v: null }), { deps })).status).toBe(400);
-    expect((await call('/api/sync', postJson({ ...body, v: 2 }), { deps })).status).toBe(426);
+    expect((await call('/api/sync', postJson({ ...body, v: 1 }), { deps })).status).toBe(426);
   });
 
   it('a chave ACCOUNTS_ENABLED: com "true" o sync responde; com "false", 404 mesmo com sessão (spec 8.4)', async () => {
     const deps = testDeps({ user: 'conta-chave' });
-    const body = (): RequestInit => postJson({ v: 1, account: 'conta-chave', deviceId: 'd', cursor: 0, clock: T0, changes: [] });
+    const body = (): RequestInit => postJson({ v: SYNC_PROTOCOL, account: 'conta-chave', deviceId: 'd', cursor: 0, clock: T0, changes: [] });
     expect((await call('/api/sync', body(), { deps, env: testEnv({ ACCOUNTS_ENABLED: 'true' }) })).status).toBe(200);
     expect((await call('/api/sync', body(), { deps, env: testEnv({ ACCOUNTS_ENABLED: 'false' }) })).status).toBe(404);
   });

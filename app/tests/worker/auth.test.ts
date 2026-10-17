@@ -1,14 +1,14 @@
 import { createExecutionContext } from 'cloudflare:test';
 import { getMigrations } from 'better-auth/db/migration';
 import { describe, expect, it, vi } from 'vitest';
-import type { SyncResponse } from '../../src/core/sync/types';
+import { SYNC_PROTOCOL, type SyncResponse } from '../../src/core/sync/types';
 import { createAuth, SESSION_DAYS } from '../../worker/auth';
 import { codeEmail, e2eMailbox, type Mailer } from '../../worker/mail';
 import { defaultDeps, handle, MAX_AUTH_BODY } from '../../worker/router';
 import { accountOf, authDeps, call, fakeMailer, ORIGIN, postJson, signIn, T0, testDeps, testEnv } from './helpers';
 
 // `account`: a conta que o aparelho espera (C1), a da sessão quando o teste quer 200.
-const syncBody = (changes: unknown[] = [], account = 'qualquer') => ({ v: 1, account, deviceId: 'd1', cursor: 0, clock: T0, changes });
+const syncBody = (changes: unknown[] = [], account = 'qualquer') => ({ v: SYNC_PROTOCOL, account, deviceId: 'd1', cursor: 0, clock: T0, changes });
 const solve = (id: string) => ({
   store: 'solves', id, updatedAt: T0, deletedAt: null, deletionStamp: T0,
   data: { sessionId: 's', event: '333', ms: 1, penalty: null, at: T0, scramble: 'R', note: '', createdAt: T0 },

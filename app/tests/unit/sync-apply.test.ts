@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { defaultSeason } from '../../src/core/season';
 import { applyChanges, sameChange, type RecordView } from '../../src/core/sync/apply';
+import { QUOTA_REASON } from '../../src/core/sync/limits';
 import { sessionOfChange } from '../../src/core/sync/records';
 import { syncKey, type Change, type SyncStore } from '../../src/core/sync/types';
 import type { SeasonProgress, SeasonRecord } from '../../src/core/types';
@@ -174,5 +175,120 @@ describe('applyChanges: só lê os solves de uma sessão excluída (o 1º sync d
     const out = applyChanges(view, [session('act', { updatedAt: 50, deletedAt: 50, deletionStamp: 50 })], { mode: 'server' });
     expect(calls).toEqual(['act']);
     expect(keys(out.writes)).toEqual(['sessions/act', 'solves/a']);
+  });
+});
+
+describe('a cota (endurecimento 4.1)', () => {
+  // A conta cheia de solves: dois ativos (a e b) e um na lixeira (velho), no teto de 2.
+  const quota = { active: { solves: 2, sessions: 1, practice: 0 }, limits: { solves: 2, sessions: 5, practice: 5 } };
+  const full = (): MapView => viewOf(session('s1'), solve('a'), solve('b'), solve('velho', { deletedAt: 5, deletionStamp: 5 }));
+  const gone = { updatedAt: 20, deletedAt: 20, deletionStamp: 20 };
+  const practice = (id: string): Change => ({
+    store: 'practice', id, data: { caseId: 'T', ms: 1000, ok: true, helped: false, at: 1 }, updatedAt: 10, deletedAt: null, deletionStamp: 10,
+  });
+
+  it('um solve novo além do limite volta com o motivo da cota e não é gravado', () => {
+    const out = applyChanges(full(), [solve('novo')], { mode: 'server', quota });
+    expect(out.rejected).toEqual([{ store: 'solves', id: 'novo', reason: QUOTA_REASON }]);
+    expect(out.writes).toEqual([]);
+    expect(out.activeDelta).toEqual({ solves: 0, sessions: 0, practice: 0 });
+  });
+
+  it('editar e apagar um solve ativo passam com a conta cheia', () => {
+    const edited = applyChanges(full(), [solve('a', { updatedAt: 20, data: { ...(solve('a').data as object), note: 'editado' } })], { mode: 'server', quota });
+    expect(edited.rejected).toEqual([]);
+    expect(keys(edited.writes)).toEqual(['solves/a']);
+    expect(edited.activeDelta.solves).toBe(0);
+    const deleted = applyChanges(full(), [solve('a', gone)], { mode: 'server', quota });
+    expect(deleted.rejected).toEqual([]);
+    expect(keys(deleted.writes)).toEqual(['solves/a']);
+    expect(deleted.activeDelta.solves).toBe(-1);
+  });
+
+  it('restaurar da lixeira com a conta cheia conta como novo', () => {
+    const out = applyChanges(full(), [solve('velho', { deletionStamp: 20 })], { mode: 'server', quota });
+    expect(out.rejected).toEqual([{ store: 'solves', id: 'velho', reason: QUOTA_REASON }]);
+    expect(out.writes).toEqual([]);
+  });
+
+  it('o resultado do merge decide, não o que chegou: uma versão ativa velha de um solve na lixeira continua apagada e não é recusada', () => {
+    const out = applyChanges(full(), [solve('velho', { deletionStamp: 3 })], { mode: 'server', quota });
+    expect(out.rejected).toEqual([]);
+    expect(out.writes.map((c) => c.deletedAt)).toEqual([5]); // a vencedora volta para quem mandou a velha
+    expect(out.activeDelta.solves).toBe(0);
+  });
+
+  it('uma exclusão antes, no mesmo lote, abre a vaga do solve que vem depois', () => {
+    const out = applyChanges(full(), [solve('a', gone), solve('novo')], { mode: 'server', quota });
+    expect(out.rejected).toEqual([]);
+    expect(keys(out.writes)).toEqual(['solves/a', 'solves/novo']);
+    expect(out.activeDelta.solves).toBe(0);
+    // Na ordem inversa, a vaga ainda não existe quando o novo chega.
+    const late = applyChanges(full(), [solve('novo'), solve('a', gone)], { mode: 'server', quota });
+    expect(late.rejected).toEqual([{ store: 'solves', id: 'novo', reason: QUOTA_REASON }]);
+    expect(keys(late.writes)).toEqual(['solves/a']);
+    expect(late.activeDelta.solves).toBe(-1);
+  });
+
+  it('o mesmo solve criado e apagado no lote ocupa a vaga só enquanto está ativo', () => {
+    const room = { ...quota, active: { ...quota.active, solves: 1 } };
+    const out = applyChanges(full(), [solve('novo'), solve('novo', gone), solve('outro')], { mode: 'server', quota: room });
+    expect(out.rejected).toEqual([]);
+    expect(keys(out.writes)).toEqual(['solves/novo', 'solves/outro']);
+    expect(out.activeDelta.solves).toBe(1);
+  });
+
+  it('activeDelta conta a cascata da sessão apagada', () => {
+    const view = viewOf(session('s1'), solve('a'), solve('b'), solve('c'), solve('d', { deletedAt: 5, deletionStamp: 5 }));
+    const batch = [session('s1', { updatedAt: 50, deletedAt: 50, deletionStamp: 50 })];
+    for (const opts of [{ mode: 'server', quota }, { mode: 'server' }, { mode: 'client' }] as const) {
+      const out = applyChanges(view, batch, opts);
+      expect(out.rejected).toEqual([]);
+      expect(out.activeDelta).toEqual({ solves: -3, sessions: -1, practice: 0 });
+      expect(out.deletedSolves).toBe(3);
+    }
+  });
+
+  it('activeDelta conta a sessão que a cascata devolve', () => {
+    const view = viewOf(session('s1', { updatedAt: 50, deletedAt: 50, deletionStamp: 50 }));
+    const out = applyChanges(view, [solve('n', { updatedAt: 80, deletionStamp: 80 })], { mode: 'server', quota: { ...quota, active: { ...quota.active, solves: 0 } } });
+    expect(out.rejected).toEqual([]);
+    expect(out.activeDelta).toEqual({ solves: 1, sessions: 1, practice: 0 });
+  });
+
+  it('um solve recusado pela cota não mexe na sessão dele: a cascata não a devolve', () => {
+    const view = viewOf(session('X', { updatedAt: 50, deletedAt: 50, deletionStamp: 50 }), solve('a'), solve('b'));
+    const out = applyChanges(view, [solve('n', { sessionId: 'X', updatedAt: 80, deletionStamp: 80 })], { mode: 'server', quota });
+    expect(out.rejected).toEqual([{ store: 'solves', id: 'n', reason: QUOTA_REASON }]);
+    expect(out.writes).toEqual([]);
+    expect(out.derived).toEqual([]);
+  });
+
+  it('sessões e tentativas do treino também têm teto; os ajustes não', () => {
+    const atLimit = { active: { solves: 0, sessions: 5, practice: 5 }, limits: quota.limits };
+    const view = viewOf(session('s1'));
+    const out = applyChanges(view, [session('nova'), practice('p1'), seasonPref(season([]), 5), session('s1', { updatedAt: 20 })], { mode: 'server', quota: atLimit });
+    expect(out.rejected).toEqual([
+      { store: 'sessions', id: 'nova', reason: QUOTA_REASON },
+      { store: 'practice', id: 'p1', reason: QUOTA_REASON },
+    ]);
+    expect(keys(out.writes)).toEqual(['prefs/season', 'sessions/s1']);
+    expect(out.activeDelta).toEqual({ solves: 0, sessions: 0, practice: 0 });
+  });
+
+  it('sem limits, o teto é ACCOUNT_LIMITS', () => {
+    const out = applyChanges(viewOf(session('s1')), [solve('n1'), solve('n2')], { mode: 'server', quota: { active: { solves: 99_999, sessions: 1, practice: 0 } } });
+    expect(out.rejected).toEqual([{ store: 'solves', id: 'n2', reason: QUOTA_REASON }]);
+    expect(keys(out.writes)).toEqual(['solves/n1']);
+    expect(out.activeDelta.solves).toBe(1);
+  });
+
+  it('sem quota (o aparelho, a restauração), nada é recusado pela cota', () => {
+    for (const mode of ['server', 'client'] as const) {
+      const out = applyChanges(full(), [solve('novo'), solve('velho', { deletionStamp: 20 }), session('nova'), practice('p1')], { mode });
+      expect(out.rejected).toEqual([]);
+      expect(keys(out.writes)).toEqual(['practice/p1', 'sessions/nova', 'solves/novo', 'solves/velho']);
+      expect(out.activeDelta).toEqual({ solves: 2, sessions: 1, practice: 1 });
+    }
   });
 });

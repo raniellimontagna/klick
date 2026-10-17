@@ -16,7 +16,10 @@ export interface Change {
   deletionStamp: number; // a data da última mudança no estado de exclusão (apagar ou restaurar); editar não mexe nela
 }
 
-export const SYNC_PROTOCOL = 1; // sobe quando o formato do pedido muda: o servidor responde 426 a uma versão que não conhece
+// Sobe quando o formato do pedido ou da resposta muda: o servidor responde 426 a uma versão que não conhece. O 2 veio com a cota e o
+// orçamento do dia (endurecimento 4.1): um app de antes leria "cota" e o resto adiado como uma recusa comum e tiraria da fila o que só
+// existe nele.
+export const SYNC_PROTOCOL = 2;
 export const SYNC_BATCH = 500; // mudanças por pedido, nos dois sentidos
 // A maior data do sync: 2^32 ms (uns 50 dias) abaixo do maior inteiro seguro. O servidor recusa datas acima dela (shape.ts), e o relógio dos
 // aparelhos fica abaixo dela (data/repository.ts): toda data que um aparelho grava é aceita, e um registro nunca fica com uma data que
@@ -49,6 +52,9 @@ export interface SyncResponse {
   cursor: number;
   more: boolean;
   serverTime: number;
+  deferred?: number; // as últimas N mudanças do lote não foram lidas (o orçamento de gravações do dia acabou): continuam na fila
+  retryAt?: number; // quando mandar de novo o que foi adiado (a virada do dia do orçamento)
+  copiesPaused?: CopiesPaused | null; // as cópias na nuvem da conta estão pausadas, e por quê
 }
 
 // Um item da conta (store prefs, spec 5.2).
@@ -100,3 +106,18 @@ export interface CloudCopy {
   kind: 'daily' | 'pre-restore';
   solves: number; // solves ativos na cópia
 }
+
+// Por que as cópias na nuvem estão pausadas (endurecimento 4.2 e decisão 1): o teto de espaço das cópias encheu, ou o de operações do R2 no
+// mês acabou.
+export type CopiesPaused = 'space' | 'ops';
+
+// A lista de cópias na nuvem, com a pausa (null quando as cópias seguem).
+export interface CloudCopies {
+  copies: CloudCopy[];
+  paused: CopiesPaused | null;
+}
+
+// Por que uma restauração foi recusada (decisões 1, 2, 3 e 6): sem espaço para a cópia de antes de restaurar (no-room), restaurações demais
+// no dia (restore-limit), sem operações do R2 no mês (r2-budget), mais mudanças que o orçamento de gravações de um dia inteiro (too-big) ou
+// que o que sobra dele hoje (write-budget).
+export type RestoreRefusal = 'no-room' | 'restore-limit' | 'r2-budget' | 'too-big' | 'write-budget';
