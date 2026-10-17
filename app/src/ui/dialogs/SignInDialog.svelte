@@ -3,9 +3,12 @@
   // passkey, ela vem primeiro, com o código como alternativa. Depois do código, se o aparelho tem dados de outra conta, a pergunta da
   // spec 7.6 entra antes da passkey. O último passo segue o estado da conta (signInSync), não a promessa: numa aba que não lidera, o
   // pedido resolve antes de a líder fazer o trabalho, e um primeiro login cancelado (sair noutra aba) não pode dizer "Pronto".
+  // O visual (spec 2026-10-17, seção 5): o cubo vivo conta cada passo, e o código aparece em seis peças por cima de um campo só.
   import { tick, untrack } from 'svelte';
   import { T } from '../../strings';
   import type { SyncStatus } from '../../sync/engine';
+  import LiveCube from '../LiveCube.svelte';
+  import { type CubeState, firstSyncCube, motionReduced } from '../live-cube';
   import type { SignInNext, VerifyOutcome } from '../state/account.svelte';
   import type { AppState } from '../state/app.svelte';
   import { syncLine } from '../sync-status';
@@ -16,6 +19,9 @@
   type Step = 'email' | 'code' | 'other' | 'passkey' | 'sync';
   type Mode = 'join' | 'erase' | 'resume';
   const STEP_NUMBER: Record<Step, number> = { email: 1, code: 2, other: 2, passkey: 3, sync: 4 };
+  const CODE_PIECES = [0, 1, 2, 3, 4, 5];
+  // O código certo: as peças viram verdes em cascata (o CSS de .code-piece, ~300 ms) e só então o passo segue (decisão 3 da spec visual).
+  const CODE_OK_MS = 330;
 
   const account = $derived(app.account);
   let dialogEl = $state<HTMLDialogElement>();
@@ -29,12 +35,17 @@
   let mode = $state<Mode>('join');
   let joining = $state(0); // solves deste aparelho que sobem (o aviso da spec 6.5)
   let requested = $state(false); // continueSignIn pediu o sync: daqui em diante, o passo 4 lê signInSync
+  let codeCube = $state<CubeState>('wave'); // o cubo do passo 2: a onda do código que acabou de sair, girando enquanto confere
+  let codeOk = $state(false); // o código certo, durante a cascata verde
   // Cada abertura e cada fechamento começam uma vez nova: a resposta de continueSignIn que chega depois de fechar (ou de reabrir) não mexe
   // na tela, só desfaz a entrada que não continuou.
   let round = 0;
   const webauthn = typeof PublicKeyCredential !== 'undefined';
 
   const progress = $derived(requested ? (account?.signInSync ?? null) : null);
+  // As peças do código: verdes no certo; vermelhas (e o tremor) enquanto o erro está na tela, menos durante uma nova conferência, para o
+  // tremor tocar de novo se ela também falhar; digitar limpa o erro (decisão 4).
+  const codeState = $derived<'typing' | 'ok' | 'bad'>(codeOk ? 'ok' : error && !busy ? 'bad' : 'typing');
 
   // Só a abertura zera o diálogo: o estado da conta muda no meio do fluxo (e o reset o lê), sem voltar ao passo 1.
   $effect(() => {
@@ -51,6 +62,7 @@
     mode = 'join';
     joining = 0;
     requested = false;
+    codeOk = false;
   }
 
   // Cada passo novo leva o foco ao primeiro controle dele (spec 9.6).
@@ -86,6 +98,8 @@
       const result = await account.sendCode(email, captchaHost);
       if (result === 'sent') {
         code = '';
+        codeOk = false;
+        codeCube = 'wave'; // o passo do código nasce de novo a cada envio: a onda toca outra vez
         await go('code');
       } else error = result === 'limited' ? T.conta.limited : result === 'captcha' ? T.conta.captchaFailed : T.conta.sendFailed;
     } finally {
@@ -98,20 +112,27 @@
     const input = e.currentTarget as HTMLInputElement;
     code = input.value.replace(/\D/g, '').slice(0, 6);
     input.value = code;
+    error = null; // as peças voltam do vermelho na hora
   }
 
   async function verify(e: SubmitEvent): Promise<void> {
     e.preventDefault();
     if (!account || busy || code.length !== 6) return;
     busy = true;
+    codeCube = 'turn';
     let result: VerifyOutcome;
     try {
       result = await account.verifyCode(email, code);
     } catch {
       result = { ok: false, reason: 'failed' }; // o banco falhou ao ler a conta deste aparelho
-    } finally {
-      busy = false;
     }
+    codeCube = 'idle';
+    // Os botões seguem desabilitados durante a cascata; com menos movimento, não há cascata nem espera.
+    if (result.ok && !motionReduced()) {
+      codeOk = true;
+      await new Promise((resolve) => setTimeout(resolve, CODE_OK_MS));
+    }
+    busy = false;
     if (result.ok) await after(result.next);
     else error = { 'bad-code': T.conta.badCode, expired: T.conta.expiredCode, 'too-many': T.conta.tooMany, failed: T.conta.verifyFailed }[result.reason];
   }
@@ -252,11 +273,27 @@
         </form>
         <p class="muted"><a href="/privacidade/" target="_blank" rel="noopener">{T.conta.privacy}</a></p>
       {:else if step === 'code'}
-        <p>{T.conta.codeIntro(email.trim())}</p>
+        <div class="signin-status">
+          <LiveCube state={codeCube} />
+          <p>{T.conta.codeIntro(email.trim())}</p>
+        </div>
         <form onsubmit={verify}>
           <label class="field">
             <span>{T.conta.codeLabel}</span>
-            <input type="text" inputmode="numeric" autocomplete="one-time-code" value={code} oninput={onCode} data-code />
+            <!-- Um campo só, real e transparente, por cima das peças: o toque, o colar e a sugestão do código do Mail são dele. -->
+            <span class="code-field">
+              <span class="code-pieces" data-code-pieces data-code-state={codeState} aria-hidden="true">
+                {#each CODE_PIECES as i (i)}
+                  <span
+                    class="code-piece"
+                    data-code-piece
+                    data-filled={i < code.length ? '' : undefined}
+                    data-next={i === code.length ? '' : undefined}
+                    style:--i={i}>{code[i] ?? ''}</span>
+                {/each}
+              </span>
+              <input type="text" inputmode="numeric" autocomplete="one-time-code" value={code} oninput={onCode} data-code />
+            </span>
           </label>
           <div class="row">
             <button type="submit" class="btn primary" disabled={busy || code.length !== 6}>{T.conta.enter}</button>
@@ -273,12 +310,16 @@
         </div>
       {:else if step === 'passkey'}
         <h3>{T.conta.passkeyTitle}</h3>
-        <p>{T.conta.passkeyText}</p>
+        <div class="signin-status">
+          <LiveCube state="idle" />
+          <p>{T.conta.passkeyText}</p>
+        </div>
         <div class="row">
           <button type="button" class="btn primary" disabled={busy} onclick={createPasskey}>{T.conta.passkeyOffer}</button>
           <button type="button" class="btn" disabled={busy} onclick={startSync}>{T.conta.skip}</button>
         </div>
       {:else}
+        {@const cube = firstSyncCube(progress, account.status)}
         <h3>{T.conta.syncTitle}</h3>
         {#if mode === 'resume'}
           <p>{T.conta.resuming}</p>
@@ -286,14 +327,20 @@
           <p data-joining>{T.conta.joining(joining)}</p>
           {#if joining > 0 && (progress === 'started' || progress === 'done')}<p class="muted">{T.conta.joinNote}</p>{/if}
         {/if}
+        <div class="signin-status">
+          <LiveCube state={cube.state} filled={cube.filled} />
+          {#if progress === 'cancelled'}
+            <p role="alert">{T.conta.syncCancelled}</p>
+          {:else}
+            <p class="muted" data-sync-line>{progress === 'done' ? T.conta.done : waitingLine(account.status)}</p>
+          {/if}
+        </div>
         {#if progress === 'cancelled'}
-          <p role="alert">{T.conta.syncCancelled}</p>
           <div class="row">
             <button type="button" class="btn primary" onclick={() => go('email')}>{T.conta.signInAgain}</button>
             <button type="button" class="btn" onclick={() => dialogEl?.close()}>{T.dialog.close}</button>
           </div>
         {:else}
-          <p class="muted" data-sync-line>{progress === 'done' ? T.conta.done : waitingLine(account.status)}</p>
           {#if progress !== 'done'}<p class="muted">{T.conta.keepsGoing}</p>{/if}
           <div class="row">
             <button type="button" class="btn" onclick={() => dialogEl?.close()}>{T.dialog.close}</button>

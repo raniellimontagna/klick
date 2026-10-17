@@ -64,6 +64,102 @@ describe('diálogo de entrar (spec 7.2 e 9.2)', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Código errado');
   });
 
+  // O visual da conta (spec 2026-10-17, seção 5): o cubo vivo em cada passo e o código em seis peças por cima de um campo só.
+  it('o código em seis peças sobre um campo só: colar enche as peças, o campo continua o do Mail', async () => {
+    await openDialog();
+    await fireEvent.input(screen.getByRole('textbox', { name: 'E-mail' }), { target: { value: 'ranielli@exemplo.com' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Enviar código' }));
+    const field = await screen.findByRole('textbox', { name: 'Código' });
+    const step = document.querySelector('[data-signin-step="code"]')!;
+    expect(step.querySelector('[data-cube]')).toHaveAttribute('data-cube', 'wave');
+    await fireEvent.input(field, { target: { value: 'Seu código: 123 456' } });
+    expect((field as HTMLInputElement).value).toBe('123456');
+    expect([...step.querySelectorAll('[data-code-piece]')].map((p) => p.textContent)).toEqual(['1', '2', '3', '4', '5', '6']);
+    expect(step.querySelector('[data-code-pieces]')).toHaveAttribute('aria-hidden', 'true');
+    expect(step.querySelectorAll('input')).toHaveLength(1);
+    expect(screen.getByRole('textbox', { name: 'Código' })).toBe(field); // os dígitos das peças não entram no nome do campo
+    expect(field).toHaveAttribute('autocomplete', 'one-time-code');
+    expect(field).toHaveAttribute('inputmode', 'numeric');
+    expect(field).not.toHaveAttribute('maxlength');
+    expect(document.activeElement).toBe(field);
+  });
+
+  it('código errado: as peças ficam vermelhas e voltam ao digitar', async () => {
+    await openDialog();
+    await typeEmailAndCode('999999');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Código errado');
+    const pieces = document.querySelector('[data-code-pieces]')!;
+    expect(pieces).toHaveAttribute('data-code-state', 'bad');
+    await fireEvent.input(screen.getByRole('textbox', { name: 'Código' }), { target: { value: '1' } });
+    expect(pieces).toHaveAttribute('data-code-state', 'typing');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('código certo: as peças viram verdes antes de seguir', async () => {
+    await openDialog();
+    await typeEmailAndCode();
+    await vi.waitFor(() => expect(document.querySelector('[data-code-pieces]')).toHaveAttribute('data-code-state', 'ok'));
+    expect(document.querySelector('[data-signin-step]')).toHaveAttribute('data-signin-step', 'code');
+    await vi.waitFor(() => expect(document.querySelector('[data-signin-step]')).not.toHaveAttribute('data-signin-step', 'code'));
+  });
+
+  it('menos movimento: o código certo segue sem esperar', async () => {
+    await openDialog();
+    document.documentElement.dataset.reducedMotion = 'true'; // depois de abrir: o init do app escreve o atributo
+    const states: string[] = [];
+    const observer = new MutationObserver(() => {
+      const state = document.querySelector('[data-code-pieces]')?.getAttribute('data-code-state');
+      if (state) states.push(state);
+    });
+    // Só o setTimeout é falso: o banco (fake-indexeddb, no setImmediate) e o relógio do sync seguem os de verdade.
+    vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ['setTimeout', 'clearTimeout'] });
+    const timeout = vi.spyOn(globalThis, 'setTimeout');
+    try {
+      await fireEvent.input(screen.getByRole('textbox', { name: 'E-mail' }), { target: { value: 'ranielli@exemplo.com' } });
+      await fireEvent.click(screen.getByRole('button', { name: 'Enviar código' }));
+      await vi.waitFor(() => expect(screen.getByRole('textbox', { name: 'Código' })).toBeInTheDocument());
+      observer.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['data-code-state'] });
+      await fireEvent.input(screen.getByRole('textbox', { name: 'Código' }), { target: { value: '123456' } });
+      await fireEvent.click(screen.getByRole('button', { name: 'Entrar' }));
+      await vi.waitFor(() => expect(document.querySelector('[data-signin-step]')).toHaveAttribute('data-signin-step', 'sync'));
+      expect(states).not.toContain('ok');
+      // Nenhuma espera da cascata (~300 ms) foi agendada: o passo chegou sem precisar do relógio.
+      expect(timeout.mock.calls.map(([, ms]) => ms ?? 0).filter((ms) => ms >= 200 && ms <= 500)).toEqual([]);
+      // O primeiro sync termina antes de devolver os relógios de verdade (um relógio falso desligado no meio deixaria a rodada parada).
+      await vi.waitFor(() => expect(screen.getByText('Pronto. Seus solves estão na conta.')).toBeInTheDocument(), { timeout: 5000 });
+    } finally {
+      observer.disconnect();
+      timeout.mockRestore();
+      vi.useRealTimers();
+      delete document.documentElement.dataset.reducedMotion;
+    }
+  });
+
+  it('o primeiro sync: o cubo enche, e "Pronto" o resolve', async () => {
+    const { app } = await openDialog();
+    await app.addSolve({ ms: 9000, penalty: null, at: Date.now() });
+    const account = app.account!;
+    const real = account.continueSignIn.bind(account);
+    const gate = deferred();
+    vi.spyOn(account, 'continueSignIn').mockImplementation(async (mode) => {
+      await gate.promise; // segura o pedido: o passo 4 aparece antes de o sync começar
+      return real(mode);
+    });
+    await typeEmailAndCode();
+    await skipPasskey();
+    expect(await screen.findByRole('heading', { name: 'Primeiro sync' })).toBeInTheDocument();
+    const cube = () => document.querySelector('[data-signin-step="sync"] [data-cube]');
+    expect(cube()).toHaveAttribute('data-cube', 'turn');
+    const seen: string[] = [];
+    const observer = new MutationObserver(() => seen.push(cube()?.getAttribute('data-cube') ?? ''));
+    observer.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['data-cube'] });
+    gate.resolve();
+    await vi.waitFor(() => expect(cube()).toHaveAttribute('data-cube', 'solved'));
+    observer.disconnect();
+    expect(seen).toContain('fill'); // o solve deste aparelho subindo: o total é conhecido
+    expect(document.querySelector('[data-sync-line]')).toHaveTextContent(T.conta.done);
+  });
+
   it('o limite e o Turnstile recusado têm cada um o seu aviso, e cada envio pede um token novo (o token vale uma vez)', async () => {
     const { auth, calls, state } = fakeAuth();
     let n = 0;

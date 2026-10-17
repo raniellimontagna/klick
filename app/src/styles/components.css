@@ -542,6 +542,131 @@
   }
 }
 
+/* O diálogo de entrar com o cubo vivo (spec 2026-10-17, seção 5): o cubo ao lado do que o passo diz. */
+.signin-status {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 12px 0;
+}
+
+/* O código em seis peças, como as do e-mail. Um campo só, real, transparente e por cima das peças: o toque, o colar, o teclado numérico
+   e a sugestão do código do Mail no iPhone são dele; as peças só desenham os dígitos. O foco é o do campo, um contorno em volta das seis,
+   e a peça da vez ganha a borda na tinta (o cursor fica escondido: ele não cairia sobre as peças). */
+.signin .code-field {
+  position: relative;
+  display: block;
+  max-width: calc(6 * 40px + 5 * 6px);
+}
+
+.signin .code-pieces {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+  pointer-events: none;
+}
+
+.signin .code-piece {
+  display: grid;
+  place-items: center;
+  height: 48px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--bg);
+  font: 700 22px/1 var(--mono);
+  transition:
+    background var(--t-state) var(--ease),
+    border-color var(--t-state) var(--ease);
+}
+
+.signin .code-piece[data-filled] {
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+.signin .code-field:focus-within .code-piece[data-next] {
+  border-color: var(--ink);
+}
+
+.signin .code-field input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  caret-color: transparent;
+  font-size: 16px; /* abaixo de 16 px, o Safari do iPhone aproxima a página no foco */
+  outline-offset: 3px;
+}
+
+.signin .code-field input::selection {
+  background: transparent;
+}
+
+/* Código certo: as peças viram verdes uma a uma, como uma camada do cubo virando (~300 ms no total; o diálogo espera por ela). */
+.signin [data-code-state='ok'] .code-piece {
+  background: var(--go);
+  border-color: var(--go);
+  animation: code-ok 160ms var(--ease) calc(var(--i) * 28ms) both;
+}
+
+@keyframes code-ok {
+  0% {
+    transform: rotateX(0deg);
+    background: var(--ink);
+    border-color: var(--ink);
+  }
+  50% {
+    transform: rotateX(90deg);
+    background: var(--ink);
+    border-color: var(--ink);
+  }
+  51% {
+    background: var(--go);
+    border-color: var(--go);
+  }
+  100% {
+    transform: rotateX(0deg);
+    background: var(--go);
+    border-color: var(--go);
+  }
+}
+
+/* Código errado: o campo treme de leve e as peças ficam vermelhas enquanto o erro está na tela. Com menos movimento, só o vermelho. */
+.signin [data-code-state='bad'] .code-piece[data-filled] {
+  background: var(--arm);
+  border-color: var(--arm);
+}
+
+.signin .code-field:has([data-code-state='bad']) {
+  animation: code-shake 420ms var(--ease) 1;
+}
+
+@keyframes code-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-6px);
+  }
+  40% {
+    transform: translateX(6px);
+  }
+  60% {
+    transform: translateX(-4px);
+  }
+  80% {
+    transform: translateX(3px);
+  }
+}
+
 /* O indicador do sync na barra de cima (spec 9.3). Gira só sincronizando, com o timer parado. */
 .sync-ind {
   display: inline-grid;
