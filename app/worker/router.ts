@@ -2,9 +2,10 @@
 // Sem um BETTER_AUTH_SECRET de verdade, as rotas da conta respondem 503. De /api/auth/*, só as rotas do Better Auth que o app usa; as outras
 // rotas da conta pedem sessão e a conta que o aparelho espera (a da sessão, senão 401), e falam com o Durable Object dela. O que não é /api
 // são os arquivos do app. Os logs levam só ids, contagens, durações e erros (spec 8.5).
-import { ACCOUNT_HEADER, SYNC_BATCH, SYNC_PROTOCOL, type CloudCopy, type SyncRequest, type SyncResponse } from '../src/core/sync/types';
+import { ACCOUNT_HEADER, SYNC_BATCH, SYNC_PROTOCOL, type RestoreRefusal, type SyncRequest, type SyncResponse } from '../src/core/sync/types';
 import { E2E_TOKEN, emailKeyOf, guardPasskeyOptions, guardSendCode, turnstileVerifier, type VerifyCaptcha } from './abuse';
 import { authSecretOk, createAuth, sessionUser, type User } from './auth';
+import { countOps } from './budget';
 import type { Env } from './env';
 import { e2eMailbox, e2eMailer, missingMailer, resendMailer, type Mailer } from './mail';
 import { SNAPSHOT_NAME, snapshotPrefix } from './snapshots';
@@ -161,32 +162,20 @@ function accountGuard(expected: unknown, user: User): Response | null {
   return fail(401, 'auth');
 }
 
-// As cópias da conta no R2, a mais nova primeiro. A ordem é a da gravação: o nome da diária leva o dia de Brasília, e o da de antes de
-// restaurar, a data em UTC, que entre 21h e meia-noite de lá já é o dia seguinte.
-async function listCopies(env: Env, userId: string): Promise<CloudCopy[]> {
-  const prefix = snapshotPrefix(userId);
-  const found: { copy: CloudCopy; uploaded: number }[] = [];
-  let cursor: string | undefined;
-  do {
-    const page = await env.SNAPSHOTS.list({ prefix, include: ['customMetadata'], cursor });
-    for (const o of page.objects) {
-      const name = o.key.slice(prefix.length, -'.json.gz'.length);
-      const meta = o.customMetadata ?? {};
-      const kind = meta.kind === 'pre-restore' ? 'pre-restore' : 'daily';
-      found.push({ copy: { name, day: meta.day ?? name.slice(0, 10), kind, solves: Number(meta.solves ?? 0) }, uploaded: o.uploaded.getTime() });
-    }
-    cursor = page.truncated ? page.cursor : undefined;
-  } while (cursor);
-  return found.sort((a, b) => b.uploaded - a.uploaded || (a.copy.name < b.copy.name ? 1 : -1)).map((f) => f.copy);
-}
-
-async function deleteCopies(env: Env, userId: string): Promise<void> {
+// Apagar a conta leva as cópias dela no R2 (apagar no R2 não custa operação). Cada listagem conta como operação A do mês, sem recusar: as
+// cópias de uma conta apagada não podem ficar porque o mês acabou.
+async function deleteCopies(env: Env, userId: string, now: number): Promise<void> {
   for (;;) {
+    await countOps(env.DB, 'A', 1, now);
     const page = await env.SNAPSHOTS.list({ prefix: snapshotPrefix(userId), limit: 1000 });
     if (page.objects.length === 0) return;
     await env.SNAPSHOTS.delete(page.objects.map((o) => o.key));
   }
 }
+
+// O status de cada recusa da restauração (decisões 1, 2, 3 e 6), com o código no corpo ({ error }): sem espaço para a cópia de antes (409),
+// restaurações demais no dia ou o orçamento de gravações de hoje (429), sem operações do R2 no mês (503) e grande demais para um dia (413).
+const REFUSAL_STATUS: Record<RestoreRefusal, number> = { 'no-room': 409, 'restore-limit': 429, 'r2-budget': 503, 'too-big': 413, 'write-budget': 429 };
 
 // Os códigos pendentes de um e-mail, por ele exato: o identificador do Better Auth é "<tipo>-otp-<e-mail>", e o tipo não tem "-otp-".
 const PENDING_CODES = "DELETE FROM verification WHERE instr(identifier, '-otp-') > 0 AND substr(identifier, instr(identifier, '-otp-') + 5) = ?";
@@ -239,12 +228,16 @@ export async function handle(request: Request, env: Env, ctx: ExecutionContext, 
     return json(res);
   }
 
-  // As cópias na nuvem (spec 8.3). Listar e restaurar passam pela mesma rajada do sync: cada pedido custa operações no R2.
+  // As cópias na nuvem (spec 8.3). Listar e restaurar passam pela mesma rajada do sync: cada pedido custa operações no R2. A lista vem do
+  // objeto da conta, que a guarda por alguns minutos e só lista o R2 com operação no mês; sem ela e sem lista guardada, 503.
   if (path === '/api/snapshots' && request.method === 'GET') {
     const mismatch = accountGuard(request.headers.get(ACCOUNT_HEADER), user);
     if (mismatch) return mismatch;
     if (!(await env.API_BURST.limit({ key: user.id })).success) return fail(429, 'limited');
-    return json({ copies: await listCopies(env, user.id) });
+    const copies = await account.listCopies(deps.now());
+    if (copies === 'deleted') return fail(401, 'auth');
+    if (copies === 'r2-budget') return fail(503, 'r2-budget');
+    return json(copies);
   }
 
   const restore = /^\/api\/snapshots\/([^/]+)\/restore$/.exec(path);
@@ -259,7 +252,8 @@ export async function handle(request: Request, env: Env, ctx: ExecutionContext, 
     const outcome = await account.restoreSnapshot(name, deps.now());
     log({ evt: 'restore', user: user.id, outcome });
     if (outcome === 'deleted') return fail(401, 'auth');
-    return outcome === 'ok' ? new Response(null, { status: 204 }) : fail(404, 'not-found');
+    if (outcome === 'ok') return new Response(null, { status: 204 });
+    return outcome === 'not-found' ? fail(404, 'not-found') : fail(REFUSAL_STATUS[outcome], outcome);
   }
 
   // Apagar a conta (spec 7.7): o e-mail digitado confirma; somem na hora o objeto da conta, as cópias no R2 e as linhas no D1, com os
@@ -277,7 +271,7 @@ export async function handle(request: Request, env: Env, ctx: ExecutionContext, 
     const typed = isRec(body) && typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
     if (typed !== email) return fail(400, 'confirm');
     await account.wipe();
-    await deleteCopies(env, user.id);
+    await deleteCopies(env, user.id, deps.now());
     await env.DB.batch([
       env.DB.prepare('DELETE FROM passkey WHERE userId = ?').bind(user.id),
       env.DB.prepare('DELETE FROM session WHERE userId = ?').bind(user.id),

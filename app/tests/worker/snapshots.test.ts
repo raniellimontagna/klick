@@ -2,13 +2,13 @@ import { runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
 import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { TOMBSTONE_KEEP_MS } from '../../src/core/sync/limits';
-import { ACCOUNT_HEADER, SYNC_PROTOCOL, type Change, type CloudCopy, type SyncResponse } from '../../src/core/sync/types';
+import { ACCOUNT_HEADER, SYNC_PROTOCOL, type Change, type CloudCopies, type CloudCopy, type SyncResponse } from '../../src/core/sync/types';
 import type { KlickExport } from '../../src/core/types';
 import { emailKeyOf } from '../../worker/abuse';
 import type { Env } from '../../worker/env';
 import { COMPACT_PER_DAY, DAILY_WRITE_BUDGET, utcDay } from '../../worker/limits';
 import { COMPACTABLE } from '../../worker/records-sql';
-import { dayOf, gunzipJson, nextSnapshotAt, preRestoreName, snapshotKey } from '../../worker/snapshots';
+import { dayOf, gunzipJson, nextSnapshotAt, preRestoreName, snapshotKey, snapshotPrefix } from '../../worker/snapshots';
 import { authDeps, call, postJson, setState, stateOf, stubOf, T0, testDeps, testEnv } from './helpers';
 
 const as = (user: string): Record<string, string> => ({ [ACCOUNT_HEADER]: user }); // a conta que o aparelho espera (C1)
@@ -26,8 +26,16 @@ const syncCall = (user: string, changes: Change[], cursor = 0, now = () => T0, d
 async function sync(user: string, changes: Change[], cursor = 0, now = () => T0, device = 'd1'): Promise<SyncResponse> {
   return (await (await syncCall(user, changes, cursor, now, device)).json()) as SyncResponse;
 }
-const copies = async (user: string): Promise<CloudCopy[]> =>
-  ((await (await call('/api/snapshots', { headers: as(user) }, { deps: testDeps({ user }) })).json()) as { copies: CloudCopy[] }).copies;
+// A lista das cópias (CloudCopies: as cópias e a pausa) e as cópias de verdade no R2, sem passar pelo objeto da conta (uma conta apagada
+// recusa a lista).
+const listOf = async (user: string): Promise<CloudCopies> => {
+  const res = await call('/api/snapshots', { headers: as(user) }, { deps: testDeps({ user }) });
+  expect(res.status).toBe(200);
+  return (await res.json()) as CloudCopies;
+};
+const copies = async (user: string): Promise<CloudCopy[]> => (await listOf(user)).copies;
+const objectsOf = async (user: string): Promise<string[]> => (await env.SNAPSHOTS.list({ prefix: snapshotPrefix(user) })).objects.map((o) => o.key);
+const listStatus = async (user: string): Promise<number> => (await call('/api/snapshots', { headers: as(user) }, { deps: testDeps({ user }) })).status;
 const deleteAccount = (user: string): Promise<Response> =>
   call('/api/account', { method: 'DELETE', headers: { 'Content-Type': 'application/json', ...as(user) }, body: JSON.stringify({ email: `${user}@exemplo.com` }) }, {
     deps: testDeps({ user }),
@@ -78,7 +86,7 @@ describe('a cópia diária (spec 8.3)', () => {
     const data = (await gunzipJson(await object!.arrayBuffer())) as KlickExport;
     expect(data).toMatchObject({ format: 'klick', version: 1 });
     expect(data.solves.map((s) => s.id)).toEqual(['a', 'b']);
-    expect(await copies('conta-alarme')).toEqual([{ name: day, day, kind: 'daily', solves: 2 }]);
+    expect(await listOf('conta-alarme')).toEqual({ copies: [{ name: day, day, kind: 'daily', solves: 2 }], paused: null });
     expect(await stub.snapshot(Date.now())).toBe(false); // nada mudou desde a última
     expect(await alarmOf('conta-alarme')).toBeGreaterThan(Date.now()); // e o de amanhã já está marcado
   });
@@ -280,7 +288,8 @@ describe('apagar a conta (spec 7.7)', () => {
     expect((await del('outro@exemplo.com')).status).toBe(400);
     expect((await del(` ${user.toUpperCase()}@EXEMPLO.COM `)).status).toBe(204);
     expect(await alarmOf(user)).toBeNull();
-    expect(await copies(user)).toEqual([]);
+    expect(await objectsOf(user)).toEqual([]);
+    expect(await listStatus(user)).toBe(401); // a lista de uma conta apagada: como uma sessão revogada
     expect(await env.DB.prepare('SELECT id FROM "user" WHERE id = ?').bind(user).first()).toBeNull();
     const left = await env.DB.prepare("SELECT id FROM verification WHERE id IN ('v-fim', 'v-outra')").all<{ id: string }>();
     expect(left.results.map((r) => r.id)).toEqual(['v-outra']);
@@ -299,7 +308,8 @@ describe('apagar a conta (spec 7.7)', () => {
     expect((await call(`/api/snapshots/${dayOf(T0)}/restore`, postJson({}, as(user)), { deps: testDeps({ user }) })).status).toBe(401);
     expect(await stubOf(user).snapshot(Date.now())).toBe(false);
     expect(await alarmOf(user)).toBeNull();
-    expect(await copies(user)).toEqual([]);
+    expect(await objectsOf(user)).toEqual([]);
+    expect(await listStatus(user)).toBe(401);
     const count = await runInDurableObject(stubOf(user), (_o, state) => state.storage.sql.exec<{ n: number }>('SELECT count(*) AS n FROM records').one().n);
     expect(count).toBe(0);
     expect((await deleteAccount(user)).status).toBe(204); // apagar de novo (um pedido que falhou no meio) funciona
@@ -316,7 +326,7 @@ describe('apagar a conta (spec 7.7)', () => {
     gate.open = true;
     expect(await alarm).toBe(true);
     expect((await deleted).status).toBe(204);
-    expect(await copies(user)).toEqual([]);
+    expect(await objectsOf(user)).toEqual([]);
     expect(await alarmOf(user)).toBeNull();
   });
 

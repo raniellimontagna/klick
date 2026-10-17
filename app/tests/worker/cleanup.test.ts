@@ -1,8 +1,10 @@
 import { createExecutionContext, createScheduledController, waitOnExecutionContext } from 'cloudflare:test';
 import { env } from 'cloudflare:workers';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { reserveStorage, storageUsed } from '../../worker/budget';
 import type { Env } from '../../worker/env';
 import worker from '../../worker/index';
+import { capsOf, utcMonth } from '../../worker/limits';
 import { authDeps, call, postJson, testEnv } from './helpers';
 
 const HOUR = 3_600_000;
@@ -51,5 +53,75 @@ describe('a limpeza diária (Cron Trigger)', () => {
     await runCron(testEnv({ ACCOUNTS_ENABLED: 'false' }));
     const left = await env.DB.prepare("SELECT key FROM otp_requests WHERE key = 'e:cron-desligada'").all<{ key: string }>();
     expect(left.results).toEqual([]);
+  });
+});
+
+// A recontagem do espaço das cópias (endurecimento 4.2): a mesma limpeza diária lista snap/ e troca o uso contado pelo que existe, para que
+// o que a regra de 30 dias do bucket apagou saia da conta. Cada página da listagem é uma operação A, reservada antes.
+describe('a recontagem do espaço das cópias (Cron Trigger)', () => {
+  const caps = capsOf(env as unknown as Env);
+  const month = (): string => utcMonth(Date.now());
+  const opsA = async (): Promise<number> =>
+    (await env.DB.prepare("SELECT count FROM r2_ops WHERE month = ? AND class = 'A'").bind(month()).first<{ count: number }>())?.count ?? 0;
+  const seedOpsA = (count: number) =>
+    env.DB.prepare("INSERT INTO r2_ops (month, class, count) VALUES (?1, 'A', ?2) ON CONFLICT (month, class) DO UPDATE SET count = excluded.count")
+      .bind(month(), count)
+      .run();
+  const seedUsed = (bytes: number) => env.DB.prepare('INSERT INTO r2_storage (id, bytes, counted_at) VALUES (1, ?, 0)').bind(bytes).run();
+  const countedAt = async (): Promise<number | undefined> =>
+    (await env.DB.prepare('SELECT counted_at AS at FROM r2_storage WHERE id = 1').first<{ at: number }>())?.at;
+  // O bucket em páginas de um objeto só (as listagens contadas), e o que roda antes de cada uma.
+  const paged = (pages: { n: number }, before: () => Promise<unknown> = async () => undefined): Env =>
+    testEnv({
+      SNAPSHOTS: new Proxy(env.SNAPSHOTS, {
+        get(target, key) {
+          if (key === 'list') {
+            return async (o?: R2ListOptions) => {
+              pages.n++;
+              await before();
+              return target.list({ ...o, limit: 1 });
+            };
+          }
+          const value = Reflect.get(target, key) as unknown;
+          return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+        },
+      }),
+    });
+
+  beforeEach(async () => {
+    await env.DB.batch([env.DB.prepare('DELETE FROM r2_ops'), env.DB.prepare('DELETE FROM r2_storage')]);
+    await env.SNAPSHOTS.put('snap/conta-1/2026-10-01.json.gz', new Uint8Array(100));
+    await env.SNAPSHOTS.put('snap/conta-2/2026-10-02.json.gz', new Uint8Array(250));
+    await env.SNAPSHOTS.put('fora/outra-coisa.bin', new Uint8Array(999)); // fora de snap/: não é cópia
+  });
+
+  it('a limpeza reconta o espaço listando snap/: o que a regra de 30 dias apagou sai da conta', async () => {
+    await seedUsed(10_000_000); // inclui as cópias que a regra de 30 dias já apagou
+    const pages = { n: 0 };
+    await runCron(paged(pages));
+    expect(await storageUsed(env.DB)).toBe(350);
+    expect(await countedAt()).toBeGreaterThan(0);
+    expect(pages.n).toBeGreaterThan(1);
+    expect(await opsA()).toBe(pages.n); // uma operação A por página
+  });
+
+  it('sem operações A no mês, não reconta e o valor fica', async () => {
+    await seedUsed(12_345);
+    await seedOpsA(caps.classAMonth);
+    const pages = { n: 0 };
+    await runCron(paged(pages));
+    expect([await storageUsed(env.DB), await countedAt(), pages.n, await opsA()]).toEqual([12_345, 0, 0, caps.classAMonth]);
+    // As operações acabam no meio da listagem: a conta pela metade não vale, e o valor fica.
+    await seedOpsA(caps.classAMonth - 1);
+    await runCron(paged(pages));
+    expect([await storageUsed(env.DB), await countedAt(), pages.n, await opsA()]).toEqual([12_345, 0, 1, caps.classAMonth]);
+  });
+
+  it('uma cópia reservada durante a recontagem fica na conta', async () => {
+    // A cópia de uma conta reserva o espaço com a listagem já em andamento, e o put dela chega depois de a listagem passar pelo nome dela.
+    await seedUsed(500);
+    const pages = { n: 0 };
+    await runCron(paged(pages, () => (pages.n === 1 ? reserveStorage(env.DB, 40, Date.now(), caps.snapshotBytes) : Promise.resolve())));
+    expect(await storageUsed(env.DB)).toBe(350 + 40);
   });
 });

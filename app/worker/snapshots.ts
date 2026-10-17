@@ -1,7 +1,9 @@
 // As cópias diárias no R2 (spec 8.3): snap/<userId>/<nome>.json.gz, comprimidas com gzip. O dia é o de Brasília (UTC-3, sem horário de
 // verão desde 2019); a cópia sai logo depois da meia-noite de lá. A regra de ciclo de vida do bucket apaga o que passa de 30 dias.
+import type { CloudCopy } from '../src/core/sync/types';
 
-export const snapshotPrefix = (userId: string): string => `snap/${userId}/`;
+export const SNAPSHOTS_ROOT = 'snap/'; // todas as cópias, de todas as contas: o que a recontagem do espaço lista (budget.ts)
+export const snapshotPrefix = (userId: string): string => `${SNAPSHOTS_ROOT}${userId}/`;
 export const snapshotKey = (userId: string, name: string): string => `${snapshotPrefix(userId)}${name}.json.gz`;
 export const SNAPSHOT_NAME = /^\d{4}-\d{2}-\d{2}(T\d{2}-\d{2}-\d{2}Z-antes)?$/;
 
@@ -28,4 +30,27 @@ export function gzipJson(data: unknown): Promise<ArrayBuffer> {
 
 export async function gunzipJson(bytes: ArrayBuffer): Promise<unknown> {
   return JSON.parse(new TextDecoder().decode(await pipe(new Uint8Array(bytes), new DecompressionStream('gzip')))) as unknown;
+}
+
+// As cópias da conta no R2, a mais nova primeiro, e quantas páginas a listagem levou (cada uma, uma operação A). A ordem é a da gravação: o
+// nome da diária leva o dia de Brasília, e o da de antes de restaurar, a data em UTC, que entre 21h e meia-noite de lá já é o dia seguinte.
+// Só `list` do bucket: quem chama passa um que reserva a operação antes de cada página (account-store.ts).
+export async function listCopiesIn(bucket: Pick<R2Bucket, 'list'>, userId: string): Promise<{ copies: CloudCopy[]; pages: number }> {
+  const prefix = snapshotPrefix(userId);
+  const found: { copy: CloudCopy; uploaded: number }[] = [];
+  let pages = 0;
+  let cursor: string | undefined;
+  do {
+    const page = await bucket.list({ prefix, include: ['customMetadata'], cursor });
+    pages += 1;
+    for (const o of page.objects) {
+      const name = o.key.slice(prefix.length, -'.json.gz'.length);
+      const meta = o.customMetadata ?? {};
+      const kind = meta.kind === 'pre-restore' ? 'pre-restore' : 'daily';
+      found.push({ copy: { name, day: meta.day ?? name.slice(0, 10), kind, solves: Number(meta.solves ?? 0) }, uploaded: o.uploaded.getTime() });
+    }
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+  const copies = found.sort((a, b) => b.uploaded - a.uploaded || (a.copy.name < b.copy.name ? 1 : -1)).map((f) => f.copy);
+  return { copies, pages };
 }

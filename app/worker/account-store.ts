@@ -7,10 +7,32 @@ import { isCounted, TOMBSTONE_KEEP_MS, zeroCounts, type ActiveCounts, type Count
 import { sessionOfChange } from '../src/core/sync/records';
 import { restoreChanges } from '../src/core/sync/restore';
 import { accountPrefsOf, exportFromRecords } from '../src/core/sync/snapshot';
-import { SYNC_BATCH, syncKey, type Change, type SyncRequest, type SyncResponse, type SyncStore } from '../src/core/sync/types';
+import {
+  SYNC_BATCH,
+  syncKey,
+  type Change,
+  type CloudCopies,
+  type CloudCopy,
+  type CopiesPaused,
+  type RestoreRefusal,
+  type SyncRequest,
+  type SyncResponse,
+  type SyncStore,
+} from '../src/core/sync/types';
 import type { KlickExport } from '../src/core/types';
+import { reserveCopy, takeOps } from './budget';
 import type { Env } from './env';
-import { ACCOUNT_BYTES_CAP, COMPACT_PER_DAY, DAILY_WRITE_BUDGET, nextUtcDay, SESSION_PREPAY, utcDay } from './limits';
+import {
+  ACCOUNT_BYTES_CAP,
+  capsOf,
+  COMPACT_PER_DAY,
+  COPIES_CACHE_MS,
+  DAILY_WRITE_BUDGET,
+  nextUtcDay,
+  RESTORES_PER_DAY,
+  SESSION_PREPAY,
+  utcDay,
+} from './limits';
 import {
   COMPACT_SOLVE,
   COMPACTABLE,
@@ -23,9 +45,27 @@ import {
   utf8Bytes,
   type Row,
 } from './records-sql';
-import { dayOf, gunzipJson, gzipJson, nextSnapshotAt, preRestoreName, snapshotKey } from './snapshots';
+import { dayOf, gunzipJson, gzipJson, listCopiesIn, nextSnapshotAt, preRestoreName, snapshotKey } from './snapshots';
 
 const activeSolves = (data: KlickExport): number => data.solves.filter((s) => s.deletedAt === null).length;
+
+// As cópias na nuvem da conta, no estado (`copies`, endurecimento 4.2 e decisão 1): a lista guardada (`list`, de quando `at`; null, nenhuma
+// ainda) e a pausa da cópia do dia (`paused`: o espaço ou as operações do R2 acabaram; null, as cópias seguem), que todo sync leva. A lista
+// vale por COPIES_CACHE_MS; uma cópia gravada e uma que sumiu (a restauração achou 404) a renovam (`at` 0: a próxima lista o R2 de novo).
+interface Copies {
+  at: number;
+  list: CloudCopy[] | null;
+  paused: CopiesPaused | null;
+}
+
+// Uma contagem por dia UTC no estado (`writes`, as gravações; `restores`, as restaurações que deram certo).
+interface DayCount {
+  day: string;
+  n: number;
+}
+
+// O bucket de `listCopiesIn` com o teto: cada página reserva a operação A dela antes de ir ao R2, e sem ela a listagem para aqui.
+const OUT_OF_OPS = new Error('r2-budget');
 
 // Os contadores da conta, na tabela `state` (endurecimento 4.1, decisões 5 e 6): os ativos de cada store (`active`, a cota), o tamanho do
 // conteúdo gravado em bytes (`bytes`, o teto de bytes) e as gravações do dia UTC (`writes`, { day, n }: o orçamento). Toda gravação de
@@ -91,7 +131,8 @@ export class AccountStore extends DurableObject<Env> {
 
   private migrate(): void {
     for (const statement of RECORDS_SCHEMA) this.sql.exec(statement);
-    // rev, userId, snapshotRev, lastSnapshotDay, deleted (a conta foi apagada: wipe) e os contadores (active, bytes, writes: Usage)
+    // rev, userId, snapshotRev, lastSnapshotDay, deleted (a conta foi apagada: wipe), os contadores (active, bytes, writes: Usage), as
+    // restaurações do dia (restores) e as cópias na nuvem (copies: a lista guardada e a pausa)
     this.sql.exec('CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
     this.sql.exec('CREATE TABLE IF NOT EXISTS devices (device_id TEXT PRIMARY KEY, last_sync_at INTEGER NOT NULL)');
   }
@@ -167,10 +208,29 @@ export class AccountStore extends DurableObject<Env> {
       bytes = String(this.sql.exec<{ n: number }>(STORED_BYTES).one().n);
       this.setState('bytes', bytes);
     }
-    const writes = JSON.parse(this.getState('writes') ?? 'null') as { day: string; n: number } | null;
+    const writes = this.dayCount('writes', now);
+    return { active: JSON.parse(active) as ActiveCounts, bytes: Number(bytes), day: writes.day, writes: writes.n };
+  }
+
+  // A contagem do dia UTC de `now` (num dia novo, 0), sem gravar nada. O dia nunca volta atrás (usage, acima).
+  private dayCount(key: 'writes' | 'restores', now: number): DayCount {
+    const stored = JSON.parse(this.getState(key) ?? 'null') as DayCount | null;
     const today = utcDay(now);
-    const day = writes !== null && writes.day > today ? writes.day : today;
-    return { active: JSON.parse(active) as ActiveCounts, bytes: Number(bytes), day, writes: writes?.day === day ? writes.n : 0 };
+    const day = stored !== null && stored.day > today ? stored.day : today;
+    return { day, n: stored?.day === day ? stored.n : 0 };
+  }
+
+  private copies(): Copies {
+    return (JSON.parse(this.getState('copies') ?? 'null') as Copies | null) ?? { at: 0, list: null, paused: null };
+  }
+
+  private setCopies(copies: Copies): void {
+    this.setState('copies', JSON.stringify(copies));
+  }
+
+  // Uma cópia foi gravada ou sumiu: a lista guardada fica velha, e a próxima lista o R2 de novo (a guardada ainda serve sem operações).
+  private renewCopies(): void {
+    this.setCopies({ ...this.copies(), at: 0 });
   }
 
   // Soma nos contadores, gravando só o que mudou: um sync que só recebe não grava nada no estado.
@@ -242,7 +302,8 @@ export class AccountStore extends DurableObject<Env> {
   // A cota (endurecimento 4.1): applyChanges recusa, com o motivo da cota, o registro que passaria do teto de ativos, e o teto de bytes
   // (bytesCap), a mudança que faria a conta passar de ACCOUNT_BYTES_CAP. O orçamento do dia (decisão 6): só as primeiras mudanças que cabem
   // no que sobra de DAILY_WRITE_BUDGET hoje são lidas; as outras não são gravadas e voltam em `deferred` (as últimas N do lote), com
-  // `retryAt`, a meia-noite UTC do fim do dia do orçamento, quando ele volta. O recebimento segue igual, com ou sem orçamento.
+  // `retryAt`, a meia-noite UTC do fim do dia do orçamento, quando ele volta. O recebimento segue igual, com ou sem orçamento. Toda resposta
+  // leva `copiesPaused`, a pausa das cópias na nuvem (null quando elas seguem).
   async syncBatch(userId: string, req: SyncRequest, now: number): Promise<SyncResponse | 'deleted'> {
     const response = this.ctx.storage.transactionSync((): SyncResponse | 'deleted' => {
       if (this.deleted()) return 'deleted';
@@ -268,6 +329,7 @@ export class AccountStore extends DurableObject<Env> {
         more: rows.length > SYNC_BATCH,
         serverTime: now,
         ...(deferred > 0 ? { deferred, retryAt: nextUtcDay(Date.parse(usage.day)) } : {}),
+        copiesPaused: this.copies().paused,
       };
     });
     if (response === 'deleted') return response;
@@ -314,49 +376,105 @@ export class AccountStore extends DurableObject<Env> {
     return this.exclusive(() => this.takeSnapshot(now));
   }
 
+  // A cópia do dia, dentro do grátis do R2 (endurecimento 4.2): o espaço dela e a operação A do put são reservados antes (reserveCopy).
+  // Recusada, ela não é gravada nem marca snapshotRev (o alarme de amanhã tenta de novo), e a pausa fica no estado, com o motivo; gravada,
+  // a pausa sai e a lista guardada se renova.
   private async takeSnapshot(now: number): Promise<boolean> {
     const userId = this.getState('userId');
     const rev = this.getState('rev') ?? '0';
     if (this.deleted() || userId === null || this.getState('snapshotRev') === rev) return false;
     const data = exportFromRecords(this.all(), now);
     const day = dayOf(now);
-    await this.env.SNAPSHOTS.put(snapshotKey(userId, day), await gzipJson(data), {
-      customMetadata: { kind: 'daily', day, solves: String(activeSolves(data)) },
-    });
+    const gz = await gzipJson(data);
+    const paused = await reserveCopy(this.env.DB, gz.byteLength, now, capsOf(this.env));
+    if (paused !== null) {
+      this.setCopies({ ...this.copies(), paused });
+      console.log(JSON.stringify({ evt: 'copy-paused', user: userId, why: paused }));
+      return false;
+    }
+    await this.env.SNAPSHOTS.put(snapshotKey(userId, day), gz, { customMetadata: { kind: 'daily', day, solves: String(activeSolves(data)) } });
     this.setState('snapshotRev', rev);
     this.setState('lastSnapshotDay', day);
+    this.setCopies({ ...this.copies(), at: 0, paused: null });
     return true;
+  }
+
+  // GET /api/snapshots (spec 8.3 e decisão 1): a lista guardada, enquanto vale (COPIES_CACHE_MS); senão o R2, com cada página reservada
+  // antes como operação A, e a lista nova fica guardada. Sem operações A no mês: a guardada, mesmo velha, com a pausa 'ops' (é por isso que
+  // ela não se renova), ou 'r2-budget' se não há nenhuma. Uma conta que nunca sincronizou não tem cópias, e não pergunta ao R2.
+  async listCopies(now: number): Promise<CloudCopies | 'r2-budget' | 'deleted'> {
+    return this.exclusive(async (): Promise<CloudCopies | 'r2-budget' | 'deleted'> => {
+      if (this.deleted()) return 'deleted';
+      const copies = this.copies();
+      if (copies.list !== null && now - copies.at < COPIES_CACHE_MS) return { copies: copies.list, paused: copies.paused };
+      const userId = this.getState('userId');
+      if (userId === null) return { copies: [], paused: copies.paused };
+      const cap = capsOf(this.env).classAMonth;
+      const bucket = this.env.SNAPSHOTS;
+      const metered: Pick<R2Bucket, 'list'> = {
+        list: async (options) => {
+          if (!(await takeOps(this.env.DB, 'A', 1, now, cap))) throw OUT_OF_OPS;
+          return bucket.list(options);
+        },
+      };
+      try {
+        const { copies: list } = await listCopiesIn(metered, userId);
+        this.setCopies({ at: now, list, paused: copies.paused });
+        return { copies: list, paused: copies.paused };
+      } catch (error) {
+        if (error !== OUT_OF_OPS) throw error;
+        return copies.list === null ? 'r2-budget' : { copies: copies.list, paused: copies.paused ?? 'ops' };
+      }
+    });
   }
 
   // POST /api/snapshots/:name/restore (spec 8.3): grava antes a cópia "antes de restaurar"; depois, cada registro da cópia com datas novas,
   // e o que existe hoje e não está nela vai para a lixeira. A temporada passa por mergeSeason, como num sync: o progresso não volta atrás.
   // Tudo sem um sync no meio: o que a cópia de antes guarda é o que a restauração substitui. Os aparelhos recebem pelo sync normal. As
   // gravações entram nos contadores como as de um sync (commit), sem a cota nem o teto de bytes: a cópia volta inteira ou não volta.
-  async restoreSnapshot(name: string, now: number): Promise<'ok' | 'not-found' | 'deleted'> {
-    return this.exclusive(async () => {
+  //
+  // Dentro do grátis (decisões 1, 2, 3 e 6), as conferências vêm nesta ordem, todas antes de qualquer gravação, e uma recusa não muda nada
+  // na conta: a conta apagada; as restaurações do dia UTC (RESTORES_PER_DAY, restore-limit); as duas leituras do R2, ler a cópia e conferir
+  // a de antes (operações B, r2-budget); a cópia (not-found, que renova a lista); as mudanças da restauração contra o orçamento de gravações
+  // de um dia inteiro (too-big) e contra o que sobra hoje (write-budget); o espaço da cópia de antes (no-room: nunca se restaura sem ela,
+  // decisão 3) e a operação A do put dela (r2-budget). Só a restauração que deu certo conta no dia.
+  async restoreSnapshot(name: string, now: number): Promise<'ok' | 'not-found' | 'deleted' | RestoreRefusal> {
+    return this.exclusive(async (): Promise<'ok' | 'not-found' | 'deleted' | RestoreRefusal> => {
       if (this.deleted()) return 'deleted';
+      const restores = this.dayCount('restores', now);
+      if (restores.n >= RESTORES_PER_DAY) return 'restore-limit';
       const userId = this.getState('userId');
-      if (userId === null) return 'not-found';
+      if (userId === null) return 'not-found'; // nunca sincronizou: nenhuma cópia, e nada a perguntar ao R2
+      const caps = capsOf(this.env);
+      if (!(await takeOps(this.env.DB, 'B', 2, now, caps.classBMonth))) return 'r2-budget';
       const object = await this.env.SNAPSHOTS.get(snapshotKey(userId, name));
-      if (!object) return 'not-found';
+      if (!object) {
+        this.renewCopies();
+        return 'not-found';
+      }
       const copy = (await gunzipJson(await object.arrayBuffer())) as KlickExport;
+      const current = this.all();
+      const stamp = current.reduce((max, c) => Math.max(max, c.updatedAt + 1, c.deletionStamp + 1), now); // vence tudo o que existe
+      const practice = Array.isArray(copy.practice) ? copy.practice : null;
+      const changes = restoreChanges(current, { sessions: copy.sessions, solves: copy.solves, practice }, accountPrefsOf(copy.profile), stamp);
+      if (changes.length > DAILY_WRITE_BUDGET) return 'too-big';
+      if (changes.length > DAILY_WRITE_BUDGET - this.dayCount('writes', now).n) return 'write-budget';
       // Uma segunda restauração no mesmo segundo (o clique duplo) acha a cópia de antes da primeira, que já guarda o estado de antes: ela
-      // fica como está.
+      // fica como está, e não precisa de espaço nem de operação A.
       const key = snapshotKey(userId, preRestoreName(now));
       if ((await this.env.SNAPSHOTS.head(key)) === null) {
-        const before = exportFromRecords(this.all(), now);
-        await this.env.SNAPSHOTS.put(key, await gzipJson(before), {
-          customMetadata: { kind: 'pre-restore', day: dayOf(now), solves: String(activeSolves(before)) },
-        });
+        const before = exportFromRecords(current, now);
+        const gz = await gzipJson(before);
+        const refused = await reserveCopy(this.env.DB, gz.byteLength, now, caps);
+        if (refused !== null) return refused === 'space' ? 'no-room' : 'r2-budget';
+        await this.env.SNAPSHOTS.put(key, gz, { customMetadata: { kind: 'pre-restore', day: dayOf(now), solves: String(activeSolves(before)) } });
+        this.renewCopies();
       }
       this.ctx.storage.transactionSync(() => {
-        const current = this.all();
-        const stamp = current.reduce((max, c) => Math.max(max, c.updatedAt + 1, c.deletionStamp + 1), now); // vence tudo o que existe
-        const practice = Array.isArray(copy.practice) ? copy.practice : null;
-        const changes = restoreChanges(current, { sessions: copy.sessions, solves: copy.solves, practice }, accountPrefsOf(copy.profile), stamp);
         const usage = this.usage(now);
         const batch = this.batch();
         this.commit(applyChanges(batch.view, changes, { mode: 'server' }), batch, usage);
+        this.setState('restores', JSON.stringify({ day: restores.day, n: restores.n + 1 }));
       });
       return 'ok';
     });
