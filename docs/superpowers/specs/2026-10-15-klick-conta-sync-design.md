@@ -266,7 +266,7 @@ Num aparelho que já tem uma passkey, a tela de entrar oferece a passkey primeir
 
 ### 7.4 E-mail
 
-- **Envio:** pelo Resend (D13). O e-mail tem só o código, a validade e uma linha "se não foi você, ignore", em texto simples com versão HTML mínima.
+- **Envio:** pelo Resend (D13). O e-mail tem só o código, a validade e uma linha "se não foi você, ignore". Vai em duas partes: o texto puro de sempre (é o que o iPhone e os clientes leem para sugerir o código; o assunto também não muda) e um HTML de e-mail de verdade, com as peças do cubo (o cubo do logo e o código em seis peças), só em tabelas e estilos inline, sem imagem, fonte da web, script nem link. O desenho está na spec 4 de `2026-10-17-klick-conta-visual-design.md`.
 - **DNS:** SPF, DKIM e DMARC configurados no DNS de `ranimontagna.com` na Cloudflare.
 
 ### 7.5 Abuso
