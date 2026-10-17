@@ -3,6 +3,7 @@
 // Uma rodada por vez: quem pede durante uma rodada ganha mais uma, logo depois dela (decisão 20). Depois de um 401, nenhuma rodada sai até
 // a conta voltar (resume(true) ou firstLogin): sem um pedido por gatilho. Cada pedido leva a conta da rodada (`account`): o Worker recusa
 // (401) a sessão de outra conta.
+import { BUILD_ID } from '../build';
 import { SYNC_BATCH, SYNC_PROTOCOL, type Change } from '../core/sync/types';
 import { AccountChangedError, type Repository } from '../data/repository';
 import { ApiError, type SyncApi } from './api';
@@ -67,6 +68,7 @@ export interface EngineDeps {
   schedule?: (fn: () => void, ms: number) => () => void; // as novas tentativas; devolve o cancelamento
   sleep?: (ms: number) => Promise<void>;
   log?: (line: string) => void; // o log local das mudanças recusadas (spec 6.6): store, id e motivo, nunca o conteúdo
+  build?: string; // a versão do app (padrão: BUILD_ID, do build): a marca do lote com algo recusado e o recomeço na versão seguinte (I2)
 }
 
 export interface Account {
@@ -125,6 +127,7 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
   const schedule = deps.schedule ?? defaultSchedule;
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const log = deps.log ?? ((line: string) => console.warn(line));
+  const build = deps.build ?? BUILD_ID;
   let status = idleStatus();
   let running: Promise<SyncStatus> | null = null;
   let again: Promise<SyncStatus> | null = null;
@@ -191,7 +194,7 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
     await sameAccount(accountId); // de novo: a espera e a cópia levam tempo
     // O repositório confere a conta dentro da transação (outra aba) e grava o cursor nela: juntar e andar o cursor acontecem juntos ou não.
     // O relógio sobe até a hora do servidor ali também.
-    await deps.repo().applyRemote(res.changes, res.serverTime, accountId, { cursor: res.cursor, lastSyncAt: now() });
+    await deps.repo().applyRemote(res.changes, res.serverTime, accountId, { cursor: res.cursor, lastSyncAt: now(), build });
     return { more: res.more, sent: batch.sent.length, received: res.changes.length };
   }
 
@@ -222,6 +225,9 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
       return;
     }
     const accountId = state.accountId;
+    // Um lote de antes teve algo que a versão daquela hora recusou, e o cursor passou por cima: esta versão, outra, baixa tudo de novo, uma
+    // vez (a revisão final, I2). Juntar o que já está aqui não muda nada.
+    if (state.refusedBuild !== null && state.refusedBuild !== build) await deps.repo().restartAfterUpdate(build);
     const progress = { sent: 0, total: await deps.repo().outboxCount(), received: 0 };
     set({ phase: 'syncing', progress: { ...progress } });
     if (state.firstSync) {

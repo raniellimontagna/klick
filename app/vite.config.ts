@@ -2,8 +2,12 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
+// Um id por build (src/build.ts): o sync baixa a conta de novo na primeira abertura de outra versão, se esta recusou algo do servidor.
+const BUILD = new Date().toISOString();
+
 // https://vite.dev/config/
 export default defineConfig({
+  define: { __KLICK_BUILD__: JSON.stringify(BUILD) },
   plugins: [
     svelte(),
     VitePWA({

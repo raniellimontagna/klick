@@ -105,13 +105,18 @@ export interface Repository {
   // já é outra (ou nenhuma: outra aba apagou os dados ou trocou de conta no meio), lança AccountChangedError, conferido dentro da mesma
   // transação, e nada muda: nem registro, nem fila, nem relógio. Sem ele (os testes do repositório), não confere. `after` é o cursor e a hora
   // do sync desta volta, gravados na mesma transação (e avisados como 'sync'): uma aba que congela entre juntar e gravar o cursor não grava
-  // depois o cursor de uma conta no estado de outra.
+  // depois o cursor de uma conta no estado de outra. Com algo recusado no lote, grava também `refusedBuild` (a versão do app, `after.build`):
+  // o cursor passa por cima do que esta versão não entende, e outra versão o baixa de novo (restartAfterUpdate).
   applyRemote(
     changes: readonly unknown[],
     serverTime: number,
     accountId?: string,
-    after?: Pick<SyncState, 'cursor' | 'lastSyncAt'>,
+    after?: Pick<SyncState, 'cursor' | 'lastSyncAt'> & { build?: string },
   ): Promise<RemoteResult>;
+  // A primeira rodada de outra versão do app depois de um lote com algo recusado (refusedBuild, de outra versão): o cursor volta a 0 e a marca
+  // sai, numa transação, e o sync seguinte baixa a conta inteira de novo (juntar é idempotente), agora com o que esta versão entende. Avisa
+  // 'sync'. Devolve se recomeçou; sem a marca, ou com ela desta mesma versão, não faz nada.
+  restartAfterUpdate(build: string): Promise<boolean>;
   // O começo do primeiro login (spec 6.5), numa transação só: o estado do sync passa a ser o da conta (accountId, email, signedIn,
   // firstSync, cursor 0, lastSyncAt null; o relógio e o resto ficam) e todo registro daqui entra na fila, menos o que o servidor recusaria
   // (fica fora, no log local como em outboxBatch). Acontecem os dois ou nenhum: o app fechado no meio (ou a cota cheia) não deixa
@@ -278,6 +283,7 @@ export const defaultSyncState = (): SyncState => ({
   lastSyncAt: null,
   clock: 0,
   passkey: false,
+  refusedBuild: null,
 });
 const syncStateOrDefault = (stored: SyncState | undefined): SyncState => ({ ...defaultSyncState(), ...stored });
 
@@ -1085,11 +1091,24 @@ export function createRepository(
           if (seen.some((id) => !known.has(id))) ctx.setState({ firstSyncDefaults: [...new Set([...known, ...seen])] });
         }
         if (after) ctx.setState({ cursor: after.cursor, lastSyncAt: after.lastSyncAt });
+        if (after && result.rejected.length > 0) ctx.setState({ refusedBuild: after.build ?? 'dev' });
         return result;
       });
       announceSynced(joined.writes);
       if (after) announce('sync');
       return { applied: joined.writes.length, rejected: joined.rejected.length };
+    },
+
+    async restartAfterUpdate(build) {
+      const restarted = await write(['meta'], async (tx) => {
+        const store = tx.objectStore('meta');
+        const state = syncStateOrDefault((await store.get('sync')) as SyncState | undefined);
+        if (state.refusedBuild === null || state.refusedBuild === build) return false;
+        await store.put({ ...state, cursor: 0, refusedBuild: null }, 'sync');
+        return true;
+      });
+      if (restarted) announce('sync');
+      return restarted;
     },
 
     async beginFirstSync({ accountId, email }) {
@@ -1099,7 +1118,7 @@ export function createRepository(
         // conta passarem por daqui, e os gêmeos subiriam repetidos. Nada muda.
         if (ctx.state().accountId === accountId) return false;
         // O estado vem primeiro: o track seguinte já vê a conta. Ele só é gravado no fim, junto com a fila (syncWrite).
-        ctx.setState({ accountId, email, signedIn: true, firstSync: true, firstSyncDefaults: [], cursor: 0, lastSyncAt: null });
+        ctx.setState({ accountId, email, signedIn: true, firstSync: true, firstSyncDefaults: [], cursor: 0, lastSyncAt: null, refusedBuild: null });
         const [solves, sessions, practice, prefs] = await Promise.all([
           tx.objectStore('solves').getAll(),
           tx.objectStore('sessions').getAll(),

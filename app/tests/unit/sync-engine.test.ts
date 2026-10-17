@@ -196,6 +196,41 @@ describe('motor do sync (spec 6.1 e 6.2)', () => {
     expect(net.calls).toHaveLength(2);
   });
 
+  // A revisão final (I2): o cursor andava por cima do que esta versão do app recusou (um evento, uma chave de ajuste ou um acabamento que
+  // só uma versão mais nova conhece), e o PWA antigo nunca mais recebia esses registros, nem depois de atualizar. Com algo recusado, o lote
+  // marca a versão; a primeira abertura de outra versão recomeça o cursor do 0 uma vez (baixar de novo é idempotente) e tira a marca.
+  it('o lote com algo que esta versão recusa marca a versão; a mesma versão não recomeça; a seguinte baixa tudo de novo, uma vez (I2)', async () => {
+    const server = new FakeServer();
+    const phone = await device();
+    const s = await phone.createSession({ event: '333' });
+    await phone.addSolve(ns(s.id, 1000));
+    await engineFor(phone, network(server), { build: 'v1' }).engine.run();
+    // Um aparelho com uma versão mais nova gravou um solve de um evento que a v1 não conhece.
+    const novo = {
+      store: 'solves' as const, id: 'do-futuro', updatedAt: t, deletedAt: null, deletionStamp: t,
+      data: { sessionId: s.id, event: 'evento-novo', ms: 2000, penalty: null, at: t, scramble: 'R', note: '', createdAt: t },
+    };
+    server.records.set('solves/do-futuro', { ...novo, rev: ++server.rev });
+    const desktop = await device();
+    const old = network(server);
+    await engineFor(desktop, old, { build: 'v1' }).engine.run();
+    expect(await desktop.getSyncState()).toMatchObject({ cursor: server.rev, refusedBuild: 'v1' });
+    expect((await desktop.listSolves()).map((x) => x.id)).not.toContain('do-futuro');
+    // A versão nova entende o registro (aqui, o servidor o devolve válido, com a mesma revisão: ele não mudou de novo).
+    server.records.set('solves/do-futuro', { ...novo, data: { ...novo.data, event: '333' }, rev: server.rev });
+    await engineFor(desktop, old, { build: 'v1' }).engine.run(); // a mesma versão: o cursor não volta
+    expect(old.calls.at(-1)?.cursor).toBe(server.rev);
+    expect((await desktop.listSolves()).map((x) => x.id)).not.toContain('do-futuro');
+    const updated = network(server);
+    const v2 = engineFor(desktop, updated, { build: 'v2' }).engine;
+    await v2.run(); // a primeira abertura da versão nova
+    expect(updated.calls[0].cursor).toBe(0);
+    expect((await desktop.listSolves()).map((x) => x.id)).toContain('do-futuro');
+    expect(await desktop.getSyncState()).toMatchObject({ cursor: server.rev, refusedBuild: null });
+    await v2.run();
+    expect(updated.calls.at(-1)?.cursor).toBe(server.rev); // uma vez só
+  });
+
   it('401: erro de sessão, sem nova tentativa, e a fila guarda tudo; sem rede: esperando rede', async () => {
     const repo = await device();
     const s = await repo.createSession({ event: '333' });

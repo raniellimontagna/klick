@@ -75,7 +75,9 @@ export interface OutboxEntry {
 // O bloco sync do meta (spec 5.4), na chave 'sync' da store meta. `accountId` fica depois de sair (spec 7.6); `signedIn` diz se há
 // sessão; `firstSync` diz que o primeiro login começou e a deduplicação (spec 6.5) ainda não terminou: se o app fechar no meio, ele
 // continua daí; `firstSyncDefaults`, as sessões padrão (`default-<evento>`) que a conta devolveu nesse download (a deduplicação só guarda a
-// daqui que a conta também tem); `passkey` lembra que este aparelho criou uma passkey (a tela de entrar a oferece primeiro).
+// daqui que a conta também tem); `passkey` lembra que este aparelho criou uma passkey (a tela de entrar a oferece primeiro). `refusedBuild`:
+// a versão do app que recusou algo de um lote do servidor (um evento, uma chave de ajuste que só uma versão mais nova conhece) enquanto o
+// cursor passava por cima; a primeira rodada de outra versão recomeça o cursor do 0, uma vez, e tira a marca.
 export interface SyncState {
   accountId: string | null;
   email: string | null;
@@ -86,6 +88,7 @@ export interface SyncState {
   lastSyncAt: number | null;
   clock: number;
   passkey: boolean;
+  refusedBuild: string | null;
 }
 
 export const syncKey = (store: string, id: string): string => `${store}/${id}`;
