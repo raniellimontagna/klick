@@ -1,6 +1,6 @@
 // Publica o app (dist/) e o servidor da conta e do sync (worker/index.ts) num Worker só (spec 8.1).
-// - `npx wrangler deploy`: beta.klick.ranimontagna.com, para conferir antes.
-// - `npx wrangler deploy --env production`: a raiz, klick.ranimontagna.com.
+// - `pnpm run deploy:beta` (o build e `wrangler deploy`): beta.klick.ranimontagna.com, para conferir antes.
+// - `pnpm run deploy:production` (o build e `wrangler deploy --env production`): a raiz, klick.ranimontagna.com.
 // Os dois são domínios próprios do Worker (custom_domain): o Cloudflare cria e mantém o registro DNS de cada um. O script só roda antes
 // dos arquivos em /api/* (run_worker_first); o resto sai direto dos arquivos, como antes.
 // Cada ambiente tem as próprias ligações (D1, Durable Objects, R2): nada do beta toca os dados da raiz. Os segredos (BETTER_AUTH_SECRET,
@@ -11,6 +11,9 @@
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat"],
   "main": "worker/index.ts",
+  // Antes de todo deploy (e do wrangler dev), a conferência de que dist/ é um build de verdade: o dist/ vazio que os testes do Worker criam
+  // nunca vai para o ar. Publique com `pnpm run deploy:beta` ou `pnpm run deploy:production`, que fazem o build antes.
+  "build": { "command": "node scripts/check-dist.mjs" },
   "workers_dev": false,
   // Os logs do Worker ficam (os console.log levam só ids, contagens, durações e erros, spec 8.5); o log de invocação, que guardaria cada
   // pedido com os cabeçalhos (o navegador, o IP) por dias, não (spec 10).
@@ -40,6 +43,7 @@
   "env": {
     "production": {
       "name": "klick-app",
+      "build": { "command": "node scripts/check-dist.mjs" },
       "workers_dev": false,
       "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false } },
       "triggers": { "crons": ["15 3 * * *"] },

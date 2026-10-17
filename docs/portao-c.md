@@ -76,9 +76,9 @@ commit já vem junto).
 - Cada ambiente tem o próprio `BETTER_AUTH_SECRET` (o script sorteia um diferente por ambiente). Trocar esse segredo derruba as sessões
   abertas daquele ambiente.
 - O Worker recusa a chave de teste do Turnstile num domínio de verdade. Por isso a site key real precisa entrar no `wrangler.jsonc` e o
-  Worker precisa ser publicado de novo, para valer. Dentro de `app/`: primeiro `pnpm build` (neste computador, se o pnpm reclamar de
-  `ERR_PNPM_IGNORED_BUILDS`, use `pnpm --config.verify-deps-before-run=false build`), depois `npx wrangler deploy` (beta) e
-  `npx wrangler deploy --env production` (a raiz).
+  Worker precisa ser publicado de novo, para valer. Dentro de `app/`: `pnpm run deploy:beta` (beta) e `pnpm run deploy:production` (a
+  raiz), que fazem o build antes de publicar (neste computador, se o pnpm reclamar de `ERR_PNPM_IGNORED_BUILDS`, use
+  `pnpm --config.verify-deps-before-run=false run deploy:beta`). Sem um build de verdade em `dist/`, o deploy é recusado.
 - Na zona `ranimontagna.com`, a opção **Pseudo IPv4: Overwrite headers** deve ficar **desligada** (ela troca o IP real de quem
   acessa por um falso e quebraria o limite de pedidos de código por IP).
 - Para trocar um segredo (rotação), rode o script de novo: ele pergunta antes de sobrescrever.

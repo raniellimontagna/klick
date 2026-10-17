@@ -45,17 +45,23 @@ O resultado fica em `dist/`.
 
 ## Publicar
 
-Depois do build, dentro de `app/`. Primeiro o beta (beta.klick.ranimontagna.com, fora dos buscadores), para conferir:
+Dentro de `app/`. Os scripts de publicar fazem o build antes. Primeiro o beta (beta.klick.ranimontagna.com, fora dos buscadores), para
+conferir:
 
 ```bash
-npx wrangler deploy
+pnpm run deploy:beta
 ```
 
 Depois a raiz (klick.ranimontagna.com, worker `klick-app`):
 
 ```bash
-npx wrangler deploy --env production
+pnpm run deploy:production
 ```
+
+Se o pnpm reclamar de `ERR_PNPM_IGNORED_BUILDS` (as builds do workerd ficam de fora de propósito), use
+`pnpm --config.verify-deps-before-run=false run deploy:beta` (e o mesmo para `deploy:production`). Todo `wrangler deploy` (e o
+`wrangler dev`) roda antes `scripts/check-dist.mjs` (`build.command` no `wrangler.jsonc`): sem um build de verdade em `dist/`
+(o `pnpm test:worker` deixa lá uma pasta vazia), o deploy é recusado, e nada vai para o ar.
 
 A configuração está em `wrangler.jsonc`: um Worker com os arquivos do app e o servidor da conta e do sync (`worker/`), que só roda
 em `/api/*`. A raiz e o beta são domínios próprios dos Workers `klick-app` e `klick-app-beta`: o Cloudflare cria e mantém o registro

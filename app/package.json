@@ -11,7 +11,9 @@
     "test:e2e": "playwright test",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json && tsc -p worker/tsconfig.json && tsc -p tests/worker/tsconfig.json",
     "test:worker": "vitest run -c vitest.worker.config.ts",
-    "test:e2e:sync": "playwright test -c playwright.sync.config.ts"
+    "test:e2e:sync": "playwright test -c playwright.sync.config.ts",
+    "deploy:beta": "pnpm run build && wrangler deploy",
+    "deploy:production": "pnpm run build && wrangler deploy --env production"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",
