@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { Change, SyncRequest, SyncResponse } from '../../src/core/sync/types';
+import { SYNC_PROTOCOL, type Change, type SyncRequest, type SyncResponse } from '../../src/core/sync/types';
 import { openKlickDb } from '../../src/data/db';
 import { defaultSessionId } from '../../src/data/ids';
 import { createRepository } from '../../src/data/repository';
@@ -389,7 +389,7 @@ describe('a conta daqui e a da sessão (C1)', () => {
   // O aparelho na conta A (conta-1), com uma mudança na fila e o erro de login (sem cookie: 401); a conta B (conta-2) já tem um solve.
   async function deviceOnA(strict: boolean) {
     const net = twoAccounts(strict);
-    net.servers.get('conta-2')!.sync({ v: 1, account: 'conta-2', deviceId: 'b', cursor: 0, clock: 0, changes: [ofB] });
+    net.servers.get('conta-2')!.sync({ v: SYNC_PROTOCOL, account: 'conta-2', deviceId: 'b', cursor: 0, clock: 0, changes: [ofB] });
     const { auth, calls } = fakeAuth(OTHER);
     const signedAuth = net.signIn(auth);
     const { app, repo } = await appWithAccount(net.api, { signedIn: true, auth: signedAuth });
@@ -462,7 +462,7 @@ describe('o aparelho novo numa conta antiga (I1)', () => {
       data: { sessionId, event: '333', ms: 9_000, penalty: null, at: t0, scramble: 'R', note: '', createdAt: t0 },
     });
     // A "Sessão 1" de antes da v3, com id aleatório e os solves da conta.
-    server.sync({ v: 1, account: 'conta-1', deviceId: 'antigo', cursor: 0, clock: 0, changes: [session('0legado', 'Sessão 1'), solve('s1', '0legado'), solve('s2', '0legado')] });
+    server.sync({ v: SYNC_PROTOCOL, account: 'conta-1', deviceId: 'antigo', cursor: 0, clock: 0, changes: [session('0legado', 'Sessão 1'), solve('s1', '0legado'), solve('s2', '0legado')] });
     const { app } = await appWithAccount(fakeApi(server).api);
     expect(app.activeSession?.id).toBe(defaultSessionId('333')); // o app abriu e criou a padrão
     expect(await app.account!.verifyCode(EMAIL, '123456')).toEqual({ ok: true, next: 'first' });

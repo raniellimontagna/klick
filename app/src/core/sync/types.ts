@@ -83,7 +83,9 @@ export interface OutboxEntry {
 // continua daí; `firstSyncDefaults`, as sessões padrão (`default-<evento>`) que a conta devolveu nesse download (a deduplicação só guarda a
 // daqui que a conta também tem); `passkey` lembra que este aparelho criou uma passkey (a tela de entrar a oferece primeiro). `refusedBuild`:
 // a versão do app que recusou algo de um lote do servidor (um evento, uma chave de ajuste que só uma versão mais nova conhece) enquanto o
-// cursor passava por cima; a primeira rodada de outra versão recomeça o cursor do 0, uma vez, e tira a marca.
+// cursor passava por cima; a primeira rodada de outra versão recomeça o cursor do 0, uma vez, e tira a marca. `pushAfter`: o orçamento de
+// gravações do dia da conta acabou (endurecimento, decisão 6), e nada sobe antes desta hora (o `retryAt` do servidor); null: sobe quando
+// houver fila. `copiesPaused`: a pausa das cópias na nuvem que veio na última resposta do sync (null: elas seguem).
 export interface SyncState {
   accountId: string | null;
   email: string | null;
@@ -95,6 +97,8 @@ export interface SyncState {
   clock: number;
   passkey: boolean;
   refusedBuild: string | null;
+  pushAfter: number | null;
+  copiesPaused: CopiesPaused | null;
 }
 
 export const syncKey = (store: string, id: string): string => `${store}/${id}`;

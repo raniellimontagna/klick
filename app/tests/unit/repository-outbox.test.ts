@@ -4,7 +4,7 @@ import { prefToChange, toChange, type RecordStore } from '../../src/core/sync/re
 import { checkChange } from '../../src/core/sync/shape';
 import type { Change } from '../../src/core/sync/types';
 import { openKlickDb, type KlickDB } from '../../src/data/db';
-import { createRepository, type ChangeKind, type ChannelLike, type Repository } from '../../src/data/repository';
+import { createRepository, LocalOnlyError, type ChangeKind, type ChannelLike, type Repository } from '../../src/data/repository';
 
 let n = 0;
 let t = 1_791_500_000_000;
@@ -131,7 +131,10 @@ describe('fila de saída (spec 5.3)', () => {
 
   it('o estado do sync: padrão antes de entrar; salvar avisa "sync"; o relógio nunca desce', async () => {
     const { repo } = await fresh(null);
-    expect(await repo.getSyncState()).toEqual({ accountId: null, email: null, signedIn: false, firstSync: false, firstSyncDefaults: [], cursor: 0, lastSyncAt: null, clock: 0, passkey: false, refusedBuild: null });
+    expect(await repo.getSyncState()).toEqual({
+      accountId: null, email: null, signedIn: false, firstSync: false, firstSyncDefaults: [], cursor: 0, lastSyncAt: null, clock: 0, passkey: false,
+      refusedBuild: null, pushAfter: null, copiesPaused: null,
+    });
     const heard: ChangeKind[] = [];
     repo.onChange((k) => heard.push(k));
     await repo.saveSyncState({ accountId: 'u', email: 'a@b.c', clock: 500 });
@@ -296,5 +299,169 @@ describe('lixeira com sync (spec 5.5)', () => {
     await repo.deleteSolve(a.id);
     t += 31 * DAY;
     expect(await repo.purgeTrash(30 * DAY)).toBe(1);
+  });
+});
+
+describe('só neste aparelho: os recusados pela cota (endurecimento, decisão 4)', () => {
+  // Uma sessão com três solves, e a fila inteira num lote, como o motor a manda.
+  async function sent() {
+    const { db, repo } = await fresh();
+    const s = await repo.createSession({ event: '333' });
+    const a = await repo.addSolve(ns(s.id, 1000));
+    const b = await repo.addSolve(ns(s.id, 2000));
+    const c = await repo.addSolve(ns(s.id, 3000));
+    const batch = await repo.outboxBatch(500);
+    const only = (...ids: string[]) => batch.sent.filter((e) => ids.includes(e.id)); // as entradas que a conta recusou pela cota
+    return { db, repo, s, a, b, c, batch, only };
+  }
+
+  it('confirmSent guarda os recusados pela cota fora da fila e avisa sync', async () => {
+    const { db, repo, a, b, c, batch, only } = await sent();
+    const heard: ChangeKind[] = [];
+    repo.onChange((k) => {
+      if (k === 'sync') heard.push(k);
+    });
+    await repo.confirmSent(batch.sent, only(c.id));
+    expect(await keys(db)).toEqual([]);
+    expect(await repo.heldCount()).toBe(1);
+    expect(await db.get('meta', 'held')).toEqual([`solves/${c.id}`]);
+    expect(heard).toEqual(['sync']);
+    expect(await db.get('solves', c.id)).toMatchObject({ deletedAt: null }); // nada some do aparelho
+    // Sem nenhum guardado e sem mexer na lista, nada é avisado.
+    t += 10;
+    await repo.updateSolve(a.id, { note: 'um' });
+    await repo.confirmSent((await repo.outboxBatch(500)).sent);
+    expect(heard).toEqual(['sync']);
+    // Mais um recusado entra na lista; um guardado que a conta aceitou (editado aqui, subiu de novo) sai dela.
+    t += 10;
+    await repo.updateSolve(b.id, { note: 'dois' });
+    await repo.updateSolve(c.id, { note: 'três' });
+    const again = await repo.outboxBatch(500);
+    await repo.confirmSent(again.sent, again.sent.filter((e) => e.id === b.id));
+    expect(await db.get('meta', 'held')).toEqual([`solves/${b.id}`]);
+    expect(heard).toEqual(['sync', 'sync']);
+  });
+
+  it('um recusado gravado de novo durante o pedido fica na fila', async () => {
+    const { db, repo, c, batch, only } = await sent();
+    t += 10;
+    await repo.updateSolve(c.id, { note: 'durante o pedido' });
+    await repo.confirmSent(batch.sent, only(c.id));
+    expect(await keys(db)).toEqual([`solves/${c.id}`]); // o que subiu já é velho: a versão nova sobe no próximo lote
+    expect(await repo.heldCount()).toBe(0);
+  });
+
+  it('localOnlyCount soma os guardados, e apagar os dados recusa', async () => {
+    const { db, repo, s, c, batch, only } = await sent();
+    expect(await repo.localOnlyCount()).toBe(0);
+    await repo.confirmSent(batch.sent, only(c.id, s.id));
+    expect(await keys(db)).toEqual([]);
+    expect(await repo.localOnlyCount()).toBe(2);
+    const refused = await repo.wipeData().catch((err: unknown) => err);
+    expect(refused).toBeInstanceOf(LocalOnlyError);
+    expect((refused as LocalOnlyError).count).toBe(2);
+    expect(await repo.listSolves()).toHaveLength(3); // nada foi apagado
+    expect(await repo.heldCount()).toBe(2);
+  });
+
+  it('requeueHeld põe de volta na fila só o que existe e esvazia a lista', async () => {
+    const { db, repo, s, c, batch, only } = await sent();
+    await repo.confirmSent(batch.sent, only(c.id, s.id));
+    await db.put('meta', [...((await db.get('meta', 'held')) as string[]), 'solves/sumiu'], 'held'); // uma chave sem registro
+    const heard: ChangeKind[] = [];
+    repo.onChange((k) => heard.push(k));
+    t += 10;
+    expect(await repo.requeueHeld()).toBe(2);
+    // A sessão vem antes dos solves dela (a mesma data na fila): ela sobe primeiro.
+    expect((await db.getAllFromIndex('outbox', 'byQueued')).map((e) => `${e.store}/${e.id}`)).toEqual([`sessions/${s.id}`, `solves/${c.id}`]);
+    expect(await repo.heldCount()).toBe(0);
+    expect(await db.get('meta', 'held')).toBeUndefined();
+    expect(heard).toEqual(['sync']);
+    expect(await repo.requeueHeld()).toBe(0); // a lista vazia: nada muda
+  });
+
+  it('beginFirstSync e forgetAccount esvaziam a lista', async () => {
+    const { db, repo, c, batch, only } = await sent();
+    await repo.confirmSent(batch.sent, only(c.id));
+    await repo.saveSyncState({ pushAfter: t + 1000, copiesPaused: 'space' });
+    // A mesma conta: o primeiro login dela já começou, e nada muda.
+    expect(await repo.beginFirstSync({ accountId: 'conta-1', email: 'a@b.c' })).toBe(0);
+    expect(await repo.heldCount()).toBe(1);
+    // Outra conta: tudo daqui entra na fila (o guardado também, e a conta nova decide), a lista e o que era da conta de antes saem.
+    await repo.beginFirstSync({ accountId: 'conta-2', email: 'a@b.c' });
+    expect(await repo.heldCount()).toBe(0);
+    expect(await keys(db)).toContain(`solves/${c.id}`);
+    expect(await repo.getSyncState()).toMatchObject({ accountId: 'conta-2', pushAfter: null, copiesPaused: null });
+    await repo.confirmSent((await repo.outboxBatch(500)).sent, [{ store: 'solves', id: c.id, queuedAt: (await db.get('outbox', `solves/${c.id}`))!.queuedAt }]);
+    expect(await repo.heldCount()).toBe(1);
+    await repo.forgetAccount();
+    expect(await repo.heldCount()).toBe(0);
+    expect(await db.get('solves', c.id)).toMatchObject({ deletedAt: null });
+  });
+
+  // Decisão (a) do controlador: a mesma resposta pode trazer a chave recusada pela cota e uma escrita dela (apagada pela cascata do servidor).
+  it('um lote do servidor com uma chave guardada junta pela regra de sempre; apagada nos dois lados, sai da lista', async () => {
+    const { db, repo, b, c, batch, only } = await sent();
+    await repo.confirmSent(batch.sent, only(b.id, c.id));
+    const bChange = toChange('solves', (await db.get('solves', b.id))!);
+    const cChange = toChange('solves', (await db.get('solves', c.id))!);
+    t += 100;
+    const deleted = { ...bChange, deletedAt: t, deletionStamp: t }; // a cascata: só a exclusão muda
+    const older = { ...cChange, data: { ...(cChange.data as object), note: 'velha' }, updatedAt: cChange.updatedAt - 5 }; // uma versão velha
+    await repo.applyRemote([deleted, older], t);
+    expect(await db.get('solves', b.id)).toMatchObject({ deletedAt: t }); // juntada, não pulada
+    expect(await db.get('solves', c.id)).toMatchObject({ deletedAt: null, note: '' }); // a daqui é mais nova e vence
+    expect(await db.get('meta', 'held')).toEqual([`solves/${c.id}`]);
+  });
+
+  // Decisão (d): a exclusão recusada no teto de bytes fica guardada; a edição que chega de outro aparelho não a tira da lista, senão a exclusão
+  // nunca chegaria à conta.
+  it('a exclusão guardada junta a edição de outro aparelho e continua na lista', async () => {
+    const { db, repo, c } = await sent();
+    await repo.confirmSent((await repo.outboxBatch(500)).sent);
+    const before = toChange('solves', (await db.get('solves', c.id))!); // como a conta o tem: ativo
+    t += 10;
+    await repo.deleteSolve(c.id);
+    const batch = await repo.outboxBatch(500);
+    await repo.confirmSent(batch.sent, batch.sent);
+    t += 10;
+    const edited = { ...before, data: { ...(before.data as object), note: 'de lá' }, updatedAt: t };
+    await repo.applyRemote([edited], t);
+    expect(await db.get('solves', c.id)).toMatchObject({ note: 'de lá', deletedAt: expect.any(Number) });
+    expect(await repo.heldCount()).toBe(1);
+  });
+
+  it('a lixeira não apaga de vez a exclusão que só está neste aparelho', async () => {
+    const { db, repo, c } = await sent();
+    await repo.confirmSent((await repo.outboxBatch(500)).sent);
+    await repo.deleteSolve(c.id);
+    const batch = await repo.outboxBatch(500);
+    await repo.confirmSent(batch.sent, batch.sent);
+    t += 31 * DAY;
+    expect(await repo.purgeTrash(30 * DAY)).toBe(0);
+    expect(await db.get('solves', c.id)).toMatchObject({ deletedAt: expect.any(Number) });
+  });
+
+  // Decisão (b): um solve gravado depois numa sessão guardada não sobe sem ela (ficaria órfão nos outros aparelhos): vai para a lista junto.
+  it('um solve gravado numa sessão guardada vai para a lista com ela; com a sessão antes no lote, sobe com ela', async () => {
+    const { db, repo } = await fresh();
+    const s = await repo.createSession({ event: '333' });
+    const first = await repo.outboxBatch(500);
+    await repo.confirmSent(first.sent, first.sent);
+    t += 10;
+    const x = await repo.addSolve(ns(s.id, 1000));
+    const heard: ChangeKind[] = [];
+    repo.onChange((k) => heard.push(k));
+    const batch = await repo.outboxBatch(500);
+    expect(batch).toMatchObject({ changes: [], sent: [], held: 1 });
+    expect(await keys(db)).toEqual([]);
+    expect(await db.get('meta', 'held')).toEqual([`sessions/${s.id}`, `solves/${x.id}`]);
+    expect(heard).toEqual(['sync']);
+    // Enviar de novo: a sessão vem antes no lote, e o solve sobe com ela.
+    t += 10;
+    await repo.requeueHeld();
+    const again = await repo.outboxBatch(500);
+    expect(again.changes.map((c) => `${c.store}/${c.id}`)).toEqual([`sessions/${s.id}`, `solves/${x.id}`]);
+    expect(again.held).toBe(0);
   });
 });

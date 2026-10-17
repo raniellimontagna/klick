@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { seasonOne } from '../../src/core/season';
-import type { SyncRequest, SyncResponse } from '../../src/core/sync/types';
+import { SYNC_PROTOCOL, type SyncRequest, type SyncResponse } from '../../src/core/sync/types';
 import { openKlickDb } from '../../src/data/db';
 import { defaultSessionId } from '../../src/data/ids';
 import { createRepository, type Repository } from '../../src/data/repository';
@@ -158,7 +158,7 @@ describe('motor do sync (spec 6.1 e 6.2)', () => {
     const s = await repo.createSession({ event: '333' });
     await repo.addSolve(ns(s.id, 1000));
     const other = new FakeServer();
-    other.sync({ v: 1, account: 'conta-2', deviceId: 'b', cursor: 0, clock: 0, changes: [] });
+    other.sync({ v: SYNC_PROTOCOL, account: 'conta-2', deviceId: 'b', cursor: 0, clock: 0, changes: [] });
     const net = network(other);
     const real = net.api.sync;
     net.api.sync = async (req) => {
@@ -1083,6 +1083,276 @@ describe('primeiro login (spec 6.5)', () => {
   });
 });
 
+describe('a cota e o orçamento do dia (endurecimento 4.1 e decisões 4 e 6)', () => {
+  const LIMITS = { solves: 2, sessions: 10, practice: 10 };
+  const DAY = 86_400_000;
+  const ids = (req: SyncRequest | undefined) => (req?.changes ?? []).map((c) => c.id);
+
+  // Uma conta de dois solves e um aparelho com três: a conta fica cheia e o terceiro, só neste aparelho.
+  async function fullAccount() {
+    const server = new FakeServer(500, { limits: LIMITS });
+    const repo = await device();
+    const s = await repo.createSession({ event: '333' });
+    const a = await repo.addSolve(ns(s.id, 1000, t));
+    const b = await repo.addSolve(ns(s.id, 2000, t + 1));
+    const c = await repo.addSolve(ns(s.id, 3000, t + 2));
+    const net = network(server);
+    const { engine } = engineFor(repo, net);
+    const first = await engine.run();
+    return { server, repo, net, engine, s, a, b, c, first };
+  }
+
+  it('a cota: o terceiro solve sai da fila, fica só neste aparelho, não volta sozinho, e o estado diz quota', async () => {
+    const { server, repo, net, engine, a, b, c, first } = await fullAccount();
+    expect(first).toMatchObject({ phase: 'idle', pending: 0, refused: 0, notice: 'quota' });
+    expect(activeSolves(server).map((x) => x.id).sort()).toEqual([a.id, b.id].sort());
+    expect(await repo.heldCount()).toBe(1);
+    expect((await repo.listSolves()).map((x) => x.id)).toEqual([a.id, b.id, c.id]); // nada some do aparelho
+    t += 10;
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, refused: 0, notice: null });
+    expect(ids(net.calls.at(-1))).toEqual([]); // sem reenvio sozinho
+    expect(await repo.heldCount()).toBe(1);
+    expect(await repo.localOnlyCount()).toBe(1);
+  });
+
+  it('Enviar de novo com vaga na conta sobe e zera a lista', async () => {
+    const { server, repo, engine, a, b, c } = await fullAccount();
+    expect(await repo.requeueHeld()).toBe(1);
+    expect(await engine.run()).toMatchObject({ pending: 0, notice: 'quota' }); // ainda cheia: volta para a lista
+    expect(await repo.heldCount()).toBe(1);
+    t += 10;
+    await repo.deleteSolve(a.id); // abre a vaga
+    await engine.run();
+    expect(await repo.requeueHeld()).toBe(1);
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, refused: 0, notice: null });
+    expect(activeSolves(server).map((x) => x.id).sort()).toEqual([b.id, c.id].sort());
+    expect(await repo.heldCount()).toBe(0);
+  });
+
+  // Review Focus 2.
+  it('um solve guardado e depois apagado aqui sobe como apagado e sai da lista', async () => {
+    const { server, repo, net, engine, c } = await fullAccount();
+    t += 10;
+    await repo.deleteSolve(c.id);
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, refused: 0, notice: null });
+    expect(ids(net.calls.at(-1))).toEqual([c.id]);
+    expect(server.records.get(`solves/${c.id}`)).toMatchObject({ deletedAt: expect.any(Number) });
+    expect(await repo.heldCount()).toBe(0);
+    expect((await repo.listTrash()).solves.map((x) => x.id)).toEqual([c.id]); // na lixeira daqui, recuperável
+  });
+
+  it('editado, continua guardado e nada some do aparelho', async () => {
+    const { server, repo, net, engine, c } = await fullAccount();
+    t += 10;
+    await repo.updateSolve(c.id, { note: 'boa' });
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, refused: 0, notice: 'quota' });
+    expect(ids(net.calls.at(-1))).toEqual([c.id]); // a edição sobe, e a conta recusa de novo
+    expect(server.records.has(`solves/${c.id}`)).toBe(false);
+    expect(await repo.heldCount()).toBe(1);
+    expect((await repo.listSolves()).find((x) => x.id === c.id)).toMatchObject({ note: 'boa', deletedAt: null });
+    expect(await repo.listSolves()).toHaveLength(3);
+  });
+
+  it('restaurado da lixeira com a conta cheia volta para a lista', async () => {
+    const { server, repo, engine, c } = await fullAccount();
+    t += 10;
+    await repo.deleteSolve(c.id);
+    await engine.run();
+    expect(await repo.heldCount()).toBe(0);
+    t += 10;
+    await repo.restoreSolve(c.id);
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, refused: 0, notice: 'quota' });
+    expect(await repo.heldCount()).toBe(1);
+    expect(server.records.get(`solves/${c.id}`)).toMatchObject({ deletedAt: expect.any(Number) }); // restaurar conta como novo
+    expect((await repo.listSolves()).map((x) => x.id)).toContain(c.id);
+  });
+
+  // Decisão (a): a resposta traz a chave recusada pela cota e também uma escrita dela (apagada pela cascata do servidor). A fila é confirmada
+  // antes de juntar a volta, e a escrita é juntada pela regra de sempre: apagada nos dois lados, a chave sai da lista.
+  it('a chave recusada e apagada pela cascata na mesma resposta é juntada e sai da lista', async () => {
+    const server = new FakeServer(500, { limits: LIMITS });
+    const repo = await device();
+    const s = await repo.createSession({ event: '333' });
+    await repo.addSolve(ns(s.id, 1000, t));
+    await repo.addSolve(ns(s.id, 2000, t + 1));
+    const c = await repo.addSolve(ns(s.id, 3000, t + 2));
+    const net = network(server);
+    const real = net.api.sync;
+    net.api.sync = async (req) => {
+      const res = await real(req);
+      const sent = req.changes.find((x) => x.id === c.id);
+      if (!sent) return res;
+      return { ...res, changes: [...res.changes, { ...sent, deletedAt: t + 50, deletionStamp: t + 50 }] };
+    };
+    expect(await engineFor(repo, net).engine.run()).toMatchObject({ phase: 'idle', pending: 0, notice: 'quota' });
+    expect(await repo.heldCount()).toBe(0);
+    expect((await repo.listTrash()).solves.map((x) => x.id)).toEqual([c.id]); // juntada, e o conteúdo fica na lixeira daqui
+  });
+
+  // Decisão (b): uma sessão guardada pela cota, e depois um solve gravado nela. Com vaga de sessão aberta noutro aparelho, o servidor aceitaria
+  // o solve sozinho e ele ficaria sem sessão nos outros aparelhos: o solve vai para a lista com ela e só sobe com "Enviar de novo".
+  it('o solve gravado numa sessão guardada não sobe sem ela: o servidor nunca recebe um solve sem a sessão', async () => {
+    const server = new FakeServer(500, { limits: { solves: 10, sessions: 1, practice: 10 } });
+    const phone = await device();
+    const desktop = await device();
+    const s1 = await phone.createSession({ event: '333' });
+    await phone.addSolve(ns(s1.id, 1000));
+    const net = network(server);
+    const { engine } = engineFor(phone, net);
+    await engine.run();
+    t += 10;
+    const s2 = await phone.createSession({ event: '333' });
+    expect(await engine.run()).toMatchObject({ pending: 0, notice: 'quota' });
+    expect(await phone.heldCount()).toBe(1);
+    await engineFor(desktop, network(server)).engine.run();
+    t += 10;
+    await desktop.deleteSession(s1.id); // a conta ganha vaga para uma sessão
+    await engineFor(desktop, network(server)).engine.run();
+    t += 10;
+    const x = await phone.addSolve(ns(s2.id, 2000));
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, refused: 0, notice: 'quota' });
+    expect(net.calls.flatMap((c) => c.changes).some((c) => c.id === x.id)).toBe(false);
+    expect(await phone.heldCount()).toBe(2);
+    const orphans = () => {
+      const active = server.active();
+      return [...active.values()].filter((c) => c.store === 'solves' && !active.has(`sessions/${(c.data as { sessionId: string }).sessionId}`));
+    };
+    expect(orphans()).toEqual([]);
+    // Enviar de novo: a sessão vai antes do solve, e os dois entram.
+    expect(await phone.requeueHeld()).toBe(2);
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, notice: null });
+    expect(ids(net.calls.at(-1))).toEqual([s2.id, x.id]);
+    expect(server.active().has(`solves/${x.id}`)).toBe(true);
+    expect(orphans()).toEqual([]);
+    expect(await phone.heldCount()).toBe(0);
+  });
+
+  // Decisões (d) e (e): uma exclusão que chega com o conteúdo maior pode ser recusada no teto de bytes da conta (o admit do servidor). Ela
+  // fica guardada como qualquer recusa, e o solve continua ativo nos outros aparelhos até "Enviar de novo".
+  it('a exclusão recusada no teto fica só neste aparelho, e o solve continua ativo nos outros até Enviar de novo', async () => {
+    const server = new FakeServer();
+    const phone = await device();
+    const desktop = await device();
+    const s = await phone.createSession({ event: '333' });
+    const a = await phone.addSolve(ns(s.id, 1000));
+    const { engine } = engineFor(phone, network(server));
+    await engine.run();
+    const other = engineFor(desktop, network(server)).engine;
+    await other.run();
+    server.admit = (_before, next) => !(next.store === 'solves' && next.deletedAt !== null);
+    t += 10;
+    await phone.deleteSolve(a.id);
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, refused: 0, notice: 'quota' });
+    expect(await phone.heldCount()).toBe(1);
+    await other.run();
+    expect((await desktop.listSolves()).map((x) => x.id)).toEqual([a.id]);
+    server.admit = undefined; // a conta encolheu
+    expect(await phone.requeueHeld()).toBe(1);
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, notice: null });
+    expect(await phone.heldCount()).toBe(0);
+    await other.run();
+    expect(await desktop.listSolves()).toEqual([]);
+    expect((await desktop.listTrash()).solves.map((x) => x.id)).toEqual([a.id]);
+  });
+
+  // Review Focus 3.
+  it('o orçamento corta o lote: o resto fica na fila na mesma ordem, a rodada continua recebendo, nada sobe antes de retryAt, e depois sobe', async () => {
+    const server = new FakeServer(2, { budget: 3 });
+    server.now = t;
+    const desktop = await device();
+    const ds = await desktop.createSession({ event: '333', name: 'Do computador' });
+    await desktop.addSolve(ns(ds.id, 5000, t));
+    await desktop.addSolve(ns(ds.id, 5001, t + 1));
+    await engineFor(desktop, network(server)).engine.run();
+    server.newDay();
+    const phone = await device();
+    const s = await phone.createSession({ event: '333' });
+    const mine = [];
+    for (let i = 0; i < 4; i++) mine.push(await phone.addSolve(ns(s.id, 1000 + i, t + i)));
+    const net = network(server);
+    const { engine } = engineFor(phone, net);
+    const retryAt = (Math.floor(t / DAY) + 1) * DAY;
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 2, refused: 0, notice: 'budget' });
+    expect(net.calls.map(ids)).toEqual([[s.id, ...mine.map((x) => x.id)], [], []]); // um lote, e depois só recebendo
+    expect(activeSolves(server)).toHaveLength(4); // dois de cada aparelho
+    expect(await phone.listSolves()).toHaveLength(6); // recebeu os do computador
+    expect(await phone.getSyncState()).toMatchObject({ pushAfter: retryAt, cursor: server.rev });
+    // Antes de retryAt nada sobe, nem o que foi gravado depois.
+    t += 1000;
+    const late = await phone.addSolve(ns(s.id, 1999, t));
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 3, notice: 'budget' });
+    expect(ids(net.calls.at(-1))).toEqual([]);
+    // Virou o dia (UTC): o resto sobe, na ordem em que ficou na fila.
+    t = retryAt + 1;
+    server.now = t;
+    server.newDay();
+    const before = net.calls.length;
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, refused: 0, notice: null });
+    expect(ids(net.calls[before])).toEqual([mine[2].id, mine[3].id, late.id]);
+    expect(activeSolves(server)).toHaveLength(7);
+    expect((await phone.getSyncState()).pushAfter).toBeNull();
+  });
+
+  it('cota e orçamento no mesmo lote', async () => {
+    const server = new FakeServer(500, { limits: { solves: 1, sessions: 10, practice: 10 }, budget: 3 });
+    server.now = t;
+    const repo = await device();
+    const s = await repo.createSession({ event: '333' });
+    const mine = [];
+    for (let i = 0; i < 4; i++) mine.push(await repo.addSolve(ns(s.id, 1000 + i, t + i)));
+    const { engine } = engineFor(repo, network(server));
+    // O lido do lote: a sessão e o primeiro solve entram, o segundo fica só neste aparelho; os dois últimos ficam na fila para amanhã.
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 2, refused: 0, notice: 'budget' });
+    expect(activeSolves(server).map((x) => x.id)).toEqual([mine[0].id]);
+    expect(await repo.heldCount()).toBe(1);
+    t = (Math.floor(t / DAY) + 1) * DAY;
+    server.now = t;
+    server.newDay();
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, refused: 0, notice: 'quota' });
+    expect(await repo.heldCount()).toBe(3);
+    expect(await repo.listSolves()).toHaveLength(4); // nada some do aparelho
+  });
+
+  it('com retryAt já passado não pausa: o resto sobe na mesma rodada; o lote que o servidor não leu não se repete na rodada', async () => {
+    const server = new FakeServer(500, { budget: 2 }); // a hora do servidor (0) já passou do dia do orçamento para este aparelho
+    const repo = await device();
+    const s = await repo.createSession({ event: '333' });
+    for (let i = 0; i < 3; i++) await repo.addSolve(ns(s.id, 1000 + i, t + i));
+    const net = network(server);
+    const real = net.api.sync;
+    net.api.sync = async (req) => {
+      const res = await real(req);
+      server.newDay(); // o dia virou durante o pedido
+      return res;
+    };
+    expect(await engineFor(repo, net).engine.run()).toMatchObject({ phase: 'idle', pending: 0, notice: null });
+    expect(net.calls.map((c) => c.changes.length)).toEqual([4, 2]);
+    // Sem orçamento nenhum: um pedido, e a rodada para de mandar (a próxima tenta de novo), sem repetir o lote sem fim.
+    const stuck = new FakeServer(500, { budget: 0 });
+    const other = await device();
+    await other.createSession({ event: '333' });
+    const net2 = network(stuck);
+    expect(await engineFor(other, net2).engine.run()).toMatchObject({ phase: 'idle', pending: 1, notice: 'budget' });
+    expect(net2.calls.map((c) => c.changes.length)).toEqual([1]);
+  });
+
+  it('a resposta grava copiesPaused no estado do sync', async () => {
+    const server = new FakeServer();
+    const repo = await device();
+    const { engine } = engineFor(repo, network(server));
+    expect((await repo.getSyncState()).copiesPaused).toBeNull();
+    server.copiesPaused = 'space';
+    await engine.run();
+    expect((await repo.getSyncState()).copiesPaused).toBe('space');
+    server.copiesPaused = 'ops';
+    await engine.run();
+    expect((await repo.getSyncState()).copiesPaused).toBe('ops');
+    server.copiesPaused = null;
+    await engine.run();
+    expect((await repo.getSyncState()).copiesPaused).toBeNull();
+  });
+});
+
 describe('dois aparelhos migrados da versão 2 em horas diferentes (spec 5.6 e 6.5)', () => {
   // Gravado direto na versão 2 e aberto na atual (a migração), com o relógio da migração dado.
   async function migrated(trail: boolean[], migratedAt: number): Promise<Repository> {
@@ -1194,7 +1464,7 @@ describe('cliente HTTP (spec 6.1)', () => {
       new Promise((_, reject) => init?.signal?.addEventListener('abort', () => reject(new DOMException('prazo', 'TimeoutError'))));
     const api = createSyncApi(hang, '', { health: 20, sync: 20 });
     expect(await api.health()).toBeNull();
-    await expect(api.sync({ v: 1, account: 'conta-1', deviceId: 'd', cursor: 0, clock: 0, changes: [] })).rejects.toMatchObject({ kind: 'offline' });
+    await expect(api.sync({ v: SYNC_PROTOCOL, account: 'conta-1', deviceId: 'd', cursor: 0, clock: 0, changes: [] })).rejects.toMatchObject({ kind: 'offline' });
     // Os cabeçalhos chegaram e o corpo parou: o sync desiste também (erro do servidor, nova tentativa).
     const stalledBody: Fetcher = async (_url, init) =>
       new Response(
@@ -1204,7 +1474,7 @@ describe('cliente HTTP (spec 6.1)', () => {
           },
         }),
       );
-    await expect(createSyncApi(stalledBody, '', { health: 20, sync: 20 }).sync({ v: 1, account: 'conta-1', deviceId: 'd', cursor: 0, clock: 0, changes: [] })).rejects.toMatchObject({
+    await expect(createSyncApi(stalledBody, '', { health: 20, sync: 20 }).sync({ v: SYNC_PROTOCOL, account: 'conta-1', deviceId: 'd', cursor: 0, clock: 0, changes: [] })).rejects.toMatchObject({
       kind: 'server',
     });
   });
@@ -1215,7 +1485,7 @@ describe('cliente HTTP (spec 6.1)', () => {
       seen.push({ url, init });
       return Response.json({ accepted: 0, rejected: [], changes: [], cursor: 0, more: false, serverTime: 1 });
     });
-    await api.sync({ v: 1, account: 'conta-1', deviceId: 'd', cursor: 0, clock: 0, changes: [] });
+    await api.sync({ v: SYNC_PROTOCOL, account: 'conta-1', deviceId: 'd', cursor: 0, clock: 0, changes: [] });
     expect(seen[0].url).toBe('/api/sync');
     expect(seen[0].init?.signal).toBeInstanceOf(AbortSignal); // com prazo
     expect(seen[0].init).toMatchObject({ method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' } });

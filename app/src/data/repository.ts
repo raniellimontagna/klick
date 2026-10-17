@@ -12,13 +12,24 @@
 // Leitura: o que sai do IndexedDB já é cópia. Os padrões (perfil e meta) são montados novos a cada chamada, nunca compartilhados.
 import type { IDBPDatabase, IDBPObjectStore, IDBPTransaction, StoreNames } from 'idb';
 import { defaultSeason, finishUnlocked, moreAdvanced, seasonFrom } from '../core/season';
-import { applyChanges, type ApplyOptions, type ApplyResult, type RecordView } from '../core/sync/apply';
+import { applyChanges, sameChange, type ApplyOptions, type ApplyResult, type RecordView } from '../core/sync/apply';
 import { canonicalJson } from '../core/sync/merge';
 import { defaultPrefValue, isPrefValue, joinProfile, prefsFromProfile, profileFromPrefs, splitProfile } from '../core/sync/prefs';
 import { changeToPref, fromChange, prefToChange, sessionOfChange, stampOf, toChange, type RecordStore, type StampedRecord } from '../core/sync/records';
 import { restoreChanges } from '../core/sync/restore';
 import { checkChange, isSyncId } from '../core/sync/shape';
-import { MAX_STAMP, SYNC_STORES, syncKey, type Change, type DeviceProfile, type OutboxEntry, type PrefItem, type SyncState, type SyncStore } from '../core/sync/types';
+import {
+  MAX_STAMP,
+  SYNC_STORES,
+  syncKey,
+  type Change,
+  type CopiesPaused,
+  type DeviceProfile,
+  type OutboxEntry,
+  type PrefItem,
+  type SyncState,
+  type SyncStore,
+} from '../core/sync/types';
 import { algChoiceFrom, lessonAtFrom, practiceFrom, trainOffFrom } from '../core/trail/validate';
 import { defaultSettings } from '../core/types';
 import type { EventId, KlickExport, Meta, Penalty, Practice, Profile, ProfilePatch, SeasonRecord, SeasonState, Session, Solve } from '../core/types';
@@ -80,9 +91,10 @@ export interface Repository {
   deleteSolve(id: string): Promise<void>;
   restoreSolve(id: string): Promise<void>; // devolve o solve; se a sessão dele está na lixeira, devolve também o registro dela (só ele: os outros solves excluídos da sessão continuam na lixeira)
   listTrash(): Promise<{ sessions: Session[]; solves: Solve[] }>; // o excluído mais recentemente primeiro, sessões e solves
-  // Apaga de vez o excluído antes de now - olderThanMs (no limite exato ainda fica), menos o que espera na fila de saída: a marca de exclusão
-  // só some depois que o servidor a tem (spec 5.5). Uma sessão só sai depois do último solve dela (fica enquanto algum sobrar, na fila,
-  // por vencer ou ativo). Devolve quantos itens (sessões e solves); as marcas do treino saem junto, sem contar.
+  // Apaga de vez o excluído antes de now - olderThanMs (no limite exato ainda fica), menos o que espera na fila de saída ou está só neste
+  // aparelho (a lista dos recusados pela cota): a marca de exclusão só some depois que o servidor a tem (spec 5.5). Uma sessão só sai depois
+  // do último solve dela (fica enquanto algum sobrar, na fila, por vencer ou ativo). Devolve quantos itens (sessões e solves); as marcas do
+  // treino saem junto, sem contar.
   purgeTrash(olderThanMs: number): Promise<number>;
   getProfile(): Promise<Profile>; // padrão se ausente (e não grava o padrão)
   saveProfile(patch: ProfilePatch): Promise<Profile>; // settings faz merge raso, sound faz merge
@@ -95,10 +107,21 @@ export interface Repository {
   // Até `limit` entradas da fila, as mais antigas primeiro, com o registro atual de cada uma: várias edições do mesmo registro sobem uma vez.
   // O que o servidor recusaria (spec 6.6: um registro de antes da v3 com a própria data torta, por exemplo) não sobe: a entrada sai da fila
   // e vai para o log local, só com store, id e motivo, contada em `refused`. A entrada de um registro que não existe mais também sai, contada
-  // em `missing` e no log (store e id).
-  outboxBatch(limit: number): Promise<{ changes: Change[]; sent: OutboxEntry[]; refused: number; missing: number }>;
-  confirmSent(sent: readonly OutboxEntry[]): Promise<void>; // tira da fila as entradas que não mudaram desde que saíram
+  // em `missing` e no log (store e id). Um solve cuja sessão está só neste aparelho (recusada pela cota) também não sobe, a não ser que a
+  // sessão vá antes no mesmo lote: o servidor o aceitaria sem ela, e ele ficaria órfão nos outros aparelhos. Ele sai da fila e entra na lista
+  // com ela (contado em `held`, avisa 'sync'), e volta com ela em requeueHeld.
+  outboxBatch(limit: number): Promise<{ changes: Change[]; sent: OutboxEntry[]; refused: number; missing: number; held: number }>;
+  // Numa transação (a fila e a lista dos recusados pela cota): tira da fila as entradas que não mudaram desde que saíram. As de `held` (as
+  // que a conta recusou pela cota) que saíram da fila entram na lista "só neste aparelho"; as outras saem dela (a conta tem uma versão delas).
+  // Uma entrada gravada de novo durante o pedido fica na fila, e sobe no próximo lote. Avisa 'sync' quando a lista muda.
+  confirmSent(sent: readonly OutboxEntry[], held?: readonly OutboxEntry[]): Promise<void>;
   outboxCount(): Promise<number>;
+  // A lista "só neste aparelho" (endurecimento, decisão 4): quantas chaves a conta recusou pela cota (de qualquer store, uma exclusão
+  // também), fora da fila. Nenhuma volta sozinha.
+  heldCount(): Promise<number>;
+  // "Enviar de novo": numa transação, põe na fila o que da lista ainda existe aqui (a sessão antes dos solves dela) e esvazia a lista. Avisa
+  // 'sync'. Devolve quantos voltaram para a fila; o servidor recusa de novo se a conta continuar cheia.
+  requeueHeld(): Promise<number>;
   countRemoteDeletions(changes: readonly unknown[]): Promise<number>; // quantos solves ativos daqui o lote apagaria (spec 6.6)
   // Junta um lote do servidor (applyChanges, no modo do aparelho): grava o que muda, põe na fila o que a cascata mudou, sobe o relógio e
   // avisa as telas (desta aba e das outras) como uma mudança de fora. `accountId` é a conta da rodada que pediu o lote: se a conta gravada
@@ -106,12 +129,16 @@ export interface Repository {
   // transação, e nada muda: nem registro, nem fila, nem relógio. Sem ele (os testes do repositório), não confere. `after` é o cursor e a hora
   // do sync desta volta, gravados na mesma transação (e avisados como 'sync'): uma aba que congela entre juntar e gravar o cursor não grava
   // depois o cursor de uma conta no estado de outra. Com algo recusado no lote, grava também `refusedBuild` (a versão do app, `after.build`):
-  // o cursor passa por cima do que esta versão não entende, e outra versão o baixa de novo (restartAfterUpdate).
+  // o cursor passa por cima do que esta versão não entende, e outra versão o baixa de novo (restartAfterUpdate). `copiesPaused` e
+  // `pushAfter`, quando vêm (null inclusive), vão para o estado na mesma transação. Uma chave da lista "só neste aparelho" é juntada como
+  // qualquer outra (a regra de conflito de sempre, nunca pulada nem trocada pela daqui) e sai da lista quando a conta já tem o que fica aqui:
+  // o resultado é o que chegou, ou está apagado nos dois lados (a cascata do servidor apagou o recusado). Uma exclusão daqui que vence uma
+  // versão ativa da conta continua na lista: a conta ainda não a tem.
   applyRemote(
     changes: readonly unknown[],
     serverTime: number,
     accountId?: string,
-    after?: Pick<SyncState, 'cursor' | 'lastSyncAt'> & { build?: string },
+    after?: Pick<SyncState, 'cursor' | 'lastSyncAt'> & { build?: string; copiesPaused?: CopiesPaused | null; pushAfter?: number | null },
   ): Promise<RemoteResult>;
   // A primeira rodada de outra versão do app depois de um lote com algo recusado (refusedBuild, de outra versão): o cursor volta a 0 e a marca
   // sai, numa transação, e o sync seguinte baixa a conta inteira de novo (juntar é idempotente), agora com o que esta versão entende. Avisa
@@ -122,7 +149,9 @@ export interface Repository {
   // (fica fora, no log local como em outboxBatch). Acontecem os dois ou nenhum: o app fechado no meio (ou a cota cheia) não deixa
   // firstSync ligado com a fila vazia, o que faria a deduplicação tomar tudo daqui como da conta, nada subiria, e wipeData passaria a
   // apagar a única cópia. Se falhar, rejeita e nada muda; o motor chama de novo. Avisa 'sync'. Devolve quantos ficaram fora da fila. Com
-  // a mesma conta já gravada (o primeiro login dela já começou), não faz nada e devolve 0, sem aviso: o cursor e a fila ficam.
+  // a mesma conta já gravada (o primeiro login dela já começou), não faz nada e devolve 0, sem aviso: o cursor e a fila ficam. Quando começa,
+  // a lista "só neste aparelho" se esvazia (o que estava nela entra na fila com o resto, e a conta nova decide), e o orçamento e a pausa das
+  // cópias da conta de antes saem do estado.
   beginFirstSync(account: { accountId: string; email: string }): Promise<number>;
   // Depois de baixar a conta inteira no primeiro login (spec 6.5): um solve daqui igual a um da conta, com outro id, e uma sessão daqui vazia
   // com o nome padrão, de um evento que já tem sessão na conta, recebem marca de exclusão e saem da fila. "Daqui" é o que está na fila; "da
@@ -136,12 +165,14 @@ export interface Repository {
   // Apaga os dados deste aparelho (spec 7.6 e 7.7): solves, sessões, treino, conta, fila e cópias. Ficam os ajustes do aparelho; o estado
   // do sync volta ao padrão, com o relógio. Com mudanças esperando para subir, recusa (PendingChangesError) e não apaga nada (decisão 12):
   // apagar perderia o que ainda não está na conta. Pelo mesmo motivo recusa (LocalOnlyError) com registros que o servidor recusaria, ativos
-  // ou na lixeira: ficaram fora da fila e só existem aqui (a revisão final, I4).
+  // ou na lixeira, ou que a conta recusou pela cota: ficaram fora da fila e só existem aqui (a revisão final, I4, e a decisão 32 do 5a).
   wipeData(): Promise<void>;
-  // Quantos registros daqui (solves, sessões, treino e ajustes da conta, ativos ou na lixeira) o servidor recusaria: só existem neste aparelho.
+  // Quantos registros daqui (solves, sessões, treino e ajustes da conta, ativos ou na lixeira) só existem neste aparelho: os que o servidor
+  // recusaria e os da lista dos recusados pela cota.
   localOnlyCount(): Promise<number>;
   // A conta foi apagada no servidor (spec 7.7): numa transação, o estado do sync volta ao padrão, com o relógio (nenhuma data volta para
-  // trás). Os dados deste aparelho e a fila ficam, fora de qualquer conta. Avisa 'sync': as outras abas também saem da conta.
+  // trás), e a lista "só neste aparelho" se esvazia. Os dados deste aparelho e a fila ficam, fora de qualquer conta. Avisa 'sync': as outras
+  // abas também saem da conta.
   forgetAccount(): Promise<void>;
   getSyncState(): Promise<SyncState>; // o bloco sync do meta (spec 5.4); o padrão antes do primeiro login
   // Muda o estado do sync e avisa 'sync'. O relógio só sobe: um clock menor que o gravado, que não é inteiro seguro >= 0 ou que passa do teto
@@ -287,6 +318,8 @@ export const defaultSyncState = (): SyncState => ({
   clock: 0,
   passkey: false,
   refusedBuild: null,
+  pushAfter: null,
+  copiesPaused: null,
 });
 const syncStateOrDefault = (stored: SyncState | undefined): SyncState => ({ ...defaultSyncState(), ...stored });
 
@@ -359,13 +392,32 @@ export class LocalOnlyError extends Error {
   }
 }
 
-// Os registros daqui que o servidor recusaria (spec 6.6), numa transação que lê as quatro stores do sync: só existem neste aparelho.
+// A lista "só neste aparelho" (meta 'held'): as chaves que a conta recusou pela cota. O que não for uma lista de textos vale vazia.
+const heldList = (stored: unknown): string[] => (Array.isArray(stored) ? stored.filter((k): k is string => typeof k === 'string') : []);
+const heldOf = async (tx: SyncTx): Promise<string[]> => heldList(await tx.objectStore('meta').get('held'));
+// Grava a lista; vazia, a chave sai do meta.
+async function saveHeld(tx: WriteTx, keys: Iterable<string>): Promise<void> {
+  const list = [...keys];
+  if (list.length > 0) await tx.objectStore('meta').put(list, 'held');
+  else await tx.objectStore('meta').delete('held');
+}
+// A store e o id de uma chave `${store}/${id}` (um id do sync não tem '/'); null se a store não é do sync.
+function keyParts(key: string): { store: SyncStore; id: string } | null {
+  const at = key.indexOf('/');
+  const store = key.slice(0, at);
+  if (at < 0 || !(SYNC_STORES as readonly string[]).includes(store)) return null;
+  return { store: store as SyncStore, id: key.slice(at + 1) };
+}
+
+// Os registros daqui que só existem neste aparelho, numa transação que lê as quatro stores do sync e o meta: os que o servidor recusaria
+// (spec 6.6) e os da lista dos recusados pela cota (uma chave da lista sem registro não conta).
 async function countLocalOnly(tx: SyncTx): Promise<number> {
-  const [solves, sessions, practice, prefs] = await Promise.all([
+  const [solves, sessions, practice, prefs, held] = await Promise.all([
     tx.objectStore('solves').getAll(),
     tx.objectStore('sessions').getAll(),
     tx.objectStore('practice').getAll(),
     tx.objectStore('prefs').getAll(),
+    heldOf(tx),
   ]);
   const changes = [
     ...solves.map((r) => toChange('solves', r)),
@@ -373,7 +425,10 @@ async function countLocalOnly(tx: SyncTx): Promise<number> {
     ...practice.map((r) => toChange('practice', r)),
     ...prefs.map(prefToChange),
   ];
-  return changes.filter((c) => !checkChange(c).ok).length;
+  const only = new Set(changes.filter((c) => !checkChange(c).ok).map((c) => syncKey(c.store, c.id)));
+  const present = new Set(changes.map((c) => syncKey(c.store, c.id)));
+  for (const key of held) if (present.has(key)) only.add(key);
+  return only.size;
 }
 
 // Uma mudança com store do sync e id de texto: dá para procurar o registro daqui (o resto, applyChanges confere).
@@ -946,11 +1001,12 @@ export function createRepository(
     async purgeTrash(olderThanMs) {
       const limit = now() - olderThanMs;
       const expired = ({ deletedAt }: { deletedAt: number | null }) => deletedAt !== null && deletedAt < limit;
-      const removed = await write(['sessions', 'solves', 'practice', 'outbox'], async (tx) => {
+      const removed = await write(['sessions', 'solves', 'practice', 'outbox', 'meta'], async (tx) => {
         const sessions = tx.objectStore('sessions');
         const solves = tx.objectStore('solves');
         const practice = tx.objectStore('practice');
-        const waiting = new Set(await tx.objectStore('outbox').getAllKeys());
+        // A exclusão que a conta recusou (o teto de bytes) também espera: ela só existe aqui, e o servidor ainda não a tem.
+        const waiting = new Set<string>([...(await tx.objectStore('outbox').getAllKeys()), ...(await heldOf(tx))]);
         const gone = (store: SyncStore) => (r: { id: string; deletedAt: number | null }) => expired(r) && !waiting.has(syncKey(store, r.id));
         const allSolves = await solves.getAll();
         const oldSolves = allSolves.filter(gone('solves'));
@@ -1026,22 +1082,32 @@ export function createRepository(
       return meta;
     },
 
-    // Uma transação de escrita: ler a fila e os registros dela vem do mesmo instante, e a entrada do que não sobe sai junto.
+    // Uma transação de escrita: ler a fila e os registros dela vem do mesmo instante, e a entrada do que não sobe sai junto. A lista dos
+    // recusados pela cota é lida e gravada na mesma transação.
     async outboxBatch(limit) {
       const lines: string[] = [];
       let refused = 0;
       let missing = 0;
-      const batch = await write(['outbox', 'solves', 'sessions', 'practice', 'prefs'], async (tx) => {
+      const batch = await write(['outbox', 'solves', 'sessions', 'practice', 'prefs', 'meta'], async (tx) => {
         const outbox = tx.objectStore('outbox');
         const entries = await outbox.index('byQueued').getAll(undefined, limit);
         const current = await Promise.all(entries.map((e) => recordOf(tx, e.store, e.id)));
+        const held = new Set(await heldOf(tx));
         const changes: Change[] = [];
         const sent: OutboxEntry[] = [];
         const dropped: string[] = [];
+        const parked: string[] = []; // solves de uma sessão que está só neste aparelho
+        const sessions = new Set<string>(); // as sessões que já vão neste lote
         entries.forEach((entry, i) => {
           const change = current[i];
           const checked = change && checkChange(change);
           if (change && checked?.ok) {
+            const sid = change.store === 'solves' ? sessionOfChange(change) : null;
+            if (sid !== null && held.has(syncKey('sessions', sid)) && !sessions.has(sid)) {
+              parked.push(syncKey(entry.store, entry.id));
+              return;
+            }
+            if (change.store === 'sessions') sessions.add(change.id);
             changes.push(change);
             sent.push(entry);
             return;
@@ -1055,27 +1121,62 @@ export function createRepository(
             lines.push(missingLine(entry.store, entry.id));
           }
         });
-        await each(dropped, (key) => outbox.delete(key));
-        return { changes, sent };
+        await each([...dropped, ...parked], (key) => outbox.delete(key));
+        if (parked.length > 0) await saveHeld(tx, [...held, ...parked]);
+        return { changes, sent, held: parked.length };
       });
       for (const line of lines) log(line);
+      if (batch.held > 0) announce('sync');
       return { ...batch, refused, missing };
     },
 
-    async confirmSent(sent) {
-      await write(['outbox'], async (tx) => {
+    async confirmSent(sent, held = []) {
+      const changed = await write(['outbox', 'meta'], async (tx) => {
         const outbox = tx.objectStore('outbox');
-        for (const e of sent) {
-          const key = syncKey(e.store, e.id);
+        const before = await heldOf(tx);
+        const list = new Set(before);
+        const quota = new Set(held.map((e) => syncKey(e.store, e.id)));
+        const entries = new Map<string, OutboxEntry>();
+        for (const e of [...sent, ...held]) entries.set(syncKey(e.store, e.id), e);
+        for (const [key, e] of entries) {
           const queued = await outbox.get(key);
-          // Gravado de novo durante o pedido (outra data na fila): o que subiu já é velho, e a entrada fica para o próximo lote.
-          if (queued && queued.queuedAt === e.queuedAt) await outbox.delete(key);
+          // Gravado de novo durante o pedido (outra data na fila): o que subiu já é velho, e a entrada fica para o próximo lote (e não entra na
+          // lista: a versão nova ainda vai subir).
+          const same = queued !== undefined && queued.queuedAt === e.queuedAt;
+          if (same) await outbox.delete(key);
+          if (!quota.has(key)) list.delete(key);
+          else if (same) list.add(key);
         }
+        if (list.size === before.length && before.every((k) => list.has(k))) return false;
+        await saveHeld(tx, list);
+        return true;
       });
+      if (changed) announce('sync');
     },
 
     async outboxCount() {
       return db.count('outbox');
+    },
+
+    async heldCount() {
+      return heldList(await db.get('meta', 'held')).length;
+    },
+
+    async requeueHeld() {
+      const back = await syncWrite(['solves', 'sessions', 'practice', 'prefs'], async (tx, ctx) => {
+        const keys = await heldOf(tx);
+        if (keys.length === 0) return null;
+        const parts = keys.flatMap((key) => keyParts(key) ?? []);
+        const found = await Promise.all(parts.map((p) => recordOf(tx, p.store, p.id)));
+        const existing = parts.filter((_, i) => found[i] !== undefined);
+        // A mesma data na fila para todos: o índice byQueued desempata pela chave, e cada sessão sobe antes dos solves dela.
+        await each(existing, (p) => ctx.track(p.store, p.id));
+        await saveHeld(tx, []);
+        return existing.length;
+      });
+      if (back === null) return 0;
+      announce('sync');
+      return back;
     },
 
     async countRemoteDeletions(changes) {
@@ -1091,12 +1192,13 @@ export function createRepository(
         if (accountId !== undefined && ctx.state().accountId !== accountId) throw new AccountChangedError();
         const waiting = new Set(await tx.objectStore('outbox').getAllKeys());
         const result = await joinIn(tx, changes, { mode: 'client', pending: (s, id) => waiting.has(syncKey(s, id)) });
+        const valid = changes.flatMap((raw) => {
+          const checked = checkChange(raw);
+          return checked.ok ? [checked.change] : [];
+        });
         // O relógio sobe até a hora do servidor e as datas que chegaram (spec 5.4): só as de mudanças que passam por checkChange.
         ctx.raise(serverTime);
-        for (const raw of changes) {
-          const checked = checkChange(raw);
-          if (checked.ok) ctx.raise(Math.max(checked.change.updatedAt, checked.change.deletionStamp));
-        }
+        for (const c of valid) ctx.raise(Math.max(c.updatedAt, c.deletionStamp));
         await each(result.writes, (c) => {
           if (c.store === 'prefs') return tx.objectStore('prefs').put(changeToPref(c));
           if (c.store === 'solves') return tx.objectStore('solves').put(fromChange<StoredSolve>(c));
@@ -1109,24 +1211,39 @@ export function createRepository(
           result.writes.filter((c) => derived.has(syncKey(c.store, c.id))),
           (c) => ctx.track(c.store, c.id),
         );
+        // A lista "só neste aparelho" (decisão (a) do controlador): a chave que chegou foi juntada acima pela regra de sempre; ela sai da lista
+        // quando a conta já tem o que ficou aqui (o que chegou venceu, ou os dois lados a têm apagada, como na cascata do servidor que apaga o
+        // recusado) ou quando o registro daqui não existe. Uma exclusão daqui que venceu uma versão ativa da conta fica: a conta não a tem.
+        const held = await heldOf(tx);
+        let heldChanged = false;
+        if (held.length > 0) {
+          const list = new Set(held);
+          for (const c of valid) {
+            const key = syncKey(c.store, c.id);
+            if (!list.has(key)) continue;
+            const here = await recordOf(tx, c.store, c.id);
+            if (!here || (here.deletedAt !== null && c.deletedAt !== null) || sameChange(here, c)) list.delete(key);
+          }
+          if (list.size !== held.length) {
+            await saveHeld(tx, list);
+            heldChanged = true;
+          }
+        }
         // No download do primeiro login, as sessões padrão que a conta tem: a deduplicação só guarda a padrão daqui que a conta também tem
         // (a revisão final, I1). Na mesma transação que junta: um download que cai no meio continua de onde parou sem perder nenhuma.
         const state = ctx.state();
         if (state.firstSync) {
-          const seen = changes.flatMap((raw) => {
-            const checked = checkChange(raw);
-            return checked.ok && checked.change.store === 'sessions' && isDefaultSession(checked.change.id) ? [checked.change.id] : [];
-          });
+          const seen = valid.flatMap((c) => (c.store === 'sessions' && isDefaultSession(c.id) ? [c.id] : []));
           const known = new Set(state.firstSyncDefaults);
           if (seen.some((id) => !known.has(id))) ctx.setState({ firstSyncDefaults: [...new Set([...known, ...seen])] });
         }
-        if (after) ctx.setState({ cursor: after.cursor, lastSyncAt: after.lastSyncAt });
+        if (after) ctx.setState({ cursor: after.cursor, lastSyncAt: after.lastSyncAt, copiesPaused: after.copiesPaused, pushAfter: after.pushAfter });
         if (after && result.rejected.length > 0) ctx.setState({ refusedBuild: after.build ?? 'dev' });
-        return result;
+        return { result, heldChanged };
       });
-      announceSynced(joined.writes);
-      if (after) announce('sync');
-      return { applied: joined.writes.length, rejected: joined.rejected.length };
+      announceSynced(joined.result.writes);
+      if (after || joined.heldChanged) announce('sync');
+      return { applied: joined.result.writes.length, rejected: joined.result.rejected.length };
     },
 
     async restartAfterUpdate(build) {
@@ -1149,6 +1266,9 @@ export function createRepository(
         if (ctx.state().accountId === accountId) return false;
         // O estado vem primeiro: o track seguinte já vê a conta. Ele só é gravado no fim, junto com a fila (syncWrite).
         ctx.setState({ accountId, email, signedIn: true, firstSync: true, firstSyncDefaults: [], cursor: 0, lastSyncAt: null, refusedBuild: null });
+        ctx.setState({ pushAfter: null, copiesPaused: null }); // o orçamento e a pausa das cópias eram da conta de antes
+        // A lista "só neste aparelho" era da conta de antes: o que estava nela entra na fila com o resto, logo abaixo.
+        await saveHeld(tx, []);
         const [solves, sessions, practice, prefs] = await Promise.all([
           tx.objectStore('solves').getAll(),
           tx.objectStore('sessions').getAll(),
@@ -1299,18 +1419,20 @@ export function createRepository(
         const meta = tx.objectStore('meta');
         const state = syncStateOrDefault((await meta.get('sync')) as SyncState | undefined);
         await meta.put({ ...defaultSyncState(), clock: state.clock }, 'sync');
+        await meta.delete('held'); // o que sobrou nela não tem registro (countLocalOnly só conta as chaves que existem)
       });
       announce('all', 'sync');
     },
 
     async localOnlyCount() {
-      return read(['solves', 'sessions', 'practice', 'prefs'], (tx) => countLocalOnly(tx));
+      return read(['solves', 'sessions', 'practice', 'prefs', 'meta'], (tx) => countLocalOnly(tx));
     },
 
     async forgetAccount() {
-      await syncWrite([], async (_tx, ctx) => {
+      await syncWrite([], async (tx, ctx) => {
         const { clock: _clock, ...reset } = defaultSyncState();
         ctx.setState(reset);
+        await saveHeld(tx, []);
       });
       announce('sync');
     },
