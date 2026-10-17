@@ -1,5 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
+import { openKlickDb } from '../../src/data/db';
+import { createRepository } from '../../src/data/repository';
+import { T } from '../../src/strings';
 import AjustesScreen from '../../src/ui/ajustes/AjustesScreen.svelte';
 import { appWithAccount, fakeApi, fakeAuth } from './sync-account';
 import { FakeServer } from './sync-fakes';
@@ -57,6 +60,26 @@ describe('Ajustes: "Conta e sync" (spec 9.1)', () => {
     expect(calls).toContain('sign-out');
     expect(await repo.listSolves()).toHaveLength(1);
     expect((await repo.getSyncState()).accountId).toBe('conta-1'); // fica, para a spec 7.6
+  });
+
+  // A revisão final (I4): o que o servidor recusaria só existe aqui; apagar os dados deste aparelho o perderia.
+  it('apagar com registros que só existem aqui recusa, com o porquê e a contagem; nada sai (I4)', async () => {
+    const db = await openKlickDb('secao-so-aqui');
+    const repo = createRepository(db, { channel: null });
+    const { auth, calls } = fakeAuth();
+    const { app } = await appWithAccount(fakeApi(new FakeServer()).api, { signedIn: true, auth, repo });
+    await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
+    const solve = await app.addSolve({ ms: 9000, penalty: null, at: Date.now() });
+    await app.account!.syncNow();
+    await db.put('solves', { ...(await db.get('solves', solve!.id))!, id: 'de antes da v3' }); // ficou fora da fila no primeiro login
+    render(AjustesScreen, { app });
+    await fireEvent.click(await screen.findByRole('button', { name: /^Sair$/ }));
+    await fireEvent.click(document.querySelector('[data-erase]')!);
+    await fireEvent.click(screen.getAllByRole('button', { name: /^Sair$/ }).at(-1)!);
+    expect(await screen.findByRole('alert')).toHaveTextContent(T.conta.localOnlyBlock(1));
+    expect(calls).not.toContain('sign-out');
+    expect(await repo.listSolves()).toHaveLength(2);
+    expect(app.account!.signedIn).toBe(true);
   });
 
   // Spec 9.6: o botão que abriu o diálogo some quando a seção troca para sem conta. O foco não pode cair no <body>: vai para "Entrar ou criar

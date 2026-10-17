@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Change, SyncRequest, SyncResponse } from '../../src/core/sync/types';
+import { openKlickDb } from '../../src/data/db';
 import { defaultSessionId } from '../../src/data/ids';
+import { createRepository } from '../../src/data/repository';
 import type { Health, SyncApi } from '../../src/sync/api';
 import type { AuthClientLike } from '../../src/sync/auth';
 import { type Captcha, CaptchaError } from '../../src/sync/captcha';
@@ -10,6 +12,7 @@ import { FakeServer } from './sync-fakes';
 const EMAIL = 'ranielli@exemplo.com';
 const OTHER = { id: 'conta-2', email: 'outra@exemplo.com' };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+let localOnlyDbs = 0;
 const hasSolve = (server: FakeServer) => [...server.records.keys()].some((k) => k.startsWith('solves/'));
 
 function deferred() {
@@ -468,5 +471,42 @@ describe('o aparelho novo numa conta antiga (I1)', () => {
     await vi.waitFor(() => expect(app.activeSession?.id).toBe('0legado'));
     expect(app.sessions.map((s) => `${s.id}:${s.name}`)).toEqual(['0legado:Sessão 1']);
     expect(server.active().has(`sessions/${defaultSessionId('333')}`)).toBe(false);
+  });
+});
+
+// A revisão final (I4): apagar os dados deste aparelho recusa também quando há registros que só existem aqui (o servidor os recusaria),
+// pelo mesmo caminho das mudanças esperando (decisão 12), com a contagem.
+describe('apagar com registros que só existem aqui (I4)', () => {
+  // O aparelho na conta 1, com tudo já na conta, e um solve de antes da v3 com o id torto, que ficou fora da fila no primeiro login.
+  async function withLocalOnly(auth: AuthClientLike) {
+    const db = await openKlickDb(`so-aqui-${++localOnlyDbs}`);
+    const repo = createRepository(db, { channel: null });
+    const { app } = await appWithAccount(fakeApi(new FakeServer()).api, { signedIn: true, auth, repo });
+    await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
+    const solve = await app.addSolve({ ms: 8_000, penalty: null, at: Date.now() });
+    await app.account!.syncNow();
+    expect(await repo.outboxCount()).toBe(0);
+    await db.put('solves', { ...(await db.get('solves', solve!.id))!, id: 'de antes da v3' });
+    return { app, repo };
+  }
+
+  it('sair apagando recusa ("local-only"), com a contagem; nada muda, e a conta segue dentro', async () => {
+    const { auth, calls } = fakeAuth();
+    const { app, repo } = await withLocalOnly(auth);
+    expect(await app.account!.localOnly()).toBe(1);
+    expect(await app.account!.signOut(true)).toBe('local-only');
+    expect(calls).not.toContain('sign-out');
+    expect(app.account!.signedIn).toBe(true);
+    expect(await repo.listSolves()).toHaveLength(2);
+  });
+
+  it('apagar antes de entrar com outra conta recusa ("local-only"); nada muda aqui', async () => {
+    const { auth } = fakeAuth(OTHER);
+    const { app, repo } = await withLocalOnly(auth);
+    expect(await app.account!.signOut(false)).toBe('ok');
+    expect(await app.account!.verifyCode(OTHER.email, '123456')).toEqual({ ok: true, next: 'other-account' });
+    expect(await app.account!.continueSignIn('erase')).toBe('local-only');
+    expect(await repo.listSolves()).toHaveLength(2);
+    expect(await repo.getSyncState()).toMatchObject({ accountId: 'conta-1', signedIn: false });
   });
 });

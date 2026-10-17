@@ -118,6 +118,24 @@ describe('diálogo de entrar (spec 7.2 e 9.2)', () => {
     expect(await repo.listSolves()).toHaveLength(1);
   });
 
+  // A revisão final (I4): com registros que só existem aqui (o servidor os recusaria), apagar antes de entrar recusa, com o porquê.
+  it('outra conta: apagar com registros que só existem aqui mostra quantos, e nada muda (I4)', async () => {
+    const db = await openKlickDb(`dialogo-so-aqui-${++dbs}`);
+    const repo = createRepository(db, { channel: null });
+    const { auth, calls } = fakeAuth({ id: 'conta-2', email: 'outra@exemplo.com' });
+    const { app } = await openDialog({ auth, repo });
+    await repo.saveSyncState({ accountId: 'conta-1', signedIn: false });
+    const solve = await app.addSolve({ ms: 9000, penalty: null, at: Date.now() });
+    await db.put('solves', { ...(await db.get('solves', solve!.id))!, id: 'de antes da v3' });
+    await db.clear('outbox'); // o resto já está na conta 1
+    await typeEmailAndCode();
+    expect(await screen.findByRole('heading', { name: 'Este aparelho tem dados de outra conta' })).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: 'Apagar os dados deste aparelho antes de entrar' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(T.conta.localOnlyBlock(1));
+    expect(await repo.listSolves()).toHaveLength(2);
+    expect(calls).not.toContain('sign-out');
+  });
+
   it('num aparelho com passkey, ela vem primeiro, com o código como alternativa', async () => {
     const { auth, calls } = fakeAuth();
     vi.stubGlobal('PublicKeyCredential', class {});

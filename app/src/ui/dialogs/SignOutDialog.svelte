@@ -1,6 +1,6 @@
 <script lang="ts">
   // Sair da conta (spec 7.7): os dados ficam no aparelho, com a opção de apagá-los. Apagar só vale sem mudanças esperando para subir
-  // (decisão 12): com alguma, o aviso aparece no lugar de sair, e nada muda.
+  // (decisão 12) e sem registros que só existem aqui (I4): com algum, o aviso aparece no lugar de sair, com a contagem, e nada muda.
   import { T } from '../../strings';
   import type { AppState } from '../state/app.svelte';
   import { modal } from './modal';
@@ -9,7 +9,7 @@
 
   let dialogEl = $state<HTMLDialogElement>();
   let erase = $state(false);
-  let blocked = $state<number | null>(null); // mudanças esperando: o aviso no lugar de sair
+  let blocked = $state<string | null>(null); // mudanças esperando, ou registros que só existem aqui: o aviso no lugar de sair
   let busy = $state(false);
 
   function onclose(): void {
@@ -23,8 +23,13 @@
     if (!account || busy) return;
     busy = true;
     try {
-      if ((await account.signOut(erase)) === 'pending') {
-        blocked = Math.max(await account.pending(), 1);
+      const result = await account.signOut(erase);
+      if (result === 'pending') {
+        blocked = T.conta.pendingBlock(Math.max(await account.pending(), 1));
+        return;
+      }
+      if (result === 'local-only') {
+        blocked = T.conta.localOnlyBlock(Math.max(await account.localOnly(), 1));
         return;
       }
       app.showToast(erase ? T.conta.signedOutErased : T.conta.signedOut);
@@ -46,7 +51,7 @@
       <input type="checkbox" class="switch" bind:checked={erase} data-erase />
     </label>
     {#if blocked !== null}
-      <p role="alert">{T.conta.pendingBlock(blocked)}</p>
+      <p role="alert">{blocked}</p>
     {/if}
     <div class="row">
       <button type="button" class="btn{erase ? ' danger' : ''}" disabled={busy} onclick={leave}>{T.conta.signOut}</button>

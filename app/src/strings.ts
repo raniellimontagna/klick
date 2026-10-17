@@ -638,6 +638,11 @@ export const T = Object.freeze({
     eraseHint: 'Solves, sessões, treino e cópias deste aparelho. Na conta, tudo continua.',
     pendingBlock: (n: number): string =>
       `${n.toLocaleString('pt-BR')} ${n === 1 ? 'mudança ainda não subiu' : 'mudanças ainda não subiram'}. Sincronize antes de apagar os dados deste aparelho.`,
+    // O que o servidor recusaria (um registro antigo, com o id ou a data torta) nunca vai para a conta: só existe aqui.
+    localOnlyBlock: (n: number): string =>
+      n === 1
+        ? '1 registro deste aparelho não vai para a conta e só existe aqui. Apagar os dados deste aparelho o perderia.'
+        : `${n.toLocaleString('pt-BR')} registros deste aparelho não vão para a conta e só existem aqui. Apagar os dados deste aparelho os perderia.`,
     cancel: 'Cancelar',
     signedOut: 'Você saiu da conta. Os dados continuam neste aparelho.',
     signedOutErased: 'Você saiu da conta e os dados deste aparelho foram apagados.',

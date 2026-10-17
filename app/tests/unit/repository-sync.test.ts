@@ -6,7 +6,7 @@ import { checkChange } from '../../src/core/sync/shape';
 import { MAX_STAMP, SYNC_BATCH, SYNC_PROTOCOL, syncKey, type Change } from '../../src/core/sync/types';
 import type { SeasonProgress } from '../../src/core/types';
 import { openKlickDb, type KlickDB } from '../../src/data/db';
-import { AccountChangedError, createRepository, createSyncClock, PendingChangesError, type ChangeKind, type ChangeOrigin, type Repository } from '../../src/data/repository';
+import { AccountChangedError, createRepository, createSyncClock, LocalOnlyError, PendingChangesError, type ChangeKind, type ChangeOrigin, type Repository } from '../../src/data/repository';
 import { FakeServer } from './sync-fakes';
 
 let n = 0;
@@ -565,6 +565,27 @@ describe('apagar os dados deste aparelho (spec 7.6 e 7.7)', () => {
     expect(await repo.listSolves()).toHaveLength(1);
     expect(await repo.listBackups()).toHaveLength(1);
     expect(await repo.outboxCount()).toBe(2);
+    expect((await repo.getSyncState()).accountId).toBe('conta-1');
+  });
+
+  // A revisão final (I4): o que o servidor recusaria (um registro de antes da v3 com o id ou a data torta) ficou fora da fila no primeiro
+  // login e só existe aqui. Apagar os dados deste aparelho o perderia, junto com as cópias locais (a de antes da v3 também): recusa, como
+  // com a fila.
+  it('recusa com registros que o servidor recusaria, que só existem aqui, ativos ou na lixeira; conta quantos, e nada sai', async () => {
+    const { db, repo } = await fresh();
+    const s = await repo.createSession({ event: '333' });
+    const ok = await repo.addSolve(ns(s.id, 1000));
+    await repo.confirmSent((await repo.outboxBatch(SYNC_BATCH)).sent); // o que é da conta já subiu
+    await db.put('solves', { ...(await db.get('solves', ok.id))!, id: 'com espaço' });
+    await db.put('solves', { ...(await db.get('solves', ok.id))!, id: 'torto-na-lixeira', deletedAt: t, deletionStamp: 1.5 });
+    await repo.saveBackup({ id: 'antes-da-v3', createdAt: t, reason: 'pre-sync', solveCount: 3, encoding: 'json', payload: '{}' });
+    expect(await repo.outboxCount()).toBe(0);
+    expect(await repo.localOnlyCount()).toBe(2);
+    const refused = await repo.wipeData().catch((err: unknown) => err);
+    expect(refused).toBeInstanceOf(LocalOnlyError);
+    expect((refused as LocalOnlyError).count).toBe(2);
+    expect(await repo.listSolves({ includeDeleted: true })).toHaveLength(3);
+    expect(await repo.listBackups()).toHaveLength(1);
     expect((await repo.getSyncState()).accountId).toBe('conta-1');
   });
 

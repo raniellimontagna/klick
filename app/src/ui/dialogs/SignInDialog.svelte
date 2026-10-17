@@ -143,6 +143,11 @@
         error = T.conta.pendingBlock(waiting);
         return;
       }
+      const onlyHere = await account.localOnly();
+      if (onlyHere > 0) {
+        error = T.conta.localOnlyBlock(onlyHere);
+        return;
+      }
     }
     mode = choice;
     await offerPasskey();
@@ -171,9 +176,9 @@
     await startSync();
   }
 
-  // A entrada que não continua (o modo recusado, o banco que falhou, ou mudanças esperando com o diálogo já fechado) é desfeita (spec
-  // 9.2): sai da sessão nova, e a conta de antes volta como estava. Só 'pending' com o diálogo aberto volta à pergunta da outra conta, que
-  // ainda dá para responder.
+  // A entrada que não continua (o modo recusado, o banco que falhou, ou o apagar recusado com o diálogo já fechado) é desfeita (spec 9.2):
+  // sai da sessão nova, e a conta de antes volta como estava. Só o apagar recusado ('pending', 'local-only') com o diálogo aberto volta à
+  // pergunta da outra conta, que ainda dá para responder.
   async function startSync(): Promise<void> {
     if (!account || busy) return;
     const ongoing = account;
@@ -182,7 +187,7 @@
     requested = false;
     busy = true;
     await go('sync');
-    let result: 'ok' | 'pending' | 'refused' | 'failed';
+    let result: 'ok' | 'pending' | 'local-only' | 'refused' | 'failed';
     try {
       result = await ongoing.continueSignIn(mode);
     } catch {
@@ -203,6 +208,12 @@
       const waiting = await account.pending();
       await go('other');
       error = T.conta.pendingBlock(Math.max(waiting, 1));
+      return;
+    }
+    if (result === 'local-only') {
+      const onlyHere = await account.localOnly();
+      await go('other');
+      error = T.conta.localOnlyBlock(Math.max(onlyHere, 1));
       return;
     }
     await ongoing.cancelSignIn();

@@ -135,8 +135,11 @@ export interface Repository {
   dedupeFirstLogin(): Promise<{ solves: number; sessions: number }>;
   // Apaga os dados deste aparelho (spec 7.6 e 7.7): solves, sessões, treino, conta, fila e cópias. Ficam os ajustes do aparelho; o estado
   // do sync volta ao padrão, com o relógio. Com mudanças esperando para subir, recusa (PendingChangesError) e não apaga nada (decisão 12):
-  // apagar perderia o que ainda não está na conta.
+  // apagar perderia o que ainda não está na conta. Pelo mesmo motivo recusa (LocalOnlyError) com registros que o servidor recusaria, ativos
+  // ou na lixeira: ficaram fora da fila e só existem aqui (a revisão final, I4).
   wipeData(): Promise<void>;
+  // Quantos registros daqui (solves, sessões, treino e ajustes da conta, ativos ou na lixeira) o servidor recusaria: só existem neste aparelho.
+  localOnlyCount(): Promise<number>;
   // A conta foi apagada no servidor (spec 7.7): numa transação, o estado do sync volta ao padrão, com o relógio (nenhuma data volta para
   // trás). Os dados deste aparelho e a fila ficam, fora de qualquer conta. Avisa 'sync': as outras abas também saem da conta.
   forgetAccount(): Promise<void>;
@@ -344,6 +347,33 @@ export class PendingChangesError extends Error {
     super('Há mudanças esperando para subir: apagar os dados deste aparelho as perderia');
     this.name = 'PendingChangesError';
   }
+}
+
+// wipeData com registros que o servidor recusaria (a revisão final, I4): eles só existem aqui. `count` vai para o aviso.
+export class LocalOnlyError extends Error {
+  readonly count: number;
+  constructor(count: number) {
+    super('Há registros que só existem neste aparelho: apagar os dados deste aparelho os perderia');
+    this.name = 'LocalOnlyError';
+    this.count = count;
+  }
+}
+
+// Os registros daqui que o servidor recusaria (spec 6.6), numa transação que lê as quatro stores do sync: só existem neste aparelho.
+async function countLocalOnly(tx: SyncTx): Promise<number> {
+  const [solves, sessions, practice, prefs] = await Promise.all([
+    tx.objectStore('solves').getAll(),
+    tx.objectStore('sessions').getAll(),
+    tx.objectStore('practice').getAll(),
+    tx.objectStore('prefs').getAll(),
+  ]);
+  const changes = [
+    ...solves.map((r) => toChange('solves', r)),
+    ...sessions.map((r) => toChange('sessions', r)),
+    ...practice.map((r) => toChange('practice', r)),
+    ...prefs.map(prefToChange),
+  ];
+  return changes.filter((c) => !checkChange(c).ok).length;
 }
 
 // Uma mudança com store do sync e id de texto: dá para procurar o registro daqui (o resto, applyChanges confere).
@@ -1255,6 +1285,8 @@ export function createRepository(
       await write(['solves', 'sessions', 'practice', 'prefs', 'outbox', 'backups', 'profile', 'meta'], async (tx) => {
         // Na mesma transação que apaga: uma gravação entre a conferência de quem chama e aqui não se perde.
         if ((await tx.objectStore('outbox').count()) > 0) throw new PendingChangesError();
+        const localOnly = await countLocalOnly(tx);
+        if (localOnly > 0) throw new LocalOnlyError(localOnly);
         await Promise.all([
           tx.objectStore('solves').clear(),
           tx.objectStore('sessions').clear(),
@@ -1269,6 +1301,10 @@ export function createRepository(
         await meta.put({ ...defaultSyncState(), clock: state.clock }, 'sync');
       });
       announce('all', 'sync');
+    },
+
+    async localOnlyCount() {
+      return read(['solves', 'sessions', 'practice', 'prefs'], (tx) => countLocalOnly(tx));
     },
 
     async forgetAccount() {

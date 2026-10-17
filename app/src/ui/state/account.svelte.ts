@@ -4,7 +4,7 @@
 // a conta desligada no ambiente (spec 8.4), o motor não roda: nenhum pedido sai além de /api/health (spec 4.1).
 import type { SyncState } from '../../core/sync/types';
 import { newId } from '../../data/ids';
-import { defaultSyncState, PendingChangesError, type ChangeKind, type ChangeOrigin, type ChannelLike, type Repository } from '../../data/repository';
+import { defaultSyncState, LocalOnlyError, PendingChangesError, type ChangeKind, type ChangeOrigin, type ChannelLike, type Repository } from '../../data/repository';
 import { createBackup } from '../../data/safety';
 import { T } from '../../strings';
 import { ApiError, type CloudCopy, type Health, type SyncApi } from '../../sync/api';
@@ -349,6 +349,17 @@ export class AccountState {
     return this.host.repo().outboxCount();
   }
 
+  // Quantos registros daqui o servidor recusaria: só existem neste aparelho, e apagar os dados recusa com algum (a revisão final, I4).
+  localOnly(): Promise<number> {
+    return this.host.repo().localOnlyCount();
+  }
+
+  // Apagar os dados deste aparelho pode? 'pending': mudanças esperando para subir (decisão 12); 'local-only': registros que só existem aqui.
+  private async eraseBlock(repo: Repository): Promise<'pending' | 'local-only' | null> {
+    if ((await repo.outboxCount()) > 0) return 'pending';
+    return (await repo.localOnlyCount()) > 0 ? 'local-only' : null;
+  }
+
   async verifyCode(email: string, code: string): Promise<VerifyOutcome> {
     let result: VerifyResult;
     try {
@@ -402,12 +413,13 @@ export class AccountState {
   }
 
   // Depois de entrar: 'join' junta os dados deste aparelho à conta (o primeiro login, ou a outra conta da spec 7.6); 'erase' apaga os dados
-  // deste aparelho antes (spec 7.6) e recusa ('pending') se ainda há mudanças esperando para subir (decisão 12); 'resume' é a mesma conta de
+  // deste aparelho antes (spec 7.6) e recusa ('pending') se ainda há mudanças esperando para subir (decisão 12), ou ('local-only') registros
+  // que só existem aqui (I4); 'resume' é a mesma conta de
   // antes, que só volta a sincronizar. O modo que não bate com o caminho do login é recusado ('refused'), e nada muda. Trocar de conta para
   // o sync antes (o motor espera a rodada em andamento): a volta de uma rodada da conta anterior não cai no meio da troca, e a região
   // aria-live não fala de falha. O sync segue em segundo plano: a promessa resolve quando ele foi pedido. Uma parada depois disso (sair,
   // numa aba) cancela o primeiro login que ainda não começou: quem chama confere o estado (signInSync), não esta promessa.
-  async continueSignIn(mode: 'join' | 'erase' | 'resume'): Promise<'ok' | 'pending' | 'refused'> {
+  async continueSignIn(mode: 'join' | 'erase' | 'resume'): Promise<'ok' | 'pending' | 'local-only' | 'refused'> {
     const user = this.user;
     const next = this.next;
     if (!user || !next) return 'ok';
@@ -416,13 +428,15 @@ export class AccountState {
     const state = await repo.getSyncState();
     const switching = state.accountId !== null && state.accountId !== user.id;
     if (mode === 'erase') {
-      if ((await repo.outboxCount()) > 0) return 'pending';
+      const blocked = await this.eraseBlock(repo);
+      if (blocked) return blocked;
       await this.stopSync();
       try {
         await repo.wipeData();
       } catch (err) {
         this.resumeSync(); // nada foi apagado: a conta de antes segue como estava
         if (err instanceof PendingChangesError) return 'pending'; // uma gravação entre a conferência e o apagar
+        if (err instanceof LocalOnlyError) return 'local-only';
         throw err;
       }
       // A passkey criada há pouco, no diálogo, continua neste aparelho: a tela de entrar a oferece primeiro (spec 7.2).
@@ -463,11 +477,15 @@ export class AccountState {
   }
 
   // Sair (spec 7.7). Primeiro o sync para em todas as abas (espera a rodada em andamento): a volta dela não cai num banco recém-apagado nem
-  // depois de sair. Com `erase`, apaga os dados deste aparelho, mas só sem mudanças esperando para subir ('pending', decisão 12): a recusa
-  // vem antes de tudo, e a conta segue como estava. Sem `erase`, o accountId fica (a mesma conta, de volta, só sobe o que mudou).
-  async signOut(erase: boolean): Promise<'ok' | 'pending'> {
+  // depois de sair. Com `erase`, apaga os dados deste aparelho, mas só sem mudanças esperando para subir ('pending', decisão 12) e sem
+  // registros que só existem aqui ('local-only', I4): a recusa vem antes de tudo, e a conta segue como estava. Sem `erase`, o accountId fica
+  // (a mesma conta, de volta, só sobe o que mudou).
+  async signOut(erase: boolean): Promise<'ok' | 'pending' | 'local-only'> {
     const repo = this.host.repo();
-    if (erase && (await repo.outboxCount()) > 0) return 'pending';
+    if (erase) {
+      const blocked = await this.eraseBlock(repo);
+      if (blocked) return blocked;
+    }
     await this.stopSync();
     try {
       if (erase) await repo.wipeData();
@@ -475,6 +493,7 @@ export class AccountState {
     } catch (err) {
       this.resumeSync(); // nada mudou aqui: a conta segue como estava, sincronizando
       if (err instanceof PendingChangesError) return 'pending'; // uma gravação entre a conferência e o apagar
+      if (err instanceof LocalOnlyError) return 'local-only';
       throw err;
     }
     await (await this.auth().catch(() => null))?.signOut();
