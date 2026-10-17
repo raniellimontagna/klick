@@ -162,6 +162,25 @@ describe('Ajustes: "Sincronizar agora" com o cubo vivo', () => {
     expect(button.querySelector('[data-cube="idle"]')).not.toBeNull();
   });
 
+  it('um novo toque, ainda no verde do anterior, tira o verde: a linha não fica verde dizendo "Sincronizando…"', async () => {
+    const { app, button, line } = await opened();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    await fireEvent.click(button);
+    app.account!.status = { ...idleStatus(), phase: 'syncing' };
+    await tick();
+    app.account!.status = { ...idleStatus(), phase: 'idle', lastSyncAt: Date.now() };
+    await tick();
+    expect(line).toHaveAttribute('data-fresh', 'true');
+    await fireEvent.click(button);
+    app.account!.status = { ...idleStatus(), phase: 'syncing' };
+    await tick();
+    expect(line).toHaveTextContent('Sincronizando');
+    expect(line).not.toHaveAttribute('data-fresh');
+    // o timer do toque antigo não apaga nem acende nada depois
+    await vi.advanceTimersByTimeAsync(1300);
+    expect(line).not.toHaveAttribute('data-fresh');
+  });
+
   it('um sync automático com Ajustes aberto não pisca', async () => {
     const { app, button, line } = await opened();
     app.account!.status = { ...idleStatus(), phase: 'syncing' };

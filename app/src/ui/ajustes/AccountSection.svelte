@@ -35,6 +35,8 @@
 
   function syncNow(): void {
     requested = true;
+    fresh = false; // um toque novo, ainda no verde do anterior: a linha vai dizer "Sincronizando…" e não pode estar verde
+    clearTimeout(freshTimer);
     void account?.syncNow();
   }
 
