@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,6 +16,7 @@ const TEST_KEY = '1x00000000000000000000BB';
 const baseline = readFileSync(realConfig, 'utf8').replace(/("TURNSTILE_SITE_KEY":\s*")[^"]*"/g, `$1${TEST_KEY}"`);
 
 const has = (cmd: string, args: string[]) => spawnSync(cmd, args, { stdio: 'ignore' }).status === 0;
+const bashPath = spawnSync('sh', ['-c', 'command -v bash'], { encoding: 'utf8' }).stdout.trim() || 'bash';
 const tools = has('bash', ['-c', 'exit 0']) && has('openssl', ['version']) && has('node', ['--version']);
 
 const FAKE_NPX = `#!/usr/bin/env node
@@ -65,7 +66,7 @@ describe.skipIf(!tools)('scripts/portao-c.sh', () => {
   });
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
-  function run(args: string[], input: string, opts: { secrets?: string; cwd?: string; useConfig?: boolean } = {}): Run {
+  function run(args: string[], input: string, opts: { secrets?: string; cwd?: string; useConfig?: boolean; path?: string } = {}): Run {
     const work = join(dir, `run-${++seq}`);
     mkdirSync(work);
     const config = join(work, 'wrangler.jsonc');
@@ -73,13 +74,13 @@ describe.skipIf(!tools)('scripts/portao-c.sh', () => {
     const log = join(work, 'npx.log');
     writeFileSync(log, '');
     const env: Record<string, string> = {
-      PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+      PATH: opts.path ?? `${fakeBin}:${process.env.PATH ?? ''}`,
       HOME: work,
       FAKE_NPX_LOG: log,
       FAKE_SECRETS: opts.secrets ?? '',
     };
     if (opts.useConfig !== false) env.KLICK_WRANGLER_CONFIG = config;
-    const r = spawnSync('bash', [script, ...args], { cwd: opts.cwd ?? app, env, input, encoding: 'utf8', timeout: 30_000 });
+    const r = spawnSync(bashPath, [script, ...args], { cwd: opts.cwd ?? app, env, input, encoding: 'utf8', timeout: 30_000 });
     const calls: Call[] = readFileSync(log, 'utf8')
       .split('\n')
       .filter(Boolean)
@@ -107,7 +108,7 @@ describe.skipIf(!tools)('scripts/portao-c.sh', () => {
   }
 
   // "s" confirma; depois vêm a chave do Resend, a site key e a secret do Turnstile (o BETTER_AUTH_SECRET o script sorteia).
-  const ALL = ['s', RESEND, SITE_KEY, TURNSTILE].join('\n') + '\n';
+  const ALL = ['s', RESEND, SITE_KEY, 's', TURNSTILE].join('\n') + '\n';
 
   it('beta: três secret put, sem flag de ambiente, tudo pelo stdin, e só a site key do beta muda', () => {
     const r = run(['beta'], ALL);
@@ -168,7 +169,7 @@ describe.skipIf(!tools)('scripts/portao-c.sh', () => {
   });
 
   it('--only turnstile: a site key e a TURNSTILE_SECRET; --only auth: só o BETTER_AUTH_SECRET', () => {
-    const t = run(['beta', '--only', 'turnstile'], `s\n${SITE_KEY}\n${TURNSTILE}\n`);
+    const t = run(['beta', '--only', 'turnstile'], `s\n${SITE_KEY}\ns\n${TURNSTILE}\n`);
     expect(names(t)).toEqual(['TURNSTILE_SECRET']);
     expect(siteKeys(t.config)[0]).toBe(SITE_KEY);
     expectNoLeak(t);
@@ -192,9 +193,53 @@ describe.skipIf(!tools)('scripts/portao-c.sh', () => {
     expect(bad.puts).toHaveLength(0);
     expect(bad.config).toBe(baseline);
     expect(bad.output).toContain('não parece uma site key');
-    const retry = run(['beta', '--only', 'turnstile'], `s\n1x00000000000000000000BB\nlixo\n${SITE_KEY}\n${TURNSTILE}\n`);
+    const retry = run(['beta', '--only', 'turnstile'], `s\n1x00000000000000000000BB\nlixo\n${SITE_KEY}\ns\n${TURNSTILE}\n`);
     expect(retry.status).toBe(0);
     expect(siteKeys(retry.config)[0]).toBe(SITE_KEY);
+  });
+
+  // O segredo do widget e a site key começam igual (0x4AAAA...); a site key tem 24 caracteres e o segredo, 35.
+  const SECRET_LIKE = '0x4AAAAAAATESTEsegredoTESTEsegredo01';
+
+  it('um valor do tamanho de uma secret key é recusado como site key, sem eco nem gravação', () => {
+    expect(SECRET_LIKE).toHaveLength(36);
+    const r = run(['beta', '--only', 'turnstile'], `s\n${SECRET_LIKE}\n`);
+    expect(r.status).not.toBe(0);
+    expect(r.puts).toHaveLength(0);
+    expect(r.config).toBe(baseline);
+    expect(r.output).toContain('isso parece a SECRET key');
+    expect(r.output).not.toContain(SECRET_LIKE);
+    // Com a site key de verdade na sequência, segue.
+    const retry = run(['beta', '--only', 'turnstile'], `s\n${SECRET_LIKE}\n${SITE_KEY}\ns\n${TURNSTILE}\n`);
+    expect(retry.status).toBe(0);
+    expect(siteKeys(retry.config)[0]).toBe(SITE_KEY);
+    expect(retry.output).not.toContain(SECRET_LIKE);
+  });
+
+  it('responder n a "Esta é a SITE KEY pública?" aborta e deixa o wrangler.jsonc igual', () => {
+    const r = run(['beta', '--only', 'turnstile'], `s\n${SITE_KEY}\nn\n${TURNSTILE}\n`);
+    expect(r.status).not.toBe(0);
+    expect(r.puts).toHaveLength(0);
+    expect(r.config).toBe(baseline);
+    expect(r.output).toContain('Esta é a SITE KEY pública?');
+  });
+
+  it('sem o openssl no PATH, o auth sai com erro claro antes de qualquer chamada ao npx', () => {
+    const bin = join(dir, 'bin-sem-openssl');
+    mkdirSync(bin);
+    for (const tool of ['env', 'node', 'grep', 'tr', 'sed', 'cat', 'mktemp', 'cp', 'rm', 'diff']) {
+      const found = spawnSync('sh', ['-c', `command -v ${tool}`], { encoding: 'utf8' }).stdout.trim();
+      if (found) symlinkSync(found, join(bin, tool));
+    }
+    const noOpenssl = spawnSync(join(bin, 'env'), ['PATH=' + bin, 'sh', '-c', 'command -v openssl'], { stdio: 'ignore' });
+    expect(noOpenssl.status).not.toBe(0); // o PATH de teste mesmo não acha o openssl
+    for (const args of [['beta', '--only', 'auth'], ['production']]) {
+      const r = run(args, `s\n${RESEND}\n${SITE_KEY}\ns\n${TURNSTILE}\n`, { path: `${fakeBin}:${bin}` });
+      expect(r.status).not.toBe(0);
+      expect(r.output).toContain('openssl');
+      expect(r.puts).toHaveLength(0);
+      expect(r.calls).toHaveLength(0);
+    }
   });
 
   it('um segredo vazio é recusado (nenhum put); uma RESEND_API_KEY sem o prefixo re_ também', () => {
@@ -234,7 +279,7 @@ describe.skipIf(!tools)('scripts/portao-c.sh', () => {
   });
 
   it('--dry-run: nenhuma chamada ao npx, nenhum segredo pedido, o wrangler.jsonc intacto e a diferença mostrada', () => {
-    const r = run(['production', '--dry-run'], `s\n${SITE_KEY}\n`);
+    const r = run(['production', '--dry-run'], `s\n${SITE_KEY}\ns\n`);
     expect(r.status).toBe(0);
     expect(r.calls).toHaveLength(0);
     expect(r.config).toBe(baseline);

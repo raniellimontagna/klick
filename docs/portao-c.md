@@ -27,10 +27,15 @@ aparece na tela), ou direto no painel do serviço. A site key do Turnstile é p�
 
 1. Painel da Cloudflare, **Turnstile**, **Add widget**.
 2. Nome: `Klick`. Hostnames: `beta.klick.ranimontagna.com` e `klick.ranimontagna.com`. Modo do widget: **Invisible**.
-3. Anote a **site key** (pública) e a **secret key**. **Um widget só serve aos dois ambientes.**
-4. Caminho recomendado: mande a **site key** para o Claude e mais nada. Ele grava a site key no `wrangler.jsonc` e coloca a secret key
+3. Anote a **site key** (pública) e a **secret key**. **Um widget só serve aos dois ambientes.** Como distinguir as duas, que começam
+   igual (`0x4AAAA...`): a **site key** é a mais **curta** (24 caracteres) e aparece no painel como **Site Key**; a **secret key** é a
+   mais **comprida** (35 caracteres) e aparece como **Secret Key**. A site key é pública; a secret key **nunca** deve ser colada em
+   lugar nenhum, nem para o Claude, nem num arquivo.
+4. Caminho recomendado: mande a **site key** (a mais curta, rotulada **Site Key**) para o Claude e mais nada; confira duas vezes que não é a secret. Ele grava a site key no `wrangler.jsonc` e coloca a secret key
    nos dois Workers, e você não precisa digitar a secret key em lugar nenhum.
-5. Caminho alternativo (você mesmo): o script do passo 3 pede a site key e a secret key, e faz as duas coisas.
+5. Caminho alternativo (você mesmo): o script do passo 3 pede a site key e a secret key, e faz as duas coisas. A site key é digitada à
+   vista: o script recusa um valor comprido demais (parece a secret key) e, antes de gravar, mostra o valor e pergunta
+   `Esta é a SITE KEY pública? [s/N]` (`N` cancela sem tocar no arquivo). A secret key é pedida depois, sem aparecer na tela.
 
 ## 3. Rodar o script (o jeito mais fácil de colocar as chaves)
 
@@ -42,7 +47,7 @@ bash scripts/portao-c.sh beta --only resend          # a chave do Resend no beta
 bash scripts/portao-c.sh production --only resend   # a mesma chave na raiz, quando for a hora
 ```
 
-O script mostra qual Worker vai mexer e pergunta `Continuar? [s/N]`. Depois pede o valor (a digitação não aparece), confere o formato
+O script mostra qual Worker vai mexer e pergunta `Continuar? [s/N]`. Depois pede o valor (a digitação dos segredos não aparece; a site key, que é pública, aparece), confere o formato
 (`re_` no Resend, `0x` na site key; chaves de teste `1x...` e valores vazios são recusados) e manda direto para o Cloudflare. Nenhum
 segredo vai para a tela, para um arquivo ou para a linha de comando.
 
@@ -71,7 +76,9 @@ commit já vem junto).
 - Cada ambiente tem o próprio `BETTER_AUTH_SECRET` (o script sorteia um diferente por ambiente). Trocar esse segredo derruba as sessões
   abertas daquele ambiente.
 - O Worker recusa a chave de teste do Turnstile num domínio de verdade. Por isso a site key real precisa entrar no `wrangler.jsonc` e o
-  Worker precisa ser publicado de novo (`npx wrangler deploy`, e `--env production` para a raiz) para valer.
+  Worker precisa ser publicado de novo, para valer. Dentro de `app/`: primeiro `pnpm build` (neste computador, se o pnpm reclamar de
+  `ERR_PNPM_IGNORED_BUILDS`, use `pnpm --config.verify-deps-before-run=false build`), depois `npx wrangler deploy` (beta) e
+  `npx wrangler deploy --env production` (a raiz).
 - Na zona `ranimontagna.com`, a opção **Pseudo IPv4: Overwrite headers** deve ficar **desligada** (ela troca o IP real de quem
   acessa por um falso e quebraria o limite de pedidos de código por IP).
 - Para trocar um segredo (rotação), rode o script de novo: ele pergunta antes de sobrescrever.

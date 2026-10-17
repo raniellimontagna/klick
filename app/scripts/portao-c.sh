@@ -100,11 +100,17 @@ site_key_tool() { # $1 = get|set, $2 = arquivo, $3 = ambiente, $4 = chave nova (
 }
 
 valid_site_key() { [[ "$1" =~ ^0x[0-9A-Za-z_-]+$ ]]; }
+# A site key do Turnstile tem 24 caracteres; a secret key, 35, e as duas começam com 0x4AAAA. Mais de 30 é, quase certo, a SECRET.
+looks_like_secret() { [ "${#1}" -gt 30 ]; }
 
 # --- o resumo e a confirmação ----------------------------------------------------------------------------------------------------------
 echo "Portão C: ${TARGET} (Worker ${WORKER}, ${HOST})"
 [ -z "$ONLY" ] || echo "Só o passo: ${ONLY}"
 [ "$DRY" -eq 0 ] || echo "ENSAIO (--dry-run): nada é enviado ao Cloudflare e nenhum segredo é pedido."
+if step_on auth && [ "$DRY" -eq 0 ] && ! command -v openssl >/dev/null 2>&1; then
+  echo "Não achei o openssl, que sorteia o BETTER_AUTH_SECRET. Instale-o (no macOS ele já vem; confira o PATH) e rode de novo." >&2
+  exit 1
+fi
 ask_yes "Continuar?" || { echo "Cancelado."; exit 1; }
 
 EXISTING=""
@@ -180,8 +186,18 @@ if step_on turnstile; then
   if [ "$CHANGE_KEY" -eq 1 ]; then
     while true; do
       read_line "Cole a SITE KEY do widget (a pública, começa com 0x):"
-      if valid_site_key "$REPLY_VALUE"; then break; fi
-      echo "  Isso não parece uma site key do Turnstile (ela começa com 0x; as chaves de teste 1x... não valem). Tente de novo." >&2
+      if valid_site_key "$REPLY_VALUE"; then
+        if looks_like_secret "$REPLY_VALUE"; then
+          echo "  Esse valor é comprido demais: isso parece a SECRET key — cole a site key, a mais curta. (Não repita a secret em lugar nenhum.)" >&2
+        elif ask_yes "  Vai para o wrangler.jsonc, que vai ao git público: ${REPLY_VALUE}. Esta é a SITE KEY pública?"; then
+          break
+        else
+          echo "Cancelado: o ${CONFIG} não foi tocado." >&2
+          exit 1
+        fi
+      else
+        echo "  Isso não parece uma site key do Turnstile (ela começa com 0x; as chaves de teste 1x... não valem). Tente de novo." >&2
+      fi
     done
     if [ "$DRY" -eq 1 ]; then echo "  Ensaio: numa cópia, só a site key de ${TARGET} mudaria assim:"; else echo "  Gravando em ${CONFIG} (só ${TARGET}):"; fi
     site_key_tool set "$WORKING_CONFIG" "$TARGET" "$REPLY_VALUE"
