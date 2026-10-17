@@ -631,6 +631,32 @@
   background: transparent;
 }
 
+/* Alto contraste do Windows (forced-colors): o campo de texto transparente por cima das peças não pode embaralhar o desenho. Sem as peças
+   (as cores delas não seguem o tema forçado), o campo mostra o próprio texto, com as cores do sistema. */
+@media (forced-colors: active) {
+  .signin .code-pieces {
+    display: none;
+  }
+
+  .signin .code-field input {
+    position: static;
+    height: auto;
+    min-height: 44px;
+    padding: 8px 12px;
+    border: 1px solid CanvasText;
+    background: Field;
+    color: FieldText;
+    -webkit-text-fill-color: currentcolor;
+    caret-color: auto;
+    letter-spacing: 0.3em;
+    font-family: var(--mono);
+  }
+
+  .signin .code-field input::selection {
+    background: Highlight;
+  }
+}
+
 /* Código certo: as peças viram verdes uma a uma, como uma camada do cubo virando (~300 ms no total; o diálogo espera por ela). */
 .signin [data-code-state='ok'] .code-piece {
   background: var(--go);
