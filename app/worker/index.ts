@@ -11,7 +11,7 @@ export default {
   fetch(request, env, ctx) {
     return handle(request, env, ctx, defaultDeps(env));
   },
-  async scheduled(_controller, env) {
+  async scheduled(_controller, env, _ctx) {
     const started = Date.now();
     await forgetExpired(env.DB, started);
     console.log(JSON.stringify({ evt: 'cleanup', ms: Date.now() - started }));
