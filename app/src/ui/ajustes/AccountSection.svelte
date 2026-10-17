@@ -9,6 +9,7 @@
   import DeleteAccountDialog from '../dialogs/DeleteAccountDialog.svelte';
   import SignOutDialog from '../dialogs/SignOutDialog.svelte';
   import { dateLabel } from '../format';
+  import LiveCube from '../LiveCube.svelte';
   import type { AppState, DialogId } from '../state/app.svelte';
   import { syncLine } from '../sync-status';
 
@@ -23,10 +24,44 @@
   // Os diálogos que esta seção abre.
   const ACCOUNT_DIALOGS: readonly DialogId[] = ['signout', 'cloud', 'deleteAccount'];
 
+  // "Sincronizar agora" com o cubinho (spec visual 7 e decisão 9): o verde passageiro da linha e a onda do cubo só vêm depois de um sync que
+  // a pessoa pediu pelo toque e que terminou bem. Os syncs automáticos com Ajustes aberto não piscam. A marca "pedido pelo toque" é gasta
+  // no primeiro fim de rodada (bem ou mal) e não é lida pela tela, por isso não é reativa.
+  const FRESH_MS = 1200;
+  let requested = false;
+  let prevPhase: string | undefined;
+  let fresh = $state(false);
+  let freshTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function syncNow(): void {
+    requested = true;
+    void account?.syncNow();
+  }
+
+  $effect(() => {
+    const phase = account?.status.phase;
+    const failed = account?.status.error != null;
+    const was = prevPhase;
+    prevPhase = phase;
+    if (!requested || was !== 'syncing' || phase === 'syncing') return;
+    requested = false;
+    if (phase !== 'idle' || failed) return;
+    fresh = true;
+    clearTimeout(freshTimer);
+    freshTimer = setTimeout(() => (fresh = false), FRESH_MS);
+  });
+
+  // O cubinho do botão: gira enquanto sincroniza, erro com o erro, onda uma vez com o verde; o resto, parado. Passa por "turn" entre um
+  // toque e outro, então a onda toca de novo.
+  const cube = $derived(
+    account?.status.phase === 'syncing' ? 'turn' : account?.status.error != null ? 'error' : fresh ? 'wave' : 'idle'
+  );
+
   onMount(() => {
     const h = setInterval(() => (now = Date.now()), 30_000);
     return () => clearInterval(h);
   });
+  onDestroy(() => clearTimeout(freshTimer));
 
   // Sair de Ajustes com um destes diálogos aberto solta o estado: senão, na volta, o diálogo reabriria sozinho.
   onDestroy(() => {
@@ -109,11 +144,13 @@
       </div>
     {:else}
       <div class="setting">
-        <span>{account.sync.email}<small data-sync-line>{syncLine(account.status, now)}</small></span>
+        <span>{account.sync.email}<small data-sync-line data-fresh={fresh ? 'true' : undefined}>{syncLine(account.status, now)}</small></span>
         {#if account.status.error === 'auth'}
           <button type="button" class="btn" onclick={() => (app.dialog = 'signin')}>{T.conta.signInAgain}</button>
         {:else}
-          <button type="button" class="btn" disabled={account.status.phase === 'syncing'} onclick={() => account.syncNow()}>{T.conta.syncNow}</button>
+          <button type="button" class="btn" disabled={account.status.phase === 'syncing'} onclick={syncNow}
+            ><LiveCube state={cube} size="sm" />{T.conta.syncNow}</button
+          >
         {/if}
       </div>
 

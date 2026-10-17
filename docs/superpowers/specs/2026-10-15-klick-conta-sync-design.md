@@ -393,6 +393,8 @@ Usa a folha (`dialog.sheet`) dos outros diálogos, com quatro passos:
 
 O link para a política de privacidade fica no primeiro passo.
 
+Cada passo mostra o cubo vivo (o 3×3 do logo): parado, girando enquanto o servidor responde, enchendo na contagem do primeiro sync, e a onda ao concluir. O código vai em seis peças sobre um único campo real; "Conferindo o código…" aparece enquanto confere, e só o código errado fica vermelho e treme. O "Sincronizar agora" de Ajustes leva o cubinho no botão e deixa a linha de situação verde por ~1,2 s, só depois de um sync pedido pelo toque que terminou bem. Detalhe em `2026-10-17-klick-conta-visual-design.md` (seções 5 e 7).
+
 Fechar o diálogo no passo da passkey é o mesmo que "Agora não": a entrada continua, também depois de escolher "apagar os dados deste aparelho" (seção 7.6). Se não dá para continuar (mudanças esperando, uma falha do banco), a entrada é desfeita.
 
 ### 9.3 Indicador na barra de cima
@@ -404,6 +406,8 @@ Só aparece com conta. É um ícone de nuvem ao lado da data, com quatro estados
 - erro.
 
 Um toque leva a Ajustes, em "Conta e sync". O ícone não anima durante o timer, e o estado vai no rótulo acessível.
+
+O ícone é a nuvem só no contorno, com o cubinho 3×3 como selo recortado da própria nuvem (uma máscara, não uma cor de fundo). Sincronizando: o selo gira. Sincronizado: fica verde e dá um pulinho, uma vez. Esperando rede: contorno tracejado e cinza. Erro: o centro vermelho. Detalhe na seção 6 do `2026-10-17-klick-conta-visual-design.md`.
 
 ### 9.4 Convite
 
@@ -426,6 +430,9 @@ Um toque leva a Ajustes, em "Conta e sync". O ícone não anima durante o timer,
 - Todo o fluxo funciona pelo teclado, com foco visível e ordem lógica.
 - O anúncio na região `aria-live` sai só quando o sync falha ou volta a funcionar, não a cada sync.
 - Os botões do diálogo têm área de toque de 44 px no celular.
+- Menos movimento (`prefers-reduced-motion` ou o ajuste do app): nada se move, só as cores e os estados mudam, e o texto ao lado diz o que acontece.
+- Onda, resolvido, pulinho e o verde do "Sincronizado agora" tocam uma vez por evento; só o cubo girando repete, e só enquanto a espera dura.
+- Nada novo é anunciado: o cubo e as peças são decorativos (`aria-hidden`), e o verde da linha de situação não é região de aviso. Regras gerais na seção 8 do `2026-10-17-klick-conta-visual-design.md`.
 
 ## 10. Privacidade e LGPD
 

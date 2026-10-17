@@ -138,6 +138,16 @@
   font-weight: 600;
 }
 
+/* A linha de situação de "Conta e sync": o verde passageiro de um sync que a pessoa pediu e que terminou bem (some em ~1,2 s; menos movimento
+   só tira a transição, a cor ainda troca). */
+[data-sync-line] {
+  transition: color 0.4s var(--ease);
+}
+
+[data-sync-line][data-fresh='true'] {
+  color: var(--go-ink);
+}
+
 .btn.primary {
   background: var(--ink);
   border-color: var(--ink);

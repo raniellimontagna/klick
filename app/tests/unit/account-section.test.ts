@@ -1,7 +1,9 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
-import { describe, expect, it, vi } from 'vitest';
+import { tick } from 'svelte';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openKlickDb } from '../../src/data/db';
 import { createRepository } from '../../src/data/repository';
+import { idleStatus } from '../../src/sync/engine';
 import { T } from '../../src/strings';
 import AjustesScreen from '../../src/ui/ajustes/AjustesScreen.svelte';
 import { appWithAccount, fakeApi, fakeAuth } from './sync-account';
@@ -120,5 +122,91 @@ describe('Ajustes: "Conta e sync" (spec 9.1)', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Tem certeza? Clique de novo' }));
     await vi.waitFor(() => expect(calls).toContain('sign-out-everywhere'));
     await vi.waitFor(() => expect(app.account!.signedIn).toBe(false));
+  });
+});
+
+// "Sincronizar agora" com o cubinho (spec visual 7 e decisão 9): o cubo gira enquanto sincroniza; a linha só fica verde depois do toque da pessoa.
+describe('Ajustes: "Sincronizar agora" com o cubo vivo', () => {
+  afterEach(() => vi.useRealTimers());
+
+  async function opened() {
+    const { auth } = fakeAuth();
+    const { app } = await appWithAccount(fakeApi(new FakeServer()).api, { signedIn: true, auth });
+    await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
+    render(AjustesScreen, { app });
+    await screen.findByText('ranielli@exemplo.com');
+    // Os estados abaixo são postos à mão: o toque não roda de verdade, para o teste mandar na fase.
+    vi.spyOn(app.account!, 'syncNow').mockResolvedValue(undefined);
+    const button = screen.getByRole('button', { name: 'Sincronizar agora' });
+    const line = document.querySelector('[data-sync-line]')!;
+    return { app, button, line };
+  }
+
+  it('o botão com o cubinho: gira enquanto sincroniza, e o toque que termina bem deixa a linha verde por um instante', async () => {
+    const { app, button, line } = await opened();
+    expect(button.querySelector('[data-cube="idle"]')).not.toBeNull();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    await fireEvent.click(button);
+    app.account!.status = { ...idleStatus(), phase: 'syncing' };
+    await tick();
+    expect(button.querySelector('[data-cube="turn"]')).not.toBeNull();
+    expect(button).toBeDisabled();
+    expect(line).not.toHaveAttribute('data-fresh');
+    app.account!.status = { ...idleStatus(), phase: 'idle', lastSyncAt: Date.now() };
+    await tick();
+    expect(line).toHaveTextContent('Sincronizado agora');
+    expect(line).toHaveAttribute('data-fresh', 'true');
+    expect(button.querySelector('[data-cube="wave"]')).not.toBeNull();
+    await vi.advanceTimersByTimeAsync(1300);
+    expect(line).not.toHaveAttribute('data-fresh');
+    expect(button.querySelector('[data-cube="idle"]')).not.toBeNull();
+  });
+
+  it('um sync automático com Ajustes aberto não pisca', async () => {
+    const { app, button, line } = await opened();
+    app.account!.status = { ...idleStatus(), phase: 'syncing' };
+    await tick();
+    expect(button.querySelector('[data-cube="turn"]')).not.toBeNull();
+    app.account!.status = { ...idleStatus(), phase: 'idle', lastSyncAt: Date.now() };
+    await tick();
+    expect(line).not.toHaveAttribute('data-fresh');
+    expect(button.querySelector('[data-cube="wave"]')).toBeNull();
+    expect(button.querySelector('[data-cube="idle"]')).not.toBeNull();
+  });
+
+  it('um toque que termina em erro não deixa o verde; o toque seguinte, que termina bem, deixa', async () => {
+    const { app, button, line } = await opened();
+    await fireEvent.click(button);
+    app.account!.status = { ...idleStatus(), phase: 'syncing' };
+    await tick();
+    app.account!.status = { ...idleStatus(), phase: 'error', error: 'server' };
+    await tick();
+    expect(line).not.toHaveAttribute('data-fresh');
+    // um sync automático que se recupera depois do erro também não pisca: o toque já foi gasto
+    app.account!.status = { ...idleStatus(), phase: 'syncing' };
+    await tick();
+    app.account!.status = { ...idleStatus(), phase: 'idle', lastSyncAt: Date.now() };
+    await tick();
+    expect(line).not.toHaveAttribute('data-fresh');
+    await fireEvent.click(button);
+    app.account!.status = { ...idleStatus(), phase: 'syncing' };
+    await tick();
+    app.account!.status = { ...idleStatus(), phase: 'idle', lastSyncAt: Date.now() };
+    await tick();
+    expect(line).toHaveAttribute('data-fresh', 'true');
+  });
+
+  it('erro: o cubinho em erro', async () => {
+    const { app, button } = await opened();
+    app.account!.status = { ...idleStatus(), phase: 'error', error: 'server' };
+    await tick();
+    expect(button.querySelector('[data-cube="error"]')).not.toBeNull();
+  });
+
+  it('o verde passageiro não anuncia nada: a linha não é região de aviso', async () => {
+    const { line } = await opened();
+    expect(line.closest('[aria-live]')).toBeNull();
+    expect(line).not.toHaveAttribute('aria-live');
+    expect(line).not.toHaveAttribute('role');
   });
 });
