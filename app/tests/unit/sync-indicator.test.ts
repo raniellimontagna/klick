@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
-import { describe, expect, it, vi } from 'vitest';
+import { tick } from 'svelte';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { idleStatus } from '../../src/sync/engine';
 import { T } from '../../src/strings';
 import SyncIndicator from '../../src/ui/SyncIndicator.svelte';
@@ -43,6 +44,90 @@ describe('indicador do sync na barra de cima (spec 9.3)', () => {
     expect(button).not.toHaveAttribute('aria-live');
     expect(button).not.toHaveAttribute('role');
     expect(document.querySelector('.sync-ind [aria-live], .sync-ind [role="status"]')).toBeNull();
+  });
+});
+
+describe('a nuvem com o cubinho como selo (spec 6)', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('a nuvem só em contorno com o cubinho como selo: 9 peças, a do centro vermelha no erro', async () => {
+    const { app } = await appWithAccount(fakeApi(new FakeServer()).api, { signedIn: true });
+    await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
+    render(SyncIndicator, { app });
+    const button = await screen.findByRole('button', { name: /^Conta e sync: / });
+    const svg = button.querySelector('svg')!;
+    expect(svg.querySelectorAll('mask')).toHaveLength(1);
+    expect(svg.querySelector('path[fill="none"]')).not.toBeNull(); // só o contorno: nada pintado dentro da nuvem
+    const pieces = svg.querySelectorAll('g[data-badge] [data-badge-piece]');
+    expect(pieces).toHaveLength(9);
+    expect(svg.querySelector('[data-center]')).toBeNull(); // fora do erro, nenhuma peça é vermelha
+    app.account!.status = { ...idleStatus(), phase: 'error', error: 'server' };
+    await vi.waitFor(() => expect(button).toHaveAttribute('data-sync', 'error'));
+    expect(pieces[4]).toHaveAttribute('data-center');
+    expect(svg.querySelectorAll('[data-center]')).toHaveLength(1);
+  });
+
+  it('o recorte do selo é da máscara (o nuvem passa por ela), com id próprio por indicador', async () => {
+    const { app } = await appWithAccount(fakeApi(new FakeServer()).api, { signedIn: true });
+    await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
+    render(SyncIndicator, { app });
+    const svg = (await screen.findByRole('button', { name: /^Conta e sync: / })).querySelector('svg')!;
+    const mask = svg.querySelector('mask')!;
+    expect(mask.id).not.toBe('');
+    expect(svg.querySelector(`g[mask="url(#${mask.id})"]`)).not.toBeNull();
+  });
+
+  it('sincronizando → sincronizado: um pulinho, uma vez', async () => {
+    const { app } = await appWithAccount(fakeApi(new FakeServer()).api, { signedIn: true });
+    await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
+    app.account!.status = { ...idleStatus(), phase: 'syncing' };
+    render(SyncIndicator, { app });
+    const button = await screen.findByRole('button', { name: /^Conta e sync: / });
+    await vi.waitFor(() => expect(button).toHaveAttribute('data-sync', 'syncing'));
+    expect(button).not.toHaveAttribute('data-just-synced');
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    app.account!.status = { ...idleStatus(), phase: 'idle', lastSyncAt: Date.now() };
+    await tick();
+    expect(button).toHaveAttribute('data-sync', 'synced');
+    expect(button).toHaveAttribute('data-just-synced', 'true');
+    await vi.advanceTimersByTimeAsync(700);
+    await tick();
+    expect(button).not.toHaveAttribute('data-just-synced');
+  });
+
+  it('o pulinho só vem de "sincronizando", e não com o timer ocupado', async () => {
+    const { app } = await appWithAccount(fakeApi(new FakeServer()).api, { signedIn: true });
+    await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
+    render(SyncIndicator, { app });
+    const button = await screen.findByRole('button', { name: /^Conta e sync: / });
+    app.account!.status = { ...idleStatus(), phase: 'offline', pending: 1 };
+    await vi.waitFor(() => expect(button).toHaveAttribute('data-sync', 'waiting'));
+    app.account!.status = { ...idleStatus(), phase: 'idle', lastSyncAt: Date.now() };
+    await vi.waitFor(() => expect(button).toHaveAttribute('data-sync', 'synced'));
+    expect(button).not.toHaveAttribute('data-just-synced'); // veio de "esperando rede", não de "sincronizando"
+    app.account!.status = { ...idleStatus(), phase: 'syncing' };
+    await vi.waitFor(() => expect(button).toHaveAttribute('data-sync', 'syncing'));
+    app.timerBusy = true;
+    await vi.waitFor(() => expect(button).toHaveAttribute('data-quiet', 'true'));
+    app.account!.status = { ...idleStatus(), phase: 'idle', lastSyncAt: Date.now() };
+    await vi.waitFor(() => expect(button).toHaveAttribute('data-sync', 'synced'));
+    expect(button).not.toHaveAttribute('data-just-synced');
+  });
+
+  it('com o timer ocupado, nada gira: o selo só ganha o giro com data-quiet="false"', async () => {
+    const { app } = await appWithAccount(fakeApi(new FakeServer()).api, { signedIn: true });
+    await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
+    render(SyncIndicator, { app });
+    const button = await screen.findByRole('button', { name: /^Conta e sync: / });
+    const badge = button.querySelector('g[data-badge]')!;
+    expect(badge).not.toHaveClass('spin');
+    app.account!.status = { ...idleStatus(), phase: 'syncing' };
+    await vi.waitFor(() => expect(button).toHaveAttribute('data-sync', 'syncing'));
+    expect(button).toHaveAttribute('data-quiet', 'false');
+    expect(badge).toHaveClass('spin');
+    app.timerBusy = true;
+    await vi.waitFor(() => expect(button).toHaveAttribute('data-quiet', 'true'));
+    expect(badge).not.toHaveClass('spin');
   });
 });
 

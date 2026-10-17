@@ -672,7 +672,8 @@
   }
 }
 
-/* O indicador do sync na barra de cima (spec 9.3). Gira só sincronizando, com o timer parado. */
+/* O indicador do sync na barra de cima (spec 9.3 e 6): nuvem em contorno com o cubinho como selo. O estado vai nas peças; só "sincronizando"
+   repete (gira uma camada) e o pulinho de "sincronizado" toca uma vez, ambos só com o timer parado (data-quiet='false'). */
 .sync-ind {
   display: inline-grid;
   place-items: center;
@@ -681,20 +682,63 @@
   border: 0;
   border-radius: 50%;
   background: none;
+  color: var(--ink);
+}
+
+.sync-ind [data-badge] {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.sync-ind [data-badge-piece] {
+  fill: var(--ink);
+}
+
+.sync-ind[data-sync='synced'] [data-badge-piece] {
+  fill: var(--go);
+}
+
+.sync-ind[data-sync='waiting'] {
   color: var(--muted);
 }
 
-.sync-ind[data-sync='error'] {
-  color: var(--arm-ink);
+.sync-ind[data-sync='waiting'] .sync-cloud {
+  stroke-dasharray: 2.2 2;
 }
 
-.sync-ind[data-sync='syncing'][data-quiet='false'] .spin {
-  transform-origin: 12px 13px;
-  animation: sync-spin 1.2s linear infinite;
+.sync-ind[data-sync='waiting'] [data-badge-piece] {
+  fill: var(--muted);
 }
 
-@keyframes sync-spin {
-  to {
-    transform: rotate(360deg);
+.sync-ind[data-sync='error'] [data-badge-piece][data-center] {
+  fill: var(--arm);
+}
+
+.sync-ind[data-sync='syncing'][data-quiet='false'] [data-badge].spin {
+  animation: sync-badge-turn 1.4s cubic-bezier(0.6, 0, 0.2, 1) infinite;
+}
+
+.sync-ind[data-just-synced='true'][data-quiet='false'] [data-badge] {
+  animation: sync-badge-hop 0.6s var(--ease) 1;
+}
+
+@keyframes sync-badge-turn {
+  0%,
+  20% {
+    transform: rotate(0);
+  }
+  60%,
+  100% {
+    transform: rotate(90deg);
+  }
+}
+
+@keyframes sync-badge-hop {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.3);
   }
 }
