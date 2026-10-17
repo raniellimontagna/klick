@@ -2,7 +2,7 @@
 // (A: gravar e listar; B: ler), a lista guardada por alguns minutos e as restaurações por dia. O espaço e as operações são semeados direto
 // no D1 (r2_storage e r2_ops); o teto de cada um é o do wrangler.jsonc (o beta), o mesmo que o objeto da conta lê. As cópias saem por
 // stub.snapshot(T0), não pelo alarme: o mês das operações é o de T0, qualquer que seja o dia em que os testes rodam.
-import { runInDurableObject } from 'cloudflare:test';
+import { runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
 import { env } from 'cloudflare:workers';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { restoreChanges } from '../../src/core/sync/restore';
@@ -112,6 +112,19 @@ describe('a cópia do dia dentro do teto (endurecimento 4.2)', () => {
     expect((await sync(user, [])).copiesPaused).toBeNull();
   });
 
+  it('o alarme com o espaço cheio não grava a cópia, pausa com "space" e marca o alarme de amanhã', async () => {
+    const user = 'alarme-sem-espaco';
+    await sync(user, [session, solve('a')]); // marca o alarme
+    await seedUsed(ROOM - 10);
+    expect(await runDurableObjectAlarm(stubOf(user))).toBe(true);
+    expect(await objectsOf(user)).toEqual([]);
+    expect(await stateOf(user, 'snapshotRev')).toBeNull();
+    // Antes do sync seguinte, que marcaria um alarme se não houvesse nenhum: o próprio alarme marcou o de amanhã, que tenta de novo.
+    const next = await runInDurableObject(stubOf(user), (_o, state) => state.storage.getAlarm());
+    expect(next).toBeGreaterThan(Date.now());
+    expect((await sync(user, [])).copiesPaused).toBe('space');
+  });
+
   it('sem operações A no mês, a cópia não sai (paused "ops")', async () => {
     const user = 'copia-ops';
     await sync(user, [session, solve('a')]);
@@ -173,8 +186,26 @@ describe('a lista das cópias (decisão 1)', () => {
     expect(((await list(user)).body as CloudCopies).copies).toHaveLength(1);
     await env.SNAPSHOTS.delete(snapshotKey(user, dayOf(T0))); // a regra de 30 dias do bucket a apagou
     expect(((await list(user, T0 + 1000)).body as CloudCopies).copies).toHaveLength(1); // ainda a guardada
+    const r2 = await countR2(user);
     expect(await restore(user, dayOf(T0), T0 + 2000)).toEqual({ status: 404, body: { error: 'not-found' } });
+    expect([r2.get, r2.list]).toEqual([1, undefined]); // estava na lista: o R2 é lido, e a lista se renova
     expect(await list(user, T0 + 3000)).toEqual({ status: 200, body: { copies: [], paused: null } });
+    expect(r2.list).toBe(1);
+  });
+
+  // Senão, alternar "restaurar um nome bem formado que não existe" com "abrir a lista" gastaria uma operação A por par, só com a rajada no
+  // caminho, e esvaziaria as A do mês de todas as contas.
+  it('com a lista guardada e válida, restaurar um nome que não está nela não pergunta ao R2 nem mexe na lista', async () => {
+    const user = 'lista-nome-ausente';
+    await sync(user, [session, solve('a')]);
+    await stubOf(user).snapshot(T0);
+    const listed = await list(user);
+    const [opsA, opsB] = [await opsOf('A'), await opsOf('B')];
+    const r2 = await countR2(user);
+    expect(await restore(user, '2020-01-01', T0 + 1000)).toEqual({ status: 404, body: { error: 'not-found' } });
+    expect(r2).toEqual({}); // nenhuma chamada ao R2
+    expect(await list(user, T0 + 2000)).toEqual(listed); // a guardada, ainda válida
+    expect([r2, await opsOf('A'), await opsOf('B')]).toEqual([{}, opsA, opsB]);
   });
 });
 

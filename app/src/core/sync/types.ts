@@ -107,8 +107,12 @@ export interface CloudCopy {
   solves: number; // solves ativos na cópia
 }
 
-// Por que as cópias na nuvem estão pausadas (endurecimento 4.2 e decisão 1): o teto de espaço das cópias encheu, ou o de operações do R2 no
-// mês acabou.
+// Por que as cópias na nuvem estão pausadas (endurecimento 4.2 e decisão 1): o teto de espaço das cópias encheu ('space'), ou o de
+// operações do R2 no mês acabou ('ops'). Quem diz, e o que quer dizer:
+// - `SyncResponse.copiesPaused` é o estado da cópia do dia: a última tentativa não gravou por isso, e a de amanhã tenta de novo (null: a
+//   última foi gravada, ou nenhuma foi recusada).
+// - `CloudCopies.paused` é esse mesmo estado; e, quando a lista vem guardada porque não houve operação para listar o R2 de novo, 'ops'
+//   também quer dizer "a lista não se renovou este mês" (ela pode estar velha), mesmo que a cópia do dia ainda não tenha sido recusada.
 export type CopiesPaused = 'space' | 'ops';
 
 // A lista de cópias na nuvem, com a pausa (null quando as cópias seguem).

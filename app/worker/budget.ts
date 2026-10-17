@@ -1,7 +1,10 @@
-// As reservas dos tetos no D1 (spec 4 e 7). Cada uma é um lote do D1, que roda como uma transação: um INSERT que garante a linha e um
-// UPDATE com a condição na própria cláusula WHERE (count + n <= teto). O D1 escreve numa fila só, e o UPDATE confere e soma no mesmo
-// passo: pedidos em paralelo não passam do teto, e o `meta.changes` diz se passou. Recusado, nada é somado. O teto vem de limits.ts
-// (capOf/capsOf), onde uma var torta já vale 0: com o teto 0, nada passa.
+// Os tetos do grátis contados no D1 (spec 4 e 7): as operações do R2 por mês, o espaço das cópias e os e-mails. Cada reserva (takeOps,
+// reserveStorage, reserveMail) é um lote do D1, que roda como uma transação: um INSERT que garante a linha e um UPDATE com a condição na
+// própria cláusula WHERE (count + n <= teto). O D1 escreve numa fila só, e o UPDATE confere e soma no mesmo passo: pedidos em paralelo não
+// passam do teto, e o `meta.changes` diz se passou. Recusado, nada é somado. O teto vem de limits.ts (capOf/capsOf), onde uma var torta já
+// vale 0: com o teto 0, nada passa. Além das reservas: countOps conta sem recusar (o que já foi feito), releaseStorage devolve uma reserva
+// de espaço que não virou cópia, reserveCopy junta o espaço e a operação A de um put, e recountStorage lista snap/ no R2 (cada página, uma
+// operação A reservada antes) e troca o espaço contado pelo que existe.
 import type { CopiesPaused } from '../src/core/sync/types';
 import type { Env } from './env';
 import { capsOf, STORAGE_HEADROOM, utcDay, utcMonth } from './limits';

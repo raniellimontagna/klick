@@ -434,10 +434,13 @@ export class AccountStore extends DurableObject<Env> {
   // gravações entram nos contadores como as de um sync (commit), sem a cota nem o teto de bytes: a cópia volta inteira ou não volta.
   //
   // Dentro do grátis (decisões 1, 2, 3 e 6), as conferências vêm nesta ordem, todas antes de qualquer gravação, e uma recusa não muda nada
-  // na conta: a conta apagada; as restaurações do dia UTC (RESTORES_PER_DAY, restore-limit); as duas leituras do R2, ler a cópia e conferir
-  // a de antes (operações B, r2-budget); a cópia (not-found, que renova a lista); as mudanças da restauração contra o orçamento de gravações
-  // de um dia inteiro (too-big) e contra o que sobra hoje (write-budget); o espaço da cópia de antes (no-room: nunca se restaura sem ela,
-  // decisão 3) e a operação A do put dela (r2-budget). Só a restauração que deu certo conta no dia.
+  // na conta: a conta apagada; as restaurações do dia UTC (RESTORES_PER_DAY, restore-limit); um nome fora da lista guardada ainda válida
+  // (not-found, sem perguntar ao R2: toda cópia passa por este objeto e renova a lista, então a lista válida tem tudo o que existe); as duas
+  // leituras do R2, ler a cópia e conferir a de antes (operações B, r2-budget); a cópia (not-found; a lista só se renova quando o nome estava
+  // nela, ou quando ela já não valia); as mudanças da restauração contra o orçamento de gravações de um dia inteiro (too-big) e contra o
+  // que sobra hoje (write-budget); o espaço da cópia de antes (no-room: nunca se restaura sem ela, decisão 3) e a operação A do put dela
+  // (r2-budget). Só a restauração que deu certo conta no dia. Sem o atalho da lista, alternar "restaurar um nome que não existe" com "abrir
+  // a lista" gastaria uma operação A por par.
   async restoreSnapshot(name: string, now: number): Promise<'ok' | 'not-found' | 'deleted' | RestoreRefusal> {
     return this.exclusive(async (): Promise<'ok' | 'not-found' | 'deleted' | RestoreRefusal> => {
       if (this.deleted()) return 'deleted';
@@ -445,6 +448,8 @@ export class AccountStore extends DurableObject<Env> {
       if (restores.n >= RESTORES_PER_DAY) return 'restore-limit';
       const userId = this.getState('userId');
       if (userId === null) return 'not-found'; // nunca sincronizou: nenhuma cópia, e nada a perguntar ao R2
+      const { list, at } = this.copies();
+      if (list !== null && now - at < COPIES_CACHE_MS && !list.some((c) => c.name === name)) return 'not-found';
       const caps = capsOf(this.env);
       if (!(await takeOps(this.env.DB, 'B', 2, now, caps.classBMonth))) return 'r2-budget';
       const object = await this.env.SNAPSHOTS.get(snapshotKey(userId, name));
