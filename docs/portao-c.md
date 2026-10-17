@@ -6,9 +6,9 @@ então nada disso mora num arquivo: os segredos entram direto no Cloudflare, pel
 ## Onde estamos
 
 - `BETTER_AUTH_SECRET`: **já está colocado** nos dois Workers (`klick-app-beta` e `klick-app`). Não precisa fazer nada.
-- Turnstile: você cria o widget no painel e manda para o Claude só a **site key** (que é pública). O Claude coloca a secret key nos dois
-  Workers pelo MCP da Cloudflare e grava a site key no `wrangler.jsonc`. Se preferir fazer sozinho, o passo 2 abaixo mostra como.
-- **Resend: é o que realmente falta, e só você consegue** (conta, domínio e a chave de envio). Comece por aqui.
+- Turnstile: **já está feito** (17/10/2026). O widget `Klick` (invisível, beta e raiz) existe, o `TURNSTILE_SECRET` está nos dois
+  Workers e a site key está no `wrangler.jsonc`. O passo 2 abaixo fica só para trocar o widget um dia.
+- **Resend: é o único que falta, e só você consegue** (conta, domínio e a chave de envio). Comece por aqui.
 
 Regra de ouro: **nunca cole um segredo numa conversa, num e-mail ou num arquivo.** Só no terminal, quando o script pedir (a digitação não
 aparece na tela), ou direto no painel do serviço. A site key do Turnstile é pública e pode ser colada em qualquer lugar.

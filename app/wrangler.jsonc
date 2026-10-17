@@ -36,8 +36,8 @@
   "vars": {
     "ACCOUNTS_ENABLED": "true",
     "APP_ORIGIN": "https://beta.klick.ranimontagna.com",
-    // A chave de teste do Turnstile: a site key de verdade (Portão C) entra no lugar dela antes do deploy do beta.
-    "TURNSTILE_SITE_KEY": "1x00000000000000000000BB",
+    // A site key do widget "Klick" do Turnstile (invisível, beta e raiz): é pública. O secret dele só existe como segredo do Worker.
+    "TURNSTILE_SITE_KEY": "0x4AAAAAAFZP094_-Gx1c3Ik",
     "MAIL_FROM": "Klick <nao-responda@klick.ranimontagna.com>"
   },
   "env": {
@@ -47,7 +47,7 @@
       "workers_dev": false,
       "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false } },
       "triggers": { "crons": ["15 3 * * *"] },
-      "d1_databases": [{ "binding": "DB", "database_name": "klick-auth", "database_id": "ID_DO_KLICK_AUTH", "migrations_dir": "worker/migrations" }],
+      "d1_databases": [{ "binding": "DB", "database_name": "klick-auth", "database_id": "733fa475-c171-47b2-867a-2c1ab140a05e", "migrations_dir": "worker/migrations" }],
       "routes": [{ "pattern": "klick.ranimontagna.com", "custom_domain": true }],
       "assets": { "directory": "./dist", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": ["/api/*"] },
       "durable_objects": { "bindings": [{ "name": "ACCOUNT", "class_name": "AccountStore" }] },
@@ -59,7 +59,7 @@
       "vars": {
         "ACCOUNTS_ENABLED": "false",
         "APP_ORIGIN": "https://klick.ranimontagna.com",
-        "TURNSTILE_SITE_KEY": "1x00000000000000000000BB",
+        "TURNSTILE_SITE_KEY": "0x4AAAAAAFZP094_-Gx1c3Ik",
         "MAIL_FROM": "Klick <nao-responda@klick.ranimontagna.com>"
       }
     }
