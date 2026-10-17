@@ -102,7 +102,10 @@
         codeOk = false;
         codeCube = 'wave'; // o passo do código nasce de novo a cada envio: a onda toca outra vez
         await go('code');
-      } else error = result === 'limited' ? T.conta.limited : result === 'captcha' ? T.conta.captchaFailed : T.conta.sendFailed;
+      } else {
+        error =
+          result === 'limited' ? T.conta.limited : result === 'mail-cap' ? T.conta.mailCap : result === 'captcha' ? T.conta.captchaFailed : T.conta.sendFailed;
+      }
     } finally {
       busy = false;
     }

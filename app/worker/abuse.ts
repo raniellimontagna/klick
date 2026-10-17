@@ -1,8 +1,10 @@
-// Abuso no pedido de código (spec 7.5): o Turnstile, uma rajada por IP (binding de rate limiting) e os limites por hora no D1: 5 códigos por
-// e-mail e 20 pedidos por IP. O IP conta por balde: o endereço IPv4, ou o /64 do IPv6 (quem tem um /64 tem 2^64 endereços). As respostas
+// Abuso no pedido de código (spec 7.5): o Turnstile, uma rajada por IP (binding de rate limiting), os limites por hora no D1 (5 códigos por
+// e-mail e 20 pedidos por IP) e, por último, o teto de e-mails do dia e do mês (spec 4.3, worker/budget.ts), abaixo do grátis do Resend. O IP conta por balde: o endereço IPv4, ou o /64 do IPv6 (quem tem um /64 tem 2^64 endereços). As respostas
 // não dizem se o e-mail tem conta, e os logs levam só códigos fixos: nem o e-mail, nem o IP (spec 8.5).
 import { CAPTCHA_HEADER } from '../src/core/sync/types';
+import { reserveMail } from './budget';
 import type { Env } from './env';
+import { capOf } from './limits';
 import type { FetchLike } from './mail';
 
 export const CODES_PER_EMAIL_HOUR = 5;
@@ -133,8 +135,13 @@ export async function guardSendCode(request: Request, env: Env, deps: { now: () 
     env.DB.prepare(COUNTS).bind(emailKey, ipKey, since),
     env.DB.prepare(INSERT).bind(emailKey, ipKey, since, now, CODES_PER_EMAIL_HOUR, CODES_PER_IP_HOUR),
   ]);
-  if (inserted.meta.changes > 0) return null;
-  return limited('send-code', (before.results[0]?.byEmail ?? 0) >= CODES_PER_EMAIL_HOUR ? 'email' : 'ip');
+  if (inserted.meta.changes === 0) return limited('send-code', (before.results[0]?.byEmail ?? 0) >= CODES_PER_EMAIL_HOUR ? 'email' : 'ip');
+  // O teto de e-mails vem depois da linha da hora: um pedido barrado ali não gasta o teto. Na caixa local do ponta a ponta nada sai de
+  // verdade, então nada conta. Um teto torto vale 0 (limits.ts): nenhum código sai.
+  if (env.E2E_MAILBOX === 'true') return null;
+  if (await reserveMail(env.DB, now, { mailDay: capOf(env, 'MAIL_PER_DAY'), mailMonth: capOf(env, 'MAIL_PER_MONTH') })) return null;
+  log({ evt: 'limited', route: 'send-code', by: 'mail-cap' });
+  return Response.json({ code: 'MAIL_CAP', message: 'Muitos pedidos de código hoje. Tente de novo amanhã.' }, { status: 429 });
 }
 
 // As opções da passkey, sem sessão, gravam um desafio no D1 a cada pedido: a mesma rajada por balde de IP, numa chave própria (não gasta

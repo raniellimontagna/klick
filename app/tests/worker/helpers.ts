@@ -13,8 +13,10 @@ export const T0 = 1_791_500_000_000;
 // O limite de rajada sempre deixa passar nos testes (o binding do Miniflare conta de verdade); os testes de limite passam o deles.
 export const allow: RateLimit = { limit: async () => ({ success: true }) };
 
+// Os tetos de e-mail do wrangler.jsonc (10 por dia no beta) ficariam no caminho dos testes que pedem muitos códigos no mesmo dia (o relógio
+// deles é fixo): aqui vão para um valor que nunca enche. Os testes do teto passam os deles.
 export function testEnv(over: Partial<Env> = {}): Env {
-  return { ...(env as unknown as Env), ACCOUNTS_ENABLED: 'true', API_BURST: allow, OTP_BURST: allow, ...over };
+  return { ...(env as unknown as Env), ACCOUNTS_ENABLED: 'true', API_BURST: allow, OTP_BURST: allow, MAIL_PER_DAY: '1000000', MAIL_PER_MONTH: '1000000', ...over };
 }
 
 // O Turnstile falso: o token 'ok' passa.

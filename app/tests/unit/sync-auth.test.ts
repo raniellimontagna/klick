@@ -89,6 +89,13 @@ describe('o cliente de login (spec 7.2): o adaptador do Better Auth', () => {
     expect(await auth.sendCode('ranielli@exemplo.com', 'token-1')).toBe(expected);
   });
 
+  it('429 MAIL_CAP vira mail-cap; 429 sem código continua limited', async () => {
+    server({ [SEND]: { status: 429, body: { code: 'MAIL_CAP', message: 'Muitos pedidos de código hoje. Tente de novo amanhã.' } } });
+    expect(await (await loadAuthClient()).sendCode('ranielli@exemplo.com', 'token-1')).toBe('mail-cap');
+    server({ [SEND]: { status: 429, body: { error: 'x' } } });
+    expect(await (await loadAuthClient()).sendCode('ranielli@exemplo.com', 'token-1')).toBe('limited');
+  });
+
   it('o código certo devolve quem entrou', async () => {
     const seen = server({ [VERIFY]: { status: 200, body: { token: 'sessao', user: USER } } });
     const auth = await loadAuthClient();

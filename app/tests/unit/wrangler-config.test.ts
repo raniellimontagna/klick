@@ -36,6 +36,7 @@ const config = JSON.parse(text.split('\n').filter((l) => !l.trim().startsWith('/
     };
   };
 };
+const CAPS = ['SNAPSHOT_BYTES_CAP', 'R2_CLASS_A_MONTH', 'R2_CLASS_B_MONTH', 'MAIL_PER_DAY', 'MAIL_PER_MONTH'] as const;
 const SECRETS = ['BETTER_AUTH_SECRET', 'TURNSTILE_SECRET', 'RESEND_API_KEY', 'E2E_MAILBOX'];
 
 describe('wrangler.jsonc', () => {
@@ -85,5 +86,35 @@ describe('wrangler.jsonc', () => {
   it('cada ambiente tem o próprio bucket das cópias diárias', () => {
     expect(config.r2_buckets).toEqual([{ binding: 'SNAPSHOTS', bucket_name: 'klick-snapshots-beta' }]);
     expect(config.env.production.r2_buckets).toEqual([{ binding: 'SNAPSHOTS', bucket_name: 'klick-snapshots' }]);
+  });
+
+  // Spec 4 e 7: os tetos do grátis (o espaço das cópias, as operações A e B do R2 por mês, os e-mails por dia e por mês) são vars de cada
+  // ambiente, para subir sem mexer no código. O beta e a raiz dividem o Resend e o R2 da conta, mas cada um tem o próprio D1: os dois
+  // juntos ficam abaixo do grátis.
+  it('os tetos do grátis ficam na configuração, por ambiente', () => {
+    const pick = (vars: Record<string, string>) => Object.fromEntries(CAPS.map((name) => [name, vars[name]]));
+    expect(pick(config.vars)).toEqual({
+      SNAPSHOT_BYTES_CAP: '256000000',
+      R2_CLASS_A_MONTH: '50000',
+      R2_CLASS_B_MONTH: '500000',
+      MAIL_PER_DAY: '10',
+      MAIL_PER_MONTH: '250',
+    });
+    expect(pick(config.env.production.vars)).toEqual({
+      SNAPSHOT_BYTES_CAP: '1000000000',
+      R2_CLASS_A_MONTH: '500000',
+      R2_CLASS_B_MONTH: '5000000',
+      MAIL_PER_DAY: '80',
+      MAIL_PER_MONTH: '2500',
+    });
+  });
+
+  it('somados, os dois ambientes ficam abaixo do grátis do Resend e do R2', () => {
+    const sum = (name: (typeof CAPS)[number]) => Number(config.vars[name]) + Number(config.env.production.vars[name]);
+    expect(sum('MAIL_PER_DAY')).toBeLessThanOrEqual(100);
+    expect(sum('MAIL_PER_MONTH')).toBeLessThanOrEqual(3000);
+    expect(sum('R2_CLASS_A_MONTH')).toBeLessThanOrEqual(1_000_000);
+    expect(sum('R2_CLASS_B_MONTH')).toBeLessThanOrEqual(10_000_000);
+    expect(sum('SNAPSHOT_BYTES_CAP')).toBeLessThanOrEqual(10e9);
   });
 });

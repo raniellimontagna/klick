@@ -336,6 +336,18 @@ describe('diálogo de entrar (spec 7.2 e 9.2)', () => {
     expect(calls).toEqual(['send:ranielli@exemplo.com:token-1', 'send:ranielli@exemplo.com:token-2']);
   });
 
+  it('o teto de e-mails mostra a mensagem própria', async () => {
+    const { auth, state } = fakeAuth();
+    await openDialog({ auth });
+    await fireEvent.input(screen.getByRole('textbox', { name: 'E-mail' }), { target: { value: 'ranielli@exemplo.com' } });
+    state.send = 'mail-cap';
+    await fireEvent.click(screen.getByRole('button', { name: 'Enviar código' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(T.conta.mailCap);
+    expect(alert).not.toHaveTextContent(T.conta.limited);
+    expect(alert).not.toHaveTextContent(T.conta.sendFailed);
+  });
+
   it('primeiro login: avisa quantos solves sobem, guarda a cópia e sincroniza sem duplicar (spec 6.5)', async () => {
     const server = new FakeServer();
     const { app, repo } = await openDialog({}, server);

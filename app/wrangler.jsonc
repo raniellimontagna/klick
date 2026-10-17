@@ -5,6 +5,11 @@
 // dos arquivos em /api/* (run_worker_first); o resto sai direto dos arquivos, como antes.
 // Cada ambiente tem as próprias ligações (D1, Durable Objects, R2): nada do beta toca os dados da raiz. Os segredos (BETTER_AUTH_SECRET,
 // TURNSTILE_SECRET, RESEND_API_KEY) entram só por `npx wrangler secret put NOME [--env production]`: o repositório é público.
+// Os tetos do grátis são vars de cada ambiente (spec 4; worker/limits.ts): o espaço das cópias (SNAPSHOT_BYTES_CAP), as operações do R2 por
+// mês (R2_CLASS_A_MONTH: gravar e listar; R2_CLASS_B_MONTH: ler) e os códigos por e-mail (MAIL_PER_DAY, MAIL_PER_MONTH). O beta e a raiz
+// dividem o Resend e o R2 da conta, cada um com o próprio D1: os dois somados ficam abaixo do grátis (90 e-mails/dia de 100, 2.750/mês de
+// 3.000; 550 mil operações A de 1 milhão e 5,5 milhões B de 10 milhões; 1,256 GB de 10 GB, que a conta ainda divide com outros projetos).
+// Para subir um teto, mude a var e publique. Uma var ausente, vazia ou que não seja um inteiro maior que 0 vale 0: nada passa.
 {
   "name": "klick-app-beta",
   "account_id": "3a9dc0a9d9f05ff97021ce237e3ed92f",
@@ -38,7 +43,12 @@
     "APP_ORIGIN": "https://beta.klick.ranimontagna.com",
     // A site key do widget "Klick" do Turnstile (invisível, beta e raiz): é pública. O secret dele só existe como segredo do Worker.
     "TURNSTILE_SITE_KEY": "0x4AAAAAAFZP094_-Gx1c3Ik",
-    "MAIL_FROM": "Klick <nao-responda@ranimontagna.com>"
+    "MAIL_FROM": "Klick <nao-responda@ranimontagna.com>",
+    "SNAPSHOT_BYTES_CAP": "256000000",
+    "R2_CLASS_A_MONTH": "50000",
+    "R2_CLASS_B_MONTH": "500000",
+    "MAIL_PER_DAY": "10",
+    "MAIL_PER_MONTH": "250"
   },
   "env": {
     "production": {
@@ -60,7 +70,12 @@
         "ACCOUNTS_ENABLED": "false",
         "APP_ORIGIN": "https://klick.ranimontagna.com",
         "TURNSTILE_SITE_KEY": "0x4AAAAAAFZP094_-Gx1c3Ik",
-        "MAIL_FROM": "Klick <nao-responda@ranimontagna.com>"
+        "MAIL_FROM": "Klick <nao-responda@ranimontagna.com>",
+        "SNAPSHOT_BYTES_CAP": "1000000000",
+        "R2_CLASS_A_MONTH": "500000",
+        "R2_CLASS_B_MONTH": "5000000",
+        "MAIL_PER_DAY": "80",
+        "MAIL_PER_MONTH": "2500"
       }
     }
   }

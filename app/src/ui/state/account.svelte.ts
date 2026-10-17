@@ -325,7 +325,7 @@ export class AccountState {
   }
 
   // O código por e-mail (spec 7.2): primeiro um token novo do Turnstile, no elemento `host` da tela do e-mail (o token vale uma vez, e o
-  // servidor o gasta até no 429). 'captcha' e 'limited' vêm do guarda do Worker, cada um com a sua mensagem; o desafio recusado aqui também
+  // servidor o gasta até no 429). 'captcha', 'limited' e 'mail-cap' vêm do guarda do Worker, cada um com a sua mensagem; o desafio recusado aqui também
   // é 'captcha'. Sem a site key (o /api/health não respondeu ao abrir), pergunta de novo antes; sem resposta, 'failed'.
   async sendCode(email: string, host: HTMLElement): Promise<SendResult> {
     if (this.siteKey === null) await this.checkHealth();

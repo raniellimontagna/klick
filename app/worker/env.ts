@@ -13,6 +13,12 @@ export interface Env {
   APP_ORIGIN: string; // https://beta.klick.ranimontagna.com ou https://klick.ranimontagna.com
   TURNSTILE_SITE_KEY: string; // pública
   MAIL_FROM: string;
+  // Os tetos do grátis (spec 4, worker/limits.ts): inteiros em texto, por ambiente; ausente, vazio ou torto vale 0 (nada passa).
+  SNAPSHOT_BYTES_CAP: string; // o espaço das cópias diárias no R2, em bytes
+  R2_CLASS_A_MONTH: string; // gravar e listar no R2 por mês
+  R2_CLASS_B_MONTH: string; // ler no R2 por mês
+  MAIL_PER_DAY: string; // códigos por e-mail enviados por dia UTC
+  MAIL_PER_MONTH: string; // e por mês UTC
   BETTER_AUTH_SECRET: string; // segredo
   TURNSTILE_SECRET: string; // segredo; sem ele, a Cloudflare recusa todo token e nenhum código é pedido
   RESEND_API_KEY?: string; // segredo; sem ele, nenhum e-mail sai

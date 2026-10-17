@@ -659,6 +659,8 @@ export const T = Object.freeze({
     orCode: 'Ou receba um código por e-mail:',
     passkeyFirstFailed: 'Não deu para entrar com a passkey. Use o código por e-mail.',
     limited: 'Muitos pedidos de código. Espere um pouco e tente de novo.',
+    // O teto de e-mails do dia ou do mês (spec 4.3): o servidor para antes de o Resend recusar sem explicação.
+    mailCap: 'Muitos pedidos de código hoje. Tente de novo amanhã.',
     sendFailed: 'Não consegui enviar o código. Confira a conexão e tente de novo.',
     codeIntro: (email: string): string => `Mandamos um código para ${email}. Ele vale por 10 minutos. Se não chegar, olhe o spam.`,
     codeLabel: 'Código',

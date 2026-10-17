@@ -8,8 +8,9 @@ export interface AuthUser {
   email: string;
 }
 
-// 'limited': o limite de pedidos (429); 'captcha': o Turnstile recusou o token (403 CAPTCHA, worker/abuse.ts). Os dois têm mensagem própria.
-export type SendResult = 'sent' | 'limited' | 'captcha' | 'failed';
+// 'limited': o limite de pedidos (429); 'mail-cap': o teto de e-mails do dia ou do mês (429 MAIL_CAP); 'captcha': o Turnstile recusou o
+// token (403 CAPTCHA, worker/abuse.ts). Os três têm mensagem própria.
+export type SendResult = 'sent' | 'limited' | 'mail-cap' | 'captcha' | 'failed';
 export type VerifyResult = { ok: true; user: AuthUser } | { ok: false; reason: 'bad-code' | 'expired' | 'too-many' | 'failed' };
 
 export interface PasskeyInfo {
@@ -39,7 +40,7 @@ const verifyFailure = (error: Failure): VerifyResult => {
 
 // Os códigos que o guarda do Worker devolve no pedido do código (worker/abuse.ts).
 const sendFailure = (error: Failure): SendResult => {
-  if (error?.status === 429) return 'limited';
+  if (error?.status === 429) return error.code === 'MAIL_CAP' ? 'mail-cap' : 'limited';
   if (error?.status === 403 && error.code === 'CAPTCHA') return 'captcha';
   return 'failed';
 };

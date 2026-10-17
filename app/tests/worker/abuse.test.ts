@@ -291,3 +291,106 @@ describe('os códigos vencidos saem do D1 (spec 10)', () => {
     expect(await codeRow(email)).toBeNull();
   });
 });
+
+// O teto de e-mails (spec 4.3 e 7.7): os códigos enviados no dia e no mês UTC ficam abaixo do grátis do Resend. Recusa com a mensagem
+// própria, e só depois de passar pelo limite da hora: um pedido barrado ali não gasta o teto.
+describe('o teto de e-mails por dia e por mês (spec 4.3)', () => {
+  const SEND = '/api/auth/email-otp/send-verification-otp';
+  const MAIL_CAP = { code: 'MAIL_CAP', message: 'Muitos pedidos de código hoje. Tente de novo amanhã.' };
+  const midnight = (iso: string) => Date.parse(`${iso}T00:00:00Z`);
+  const request = (email: string, ip: string) => postJson({ email, type: 'sign-in' }, { 'x-turnstile-token': 'ok', 'cf-connecting-ip': ip });
+  const mailCount = async (period: string) => (await env.DB.prepare('SELECT count FROM mail_sent WHERE period = ?').bind(period).first<{ count: number }>())?.count ?? 0;
+  // Pedidos de IPs e e-mails próprios, para só o teto de e-mails decidir.
+  let n = 0;
+  const ask1 = (d: ReturnType<typeof authDeps>, e: ReturnType<typeof testEnv>) => call(SEND, request(`teto-${n}@exemplo.com`, `198.19.${(n >> 8) & 255}.${n++ & 255}`), { env: e, deps: d });
+
+  it('o teto do dia: o pedido além dele recebe 429 MAIL_CAP e nenhum código sai', async () => {
+    const d = { ...authDeps(), now: () => midnight('2028-01-10') + 1_000 };
+    const e = testEnv({ MAIL_PER_DAY: '2' });
+    const out = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      expect((await ask1(d, e)).status).toBe(200);
+      expect((await ask1(d, e)).status).toBe(200);
+      const blocked = await ask1(d, e);
+      expect([blocked.status, await blocked.json()]).toEqual([429, MAIL_CAP]);
+      expect((await ask1(d, e)).status).toBe(429);
+      expect(out.mock.calls.flat().map(String)).toContain(JSON.stringify({ evt: 'limited', route: 'send-code', by: 'mail-cap' }));
+    } finally {
+      out.mockRestore();
+    }
+    expect(d.mailer.sent).toHaveLength(2);
+    expect(await mailCount('d:2028-01-10')).toBe(2);
+  });
+
+  it('o teto do mês vale com o dia livre', async () => {
+    const e = testEnv({ MAIL_PER_DAY: '100', MAIL_PER_MONTH: '3' });
+    const [d1, d2] = [authDeps(), authDeps()];
+    const day1 = { ...d1, now: () => midnight('2028-02-10') + 1_000 };
+    const day2 = { ...d2, now: () => midnight('2028-02-11') + 1_000 };
+    expect((await ask1(day1, e)).status).toBe(200);
+    expect((await ask1(day1, e)).status).toBe(200);
+    expect((await ask1(day2, e)).status).toBe(200);
+    const blocked = await ask1(day2, e);
+    expect([blocked.status, await blocked.json()]).toEqual([429, MAIL_CAP]);
+    expect(d1.mailer.sent.length + d2.mailer.sent.length).toBe(3);
+    expect([await mailCount('d:2028-02-10'), await mailCount('d:2028-02-11'), await mailCount('m:2028-02')]).toEqual([2, 1, 3]);
+  });
+
+  it('um pedido barrado pelo limite da hora não gasta o teto', async () => {
+    const d = { ...authDeps(), now: () => midnight('2028-03-10') + 1_000 };
+    const e = testEnv({ MAIL_PER_DAY: '100' });
+    const same = (i: number) => call(SEND, request('so-este@exemplo.com', `198.20.0.${i}`), { env: e, deps: d });
+    for (let i = 0; i < CODES_PER_EMAIL_HOUR; i++) expect((await same(i)).status).toBe(200);
+    const blocked = await same(99);
+    expect([blocked.status, await blocked.json()]).toEqual([429, { code: 'TOO_MANY_REQUESTS', message: 'Tente de novo mais tarde.' }]);
+    expect(await mailCount('d:2028-03-10')).toBe(CODES_PER_EMAIL_HOUR); // 5, não 6
+    expect(d.mailer.sent).toHaveLength(CODES_PER_EMAIL_HOUR);
+    // Nem a rajada, nem o Turnstile recusado gastam o teto.
+    const burst = await call(SEND, request('rajada@exemplo.com', '198.20.1.1'), { env: testEnv({ OTP_BURST: { limit: async () => ({ success: false }) } }), deps: d });
+    const captcha = await call(SEND, postJson({ email: 'c@exemplo.com', type: 'sign-in' }, { 'x-turnstile-token': 'recusado', 'cf-connecting-ip': '198.20.1.2' }), { env: e, deps: d });
+    expect([burst.status, captcha.status]).toEqual([429, 403]);
+    expect(await mailCount('d:2028-03-10')).toBe(CODES_PER_EMAIL_HOUR);
+  });
+
+  it('o teto volta no dia seguinte (UTC)', async () => {
+    const e = testEnv({ MAIL_PER_DAY: '1', MAIL_PER_MONTH: '100' });
+    const d = authDeps();
+    const lastMs = { ...d, now: () => midnight('2028-04-11') - 1 }; // 10/04, 23:59:59.999 UTC
+    const nextDay = { ...d, now: () => midnight('2028-04-11') };
+    expect((await ask1(lastMs, e)).status).toBe(200);
+    expect((await ask1(lastMs, e)).status).toBe(429);
+    expect((await ask1(nextDay, e)).status).toBe(200);
+    expect((await ask1(nextDay, e)).status).toBe(429);
+    expect([await mailCount('d:2028-04-10'), await mailCount('d:2028-04-11'), await mailCount('m:2028-04')]).toEqual([1, 1, 2]);
+    expect(d.mailer.sent).toHaveLength(2);
+  });
+
+  it('com MAIL_PER_DAY torto, nenhum código sai (falha fechada, com o log)', async () => {
+    const d = { ...authDeps(), now: () => midnight('2028-05-10') + 1_000 };
+    const out = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      for (const bad of ['1GB', '', '-5', '1.5']) {
+        const res = await ask1(d, testEnv({ MAIL_PER_DAY: bad }));
+        expect([res.status, await res.json()], bad).toEqual([429, MAIL_CAP]);
+      }
+      const logged = out.mock.calls.flat().map(String);
+      expect(logged).toContain(JSON.stringify({ evt: 'cap-missing', name: 'MAIL_PER_DAY' }));
+      expect(logged.some((l) => l.includes('MAIL_PER_MONTH'))).toBe(false);
+    } finally {
+      out.mockRestore();
+    }
+    expect(d.mailer.sent).toHaveLength(0);
+    expect(await mailCount('d:2028-05-10')).toBe(0);
+  });
+
+  it('com E2E_MAILBOX o teto não conta (nada sai de verdade)', async () => {
+    const d = { ...authDeps(), now: () => midnight('2028-06-10') + 1_000 };
+    const e = testEnv({ MAIL_PER_DAY: '1', E2E_MAILBOX: 'true' });
+    for (let i = 0; i < 3; i++) expect((await ask1(d, e)).status).toBe(200);
+    expect(d.mailer.sent).toHaveLength(3);
+    expect([await mailCount('d:2028-06-10'), await mailCount('m:2028-06')]).toEqual([0, 0]);
+    // Sem a caixa local, o mesmo teto vale.
+    expect((await ask1(d, testEnv({ MAIL_PER_DAY: '1' }))).status).toBe(200);
+    expect((await ask1(d, testEnv({ MAIL_PER_DAY: '1' }))).status).toBe(429);
+  });
+});
