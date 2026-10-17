@@ -37,6 +37,15 @@ describe('o e-mail do código (spec 4 do visual da conta)', () => {
     expect(html).not.toMatch(/<img|<script|<link|@import|url\(|https?:\/\//i);
   });
 
+  it('o pré-cabeçalho é preenchido: a prévia da caixa de entrada não continua nos dígitos do código', () => {
+    const preheader = html.match(/display:none[^"]*"[^>]*>([^<]*)</)![1];
+    expect(preheader.startsWith('Vale por 10 minutos.')).toBe(true);
+    const padding = preheader.slice('Vale por 10 minutos.'.length);
+    expect(padding.length).toBeGreaterThan(0);
+    expect(padding.replaceAll('&zwnj;&nbsp;', '')).toBe(''); // só o enchimento invisível depois do texto
+    expect(padding.split('&zwnj;&nbsp;').length - 1).toBeGreaterThanOrEqual(60);
+  });
+
   it('o cubo do topo: 9 peças, o centro vermelho', () => {
     const cube = [...html.matchAll(/data-cube-piece="(\d)"[^>]*style="([^"]*)"/g)];
     expect(cube).toHaveLength(9);

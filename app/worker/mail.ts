@@ -54,6 +54,8 @@ function digitsTable(code: string): string {
   return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="border-collapse:separate"><tr>${cells.map((c, i) => between(i) + c).join('')}</tr></table>`;
 }
 
+const PREHEADER_PAD = '&zwnj;&nbsp;'.repeat(90);
+
 export function codeEmail(code: string): { subject: string; text: string; html: string } {
   const line = (size: number, color: string, extra = '') =>
     `font-family:${SANS};font-size:${size}px;color:${color};text-align:center;${extra}`;
@@ -66,8 +68,9 @@ export function codeEmail(code: string): { subject: string; text: string; html: 
       '<meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light">' +
       '<title>Seu código do Klick</title></head>' +
       `<body style="margin:0;padding:0;background-color:${PAPER}" bgcolor="${PAPER}">` +
-      // O pré-cabeçalho: o que a lista de e-mails mostra ao lado do assunto. Escondido no corpo.
-      '<div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;font-size:1px;line-height:1px">Vale por 10 minutos.</div>' +
+      // O pré-cabeçalho: o que a lista de e-mails mostra ao lado do assunto. Escondido no corpo; o enchimento (zwnj + nbsp, invisíveis) empurra
+      // para fora da prévia o texto que vem depois dele, senão a lista continuaria nos dígitos do código.
+      `<div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;font-size:1px;line-height:1px">Vale por 10 minutos.${PREHEADER_PAD}</div>` +
       `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${PAPER}" style="background-color:${PAPER}"><tr><td align="center" style="padding:28px 18px">` +
       '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:480px"><tr><td align="center">' +
       `<div aria-hidden="true" style="padding-bottom:14px">${cubeTable()}</div>` +
