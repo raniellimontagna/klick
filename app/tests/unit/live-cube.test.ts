@@ -30,6 +30,10 @@ describe('firstSyncCube: o estado do cubo no passo do primeiro sync', () => {
     expect(firstSyncCube('started', { ...idleStatus(), phase: 'syncing', progress: { sent: 0, total: 0, received: 40 } })).toEqual({ state: 'turn', filled: 0 });
     expect(firstSyncCube(null, idleStatus())).toEqual({ state: 'turn', filled: 0 });
   });
+
+  it('baixando a conta (o total da fila já veio, nada subiu ainda), gira em vez de ficar parado', () => {
+    expect(firstSyncCube('started', { ...idleStatus(), phase: 'syncing', progress: { sent: 0, total: 5, received: 120 } })).toEqual({ state: 'turn', filled: 0 });
+  });
 });
 
 describe('motionReduced', () => {

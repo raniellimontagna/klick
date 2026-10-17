@@ -11,12 +11,17 @@ export function syncIcon(s: SyncStatus): SyncIcon {
   return 'synced';
 }
 
+// O total da fila só é "o total" na fase de enviar: o primeiro login baixa a conta inteira antes de subir a fila (spec 6.5), e nessa fase o total já veio mas nada subiu. Enviando = total conhecido e (algo subiu, ou nada chegou).
+export function isSending(p: SyncStatus['progress']): p is NonNullable<SyncStatus['progress']> {
+  return p !== null && p.total > 0 && (p.sent > 0 || p.received === 0);
+}
+
 export function syncLine(s: SyncStatus, now: number): string {
   switch (s.phase) {
     case 'syncing': {
-      // O primeiro login baixa a conta inteira antes de subir a fila (spec 6.5): enquanto nada subiu e algo chegou, o que conta é o que chega.
+      // Enquanto nada subiu e algo chegou, o que conta é o que chega.
       const p = s.progress;
-      if (p && p.total > 0 && (p.sent > 0 || p.received === 0)) return T.conta.sending(Math.min(p.sent, p.total), p.total);
+      if (isSending(p)) return T.conta.sending(Math.min(p.sent, p.total), p.total);
       if (p && p.received > 0) return T.conta.receiving(p.received);
       return T.conta.syncing;
     }
