@@ -1,6 +1,7 @@
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import { AUTH_CHUNKS, chunkFileName } from './scripts/pwa-chunks.mjs';
 
 // Um id por build (src/build.ts): o sync baixa a conta de novo na primeira abertura de outra versão, se esta recusou algo do servidor.
 const BUILD = new Date().toISOString();
@@ -8,6 +9,8 @@ const BUILD = new Date().toISOString();
 // https://vite.dev/config/
 export default defineConfig({
   define: { __KLICK_BUILD__: JSON.stringify(BUILD) },
+  // Os pedaços do login ganham o prefixo "auth-" pelos módulos que têm (scripts/pwa-chunks.mjs): o pré-cache os deixa de fora (globIgnores).
+  build: { rolldownOptions: { output: { chunkFileNames: chunkFileName } } },
   plugins: [
     svelte(),
     VitePWA({
@@ -32,6 +35,8 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,woff2,svg,png,webmanifest}'],
+        // O login (o Better Auth e a passkey) carrega só quando alguém abre o fluxo de entrar: quem nunca entra não o baixa a cada versão.
+        globIgnores: [AUTH_CHUNKS],
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         cleanupOutdatedCaches: true,
         navigateFallback: 'index.html',
