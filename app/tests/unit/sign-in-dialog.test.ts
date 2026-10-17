@@ -200,6 +200,60 @@ describe('diálogo de entrar (spec 7.2 e 9.2)', () => {
     }
   });
 
+  describe('colar e selecionar o código', () => {
+    async function codeField(): Promise<HTMLInputElement> {
+      await openDialog();
+      await fireEvent.input(screen.getByRole('textbox', { name: 'E-mail' }), { target: { value: 'ranielli@exemplo.com' } });
+      await fireEvent.click(screen.getByRole('button', { name: 'Enviar código' }));
+      return (await screen.findByRole('textbox', { name: 'Código' })) as HTMLInputElement;
+    }
+    const paste = (field: HTMLElement, text: string) => fireEvent.paste(field, { clipboardData: { getData: () => text } });
+    const pieces = () => [...document.querySelectorAll('[data-code-piece]')].map((p) => p.textContent).join('');
+
+    it('um código inteiro colado por cima de um código errado o troca (selecionar tudo e colar)', async () => {
+      const field = await codeField();
+      await fireEvent.input(field, { target: { value: '482913' } });
+      field.setSelectionRange(0, 6); // Ctrl+A
+      await fireEvent.select(field);
+      expect([field.selectionStart, field.selectionEnd]).toEqual([0, 6]); // a seleção toda não é recolhida
+      await paste(field, '777111');
+      expect(field.value).toBe('777111');
+      expect(pieces()).toBe('777111');
+    });
+
+    it('um código inteiro colado por cima de um código pela metade troca tudo, sem misturar', async () => {
+      const field = await codeField();
+      await fireEvent.input(field, { target: { value: '48' } });
+      await paste(field, 'Seu código: 123 456');
+      expect(field.value).toBe('123456');
+      expect(pieces()).toBe('123456');
+    });
+
+    it('colar o código certo depois de "Código errado" tira o aviso e troca o código', async () => {
+      await openDialog();
+      await typeEmailAndCode('999999');
+      expect(await screen.findByRole('alert')).toHaveTextContent('Código errado');
+      const field = screen.getByRole('textbox', { name: 'Código' }) as HTMLInputElement;
+      await paste(field, '123456');
+      expect(field.value).toBe('123456');
+      expect(screen.queryByRole('alert')).toBeNull();
+    });
+
+    it('com menos de 6 dígitos, o colar segue o comportamento do navegador (nada é impedido)', async () => {
+      const field = await codeField();
+      const notPrevented = await paste(field, '12 3');
+      expect(notPrevented).toBe(true); // fireEvent devolve false só se alguém chamou preventDefault
+    });
+
+    it('seleção parcial continua indo para o fim', async () => {
+      const field = await codeField();
+      await fireEvent.input(field, { target: { value: '482913' } });
+      field.setSelectionRange(1, 6);
+      await fireEvent.select(field);
+      expect([field.selectionStart, field.selectionEnd]).toEqual([6, 6]);
+    });
+  });
+
   it('o código vencido: o aviso fica mesmo digitando (é preciso pedir outro), e as peças não ficam vermelhas', async () => {
     const { app } = await openDialog();
     vi.spyOn(app.account!, 'verifyCode').mockResolvedValue({ ok: false, reason: 'expired' });

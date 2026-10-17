@@ -47,7 +47,7 @@ Hoje: `worker/mail.ts`, `codeEmail(code)` → `{ subject, text, html }`, enviado
 
 **Regras do e-mail**
 - O assunto continua `Seu código do Klick: <código>` e a parte em texto puro continua igual: os dois são o que o iPhone e os clientes usam para sugerir o código.
-- HTML de e-mail de verdade: layout em tabelas e estilos inline (Outlook), sem fonte da web (pilha do sistema), sem imagem (o cubo e as peças são células de tabela coloridas), sem script, sem link externo além do domínio do app.
+- HTML de e-mail de verdade: layout em tabelas e estilos inline (Outlook), sem fonte da web (pilha do sistema), sem imagem (o cubo e as peças são células de tabela coloridas), sem script, sem nenhum link (nem para o domínio do app; ver §11, item 12).
 - Um texto de pré-visualização escondido: "Vale por 10 minutos."
 - Legível no modo escuro dos clientes que invertem cores (peças escuras com dígito claro já resistem; conferir no Gmail e no Apple Mail do iPhone no beta).
 - Largura máxima ~480 px; no celular, as seis peças cabem numa linha.
@@ -67,7 +67,7 @@ Um componente só, o **cubo vivo**: a grade 3×3 do logo, desenhada pelo app, co
 | erro | peças paradas, o centro vermelho em destaque | erro, falta de rede, cancelado |
 
 **No diálogo de entrar** (`src/ui/dialogs/SignInDialog.svelte`):
-- Passo do e-mail → "Enviar código": ao receber `'sent'`, o passo do código abre com o cubo em "onda" e "Mandamos para <e-mail>".
+- Passo do e-mail → "Enviar código": ao receber `'sent'`, o passo do código abre com o cubo em "onda" e o texto que já existe (`T.conta.codeIntro`, que diz para onde o código foi; ver §11, item 10).
 - Passo do código: o campo vira **seis peças** iguais às do e-mail. Por baixo continua **um único campo de texto real** (o mesmo `input` com `inputmode="numeric"` e `autocomplete="one-time-code"`, que aceita colar), e as peças só mostram os dígitos digitados. Enquanto confere: cubo "girando".
   - Código certo: as peças viram verdes uma a uma, como uma camada do cubo virando (~300 ms no total), e o fluxo segue.
   - Código errado: o campo treme de leve e as peças ficam vermelhas por ~600 ms; a mensagem de erro de hoje continua aparecendo.
@@ -101,7 +101,7 @@ Hoje: `src/ui/ajustes/AccountSection.svelte`, o botão e a linha `syncLine`.
 - **Leitor de tela:** nada novo é anunciado. O cubo e as peças são decorativos (`aria-hidden`); o campo do código continua um campo com rótulo; os anúncios continuam só quando o sync falha ou volta (spec 9.6).
 - **Sem conta, nada muda:** o cubo vivo só existe nas telas da conta; nada novo entra no caminho do timer; sem biblioteca de animação nova (CSS e o que o Svelte já tem).
 - **Tema escuro:** tudo pelos tokens; conferir os dois temas.
-- **Textos:** os que já existem ficam; os novos seguem o tom do app e vão para `T.conta`: "Mandamos para {e-mail}", "Sincronizado agora", "Código: {código}" (no e-mail), "Klick · timer de cubo mágico" (no e-mail).
+- **Textos:** os que já existem ficam; os novos seguem o tom do app: "Conferindo o código…" (em `T.conta`; ver §11, item 11), "Código: {código}" (no e-mail) e "Klick · timer de cubo mágico" (no e-mail). O app reusa `T.conta.codeIntro` e o "Sincronizado agora" da `syncLine` (§11, item 10).
 
 ## 9. O que muda na spec da conta (2026-10-15)
 

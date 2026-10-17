@@ -119,11 +119,24 @@
   }
 
   // As peças não levam o toque a uma posição: o cursor fica sempre no fim, e o Backspace sempre tira o último dígito. Só mexe quando está
-  // fora do fim (mover a seleção dispara "select" de novo, e isso não pode virar um laço).
+  // fora do fim (mover a seleção dispara "select" de novo, e isso não pode virar um laço). A seleção do valor todo (Ctrl+A) fica como está:
+  // é como a pessoa troca o código errado, digitando ou colando por cima.
   function caretToEnd(e: Event): void {
     const input = e.currentTarget as HTMLInputElement;
     const end = input.value.length;
+    if (end > 0 && input.selectionStart === 0 && input.selectionEnd === end) return;
     if (input.selectionStart !== end || input.selectionEnd !== end) input.setSelectionRange(end, end);
+  }
+
+  // Um código inteiro colado (6 dígitos ou mais, com texto em volta ou não) vira o código, por cima do que havia: o colar do navegador
+  // entraria no fim e o corte de 6 dígitos jogaria fora o que veio. Menos de 6 dígitos seguem o colar de sempre, que o oninput limpa.
+  function onPaste(e: ClipboardEvent): void {
+    const digits = (e.clipboardData?.getData('text') ?? '').replace(/\D/g, '');
+    if (digits.length < 6) return;
+    e.preventDefault();
+    code = digits.slice(0, 6);
+    (e.currentTarget as HTMLInputElement).value = code;
+    if (error === T.conta.badCode) error = null;
   }
 
   async function verify(e: SubmitEvent): Promise<void> {
@@ -317,7 +330,7 @@
                     style:--i={i}>{code[i] ?? ''}</span>
                 {/each}
               </span>
-              <input type="text" inputmode="numeric" autocomplete="one-time-code" value={code} oninput={onCode} onfocus={caretToEnd} onclick={caretToEnd} onselect={caretToEnd} data-code />
+              <input type="text" inputmode="numeric" autocomplete="one-time-code" value={code} oninput={onCode} onpaste={onPaste} onfocus={caretToEnd} onclick={caretToEnd} onselect={caretToEnd} data-code />
             </span>
           </label>
           <div class="row">

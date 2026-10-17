@@ -565,6 +565,7 @@
 .signin-status > p {
   min-width: 0;
   overflow-wrap: anywhere;
+  word-break: break-word; /* o Safari anterior ao 15.4 não conhece `anywhere` */
 }
 
 /* "Conferindo o código…" debaixo do texto do passo do código: a linha tem o lugar guardado, vazia fora da conferência. */
