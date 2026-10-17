@@ -129,6 +129,13 @@ Tomadas depois da leitura de um revisor; nenhuma muda o que foi escolhido nas ma
 8. **E-mail no modo escuro:** o e-mail é declarado só claro (`color-scheme: light`), para ter a mesma cara em todo lugar; as peças escuras com dígito claro continuam legíveis se um cliente inverter as cores. Confere-se no Gmail e no Apple Mail no beta.
 9. **"Sincronizado agora" verde:** só depois de um toque da pessoa em "Sincronizar agora" que terminou bem; os syncs automáticos com Ajustes aberto não piscam.
 
+Decididas pelo controlador durante a execução:
+
+10. **Textos que já existiam:** o app reusa `T.conta.codeIntro` no passo do código (não há texto novo "Mandamos para <e-mail>") e o "Sincronizado agora" da `syncLine` na linha de Ajustes.
+11. **"Conferindo o código…"** foi acrescentado: aparece ao lado do cubo girando enquanto o código é conferido, num lugar guardado (não empurra o campo), sem ser anunciado.
+12. **O e-mail não tem link nenhum:** nem botão, nem "abrir o Klick". O código se digita ou se cola.
+13. **As peças do campo do código são todas na tinta:** sem a quinta peça vermelha e sem o espaço entre grupos; isso é só do e-mail. No campo do app, o vermelho (e o tremor) existe apenas para o código errado.
+
 ## Referência
 
 As maquetes aprovadas estão em `.superpowers/brainstorm/51969-1792243626/content/` (fora do git): `email-direcoes.html` (B), `feedback-movimento.html` (A, e o campo do código), `nuvem-v2.html` (C), `indicador.html` (o botão).

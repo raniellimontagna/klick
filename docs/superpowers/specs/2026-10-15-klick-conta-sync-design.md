@@ -393,7 +393,7 @@ Usa a folha (`dialog.sheet`) dos outros diálogos, com quatro passos:
 
 O link para a política de privacidade fica no primeiro passo.
 
-O passo do código, o da passkey e o do primeiro sync mostram o cubo vivo (o 3×3 do logo): onda quando o código acaba de sair, girando enquanto confere (com "Conferindo o código…"), parado na passkey, enchendo na contagem do primeiro sync e um pulinho ao concluir. O código vai em seis peças sobre um único campo real; "Conferindo o código…" aparece enquanto confere, e só o código errado fica vermelho e treme. O "Sincronizar agora" de Ajustes leva o cubinho no botão e deixa a linha de situação verde por ~1,2 s, só depois de um sync pedido pelo toque que terminou bem. Detalhe em `2026-10-17-klick-conta-visual-design.md` (seções 5 e 7).
+O passo do código, o da passkey e o do primeiro sync mostram o cubo vivo (o 3×3 do logo): onda quando o código acaba de sair, girando enquanto confere (com "Conferindo o código…"), parado na passkey, enchendo na contagem do primeiro sync (só na fase de enviar; ao baixar a conta, girando), um pulinho ao concluir e, se o primeiro sync for cancelado, ficar sem rede ou falhar, parado com o centro vermelho (erro). O código vai em seis peças sobre um único campo real, e só o código errado fica vermelho e treme. O "Sincronizar agora" de Ajustes leva o cubinho no botão e deixa a linha de situação verde por ~1,2 s, só depois de um sync pedido pelo toque que terminou bem. Detalhe em `2026-10-17-klick-conta-visual-design.md` (seções 5 e 7).
 
 Fechar o diálogo no passo da passkey é o mesmo que "Agora não": a entrada continua, também depois de escolher "apagar os dados deste aparelho" (seção 7.6). Se não dá para continuar (mudanças esperando, uma falha do banco), a entrada é desfeita.
 
