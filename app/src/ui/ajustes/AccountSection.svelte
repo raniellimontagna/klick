@@ -3,7 +3,7 @@
   // ligada no ambiente (ou, sem resposta do servidor, com este aparelho já numa conta). No desktop, é a primeira seção da coluna da direita;
   // no celular, a primeira da lista (screens.css). Os diálogos de sair, das cópias na nuvem e de apagar a conta ficam montados aqui; o de
   // entrar é da casca (o lembrete do Timer também o abre), e este botão só pede a abertura (app.dialog = 'signin').
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import { T } from '../../strings';
   import CloudCopiesDialog from '../dialogs/CloudCopiesDialog.svelte';
   import DeleteAccountDialog from '../dialogs/DeleteAccountDialog.svelte';
@@ -18,6 +18,7 @@
   let now = $state(Date.now()); // o "há 2 min" anda sozinho
   let confirmAll = $state(false); // "Sair de todos os aparelhos" espera o segundo clique
   let busy = $state(false);
+  let sectionEl = $state<HTMLElement>();
 
   // Os diálogos que esta seção abre.
   const ACCOUNT_DIALOGS: readonly DialogId[] = ['signout', 'cloud', 'deleteAccount'];
@@ -34,6 +35,26 @@
 
   $effect(() => {
     if (account?.signedIn && account.passkeys === null) void account.loadPasskeys();
+  });
+
+  // A seção troca de conteúdo ao entrar, sair ou apagar a conta, e o botão que tinha o foco (ou que abriu o diálogo) some com ela. Depois
+  // da troca, com nenhum diálogo aberto, o foco que caiu no <body> vai para o primeiro controle da seção (spec 9.6): "Entrar ou criar
+  // conta", ao sair. Um foco que está em outro lugar fica onde está.
+  let shownSignedIn: boolean | undefined;
+  let refocus = $state(false);
+  $effect(() => {
+    const signedIn = account?.signedIn;
+    if (shownSignedIn !== undefined && signedIn !== shownSignedIn) refocus = true;
+    shownSignedIn = signedIn;
+  });
+  $effect(() => {
+    if (!refocus || app.dialog !== null) return;
+    refocus = false;
+    void tick().then(() => {
+      const active = document.activeElement;
+      if (active !== null && active !== document.body && active.isConnected) return;
+      sectionEl?.querySelector<HTMLElement>('button:not(:disabled)')?.focus();
+    });
   });
 
   async function addPasskey(): Promise<void> {
@@ -79,7 +100,7 @@
 {/snippet}
 
 {#if account?.available}
-  <fieldset class="account" data-slot="conta">
+  <fieldset class="account" data-slot="conta" bind:this={sectionEl}>
     <legend>{T.conta.title}</legend>
     {#if !account.signedIn}
       <div class="setting">

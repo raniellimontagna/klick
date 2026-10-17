@@ -59,6 +59,34 @@ describe('Ajustes: "Conta e sync" (spec 9.1)', () => {
     expect((await repo.getSyncState()).accountId).toBe('conta-1'); // fica, para a spec 7.6
   });
 
+  // Spec 9.6: o botão que abriu o diálogo some quando a seção troca para sem conta. O foco não pode cair no <body>: vai para "Entrar ou criar
+  // conta", o primeiro controle da seção.
+  it('depois de sair, o foco fica em "Entrar ou criar conta", não no <body> (spec 9.6)', async () => {
+    const { auth } = fakeAuth();
+    const { app } = await appWithAccount(fakeApi(new FakeServer()).api, { signedIn: true, auth });
+    await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
+    render(AjustesScreen, { app });
+    const opener = await screen.findByRole('button', { name: /^Sair$/ });
+    opener.focus();
+    await fireEvent.click(opener);
+    await fireEvent.click(screen.getAllByRole('button', { name: /^Sair$/ }).at(-1)!);
+    await vi.waitFor(() => expect(app.account!.signedIn).toBe(false));
+    await vi.waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Entrar ou criar conta' })));
+  });
+
+  it('depois de apagar a conta, o foco fica em "Entrar ou criar conta", não no <body> (spec 9.6)', async () => {
+    const { app } = await appWithAccount(fakeApi(new FakeServer()).api, { signedIn: true });
+    await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
+    render(AjustesScreen, { app });
+    const opener = await screen.findByRole('button', { name: 'Apagar minha conta' });
+    opener.focus();
+    await fireEvent.click(opener);
+    await fireEvent.input(await screen.findByLabelText('Para confirmar, digite ranielli@exemplo.com'), { target: { value: 'ranielli@exemplo.com' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Apagar para sempre' }));
+    await vi.waitFor(() => expect(app.account!.signedIn).toBe(false));
+    await vi.waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Entrar ou criar conta' })));
+  });
+
   it('sair de todos os aparelhos pede o segundo clique', async () => {
     const { auth, calls } = fakeAuth();
     const { app } = await appWithAccount(fakeApi(new FakeServer()).api, { signedIn: true, auth });

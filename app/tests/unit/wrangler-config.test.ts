@@ -24,7 +24,8 @@ const config = JSON.parse(text.split('\n').filter((l) => !l.trim().startsWith('/
 const SECRETS = ['BETTER_AUTH_SECRET', 'TURNSTILE_SECRET', 'RESEND_API_KEY', 'E2E_MAILBOX'];
 
 describe('wrangler.jsonc', () => {
-  it('a conta fica desligada na raiz', () => {
+  it('a conta ligada no beta e desligada na raiz até o ok do Ranielli (spec 8.4 e 12)', () => {
+    expect(config.vars.ACCOUNTS_ENABLED).toBe('true');
     expect(config.env.production.vars.ACCOUNTS_ENABLED).toBe('false');
   });
 

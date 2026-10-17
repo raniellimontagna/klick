@@ -26,8 +26,9 @@
     { "name": "OTP_BURST", "namespace_id": "1102", "simple": { "limit": 5, "period": 60 } }
   ],
   "vars": {
-    "ACCOUNTS_ENABLED": "false",
+    "ACCOUNTS_ENABLED": "true",
     "APP_ORIGIN": "https://beta.klick.ranimontagna.com",
+    // A chave de teste do Turnstile: a site key de verdade (Portão C) entra no lugar dela antes do deploy do beta.
     "TURNSTILE_SITE_KEY": "1x00000000000000000000BB",
     "MAIL_FROM": "Klick <nao-responda@klick.ranimontagna.com>"
   },

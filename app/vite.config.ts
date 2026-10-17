@@ -31,8 +31,9 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         cleanupOutdatedCaches: true,
         navigateFallback: 'index.html',
-        // O Worker responde na mesma origem (spec 8.1): uma navegação para /api/ (o link de um e-mail) vai a ele, não ao index.html.
-        navigateFallbackDenylist: [/^\/api\//],
+        // O Worker responde na mesma origem (spec 8.1): uma navegação para /api/ (o link de um e-mail) vai a ele, não ao index.html. A política
+        // de privacidade é uma página própria (public/privacidade): o service worker não troca nenhuma das duas pelo app.
+        navigateFallbackDenylist: [/^\/privacidade/, /^\/api\//],
         // Parâmetros que não mudam o arquivo: a nova tentativa de carregar o cubing.js (cubing.js?r=N) acha o pré-cache offline.
         ignoreURLParametersMatching: [/^r$/, /^utm_/, /^fbclid$/],
       },

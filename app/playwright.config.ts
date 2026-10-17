@@ -10,7 +10,13 @@ export default defineConfig({
   testDir: 'tests/e2e',
   timeout: 60_000,
   use: { baseURL: ORIGIN, trace: 'retain-on-failure' },
-  webServer: { command: `pnpm build && pnpm preview --port ${PORT} --strictPort --host 127.0.0.1`, url: ORIGIN, reuseExistingServer: false, timeout: 180_000 },
+  // Sem a conferência das dependências do pnpm: as builds do workerd (ignoradas de propósito) a fariam parar antes do build.
+  webServer: {
+    command: `pnpm --config.verify-deps-before-run=false build && pnpm --config.verify-deps-before-run=false preview --port ${PORT} --strictPort --host 127.0.0.1`,
+    url: ORIGIN,
+    reuseExistingServer: false,
+    timeout: 180_000,
+  },
   projects: [
     { name: 'desktop', use: { ...devices['Desktop Chrome'] } },
     { name: 'mobile', use: { ...devices['Pixel 7'] }, testMatch: /(timer|sessions|trilha)\.spec\.ts/ },

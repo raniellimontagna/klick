@@ -14,10 +14,24 @@ pnpm dev
 ## Testar
 
 ```bash
-pnpm test        # unitários (Vitest)
-pnpm test:e2e    # ponta a ponta (Playwright; rode `pnpm exec playwright install chromium` uma vez)
-pnpm check       # svelte-check e tsc
+pnpm test           # unitários (Vitest)
+pnpm test:worker    # o servidor: Worker, Durable Object, D1 e R2 dentro do workerd (@cloudflare/vitest-plugin)
+pnpm test:e2e       # ponta a ponta (Playwright; rode `pnpm exec playwright install chromium` uma vez)
+pnpm test:e2e:sync  # a conta e o sync ponta a ponta, com o Worker local (wrangler dev); nada sai da máquina
+pnpm check          # svelte-check e tsc (app, Worker e testes do Worker)
 ```
+
+O `test:e2e:sync` faz o build, sobe o `wrangler dev` em `http://localhost:4339` com um estado novo em `.wrangler/e2e` (apagado no
+começo de cada rodada), as tabelas do D1 aplicadas, a caixa local do código (`E2E_MAILBOX`), as chaves de teste do Turnstile e um
+`BETTER_AUTH_SECRET` sorteado a cada rodada. Cada "aparelho" é um contexto novo do navegador.
+
+- **Os limites são os de verdade:** 5 pedidos de código por minuto e 20 por hora do mesmo IP, e todos os aparelhos do teste saem do
+  mesmo IP. Cada teste usa e-mails próprios, e o helper espera a janela de um minuto antes de passar de 5 pedidos.
+- **Rodada interrompida:** se o `wrangler dev` ficar preso na porta 4339, encerre-o (`lsof -ti tcp:4339 | xargs kill`) e apague o
+  estado com `rm -rf .wrangler/e2e`; a rodada seguinte começa do zero.
+- **O Turnstile de verdade fica de fora:** o teste troca o script da Cloudflare por um falso que devolve o token de teste. O widget
+  real (o script de `challenges.cloudflare.com`, o `remove()` dentro do callback e o `error-callback` de uma falha passageira) só se
+  confere no beta, com a site key de verdade.
 
 O caminho do `timeStamp` do evento (a hora do toque ou da tecla pelo navegador) é coberto só pelos testes unitários: o e2e usa o relógio de reserva, porque o relógio falso do Playwright recusa o `timeStamp` real.
 
@@ -43,9 +57,21 @@ Depois a raiz (klick.ranimontagna.com, worker `klick-app`):
 npx wrangler deploy --env production
 ```
 
-A configuração está em `wrangler.jsonc` (Cloudflare Workers com arquivos estáticos). A raiz e o beta são domínios próprios dos
-Workers `klick-app` e `klick-app-beta`: o Cloudflare cria e mantém o registro DNS de cada um. A v1 não está mais no ar (o projeto
-da Vercel foi apagado em 12/10); o código dela continua na `main` (tag `v1.4.0`).
+A configuração está em `wrangler.jsonc`: um Worker com os arquivos do app e o servidor da conta e do sync (`worker/`), que só roda
+em `/api/*`. A raiz e o beta são domínios próprios dos Workers `klick-app` e `klick-app-beta`: o Cloudflare cria e mantém o registro
+DNS de cada um. A v1 não está mais no ar (o projeto da Vercel foi apagado em 12/10); o código dela continua na `main` (tag `v1.4.0`).
+
+### A conta e o sync
+
+- **Liga e desliga:** `ACCOUNTS_ENABLED` em `wrangler.jsonc`. Ligada no beta; desligada na raiz até o ok do Ranielli. Desligada, o
+  `/api` (menos `/api/health`) responde 404 e o app não mostra nada de conta.
+- **Cada ambiente tem os próprios dados:** D1 (`klick-auth-beta` e `klick-auth`, o login), Durable Objects (uma conta por objeto) e
+  R2 (`klick-snapshots-beta` e `klick-snapshots`, as cópias diárias, apagadas depois de 30 dias por uma regra do bucket).
+- **Segredos:** o repositório é público. `BETTER_AUTH_SECRET`, `TURNSTILE_SECRET` e `RESEND_API_KEY` entram só por
+  `npx wrangler secret put NOME` (e `--env production`), nunca num arquivo.
+- **Tabelas do login:** uma migração nova em `worker/migrations/` vai para cada banco com
+  `npx wrangler d1 migrations apply DB --remote` (e `--env production`) antes do deploy.
+- **Política de privacidade:** `public/privacidade/index.html`, servida em `/privacidade`.
 
 ## Por que o cubing.js é empacotado à parte
 

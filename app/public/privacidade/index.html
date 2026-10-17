@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <title>Política de privacidade · Klick</title>
+    <style>
+      /* As cores do app (src/styles/tokens.css), claro e escuro. Página estática: sem o código do app. */
+      :root {
+        color-scheme: light dark;
+        --bg: #f3f0e9;
+        --surface: #fbfaf7;
+        --line: #e2dcd0;
+        --ink: #17171a;
+        --muted: #6f6a60;
+        --link: #3e63dd;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #121110;
+          --surface: #1a1917;
+          --line: #2a2724;
+          --ink: #f3f1ec;
+          --muted: #8e8a82;
+          --link: #8aa4f5;
+        }
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font: 16px/1.6 'Geist Sans', system-ui, -apple-system, sans-serif;
+      }
+      main {
+        max-width: 680px;
+        margin: 0 auto;
+        padding: 32px 20px 64px;
+      }
+      h1 {
+        font-size: 28px;
+        margin: 0 0 4px;
+      }
+      h2 {
+        font-size: 18px;
+        margin: 28px 0 6px;
+      }
+      p,
+      li {
+        color: var(--ink);
+      }
+      .muted {
+        color: var(--muted);
+      }
+      a {
+        color: var(--link);
+      }
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 16px 18px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Política de privacidade</h1>
+      <p class="muted">Klick, timer de cubo mágico · versão de 15 de outubro de 2026</p>
+
+      <p>
+        O Klick funciona inteiro sem conta: seus solves ficam no seu aparelho. Esta política vale para quem cria uma conta para ter sync entre
+        aparelhos e cópias na nuvem.
+      </p>
+
+      <div class="card">
+        <p><strong>Quem cuida dos seus dados</strong> (controlador): Ranielli Montagna Desenvolvimento de Software Ltda (RM Software), CNPJ 67.919.685/0001-45.</p>
+        <p>Contato para qualquer pedido sobre seus dados: <a href="mailto:contato@ranimontagna.com">contato@ranimontagna.com</a>.</p>
+      </div>
+
+      <h2>O que guardamos</h2>
+      <ul>
+        <li>Seu e-mail, para entrar na conta. Enquanto um código para entrar vale (10 minutos), o e-mail também fica no registro desse código.</li>
+        <li>Seus solves, sessões e o treino de algoritmos.</li>
+        <li>Os ajustes da conta: a trilha, as temporadas, o acabamento do Centro, a inspeção e a meta diária.</li>
+        <li>Se você criar uma passkey, a chave pública dela (nunca a sua biometria).</li>
+        <li>
+          De cada navegador em que você entra, a identificação do navegador que ele mesmo envia (o nome e a versão do navegador e do sistema),
+          guardada com a sessão dele. O endereço IP não fica guardado na sessão.
+        </li>
+      </ul>
+      <p>
+        Para barrar abusos, cada pedido de código fica registrado por uma hora, só com o e-mail e o IP embaralhados por uma chave secreta, de um
+        jeito que não dá para ler de volta. Passada uma hora, o pedido deixa de contar e é apagado na limpeza seguinte, que roda a cada novo pedido
+        de código e uma vez por dia.
+      </p>
+      <p>Ajustes do aparelho, como tema e sons, não saem dele.</p>
+
+      <h2>Para quê</h2>
+      <p>Para sincronizar seus dados entre os seus aparelhos e guardar uma cópia na nuvem. A base legal é a execução do serviço que você pede ao criar a conta. Não usamos seus dados para publicidade e não os vendemos.</p>
+
+      <h2>Onde</h2>
+      <p>Na Cloudflare, com servidores nos Estados Unidos.</p>
+
+      <h2>Por quanto tempo</h2>
+      <p>Até você apagar a conta. As cópias diárias ficam 30 dias e depois somem sozinhas; ao apagar a conta, elas somem na hora.</p>
+      <p>
+        A Cloudflare guarda um histórico de 30 dias dos bancos de dados (o do login e o dos seus dados), que permite voltá-los a um momento
+        anterior. Por isso, depois de "Apagar minha conta", restos da conta podem ficar nesse histórico por até 30 dias, até sumirem sozinhos.
+      </p>
+
+      <h2>Quem recebe</h2>
+      <ul>
+        <li>Cloudflare, que hospeda o app, o servidor e o banco de dados, e confere que quem pede o código é uma pessoa (Turnstile).</li>
+        <li>Resend, que envia o e-mail com o código para entrar.</li>
+      </ul>
+      <p>Ninguém mais. Nada da conta é público.</p>
+
+      <h2>Seus direitos</h2>
+      <ul>
+        <li><strong>Acesso e portabilidade:</strong> em Ajustes, "Exportar" baixa tudo num arquivo.</li>
+        <li><strong>Correção:</strong> edite pelo próprio app.</li>
+        <li><strong>Exclusão:</strong> em Ajustes, "Apagar minha conta" apaga na hora a conta, os dados na nuvem e as cópias.</li>
+        <li><strong>Informação:</strong> esta página.</li>
+      </ul>
+      <p>Para qualquer outro pedido, escreva para <a href="mailto:contato@ranimontagna.com">contato@ranimontagna.com</a>.</p>
+
+      <p class="muted"><a href="/">Voltar ao Klick</a></p>
+    </main>
+  </body>
+</html>
