@@ -560,6 +560,13 @@
   margin: 12px 0;
 }
 
+/* O texto ao lado do cubo (que não encolhe) pode encolher e quebrar um e-mail sem pontos de quebra, em vez de empurrar a folha para o lado. */
+.signin-status > div,
+.signin-status > p {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 /* "Conferindo o código…" debaixo do texto do passo do código: a linha tem o lugar guardado, vazia fora da conferência. */
 .signin-checking {
   min-height: 1.5em;
