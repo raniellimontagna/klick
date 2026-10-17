@@ -22,8 +22,8 @@ async function openDialog(o: Parameters<typeof appWithAccount>[1] = {}, server =
   const { app, repo } = await appWithAccount(fakeApi(server).api, o);
   await vi.waitFor(() => expect(app.account!.siteKey).not.toBeNull());
   app.dialog = 'signin';
-  render(SignInDialog, { app, open: true });
-  return { app, repo, server };
+  const { rerender } = render(SignInDialog, { app, open: true });
+  return { app, repo, server, rerender };
 }
 
 async function typeEmailAndCode(code = '123 456'): Promise<void> {
@@ -133,6 +133,80 @@ describe('diálogo de entrar (spec 7.2 e 9.2)', () => {
       vi.useRealTimers();
       delete document.documentElement.dataset.reducedMotion;
     }
+  });
+
+  it('enquanto confere, "Conferindo o código…" ao lado do cubo; a linha some quando a conferência volta', async () => {
+    const { app } = await openDialog();
+    const account = app.account!;
+    const real = account.verifyCode.bind(account);
+    let gate = deferred();
+    vi.spyOn(account, 'verifyCode').mockImplementation(async (email, code) => {
+      await gate.promise;
+      return real(email, code);
+    });
+    await typeEmailAndCode('999999');
+    const line = await screen.findByText('Conferindo o código…');
+    expect(line.closest('.signin-status')!.querySelector('[data-cube]')).toHaveAttribute('data-cube', 'turn');
+    expect(line.closest('[aria-live], [role="alert"], [role="status"]')).toBeNull(); // não é anunciada
+    gate.resolve();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Código errado');
+    expect(screen.queryByText('Conferindo o código…')).toBeNull();
+    gate = deferred();
+    await fireEvent.input(screen.getByRole('textbox', { name: 'Código' }), { target: { value: '123456' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Entrar' }));
+    expect(await screen.findByText('Conferindo o código…')).toBeInTheDocument();
+    gate.resolve();
+    await vi.waitFor(() => expect(document.querySelector('[data-code-pieces]')).toHaveAttribute('data-code-state', 'ok'));
+    expect(screen.queryByText('Conferindo o código…')).toBeNull();
+  });
+
+  it('o código que falhou por outro motivo (a rede) mostra o aviso de hoje, sem as peças vermelhas', async () => {
+    const { app } = await openDialog();
+    vi.spyOn(app.account!, 'verifyCode').mockResolvedValue({ ok: false, reason: 'failed' });
+    await typeEmailAndCode();
+    expect(await screen.findByRole('alert')).toHaveTextContent(T.conta.verifyFailed);
+    expect(document.querySelector('[data-code-pieces]')).toHaveAttribute('data-code-state', 'typing');
+  });
+
+  it('o código vencido: o aviso fica mesmo digitando (é preciso pedir outro), e as peças não ficam vermelhas', async () => {
+    const { app } = await openDialog();
+    vi.spyOn(app.account!, 'verifyCode').mockResolvedValue({ ok: false, reason: 'expired' });
+    await typeEmailAndCode();
+    expect(await screen.findByRole('alert')).toHaveTextContent(T.conta.expiredCode);
+    await fireEvent.input(screen.getByRole('textbox', { name: 'Código' }), { target: { value: '1' } });
+    expect(screen.getByRole('alert')).toHaveTextContent(T.conta.expiredCode);
+    expect(document.querySelector('[data-code-pieces]')).toHaveAttribute('data-code-state', 'typing');
+  });
+
+  it('fechar durante a cascata do código certo, com dados de outra conta: sai da sessão nova e nada avança', async () => {
+    const { auth, calls } = fakeAuth({ id: 'conta-2', email: 'outra@exemplo.com' });
+    const { app, repo } = await openDialog({ auth });
+    await repo.saveSyncState({ accountId: 'conta-1', signedIn: false });
+    await typeEmailAndCode();
+    await vi.waitFor(() => expect(document.querySelector('[data-code-pieces]')).toHaveAttribute('data-code-state', 'ok'));
+    (document.querySelector('dialog.signin') as HTMLDialogElement).close();
+    expect(app.dialog).toBeNull();
+    await vi.waitFor(() => expect(calls).toContain('sign-out'));
+    await sleep(400); // depois da cascata
+    expect(document.querySelector('[data-signin-step]')).toHaveAttribute('data-signin-step', 'email');
+    expect(screen.queryByRole('heading', { name: 'Este aparelho tem dados de outra conta' })).toBeNull();
+    expect(await repo.getSyncState()).toMatchObject({ accountId: 'conta-1', signedIn: false }); // nada muda aqui, como cancelar a pergunta
+  });
+
+  it('fechar e reabrir durante a cascata: o diálogo recomeça no passo 1 e fica nele', async () => {
+    const { app, rerender } = await openDialog();
+    await typeEmailAndCode();
+    await vi.waitFor(() => expect(document.querySelector('[data-code-pieces]')).toHaveAttribute('data-code-state', 'ok'));
+    (document.querySelector('dialog.signin') as HTMLDialogElement).close();
+    await rerender({ open: false });
+    app.dialog = 'signin';
+    await rerender({ open: true });
+    expect(document.querySelector('[data-signin-step]')).toHaveAttribute('data-signin-step', 'email');
+    await sleep(400); // depois da cascata
+    expect(document.querySelector('[data-signin-step]')).toHaveAttribute('data-signin-step', 'email');
+    expect(screen.getByRole('textbox', { name: 'E-mail' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Enviar código' })).toBeEnabled();
+    expect(app.account!.signedIn).toBe(false);
   });
 
   it('o primeiro sync: o cubo enche, e "Pronto" o resolve', async () => {

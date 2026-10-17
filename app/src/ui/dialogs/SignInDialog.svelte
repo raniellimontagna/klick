@@ -43,9 +43,10 @@
   const webauthn = typeof PublicKeyCredential !== 'undefined';
 
   const progress = $derived(requested ? (account?.signInSync ?? null) : null);
-  // As peças do código: verdes no certo; vermelhas (e o tremor) enquanto o erro está na tela, menos durante uma nova conferência, para o
-  // tremor tocar de novo se ela também falhar; digitar limpa o erro (decisão 4).
-  const codeState = $derived<'typing' | 'ok' | 'bad'>(codeOk ? 'ok' : error && !busy ? 'bad' : 'typing');
+  // As peças do código: verdes no certo; vermelhas (e o tremor) só no código errado, enquanto o aviso dele está na tela, menos durante uma
+  // nova conferência, para o tremor tocar de novo se ela também falhar; digitar limpa esse aviso (decisão 4). Vencido, tentativas demais e
+  // falha de rede mostram o aviso de hoje, sem o vermelho: não é o código digitado que está errado.
+  const codeState = $derived<'typing' | 'ok' | 'bad'>(codeOk ? 'ok' : error === T.conta.badCode && !busy ? 'bad' : 'typing');
 
   // Só a abertura zera o diálogo: o estado da conta muda no meio do fluxo (e o reset o lê), sem voltar ao passo 1.
   $effect(() => {
@@ -112,17 +113,20 @@
     const input = e.currentTarget as HTMLInputElement;
     code = input.value.replace(/\D/g, '').slice(0, 6);
     input.value = code;
-    error = null; // as peças voltam do vermelho na hora
+    // Só o código errado sai ao digitar (as peças voltam do vermelho na hora); vencido, tentativas demais e a falha ficam até pedir outro
+    // código ou tentar de novo.
+    if (error === T.conta.badCode) error = null;
   }
 
   async function verify(e: SubmitEvent): Promise<void> {
     e.preventDefault();
     if (!account || busy || code.length !== 6) return;
+    const ongoing = account;
     busy = true;
-    codeCube = 'turn';
+    codeCube = 'turn'; // e a linha "Conferindo o código…" ao lado dele
     let result: VerifyOutcome;
     try {
-      result = await account.verifyCode(email, code);
+      result = await ongoing.verifyCode(email, code);
     } catch {
       result = { ok: false, reason: 'failed' }; // o banco falhou ao ler a conta deste aparelho
     }
@@ -130,7 +134,15 @@
     // Os botões seguem desabilitados durante a cascata; com menos movimento, não há cascata nem espera.
     if (result.ok && !motionReduced()) {
       codeOk = true;
+      const mine = round;
       await new Promise((resolve) => setTimeout(resolve, CODE_OK_MS));
+      if (mine !== round) {
+        // Fechado (ou fechado e reaberto) durante a cascata: a vez nova não avança. Com dados de outra conta, desiste, como fechar na
+        // pergunta dela (spec 7.6): o aparelho não fica fora da conta de antes com a sessão nova aberta. No primeiro login e na volta, só
+        // para, como fechar no passo do código.
+        if (result.next === 'other-account') void ongoing.cancelSignIn();
+        return;
+      }
     }
     busy = false;
     if (result.ok) await after(result.next);
@@ -275,7 +287,11 @@
       {:else if step === 'code'}
         <div class="signin-status">
           <LiveCube state={codeCube} />
-          <p>{T.conta.codeIntro(email.trim())}</p>
+          <div>
+            <p>{T.conta.codeIntro(email.trim())}</p>
+            <!-- O lugar da linha fica guardado: aparecer e sumir não empurra o campo. Não é anunciada (spec 9.6). -->
+            <p class="muted signin-checking" data-checking>{codeCube === 'turn' ? T.conta.checkingCode : ''}</p>
+          </div>
         </div>
         <form onsubmit={verify}>
           <label class="field">

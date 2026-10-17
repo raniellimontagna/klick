@@ -663,6 +663,7 @@ export const T = Object.freeze({
     codeIntro: (email: string): string => `Mandamos um código para ${email}. Ele vale por 10 minutos. Se não chegar, olhe o spam.`,
     codeLabel: 'Código',
     enter: 'Entrar',
+    checkingCode: 'Conferindo o código…', // ao lado do cubo, enquanto o código é conferido (o visual da conta, decisão 2)
     resend: 'Mandar outro código',
     badCode: 'Código errado. Confira e tente de novo.',
     expiredCode: 'O código expirou. Peça outro.',

@@ -550,6 +550,11 @@
   margin: 12px 0;
 }
 
+/* "Conferindo o código…" debaixo do texto do passo do código: a linha tem o lugar guardado, vazia fora da conferência. */
+.signin-checking {
+  min-height: 1.5em;
+}
+
 /* O código em seis peças, como as do e-mail. Um campo só, real, transparente e por cima das peças: o toque, o colar, o teclado numérico
    e a sugestão do código do Mail no iPhone são dele; as peças só desenham os dígitos. O foco é o do campo, um contorno em volta das seis,
    e a peça da vez ganha a borda na tinta (o cursor fica escondido: ele não cairia sobre as peças). */
