@@ -18,6 +18,7 @@
   --pb-bg: #f4e7c3;
   --pb-ink: #7a5a06;
   --heat-0: #e9e4da;
+  --cube-off: color-mix(in srgb, var(--muted) 14%, transparent); /* a peça apagada do cubo "enchendo": cinza quente do --muted, translúcido (serve em qualquer fundo) */
   --heat-1: #cfe7d7;
   --heat-2: #94cda9;
   --heat-3: #2f9e5f;
@@ -58,6 +59,7 @@
     --pb-bg: #3a2e14;
     --pb-ink: #f0c46a;
     --heat-0: #22201d;
+    --cube-off: color-mix(in srgb, var(--muted) 30%, transparent);
     --heat-1: #1e4a33;
     --heat-2: #2b7a50;
     --heat-3: #3dd68c;
@@ -86,6 +88,7 @@
   --pb-bg: #3a2e14;
   --pb-ink: #f0c46a;
   --heat-0: #22201d;
+  --cube-off: color-mix(in srgb, var(--muted) 30%, transparent);
   --heat-1: #1e4a33;
   --heat-2: #2b7a50;
   --heat-3: #3dd68c;

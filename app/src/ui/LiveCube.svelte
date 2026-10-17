@@ -81,10 +81,10 @@
     }
   }
 
-  /* enchendo: as peças apagadas ficam na tinta bem clara (translúcida: serve em qualquer fundo; no escuro, a cor da linha quase sumia no
-     fundo do diálogo); as acesas, em verde (cor, não movimento) */
+  /* enchendo: as peças apagadas ficam num cinza quente (--cube-off, do --muted, translúcido: serve em qualquer fundo; no escuro, a cor da
+     linha quase sumia no fundo do diálogo); as acesas, em verde (cor, não movimento) */
   [data-cube='fill'] i {
-    background: color-mix(in srgb, var(--ink) 16%, transparent);
+    background: var(--cube-off);
   }
 
   [data-cube='fill'] i[data-on='true'] {
