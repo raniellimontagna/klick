@@ -361,6 +361,31 @@ describe('diálogo de entrar (spec 7.2 e 9.2)', () => {
     expect(app.account!.signedIn).toBe(true);
   });
 
+  // Decisão 6: um primeiro sync grande sobe em partes; o passo 4 não diz que tudo está na conta.
+  it('primeiro sync com o orçamento do dia cheio: Pronto diz que o resto sobe amanhã', async () => {
+    const server = new FakeServer(500, { budget: 2 });
+    server.now = Date.now();
+    const { app, repo } = await openDialog({}, server);
+    for (let i = 0; i < 3; i++) await app.addSolve({ ms: 9000 + i, penalty: null, at: Date.now() + i });
+    await typeEmailAndCode();
+    await skipPasskey();
+    await vi.waitFor(() => expect(document.querySelector('[data-sync-line]')).toHaveTextContent('Pronto por hoje. O resto sobe amanhã, sozinho.'));
+    expect(document.querySelector('[data-sync-line]')).not.toHaveTextContent(T.conta.done);
+    expect(document.querySelector('[data-signin-step="sync"] [data-cube]')).toHaveAttribute('data-cube', 'solved');
+    expect(await repo.outboxCount()).toBeGreaterThan(0); // o resto espera na fila
+    expect(screen.queryByText(T.conta.quotaFull)).toBeNull();
+  });
+
+  it('primeiro sync com a conta cheia: Pronto, e abaixo o limite da conta', async () => {
+    const server = new FakeServer(500, { limits: { solves: 1, sessions: 10, practice: 10 } });
+    const { app } = await openDialog({}, server);
+    for (let i = 0; i < 3; i++) await app.addSolve({ ms: 9000 + i, penalty: null, at: Date.now() + i });
+    await typeEmailAndCode();
+    await skipPasskey();
+    await vi.waitFor(() => expect(document.querySelector('[data-sync-line]')).toHaveTextContent(T.conta.done));
+    expect(await screen.findByText('A conta chegou ao limite do plano gratuito. Os novos ficam só neste aparelho.')).toBeInTheDocument();
+  });
+
   it('a mesma conta de antes volta sem perguntar nada e sem novo primeiro login', async () => {
     const { app, repo } = await openDialog();
     await repo.saveSyncState({ accountId: 'conta-1', signedIn: false });

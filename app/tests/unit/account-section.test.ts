@@ -125,6 +125,86 @@ describe('Ajustes: "Conta e sync" (spec 9.1)', () => {
   });
 });
 
+// A cota e as cópias pausadas em Ajustes (endurecimento 4.1 e 4.2, decisões 1 e 4).
+describe('Ajustes: o que só está neste aparelho e as cópias pausadas', () => {
+  const activeSolves = (server: FakeServer) => [...server.active().values()].filter((c) => c.store === 'solves');
+
+  it('com registros só neste aparelho, Ajustes mostra quantos e "Enviar de novo" os põe na fila', async () => {
+    const limits = { solves: 1, sessions: 10, practice: 10 };
+    const server = new FakeServer(500, { limits });
+    const { app, repo } = await appWithAccount(fakeApi(server).api, { signedIn: true });
+    await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
+    for (let i = 0; i < 3; i++) await app.addSolve({ ms: 9000 + i, penalty: null, at: Date.now() + i });
+    await app.account!.syncNow();
+    expect(await repo.heldCount()).toBe(2);
+    render(AjustesScreen, { app });
+    const row = (await screen.findByText(T.conta.heldCount(2))).closest('.setting')!;
+    expect(row).toHaveTextContent(T.conta.quotaFull);
+    expect(T.conta.heldCount(2)).toBe('2 registros só neste aparelho');
+    expect(T.conta.heldCount(1)).toBe('1 registro só neste aparelho');
+    expect(T.conta.heldCount(12_000)).toBe('12.000 registros só neste aparelho');
+    // A linha do sync diz o limite, e a dos guardados vem logo abaixo dela.
+    expect(document.querySelector('[data-sync-line]')).toHaveTextContent(T.conta.quotaFull);
+    expect(row.previousElementSibling?.querySelector('[data-sync-line]')).not.toBeNull();
+    // A conta ganhou vaga: "Enviar de novo" põe os dois na fila, e a rodada sai sozinha (como em "Sincronizar agora").
+    limits.solves = 10;
+    await fireEvent.click(screen.getByRole('button', { name: 'Enviar de novo' }));
+    await vi.waitFor(() => expect(app.toast?.text).toBe(T.conta.heldResent));
+    await vi.waitFor(() => expect(activeSolves(server)).toHaveLength(3));
+    expect(await repo.heldCount()).toBe(0);
+    expect(await repo.outboxCount()).toBe(0);
+    await vi.waitFor(() => expect(screen.queryByText(/registros? só neste aparelho/)).toBeNull());
+    expect(screen.queryByRole('button', { name: 'Enviar de novo' })).toBeNull();
+    expect(document.querySelector('[data-sync-line]')).toHaveTextContent('Sincronizado agora');
+  });
+
+  // Cota e orçamento na mesma rodada: o aviso é o do orçamento (o resto da fila só é explicado ali), e a cota aparece pela linha dos guardados.
+  it('cota e orçamento na mesma rodada: a linha do sync diz que o resto sobe amanhã, e os guardados aparecem mesmo assim', async () => {
+    const server = new FakeServer(500, { limits: { solves: 1, sessions: 10, practice: 10 }, budget: 3 });
+    server.now = Date.now();
+    const { app, repo } = await appWithAccount(fakeApi(server).api, { signedIn: true });
+    await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
+    for (let i = 0; i < 4; i++) await app.addSolve({ ms: 9000 + i, penalty: null, at: Date.now() + i });
+    await app.account!.syncNow();
+    expect(app.account!.status.notice).toBe('budget');
+    const held = await repo.heldCount();
+    expect(held).toBeGreaterThan(0);
+    render(AjustesScreen, { app });
+    expect(await screen.findByText(T.conta.heldCount(held))).toBeInTheDocument();
+    expect(document.querySelector('[data-sync-line]')).toHaveTextContent(T.conta.budgetDeferred);
+  });
+
+  it('sem nenhum, a linha não aparece', async () => {
+    const { app } = await appWithAccount(fakeApi(new FakeServer()).api, { signedIn: true });
+    await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
+    await app.addSolve({ ms: 9000, penalty: null, at: Date.now() });
+    await app.account!.syncNow();
+    render(AjustesScreen, { app });
+    await screen.findByText('ranielli@exemplo.com');
+    expect(app.account!.held).toBe(0);
+    expect(screen.queryByText(/registros? só neste aparelho/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Enviar de novo' })).toBeNull();
+  });
+
+  it('com as cópias pausadas, a dica diz por quê', async () => {
+    const server = new FakeServer();
+    const { app } = await appWithAccount(fakeApi(server).api, { signedIn: true });
+    await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
+    render(AjustesScreen, { app });
+    const hint = () => screen.getByText(T.conta.cloud).closest('.setting')!.querySelector('small');
+    await vi.waitFor(() => expect(hint()).toHaveTextContent(T.conta.cloudHint));
+    server.copiesPaused = 'space';
+    await app.account!.syncNow();
+    await vi.waitFor(() => expect(hint()).toHaveTextContent('Cópias na nuvem pausadas: o espaço gratuito encheu.'));
+    server.copiesPaused = 'ops';
+    await app.account!.syncNow();
+    await vi.waitFor(() => expect(hint()).toHaveTextContent('Cópias na nuvem pausadas até o mês que vem: o limite gratuito do mês acabou.'));
+    server.copiesPaused = null;
+    await app.account!.syncNow();
+    await vi.waitFor(() => expect(hint()).toHaveTextContent(T.conta.cloudHint));
+  });
+});
+
 // "Sincronizar agora" com o cubinho (spec visual 7 e decisão 9): o cubo gira enquanto sincroniza; a linha só fica verde depois do toque da pessoa.
 describe('Ajustes: "Sincronizar agora" com o cubo vivo', () => {
   afterEach(() => vi.useRealTimers());

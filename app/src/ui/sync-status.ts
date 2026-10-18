@@ -30,6 +30,9 @@ export function syncLine(s: SyncStatus, now: number): string {
     case 'error':
       return s.error === 'auth' ? T.conta.expired : s.error === 'update' ? T.conta.update : T.conta.failed;
     default:
+      // O aviso da última rodada (endurecimento 4.1 e decisão 6) vale no lugar do "Sincronizado…": a conta cheia, ou o resto para amanhã.
+      if (s.phase === 'idle' && s.notice === 'quota') return T.conta.quotaFull;
+      if (s.phase === 'idle' && s.notice === 'budget') return T.conta.budgetDeferred;
       return T.conta.synced(s.lastSyncAt === null ? null : T.conta.ago(Math.max(0, now - s.lastSyncAt)));
   }
 }

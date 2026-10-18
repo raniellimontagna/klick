@@ -1,5 +1,5 @@
 // Apoio dos testes da conta: um AppState ligado a um servidor falso, com gatilhos e canal falsos. Não é um arquivo de teste.
-import type { SyncRequest, SyncResponse } from '../../src/core/sync/types';
+import type { CopiesPaused, SyncRequest, SyncResponse } from '../../src/core/sync/types';
 import { openKlickDb } from '../../src/data/db';
 import { defaultSessionId } from '../../src/data/ids';
 import { createRepository, type ChannelLike, type Repository } from '../../src/data/repository';
@@ -45,10 +45,10 @@ export function manualEnv() {
 }
 
 // A API falsa: /api/health e /api/sync, com o servidor falso de uma conta, e as cópias na nuvem e o apagar da conta (`cloud` anota o que
-// foi restaurado e apagado). Depois de apagada, a conta responde 401 ao sync e às cópias, como o objeto marcado da Task 17.
+// foi restaurado e apagado; `paused` é a pausa que a lista traz). Depois de apagada, a conta responde 401 ao sync e às cópias, como o objeto marcado da Task 17.
 export function fakeApi(server: FakeServer, health: Health | null = { accounts: true, turnstileSiteKey: '1x00000000000000000000BB' }) {
   let failure: Error | null = null;
-  const cloud = { copies: [] as CloudCopy[], restored: [] as string[], deleted: [] as string[] };
+  const cloud = { copies: [] as CloudCopy[], paused: null as CopiesPaused | null, restored: [] as string[], deleted: [] as string[] };
   const check = (): void => {
     if (failure) throw failure;
     if (cloud.deleted.length > 0) throw new ApiError('auth', 401);
@@ -61,7 +61,7 @@ export function fakeApi(server: FakeServer, health: Health | null = { accounts: 
     },
     cloudCopies: async () => {
       check();
-      return structuredClone(cloud.copies);
+      return { copies: structuredClone(cloud.copies), paused: cloud.paused };
     },
     restoreCloudCopy: async (name) => {
       check();

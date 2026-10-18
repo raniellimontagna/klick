@@ -1410,6 +1410,29 @@ describe('a cota e o orçamento do dia (endurecimento 4.1 e decisões 4 e 6)', (
     expect(await repo.localOnlyCount()).toBe(1);
   });
 
+  // A rodada só recebe enquanto pushAfter está no futuro: o resto da fila não é "a enviar" nela, e a linha não diz "Enviando 0 de N".
+  it('o resto que ficou para amanhã não conta como a enviar: a rodada que só recebe não diz "Enviando 0 de N"', async () => {
+    const server = new FakeServer(2, { budget: 3 });
+    server.now = t;
+    const repo = await device();
+    const s = await repo.createSession({ event: '333' });
+    for (let i = 0; i < 4; i++) await repo.addSolve(ns(s.id, 1000 + i, t + i));
+    const { engine, statuses } = engineFor(repo, network(server));
+    expect(await engine.run()).toMatchObject({ pending: 2, notice: 'budget' });
+    // Do lote, o servidor leu 3: depois disso, o total da rodada é o que subiu nela.
+    const parked = statuses.filter((x) => x.progress !== null && x.progress.sent > 0);
+    expect(parked.length).toBeGreaterThan(0);
+    for (const x of parked) expect(x.progress).toMatchObject({ sent: 3, total: 3 });
+    // A rodada seguinte, antes de retryAt, só recebe: nada é "a enviar", nem o que já esperava nem o gravado depois.
+    t += 1000;
+    await repo.addSolve(ns(s.id, 1999, t));
+    const before = statuses.length;
+    expect(await engine.run()).toMatchObject({ pending: 3, notice: 'budget' });
+    const round = statuses.slice(before).filter((x) => x.progress !== null);
+    expect(round.length).toBeGreaterThan(0);
+    for (const x of round) expect(x.progress).toMatchObject({ sent: 0, total: 0 });
+  });
+
   it('a resposta grava copiesPaused no estado do sync', async () => {
     const server = new FakeServer();
     const repo = await device();

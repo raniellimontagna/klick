@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
-import type { SyncRequest, SyncResponse } from '../../src/core/sync/types';
+import type { RestoreRefusal, SyncRequest, SyncResponse } from '../../src/core/sync/types';
 import { openKlickDb } from '../../src/data/db';
 import { type ChangeKind, createRepository, defaultSyncState } from '../../src/data/repository';
 import { T } from '../../src/strings';
@@ -86,6 +86,81 @@ describe('cópias na nuvem (spec 8.3 e 9.1)', () => {
     await fireEvent.click(await screen.findByRole('button', { name: 'Ver cópias na nuvem' }));
     await vi.waitFor(() => expect(app.toast?.text).toBe(T.conta.cloudLoadFailed));
     expect(screen.queryByText(T.conta.cloudEmpty)).toBeNull();
+  });
+});
+
+// A cota de operações e as recusas da restauração (endurecimento 4.2 e decisões 1, 2, 3 e 6): cada recusa chega com o código do Worker
+// ({ error }, no status de REFUSAL_STATUS em worker/router.ts) e vira a mensagem dela; nada muda neste aparelho.
+describe('cópias na nuvem: pausas e recusas', () => {
+  const REFUSALS: [RestoreRefusal, number, string][] = [
+    ['no-room', 409, 'Não há espaço para guardar o estado de agora antes de restaurar. Tudo continua como estava.'],
+    ['restore-limit', 429, 'Já foram restaurações demais hoje. Tente de novo amanhã.'],
+    ['r2-budget', 503, 'As cópias na nuvem pararam até o mês que vem: o limite gratuito acabou. Tudo continua como estava.'],
+    ['too-big', 413, 'Esta conta é grande demais para restaurar uma cópia na nuvem. As cópias deste aparelho continuam valendo.'],
+    ['write-budget', 429, 'A conta já gravou muita coisa hoje. Tente restaurar amanhã.'],
+  ];
+
+  it('cada recusa da restauração mostra a mensagem dela e nada muda', async () => {
+    const net = fakeApi(new FakeServer());
+    net.cloud.copies = [{ name: '2026-10-15', day: '2026-10-15', kind: 'daily', solves: 3 }];
+    const { app, repo } = await appWithAccount(net.api, { signedIn: true });
+    await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
+    await app.addSolve({ ms: 9000, penalty: null, at: Date.now() });
+    await app.account!.syncNow();
+    const solves = await repo.listSolves();
+    const state = await repo.getSyncState();
+    render(AjustesScreen, { app });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Ver cópias na nuvem' }));
+    await screen.findByText('3 solves');
+    const sync = vi.spyOn(app.account!, 'syncNow');
+    for (const [code, status, message] of REFUSALS) {
+      net.api.restoreCloudCopy = createSyncApi(async () => Response.json({ error: code }, { status })).restoreCloudCopy;
+      await fireEvent.click(screen.getByRole('button', { name: 'Restaurar a cópia de 2026-10-15' }));
+      await fireEvent.click(screen.getByRole('button', { name: 'Tem certeza? Clique de novo' }));
+      await vi.waitFor(() => expect(app.toast?.text).toBe(message));
+      expect(await app.account!.restoreCloudCopy('2026-10-15')).toBe(code);
+      expect(screen.getByRole('heading', { name: 'Cópias na nuvem' })).toBeInTheDocument(); // o diálogo fica aberto
+    }
+    expect(sync).not.toHaveBeenCalled();
+    expect(await repo.listSolves()).toEqual(solves);
+    expect(await repo.getSyncState()).toEqual(state);
+    // Um código que não é de recusa (a rajada do Worker, 429 'limited') continua sendo a falha de sempre.
+    net.api.restoreCloudCopy = createSyncApi(async () => Response.json({ error: 'limited' }, { status: 429 })).restoreCloudCopy;
+    expect(await app.account!.restoreCloudCopy('2026-10-15')).toBe('failed');
+  });
+
+  it('a lista sem operações no mês mostra cloudOpsLimit', async () => {
+    const net = fakeApi(new FakeServer());
+    net.api.cloudCopies = createSyncApi(async () => Response.json({ error: 'r2-budget' }, { status: 503 })).cloudCopies;
+    const { app } = await appWithAccount(net.api, { signedIn: true });
+    render(AjustesScreen, { app });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Ver cópias na nuvem' }));
+    await vi.waitFor(() =>
+      expect(app.toast?.text).toBe('As cópias na nuvem pararam até o mês que vem: o limite gratuito acabou. Tudo continua como estava.'),
+    );
+    expect(T.conta.cloudOpsLimit).toBe(app.toast?.text);
+    expect(screen.queryByText(T.conta.cloudEmpty)).toBeNull();
+  });
+
+  it('a lista com as cópias pausadas diz por quê no topo do diálogo', async () => {
+    const net = fakeApi(new FakeServer());
+    net.cloud.copies = [{ name: '2026-10-15', day: '2026-10-15', kind: 'daily', solves: 3 }];
+    let paused: string | null = 'ops'; // a lista guardada, que não se renovou este mês
+    net.api.cloudCopies = createSyncApi(async () => Response.json({ copies: net.cloud.copies, paused })).cloudCopies;
+    const { app } = await appWithAccount(net.api, { signedIn: true });
+    render(AjustesScreen, { app });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Ver cópias na nuvem' }));
+    expect(await screen.findByText('Cópias na nuvem pausadas até o mês que vem: o limite gratuito do mês acabou.')).toBeInTheDocument();
+    expect(screen.getByText('3 solves')).toBeInTheDocument(); // a lista aparece mesmo assim
+    await fireEvent.click(screen.getByRole('button', { name: 'Fechar' }));
+    paused = 'space';
+    await fireEvent.click(screen.getByRole('button', { name: 'Ver cópias na nuvem' }));
+    expect(await screen.findByText('Cópias na nuvem pausadas: o espaço gratuito encheu.')).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: 'Fechar' }));
+    paused = null;
+    await fireEvent.click(screen.getByRole('button', { name: 'Ver cópias na nuvem' }));
+    await screen.findByText('3 solves');
+    expect(screen.queryByText(/^Cópias na nuvem pausadas/)).toBeNull();
   });
 });
 
@@ -224,7 +299,7 @@ describe('a conta deste aparelho nas rotas da conta (C1)', () => {
     const sent: string[] = [];
     net.api.cloudCopies = async (account) => {
       sent.push(`copies:${account}`);
-      return [];
+      return { copies: [], paused: null };
     };
     net.api.restoreCloudCopy = async (name, account) => void sent.push(`restore:${name}:${account}`);
     net.api.deleteAccount = async (email, account) => void sent.push(`delete:${email}:${account}`);
@@ -251,7 +326,7 @@ describe('cliente HTTP das cópias e da conta (Task 17)', () => {
       if (url.includes('velha')) return Response.json({ error: 'not-found' }, { status: 404 });
       return new Response(null, { status: 204 });
     });
-    expect(await api.cloudCopies('conta-1')).toEqual(copies);
+    expect(await api.cloudCopies('conta-1')).toEqual({ copies, paused: null });
     await api.restoreCloudCopy('2026-10-14T21-03-00Z-antes', 'conta-1');
     await api.deleteAccount(EMAIL, 'conta-1');
     await expect(api.restoreCloudCopy('velha', 'conta-1')).rejects.toMatchObject({ kind: 'client', status: 404 });
@@ -272,5 +347,58 @@ describe('cliente HTTP das cópias e da conta (Task 17)', () => {
   it('uma lista fora da forma (o index.html sem o Worker) é erro do servidor', async () => {
     await expect(createSyncApi(async () => new Response('<!doctype html>', { status: 200 })).cloudCopies('conta-1')).rejects.toMatchObject({ kind: 'server' });
     await expect(createSyncApi(async () => Response.json({ copies: 'nada' })).cloudCopies('conta-1')).rejects.toMatchObject({ kind: 'server' });
+  });
+
+  it('a lista traz a pausa das cópias; uma pausa torta vale null', async () => {
+    const copies = [{ name: '2026-10-15', day: '2026-10-15', kind: 'daily', solves: 3 }];
+    const list = (paused: unknown) => createSyncApi(async () => Response.json({ copies, paused })).cloudCopies('conta-1');
+    expect(await list('space')).toEqual({ copies, paused: 'space' });
+    expect(await list('ops')).toEqual({ copies, paused: 'ops' });
+    expect(await list(null)).toEqual({ copies, paused: null });
+    expect(await list('cheio')).toEqual({ copies, paused: null });
+    expect(await list(undefined)).toEqual({ copies, paused: null });
+  });
+
+  it('o código do erro chega no ApiError; um corpo que não é JSON dá code null', async () => {
+    const failing = (res: () => Response) => createSyncApi(async () => res());
+    await expect(failing(() => Response.json({ error: 'no-room' }, { status: 409 })).restoreCloudCopy('d', 'conta-1')).rejects.toMatchObject({
+      kind: 'client',
+      status: 409,
+      code: 'no-room',
+    });
+    await expect(failing(() => Response.json({ error: 'r2-budget' }, { status: 503 })).cloudCopies('conta-1')).rejects.toMatchObject({
+      kind: 'server',
+      status: 503,
+      code: 'r2-budget',
+    });
+    await expect(failing(() => Response.json({ code: 'write-budget' }, { status: 429 })).restoreCloudCopy('d', 'conta-1')).rejects.toMatchObject({
+      status: 429,
+      code: 'write-budget',
+    });
+    await expect(failing(() => Response.json({ error: 'auth' }, { status: 401 })).deleteAccount(EMAIL, 'conta-1')).rejects.toMatchObject({
+      kind: 'auth',
+      code: 'auth',
+    });
+    // Um corpo que não é JSON (o proxy no meio), vazio, ou JSON sem código: code null, e o tipo de sempre.
+    await expect(failing(() => new Response('<!doctype html>', { status: 502 })).restoreCloudCopy('d', 'conta-1')).rejects.toMatchObject({
+      kind: 'server',
+      status: 502,
+      code: null,
+    });
+    await expect(failing(() => new Response(null, { status: 404 })).restoreCloudCopy('d', 'conta-1')).rejects.toMatchObject({
+      kind: 'client',
+      status: 404,
+      code: null,
+    });
+    await expect(failing(() => Response.json({ error: 7 }, { status: 400 })).restoreCloudCopy('d', 'conta-1')).rejects.toMatchObject({ code: null });
+    await expect(failing(() => Response.json([1, 2], { status: 400 })).restoreCloudCopy('d', 'conta-1')).rejects.toMatchObject({ code: null });
+    await expect(failing(() => Response.json(null, { status: 400 })).restoreCloudCopy('d', 'conta-1')).rejects.toMatchObject({ code: null });
+    // Sem rede: nem há corpo.
+    await expect(
+      createSyncApi(async () => {
+        throw new TypeError('Failed to fetch');
+      }).restoreCloudCopy('d', 'conta-1'),
+    ).rejects.toMatchObject({ kind: 'offline', status: 0, code: null });
+    expect(new ApiError('server', 500).code).toBeNull();
   });
 });

@@ -292,7 +292,9 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
     // Um lote de antes teve algo que a versão daquela hora recusou, e o cursor passou por cima: esta versão, outra, baixa tudo de novo, uma
     // vez (a revisão final, I2). Juntar o que já está aqui não muda nada.
     if (state.refusedBuild !== null && state.refusedBuild !== build) await deps.repo().restartAfterUpdate(build);
-    const progress = { sent: 0, total: await deps.repo().outboxCount(), received: 0 };
+    // O total é o que a rodada vai mandar: com pushAfter no futuro, nada (a fila espera o orçamento do dia, e a rodada só recebe).
+    const parked = state.pushAfter !== null && state.pushAfter > now();
+    const progress = { sent: 0, total: parked ? 0 : await deps.repo().outboxCount(), received: 0 };
     set({ phase: 'syncing', progress: { ...progress } });
     if (state.firstSync) {
       for (let i = 0, more = true; more; i++) {
@@ -317,7 +319,8 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
       const left = await deps.repo().outboxCount();
       progress.sent += r.sent;
       progress.received += r.received;
-      progress.total = Math.max(progress.total, progress.sent + left); // o que foi gravado durante a rodada sobe nela
+      // O que foi gravado durante a rodada sobe nela; com o resto para depois, o total é o que subiu (a linha não diz "Enviando 0 de N").
+      progress.total = later ? progress.sent : Math.max(progress.total, progress.sent + left);
       set({ pending: left, progress: { ...progress } });
       if (!r.more && (left === 0 || later)) break;
     }

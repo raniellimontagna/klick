@@ -1,8 +1,10 @@
 <script lang="ts">
-  // "Conta e sync" (spec 9.1): sem conta, o convite; com conta, o e-mail, a situação do sync e o que dá para fazer. Só aparece com a conta
-  // ligada no ambiente (ou, sem resposta do servidor, com este aparelho já numa conta). No desktop, é a primeira seção da coluna da direita;
-  // no celular, a primeira da lista (screens.css). Os diálogos de sair, das cópias na nuvem e de apagar a conta ficam montados aqui; o de
-  // entrar é da casca (o lembrete do Timer também o abre), e este botão só pede a abertura (app.dialog = 'signin').
+  // "Conta e sync" (spec 9.1): sem conta, o convite; com conta, o e-mail, a situação do sync e o que dá para fazer. Logo abaixo do sync, o
+  // que a conta recusou pela cota e só está neste aparelho, com "Enviar de novo" (decisão 4); a dica das cópias na nuvem diz quando elas
+  // estão pausadas, e por quê (endurecimento 4.2). Só aparece com a conta ligada no ambiente (ou, sem resposta do servidor, com este
+  // aparelho já numa conta). No desktop, é a primeira seção da coluna da direita; no celular, a primeira da lista (screens.css). Os diálogos
+  // de sair, das cópias na nuvem e de apagar a conta ficam montados aqui; o de entrar é da casca (o lembrete do Timer também o abre), e este
+  // botão só pede a abertura (app.dialog = 'signin').
   import { onDestroy, onMount, tick } from 'svelte';
   import { T } from '../../strings';
   import CloudCopiesDialog from '../dialogs/CloudCopiesDialog.svelte';
@@ -114,6 +116,18 @@
     }
   }
 
+  // "Enviar de novo" (decisão 4): o que a conta recusou pela cota volta para a fila, e a rodada sai sozinha.
+  async function resendHeld(): Promise<void> {
+    if (!account || busy) return;
+    busy = true;
+    try {
+      await account.resendHeld();
+      app.showToast(T.conta.heldResent);
+    } finally {
+      busy = false;
+    }
+  }
+
   async function signOutAll(): Promise<void> {
     if (!account || busy) return;
     if (!confirmAll) {
@@ -155,6 +169,12 @@
           >
         {/if}
       </div>
+      {#if account.held > 0}
+        <div class="setting" data-held>
+          {@render caption(T.conta.heldCount(account.held), T.conta.quotaFull)}
+          <button type="button" class="btn" disabled={busy} onclick={resendHeld}>{T.conta.heldResend}</button>
+        </div>
+      {/if}
 
       <div class="setting">
         {@render caption(T.conta.passkeys, T.conta.passkeysHint)}
@@ -175,7 +195,7 @@
       {/if}
 
       <div class="setting">
-        {@render caption(T.conta.cloud, T.conta.cloudHint)}
+        {@render caption(T.conta.cloud, account.sync.copiesPaused ? T.conta.cloudPaused(account.sync.copiesPaused) : T.conta.cloudHint)}
         <button type="button" class="btn" onclick={() => (app.dialog = 'cloud')}>{T.conta.cloudView}</button>
       </div>
 

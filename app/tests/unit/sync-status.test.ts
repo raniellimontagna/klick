@@ -33,6 +33,19 @@ describe('a situação do sync em palavras (spec 9.1)', () => {
     expect(syncLine(at({ phase: 'syncing', progress: null }), NOW)).toBe('Sincronizando…');
   });
 
+  // Endurecimento 4.1 e decisão 6: o aviso da última rodada troca o "Sincronizado…" só na fase idle.
+  it('idle com a cota cheia diz o limite; com o orçamento, que o resto sobe amanhã', () => {
+    expect(syncLine(at({ lastSyncAt: NOW - 20_000, notice: 'quota' }), NOW)).toBe(
+      'A conta chegou ao limite do plano gratuito. Os novos ficam só neste aparelho.',
+    );
+    expect(syncLine(at({ lastSyncAt: NOW - 20_000, notice: 'budget' }), NOW)).toBe('Muita coisa para subir hoje: o resto sobe amanhã.');
+    expect(syncLine(at({ lastSyncAt: NOW - 20_000, notice: null }), NOW)).toBe('Sincronizado agora');
+    // Fora da fase idle, o aviso não troca nada: a rodada, a falta de rede e o erro falam por si.
+    expect(syncLine(at({ phase: 'offline', pending: 2, notice: 'budget' }), NOW)).toBe('2 mudanças esperando rede');
+    expect(syncLine(at({ phase: 'syncing', progress: null, notice: 'quota' }), NOW)).toBe('Sincronizando…');
+    expect(syncLine(at({ phase: 'error', error: 'server', notice: 'quota' }), NOW)).toBe('O sync parou. Tentando de novo.');
+  });
+
   it('os erros: a sessão expirou, o app velho e o servidor', () => {
     expect(syncLine(at({ phase: 'error', error: 'auth' }), NOW)).toBe('Sua sessão expirou. Entre de novo para sincronizar.');
     expect(syncLine(at({ phase: 'error', error: 'update' }), NOW)).toBe('Atualize o Klick para sincronizar.');

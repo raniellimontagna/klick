@@ -2,12 +2,12 @@
 // gatilhos (sync/triggers.ts) ficam por trás. Só a aba líder (o lock 'klick-sync') sincroniza, e só ela escreve o cursor; as outras recebem
 // o estado pelo canal 'klick-sync' e pedem por ele "Sincronizar agora", o primeiro login, parar e voltar. Sem conta neste aparelho, ou com
 // a conta desligada no ambiente (spec 8.4), o motor não roda: nenhum pedido sai além de /api/health (spec 4.1).
-import type { SyncState } from '../../core/sync/types';
+import type { RestoreRefusal, SyncState } from '../../core/sync/types';
 import { newId } from '../../data/ids';
 import { defaultSyncState, LocalOnlyError, PendingChangesError, type ChangeKind, type ChangeOrigin, type ChannelLike, type Repository } from '../../data/repository';
 import { createBackup } from '../../data/safety';
 import { T } from '../../strings';
-import { ApiError, type CloudCopy, type Health, type SyncApi } from '../../sync/api';
+import { ApiError, type CloudCopies, type Health, type SyncApi } from '../../sync/api';
 import { type AuthClientLike, type AuthUser, loadAuthClient, type PasskeyInfo, type SendResult, type VerifyResult } from '../../sync/auth';
 import { type Captcha, CaptchaError, turnstile } from '../../sync/captcha';
 import { type Account, createServerClock, createSyncEngine, idleStatus, type ServerClock, type SyncEngine, type SyncStatus } from '../../sync/engine';
@@ -75,6 +75,10 @@ function defaultChannel(): ChannelLike | null {
 
 const defaultLocks = (): LocksLike | null => (globalThis.navigator as { locks?: LocksLike } | undefined)?.locks ?? null;
 
+// Os porquês de uma restauração recusada que o Worker manda no código do erro (endurecimento, decisões 1, 2, 3 e 6).
+const REFUSALS: Readonly<Record<RestoreRefusal, true>> = { 'no-room': true, 'restore-limit': true, 'r2-budget': true, 'too-big': true, 'write-budget': true };
+const isRefusal = (code: string | null): code is RestoreRefusal => code !== null && Object.hasOwn(REFUSALS, code);
+
 const isStatus = (s: unknown): s is SyncStatus => typeof s === 'object' && s !== null && typeof (s as SyncStatus).phase === 'string';
 const isAccount = (a: unknown): a is Account =>
   typeof a === 'object' && a !== null && typeof (a as Account).accountId === 'string' && typeof (a as Account).email === 'string';
@@ -85,6 +89,7 @@ export class AccountState {
   leader = $state(false); // esta aba é a que sincroniza
   siteKey = $state<string | null>(null); // a site key do Turnstile, de /api/health
   passkeys = $state<PasskeyInfo[] | null>(null); // as passkeys da conta (Ajustes); null enquanto não lidas
+  held = $state(0); // os registros que a conta recusou pela cota e só estão neste aparelho (decisão 4), relidos com o estado
   // A última resposta de /api/health: undefined antes de perguntar, null sem servidor (sem rede, ou o app servido sem o Worker).
   private health = $state<Health | null | undefined>(undefined);
 
@@ -221,13 +226,15 @@ export class AccountState {
 
   async refresh(): Promise<void> {
     try {
-      const state = await this.host.repo().getSyncState();
+      const repo = this.host.repo();
+      const state = await repo.getSyncState();
       const before = this.sync;
       this.sync = state;
       // A lista de passkeys é da conta: fora dela, ou noutra (saiu ou trocou, nesta aba ou noutra), Ajustes relê.
       if (!state.signedIn || state.accountId !== before.accountId) this.passkeys = null;
       // O primeiro login pedido à líder começou: a conta está gravada, dentro. Não precisa mais ser refeito.
       if (this.pendingLogin && state.signedIn && state.accountId === this.pendingLogin.accountId) this.pendingLogin = null;
+      this.held = state.signedIn ? await repo.heldCount() : 0; // fora da conta, Ajustes não mostra a linha: nada a ler
     } catch {
       // A conexão caiu (o AppState a reabre): o próximo aviso 'sync' relê.
     }
@@ -352,6 +359,16 @@ export class AccountState {
   // Quantos registros daqui o servidor recusaria: só existem neste aparelho, e apagar os dados recusa com algum (a revisão final, I4).
   localOnly(): Promise<number> {
     return this.host.repo().localOnlyCount();
+  }
+
+  // "Enviar de novo" (decisão 4): o que a conta recusou pela cota volta para a fila e a rodada sai, como em "Sincronizar agora" (o aviso
+  // 'sync' de requeueHeld só relê o estado, não pede rodada). Devolve quantos voltaram; com a conta ainda cheia, o servidor recusa de novo e
+  // eles voltam para a lista.
+  async resendHeld(): Promise<number> {
+    const back = await this.host.repo().requeueHeld();
+    await this.refresh();
+    void this.syncNow();
+    return back;
   }
 
   // Apagar os dados deste aparelho pode? 'pending': mudanças esperando para subir (decisão 12); 'local-only': registros que só existem aqui.
@@ -552,19 +569,23 @@ export class AccountState {
     return accountId;
   }
 
-  // As cópias dos últimos 30 dias, a mais nova primeiro. Sem rede (ou sem a sessão), rejeita: o diálogo avisa.
-  async cloudCopies(): Promise<CloudCopy[]> {
+  // As cópias dos últimos 30 dias, a mais nova primeiro, e a pausa delas. Sem rede (ou sem a sessão, ou sem operações do R2 no mês: o
+  // código 'r2-budget' do ApiError), rejeita: o diálogo avisa.
+  async cloudCopies(): Promise<CloudCopies> {
     return this.deps.api.cloudCopies(await this.accountId());
   }
 
   // Restaurar um dia (spec 8.3): o servidor grava antes a cópia "antes de restaurar" e troca a conta inteira. A mudança chega aqui pelo sync
   // normal, pedido à líder, com a cópia 'pre-sync' da spec 6.6 quando o lote apaga muitos solves daqui. 'gone': a cópia não existe mais (a
-  // regra do bucket apaga as de mais de 30 dias); 'failed': sem rede ou outro erro, e nada mudou.
-  async restoreCloudCopy(name: string): Promise<'ok' | 'gone' | 'failed'> {
+  // regra do bucket apaga as de mais de 30 dias); um RestoreRefusal: o servidor recusou e disse por quê (o código do erro); 'failed': sem
+  // rede ou outro erro. Fora do 'ok', nada mudou e nada sincroniza.
+  async restoreCloudCopy(name: string): Promise<'ok' | 'gone' | 'failed' | RestoreRefusal> {
     try {
       await this.deps.api.restoreCloudCopy(name, await this.accountId());
     } catch (err) {
-      return err instanceof ApiError && err.status === 404 ? 'gone' : 'failed';
+      if (!(err instanceof ApiError)) return 'failed';
+      if (err.status === 404) return 'gone';
+      return isRefusal(err.code) ? err.code : 'failed';
     }
     void this.syncNow();
     return 'ok';

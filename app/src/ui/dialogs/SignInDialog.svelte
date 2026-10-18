@@ -279,6 +279,12 @@
     error = T.conta.verifyFailed;
   }
 
+  // "Pronto": o orçamento do dia cortou o primeiro sync (decisão 6), e o resto sobe amanhã; senão, tudo está na conta (com a conta cheia, o
+  // limite vem abaixo).
+  function doneLine(s: SyncStatus): string {
+    return s.notice === 'budget' ? T.conta.doneTomorrow : T.conta.done;
+  }
+
   // Enquanto o primeiro sync não termina: o progresso, a falta de rede ou o erro (com a nova tentativa); antes da primeira rodada, "Sincronizando…".
   function waitingLine(s: SyncStatus): string {
     return s.phase === 'syncing' || s.phase === 'offline' || s.phase === 'error' ? syncLine(s, Date.now()) : T.conta.syncing;
@@ -373,9 +379,10 @@
           {#if progress === 'cancelled'}
             <p role="alert">{T.conta.syncCancelled}</p>
           {:else}
-            <p class="muted" data-sync-line>{progress === 'done' ? T.conta.done : waitingLine(account.status)}</p>
+            <p class="muted" data-sync-line>{progress === 'done' ? doneLine(account.status) : waitingLine(account.status)}</p>
           {/if}
         </div>
+        {#if progress === 'done' && account.status.notice === 'quota'}<p class="muted">{T.conta.quotaFull}</p>{/if}
         {#if progress === 'cancelled'}
           <div class="row">
             <button type="button" class="btn primary" onclick={() => go('email')}>{T.conta.signInAgain}</button>

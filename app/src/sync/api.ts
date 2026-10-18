@@ -1,19 +1,31 @@
 // O cliente HTTP do servidor do Klick (spec 6.1 e 8.1): mesma origem, com o cookie da sessão. Os erros viram tipos que o motor e as telas
 // entendem; nada aqui guarda estado.
-import { ACCOUNT_HEADER, type CloudCopy, type Rejected, type SyncRequest, type SyncResponse } from '../core/sync/types';
+import {
+  ACCOUNT_HEADER,
+  type CloudCopies,
+  type CloudCopy,
+  type CopiesPaused,
+  type Rejected,
+  type SyncRequest,
+  type SyncResponse,
+} from '../core/sync/types';
 
-export type { CloudCopy } from '../core/sync/types';
+export type { CloudCopies, CloudCopy } from '../core/sync/types';
 
 export type ApiErrorKind = 'offline' | 'auth' | 'update' | 'server' | 'client';
 
+// `code`: o código que o Worker manda no corpo da recusa ({ error }, ou { code }), como o porquê de uma restauração recusada
+// (RestoreRefusal); null sem corpo, num corpo que não é JSON ou sem código, e sem rede.
 export class ApiError extends Error {
   readonly kind: ApiErrorKind;
   readonly status: number;
-  constructor(kind: ApiErrorKind, status: number) {
-    super(`api: ${kind} (${status})`);
+  readonly code: string | null;
+  constructor(kind: ApiErrorKind, status: number, code: string | null = null) {
+    super(`api: ${kind} (${status}${code === null ? '' : `, ${code}`})`);
     this.name = 'ApiError';
     this.kind = kind;
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -27,8 +39,11 @@ export interface SyncApi {
   health(): Promise<Health | null>; // null: sem servidor (sem rede, ou o app servido sem o Worker, como no vite preview)
   sync(req: SyncRequest): Promise<SyncResponse>;
   // As rotas da conta levam a conta que o aparelho espera (`account`, no cabeçalho ACCOUNT_HEADER): a sessão de outra conta é 401 ('auth').
-  cloudCopies(account: string): Promise<CloudCopy[]>; // as cópias dos últimos 30 dias, a mais nova primeiro (spec 8.3)
-  restoreCloudCopy(name: string, account: string): Promise<void>; // a cópia que não existe mais: ApiError com status 404
+  // As cópias dos últimos 30 dias, a mais nova primeiro (spec 8.3), com a pausa das cópias (endurecimento 4.2). Sem operações do R2 no
+  // mês e sem lista guardada: ApiError com o código 'r2-budget'.
+  cloudCopies(account: string): Promise<CloudCopies>;
+  // A cópia que não existe mais: ApiError com status 404. Uma restauração recusada: ApiError com o RestoreRefusal no código.
+  restoreCloudCopy(name: string, account: string): Promise<void>;
   deleteAccount(email: string, account: string): Promise<void>; // spec 7.7: o e-mail digitado confirma
 }
 
@@ -50,6 +65,21 @@ function timeoutSignal(ms: number): AbortSignal | undefined {
 
 const kindOf = (status: number): ApiErrorKind =>
   status === 401 ? 'auth' : status === 426 ? 'update' : status >= 500 ? 'server' : 'client';
+
+// O código do corpo de uma resposta que não é ok ({ error } ou { code }, um texto). Um corpo que não é JSON (um proxy no meio), vazio ou
+// que para no meio até o prazo não quebra nada: null.
+async function codeOf(res: Response): Promise<string | null> {
+  try {
+    const body = (await res.json()) as { error?: unknown; code?: unknown } | null;
+    if (typeof body?.error === 'string') return body.error;
+    return typeof body?.code === 'string' ? body.code : null;
+  } catch {
+    return null;
+  }
+}
+
+// A pausa das cópias que a lista traz; o que não for uma delas vale null (as cópias seguem).
+const pausedOf = (v: unknown): CopiesPaused | null => (v === 'space' || v === 'ops' ? v : null);
 
 // A resposta do sync tem a forma que o motor usa? Uma que não tem (um proxy no meio, um Worker de outra versão) não pode tirar nada da fila
 // nem mexer no cursor. O cursor é uma revisão: inteiro seguro >= 0. Sem `rejected`, a lista vem vazia.
@@ -80,7 +110,7 @@ export function createSyncApi(
     } catch {
       throw new ApiError('offline', 0);
     }
-    if (!res.ok) throw new ApiError(kindOf(res.status), res.status);
+    if (!res.ok) throw new ApiError(kindOf(res.status), res.status, await codeOf(res));
     return res;
   }
   const post = (path: string, body: unknown, ms: number, headers: Record<string, string> = {}): Promise<Response> =>
@@ -117,9 +147,9 @@ export function createSyncApi(
       } catch {
         body = null; // o index.html do vite preview, sem o Worker
       }
-      const copies = (body as { copies?: unknown } | null)?.copies;
-      if (!Array.isArray(copies)) throw new ApiError('server', res.status);
-      return copies.filter(isCopy);
+      const list = body as { copies?: unknown; paused?: unknown } | null;
+      if (!Array.isArray(list?.copies)) throw new ApiError('server', res.status);
+      return { copies: list.copies.filter(isCopy), paused: pausedOf(list.paused) };
     },
     async restoreCloudCopy(name, account) {
       await post(`/api/snapshots/${encodeURIComponent(name)}/restore`, {}, timeouts.sync, { [ACCOUNT_HEADER]: account });

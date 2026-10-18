@@ -1,8 +1,10 @@
 <script lang="ts">
   // As cópias na nuvem (spec 8.3 e 9.1): os últimos 30 dias, com o número de solves de cada um. Restaurar pede um segundo clique: troca a
-  // conta inteira, em todos os aparelhos. A cópia que não existe mais (passou dos 30 dias) avisa e a lista relê.
+  // conta inteira, em todos os aparelhos. A cópia que não existe mais (passou dos 30 dias) avisa e a lista relê. As cópias pausadas dizem
+  // por quê no topo, e cada recusa da restauração tem a mensagem dela, sem nada mudar (endurecimento 4.2 e decisões 1, 2, 3 e 6).
+  import type { CopiesPaused, RestoreRefusal } from '../../core/sync/types';
   import { T } from '../../strings';
-  import type { CloudCopy } from '../../sync/api';
+  import { ApiError, type CloudCopy } from '../../sync/api';
   import type { AppState } from '../state/app.svelte';
   import { modal } from './modal';
 
@@ -12,8 +14,21 @@
   let copies = $state<CloudCopy[]>([]);
   let loaded = $state(false);
   let failed = $state(false); // a lista não carregou: o aviso diz isso, não que não há cópias
+  let listPaused = $state<CopiesPaused | null>(null); // a pausa que a lista trouxe
   let asking = $state<string | null>(null); // a cópia que espera o segundo clique
   let busy = $state(false);
+  // A pausa no topo: a da lista, quando ela carregou (a mais nova; 'ops' também é a lista que não se renovou este mês); antes, ou sem ela, a
+  // do último sync.
+  const paused = $derived(loaded && !failed ? listPaused : (app.account?.sync.copiesPaused ?? null));
+
+  // A mensagem de cada recusa da restauração.
+  const REFUSED: Readonly<Record<RestoreRefusal, string>> = {
+    'no-room': T.conta.cloudNoRoom,
+    'restore-limit': T.conta.cloudRestoreLimit,
+    'r2-budget': T.conta.cloudOpsLimit,
+    'too-big': T.conta.cloudTooBig,
+    'write-budget': T.conta.cloudWriteBudget,
+  };
 
   $effect(() => {
     if (!open) return;
@@ -25,11 +40,15 @@
     asking = null;
     failed = false;
     try {
-      copies = (await app.account?.cloudCopies()) ?? [];
-    } catch {
+      const list = await app.account?.cloudCopies();
+      copies = list?.copies ?? [];
+      listPaused = list?.paused ?? null;
+    } catch (err) {
       copies = [];
+      listPaused = null;
       failed = true;
-      app.showToast(T.conta.cloudLoadFailed);
+      // Sem operações do R2 no mês e sem lista guardada, o servidor diz isso; o resto é a falta de rede de sempre.
+      app.showToast(err instanceof ApiError && err.code === 'r2-budget' ? T.conta.cloudOpsLimit : T.conta.cloudLoadFailed);
     }
     loaded = true;
   }
@@ -56,7 +75,7 @@
       } else if (outcome === 'gone') {
         app.showToast(T.conta.cloudGone);
         void load();
-      } else app.showToast(T.conta.cloudRestoreFailed);
+      } else app.showToast(outcome === 'failed' ? T.conta.cloudRestoreFailed : REFUSED[outcome]);
     } finally {
       busy = false;
       asking = null;
@@ -67,6 +86,9 @@
 <dialog bind:this={dialogEl} class="sheet account-sheet" aria-label={T.conta.cloudTitle} use:modal={{ open, onclose }}>
   {#if open}
     <h2>{T.conta.cloudTitle}</h2>
+    {#if paused}
+      <p data-cloud-paused>{T.conta.cloudPaused(paused)}</p>
+    {/if}
     <p class="muted">{T.conta.cloudIntro}</p>
     {#if loaded && !failed && copies.length === 0}
       <p class="muted">{T.conta.cloudEmpty}</p>

@@ -1,4 +1,6 @@
 // Todo texto que a pessoa lê passa por aqui (pt-BR). Facilita traduzir depois.
+import type { CopiesPaused } from './core/sync/types';
+
 // Diferenças em segundos, truncadas no centésimo como os tempos.
 const sec = (ms: number): string => (Math.floor(ms / 10) / 100).toFixed(2);
 
@@ -613,6 +615,13 @@ export const T = Object.freeze({
       n === 0 ? 'Esperando rede' : `${n.toLocaleString('pt-BR')} ${n === 1 ? 'mudança esperando' : 'mudanças esperando'} rede`,
     failed: 'O sync parou. Tentando de novo.',
     expired: 'Sua sessão expirou. Entre de novo para sincronizar.',
+    // A cota da conta e o orçamento do dia (endurecimento 4.1 e decisões 4 e 6): o que a conta recusou fica só aqui, e nada se perde. A
+    // cota também é o teto de bytes da conta, então o texto não fala em solves.
+    quotaFull: 'A conta chegou ao limite do plano gratuito. Os novos ficam só neste aparelho.',
+    budgetDeferred: 'Muita coisa para subir hoje: o resto sobe amanhã.',
+    heldCount: (n: number): string => (n === 1 ? '1 registro só neste aparelho' : `${n.toLocaleString('pt-BR')} registros só neste aparelho`),
+    heldResend: 'Enviar de novo',
+    heldResent: 'De volta à fila. Se a conta continuar cheia, eles ficam só neste aparelho.',
     update: 'Atualize o Klick para sincronizar.',
     signInAgain: 'Entrar de novo',
     passkeys: 'Passkeys',
@@ -685,6 +694,7 @@ export const T = Object.freeze({
     joinNote: 'Antes, uma cópia deste aparelho foi guardada em Cópias automáticas. Nada se duplica.',
     resuming: 'Bem-vindo de volta. O que mudou nos dois lados se junta agora.',
     done: 'Pronto. Seus solves estão na conta.',
+    doneTomorrow: 'Pronto por hoje. O resto sobe amanhã, sozinho.', // o primeiro sync que o orçamento do dia cortou (decisão 6)
     keepsGoing: 'Pode fechar: o sync continua sozinho.',
     // Uma parada (sair, noutra aba) antes do fim do primeiro sync: nada foi para a conta.
     syncCancelled: 'O primeiro sync parou antes de terminar, porque a conta saiu deste aparelho. Entre de novo para continuar.',
@@ -705,6 +715,14 @@ export const T = Object.freeze({
     cloudRestored: 'Restaurado. Os aparelhos recebem pelo sync.',
     cloudRestoreFailed: 'Não consegui restaurar agora. Tudo continua como estava.',
     cloudGone: 'Esta cópia não existe mais. A lista foi atualizada.',
+    // As cópias pausadas e as recusas da restauração (endurecimento 4.2 e decisões 1, 2, 3 e 6): cada uma diz por quê, e nada muda aqui.
+    cloudPaused: (why: CopiesPaused): string =>
+      why === 'space' ? 'Cópias na nuvem pausadas: o espaço gratuito encheu.' : 'Cópias na nuvem pausadas até o mês que vem: o limite gratuito do mês acabou.',
+    cloudNoRoom: 'Não há espaço para guardar o estado de agora antes de restaurar. Tudo continua como estava.',
+    cloudRestoreLimit: 'Já foram restaurações demais hoje. Tente de novo amanhã.',
+    cloudOpsLimit: 'As cópias na nuvem pararam até o mês que vem: o limite gratuito acabou. Tudo continua como estava.',
+    cloudTooBig: 'Esta conta é grande demais para restaurar uma cópia na nuvem. As cópias deste aparelho continuam valendo.',
+    cloudWriteBudget: 'A conta já gravou muita coisa hoje. Tente restaurar amanhã.',
     deleteAccount: 'Apagar minha conta',
     deleteAccountHint: 'Apaga a conta e tudo o que está na nuvem. Os dados deste aparelho ficam.',
     deleteTitle: 'Apagar minha conta',
