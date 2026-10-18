@@ -7,6 +7,7 @@
   // botão só pede a abertura (app.dialog = 'signin').
   import { onDestroy, onMount, tick } from 'svelte';
   import { T } from '../../strings';
+  import type { SyncStatus } from '../../sync/engine';
   import CloudCopiesDialog from '../dialogs/CloudCopiesDialog.svelte';
   import DeleteAccountDialog from '../dialogs/DeleteAccountDialog.svelte';
   import SignOutDialog from '../dialogs/SignOutDialog.svelte';
@@ -27,8 +28,9 @@
   const ACCOUNT_DIALOGS: readonly DialogId[] = ['signout', 'cloud', 'deleteAccount'];
 
   // "Sincronizar agora" com o cubinho (spec visual 7 e decisão 9): o verde passageiro da linha e a onda do cubo só vêm depois de um sync que
-  // a pessoa pediu pelo toque e que terminou bem. Os syncs automáticos com Ajustes aberto não piscam. A marca "pedido pelo toque" é gasta
-  // no primeiro fim de rodada (bem ou mal) e não é lida pela tela, por isso não é reativa.
+  // a pessoa pediu pelo toque e que terminou bem, sem aviso (a cota cheia ou o resto para amanhã não são sucesso). Os syncs automáticos com
+  // Ajustes aberto não piscam. A marca "pedido pelo toque" é gasta no primeiro fim de rodada (bem ou mal) e não é lida pela tela, por isso
+  // não é reativa.
   const FRESH_MS = 1200;
   let requested = false;
   let prevPhase: string | undefined;
@@ -45,15 +47,22 @@
   $effect(() => {
     const phase = account?.status.phase;
     const failed = account?.status.error != null;
+    const notice = account?.status.notice != null;
     const was = prevPhase;
     prevPhase = phase;
     if (!requested || was !== 'syncing' || phase === 'syncing') return;
     requested = false;
-    if (phase !== 'idle' || failed) return;
+    if (phase !== 'idle' || failed || notice) return;
     fresh = true;
     clearTimeout(freshTimer);
     freshTimer = setTimeout(() => (fresh = false), FRESH_MS);
   });
+
+  // A linha do sync, sem o aviso da cota quando a linha dos guardados aparece: a dica dela já explica o limite, e a frase não se repete
+  // (com a conta cheia, toda rodada com solves novos é recusada de novo).
+  function lineStatus(s: SyncStatus, held: number): SyncStatus {
+    return held > 0 && s.notice === 'quota' ? { ...s, notice: null } : s;
+  }
 
   // O cubinho do botão: gira enquanto sincroniza, erro com o erro, onda uma vez com o verde; o resto, parado. Passa por "turn" entre um
   // toque e outro, então a onda toca de novo.
@@ -77,9 +86,12 @@
   });
 
   // A seção troca de conteúdo ao entrar, sair ou apagar a conta, e o botão que tinha o foco (ou que abriu o diálogo) some com ela. Depois
-  // da troca, com nenhum diálogo aberto, o foco que caiu no <body> vai para o primeiro controle da seção (spec 9.6): "Entrar ou criar
-  // conta", ao sair. Um foco que está em outro lugar fica onde está.
+  // da troca, com nenhum diálogo aberto e nada esperando (os botões que `busy` desliga voltam antes), o foco que caiu no <body> vai para o
+  // primeiro controle da seção que dá para usar (spec 9.6): "Entrar ou criar conta", ao sair; "Sincronizar agora" (ou, com o sync
+  // rodando, o seguinte), quando a linha dos guardados some com o "Enviar de novo" que tinha o foco. Um foco que está em outro lugar fica
+  // onde está.
   let shownSignedIn: boolean | undefined;
+  let shownHeld = false;
   let refocus = $state(false);
   $effect(() => {
     const signedIn = account?.signedIn;
@@ -87,7 +99,12 @@
     shownSignedIn = signedIn;
   });
   $effect(() => {
-    if (!refocus || app.dialog !== null) return;
+    const held = (account?.held ?? 0) > 0;
+    if (shownHeld && !held) refocus = true;
+    shownHeld = held;
+  });
+  $effect(() => {
+    if (!refocus || app.dialog !== null || busy) return;
     refocus = false;
     void tick().then(() => {
       const active = document.activeElement;
@@ -160,7 +177,7 @@
       </div>
     {:else}
       <div class="setting">
-        <span>{account.sync.email}<small data-sync-line data-fresh={fresh ? 'true' : undefined}>{syncLine(account.status, now)}</small></span>
+        <span>{account.sync.email}<small data-sync-line data-fresh={fresh ? 'true' : undefined}>{syncLine(lineStatus(account.status, account.held), now)}</small></span>
         {#if account.status.error === 'auth'}
           <button type="button" class="btn" onclick={() => (app.dialog = 'signin')}>{T.conta.signInAgain}</button>
         {:else}
@@ -172,7 +189,9 @@
       {#if account.held > 0}
         <div class="setting" data-held>
           {@render caption(T.conta.heldCount(account.held), T.conta.quotaFull)}
-          <button type="button" class="btn" disabled={busy} onclick={resendHeld}>{T.conta.heldResend}</button>
+          <button type="button" class="btn" disabled={busy} aria-label={T.conta.heldResendAria(account.held)} onclick={resendHeld}
+            >{T.conta.heldResend}</button
+          >
         </div>
       {/if}
 

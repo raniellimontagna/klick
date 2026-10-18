@@ -386,6 +386,22 @@ describe('diálogo de entrar (spec 7.2 e 9.2)', () => {
     expect(await screen.findByText('A conta chegou ao limite do plano gratuito. Os novos ficam só neste aparelho.')).toBeInTheDocument();
   });
 
+  // "Pronto" fica depois de outra rodada; a linha do limite segue os registros guardados, não o aviso da última rodada.
+  it('a linha do limite fica depois de outra rodada sem recusa nova, enquanto houver registros só neste aparelho', async () => {
+    const server = new FakeServer(500, { limits: { solves: 1, sessions: 10, practice: 10 } });
+    const { app } = await openDialog({}, server);
+    for (let i = 0; i < 3; i++) await app.addSolve({ ms: 9000 + i, penalty: null, at: Date.now() + i });
+    await typeEmailAndCode();
+    await skipPasskey();
+    await vi.waitFor(() => expect(document.querySelector('[data-sync-line]')).toHaveTextContent(T.conta.done));
+    await screen.findByText(T.conta.quotaFull);
+    await app.account!.syncNow(); // nada novo: a rodada termina sem aviso
+    expect(app.account!.status.notice).toBeNull();
+    await vi.waitFor(() => expect(document.querySelector('[data-sync-line]')).toHaveTextContent(T.conta.done));
+    expect(app.account!.held).toBe(2);
+    expect(screen.getByText(T.conta.quotaFull)).toBeInTheDocument();
+  });
+
   it('a mesma conta de antes volta sem perguntar nada e sem novo primeiro login', async () => {
     const { app, repo } = await openDialog();
     await repo.saveSyncState({ accountId: 'conta-1', signedIn: false });

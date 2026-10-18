@@ -143,19 +143,49 @@ describe('Ajustes: o que só está neste aparelho e as cópias pausadas', () => 
     expect(T.conta.heldCount(2)).toBe('2 registros só neste aparelho');
     expect(T.conta.heldCount(1)).toBe('1 registro só neste aparelho');
     expect(T.conta.heldCount(12_000)).toBe('12.000 registros só neste aparelho');
-    // A linha do sync diz o limite, e a dos guardados vem logo abaixo dela.
-    expect(document.querySelector('[data-sync-line]')).toHaveTextContent(T.conta.quotaFull);
+    // A linha dos guardados vem logo abaixo da do sync, e só ela explica o limite: a linha do sync não repete a frase.
+    expect(app.account!.status.notice).toBe('quota');
     expect(row.previousElementSibling?.querySelector('[data-sync-line]')).not.toBeNull();
+    expect(document.querySelector('[data-sync-line]')).toHaveTextContent('Sincronizado agora');
+    expect(screen.getAllByText(T.conta.quotaFull)).toHaveLength(1);
+    // O botão diz o que envia, como o "Remover" das passkeys.
+    const resend = screen.getByRole('button', { name: 'Enviar de novo os 2 registros só neste aparelho' });
+    expect(resend).toHaveTextContent('Enviar de novo');
+    expect(T.conta.heldResendAria(1)).toBe('Enviar de novo o registro só neste aparelho');
     // A conta ganhou vaga: "Enviar de novo" põe os dois na fila, e a rodada sai sozinha (como em "Sincronizar agora").
     limits.solves = 10;
-    await fireEvent.click(screen.getByRole('button', { name: 'Enviar de novo' }));
+    await fireEvent.click(resend);
     await vi.waitFor(() => expect(app.toast?.text).toBe(T.conta.heldResent));
     await vi.waitFor(() => expect(activeSolves(server)).toHaveLength(3));
     expect(await repo.heldCount()).toBe(0);
     expect(await repo.outboxCount()).toBe(0);
     await vi.waitFor(() => expect(screen.queryByText(/registros? só neste aparelho/)).toBeNull());
-    expect(screen.queryByRole('button', { name: 'Enviar de novo' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Enviar de novo/ })).toBeNull();
     expect(document.querySelector('[data-sync-line]')).toHaveTextContent('Sincronizado agora');
+  });
+
+  // Spec 9.6: o botão some com a linha (a refresh de resendHeld zera a contagem) enquanto tem o foco. O foco não cai no <body>: vai para o
+  // primeiro controle da seção que dá para usar, como depois de sair.
+  it('depois de "Enviar de novo", a linha some e o foco fica na seção, não no <body> (spec 9.6)', async () => {
+    const limits = { solves: 1, sessions: 10, practice: 10 };
+    const server = new FakeServer(500, { limits });
+    const { app } = await appWithAccount(fakeApi(server).api, { signedIn: true });
+    await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
+    for (let i = 0; i < 2; i++) await app.addSolve({ ms: 9000 + i, penalty: null, at: Date.now() + i });
+    await app.account!.syncNow();
+    render(AjustesScreen, { app });
+    const resend = await screen.findByRole('button', { name: 'Enviar de novo o registro só neste aparelho' });
+    limits.solves = 10;
+    resend.focus();
+    await fireEvent.click(resend);
+    await vi.waitFor(() => expect(screen.queryByRole('button', { name: /^Enviar de novo/ })).toBeNull());
+    await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
+    await vi.waitFor(() => {
+      const active = document.activeElement;
+      expect(active).not.toBe(document.body);
+      expect(active?.tagName).toBe('BUTTON');
+      expect(active?.closest('[data-slot="conta"]')).not.toBeNull();
+    });
   });
 
   // Cota e orçamento na mesma rodada: o aviso é o do orçamento (o resto da fila só é explicado ali), e a cota aparece pela linha dos guardados.
@@ -183,7 +213,7 @@ describe('Ajustes: o que só está neste aparelho e as cópias pausadas', () => 
     await screen.findByText('ranielli@exemplo.com');
     expect(app.account!.held).toBe(0);
     expect(screen.queryByText(/registros? só neste aparelho/)).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Enviar de novo' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Enviar de novo/ })).toBeNull();
   });
 
   it('com as cópias pausadas, a dica diz por quê', async () => {
@@ -287,6 +317,29 @@ describe('Ajustes: "Sincronizar agora" com o cubo vivo', () => {
     app.account!.status = { ...idleStatus(), phase: 'idle', lastSyncAt: Date.now() };
     await tick();
     expect(line).not.toHaveAttribute('data-fresh');
+    await fireEvent.click(button);
+    app.account!.status = { ...idleStatus(), phase: 'syncing' };
+    await tick();
+    app.account!.status = { ...idleStatus(), phase: 'idle', lastSyncAt: Date.now() };
+    await tick();
+    expect(line).toHaveAttribute('data-fresh', 'true');
+  });
+
+  // A cota e o orçamento não são sucesso: a linha diz o aviso, sem o verde nem a onda.
+  it('um toque que termina com um aviso (a cota, o orçamento) não fica verde nem toca a onda', async () => {
+    const { app, button, line } = await opened();
+    for (const notice of ['quota', 'budget'] as const) {
+      await fireEvent.click(button);
+      app.account!.status = { ...idleStatus(), phase: 'syncing' };
+      await tick();
+      app.account!.status = { ...idleStatus(), phase: 'idle', lastSyncAt: Date.now(), notice };
+      await tick();
+      expect(line).toHaveTextContent(notice === 'quota' ? T.conta.quotaFull : T.conta.budgetDeferred);
+      expect(line).not.toHaveAttribute('data-fresh');
+      expect(button.querySelector('[data-cube="wave"]')).toBeNull();
+      expect(button.querySelector('[data-cube="idle"]')).not.toBeNull();
+    }
+    // O toque seguinte, que termina sem aviso, fica verde como sempre.
     await fireEvent.click(button);
     app.account!.status = { ...idleStatus(), phase: 'syncing' };
     await tick();

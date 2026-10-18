@@ -621,6 +621,8 @@ export const T = Object.freeze({
     budgetDeferred: 'Muita coisa para subir hoje: o resto sobe amanhã.',
     heldCount: (n: number): string => (n === 1 ? '1 registro só neste aparelho' : `${n.toLocaleString('pt-BR')} registros só neste aparelho`),
     heldResend: 'Enviar de novo',
+    heldResendAria: (n: number): string =>
+      n === 1 ? 'Enviar de novo o registro só neste aparelho' : `Enviar de novo os ${n.toLocaleString('pt-BR')} registros só neste aparelho`,
     heldResent: 'De volta à fila. Se a conta continuar cheia, eles ficam só neste aparelho.',
     update: 'Atualize o Klick para sincronizar.',
     signInAgain: 'Entrar de novo',

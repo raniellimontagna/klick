@@ -279,8 +279,9 @@
     error = T.conta.verifyFailed;
   }
 
-  // "Pronto": o orçamento do dia cortou o primeiro sync (decisão 6), e o resto sobe amanhã; senão, tudo está na conta (com a conta cheia, o
-  // limite vem abaixo).
+  // "Pronto": o orçamento do dia cortou o primeiro sync (decisão 6), e o resto sobe amanhã; senão, tudo está na conta. Segue o aviso da
+  // última rodada: enquanto o resto espera, toda rodada termina com 'budget'; quando ele sobe, o "Pronto" de sempre passa a valer. O limite
+  // da conta vem abaixo enquanto houver registros só neste aparelho (account.held): uma rodada sem recusa nova não o apaga.
   function doneLine(s: SyncStatus): string {
     return s.notice === 'budget' ? T.conta.doneTomorrow : T.conta.done;
   }
@@ -382,7 +383,7 @@
             <p class="muted" data-sync-line>{progress === 'done' ? doneLine(account.status) : waitingLine(account.status)}</p>
           {/if}
         </div>
-        {#if progress === 'done' && account.status.notice === 'quota'}<p class="muted">{T.conta.quotaFull}</p>{/if}
+        {#if progress === 'done' && account.held > 0}<p class="muted">{T.conta.quotaFull}</p>{/if}
         {#if progress === 'cancelled'}
           <div class="row">
             <button type="button" class="btn primary" onclick={() => go('email')}>{T.conta.signInAgain}</button>

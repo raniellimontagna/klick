@@ -100,7 +100,7 @@ describe('cópias na nuvem: pausas e recusas', () => {
     ['write-budget', 429, 'A conta já gravou muita coisa hoje. Tente restaurar amanhã.'],
   ];
 
-  it('cada recusa da restauração mostra a mensagem dela e nada muda', async () => {
+  it.each(REFUSALS)('cada recusa da restauração mostra a mensagem dela e nada muda (%s, %i)', async (code, status, message) => {
     const net = fakeApi(new FakeServer());
     net.cloud.copies = [{ name: '2026-10-15', day: '2026-10-15', kind: 'daily', solves: 3 }];
     const { app, repo } = await appWithAccount(net.api, { signedIn: true });
@@ -113,20 +113,25 @@ describe('cópias na nuvem: pausas e recusas', () => {
     await fireEvent.click(await screen.findByRole('button', { name: 'Ver cópias na nuvem' }));
     await screen.findByText('3 solves');
     const sync = vi.spyOn(app.account!, 'syncNow');
-    for (const [code, status, message] of REFUSALS) {
-      net.api.restoreCloudCopy = createSyncApi(async () => Response.json({ error: code }, { status })).restoreCloudCopy;
-      await fireEvent.click(screen.getByRole('button', { name: 'Restaurar a cópia de 2026-10-15' }));
-      await fireEvent.click(screen.getByRole('button', { name: 'Tem certeza? Clique de novo' }));
-      await vi.waitFor(() => expect(app.toast?.text).toBe(message));
-      expect(await app.account!.restoreCloudCopy('2026-10-15')).toBe(code);
-      expect(screen.getByRole('heading', { name: 'Cópias na nuvem' })).toBeInTheDocument(); // o diálogo fica aberto
-    }
+    net.api.restoreCloudCopy = createSyncApi(async () => Response.json({ error: code }, { status })).restoreCloudCopy;
+    await fireEvent.click(screen.getByRole('button', { name: 'Restaurar a cópia de 2026-10-15' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Tem certeza? Clique de novo' }));
+    await vi.waitFor(() => expect(app.toast?.text).toBe(message));
+    expect(await app.account!.restoreCloudCopy('2026-10-15')).toBe(code);
+    expect(screen.getByRole('heading', { name: 'Cópias na nuvem' })).toBeInTheDocument(); // o diálogo fica aberto
     expect(sync).not.toHaveBeenCalled();
+    expect(net.cloud.restored).toEqual([]);
     expect(await repo.listSolves()).toEqual(solves);
     expect(await repo.getSyncState()).toEqual(state);
-    // Um código que não é de recusa (a rajada do Worker, 429 'limited') continua sendo a falha de sempre.
+  });
+
+  it('um código que não é de recusa (a rajada do Worker, 429 "limited") continua sendo a falha de sempre', async () => {
+    const net = fakeApi(new FakeServer());
     net.api.restoreCloudCopy = createSyncApi(async () => Response.json({ error: 'limited' }, { status: 429 })).restoreCloudCopy;
+    const { app } = await appWithAccount(net.api, { signedIn: true });
+    const sync = vi.spyOn(app.account!, 'syncNow');
     expect(await app.account!.restoreCloudCopy('2026-10-15')).toBe('failed');
+    expect(sync).not.toHaveBeenCalled();
   });
 
   it('a lista sem operações no mês mostra cloudOpsLimit', async () => {
@@ -140,6 +145,26 @@ describe('cópias na nuvem: pausas e recusas', () => {
     );
     expect(T.conta.cloudOpsLimit).toBe(app.toast?.text);
     expect(screen.queryByText(T.conta.cloudEmpty)).toBeNull();
+  });
+
+  // A lista que não carrega por falta de operações do R2 deixa a pausa fixa no topo, além do aviso; outra falha não inventa pausa nenhuma.
+  it('a lista que não carrega por falta de operações deixa a pausa fixa no topo do diálogo', async () => {
+    const net = fakeApi(new FakeServer());
+    let fail: () => Response = () => Response.json({ error: 'r2-budget' }, { status: 503 });
+    net.api.cloudCopies = (account) => createSyncApi(async () => fail()).cloudCopies(account);
+    const { app } = await appWithAccount(net.api, { signedIn: true });
+    await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
+    expect(app.account!.sync.copiesPaused).toBeNull();
+    render(AjustesScreen, { app });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Ver cópias na nuvem' }));
+    await vi.waitFor(() => expect(app.toast?.text).toBe(T.conta.cloudOpsLimit));
+    expect(document.querySelector('[data-cloud-paused]')).toHaveTextContent(T.conta.cloudPaused('ops'));
+    expect(screen.queryByText(T.conta.cloudEmpty)).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Fechar' }));
+    fail = () => new Response(null, { status: 502 }); // a rede, não o limite
+    await fireEvent.click(screen.getByRole('button', { name: 'Ver cópias na nuvem' }));
+    await vi.waitFor(() => expect(app.toast?.text).toBe(T.conta.cloudLoadFailed));
+    expect(document.querySelector('[data-cloud-paused]')).toBeNull();
   });
 
   it('a lista com as cópias pausadas diz por quê no topo do diálogo', async () => {

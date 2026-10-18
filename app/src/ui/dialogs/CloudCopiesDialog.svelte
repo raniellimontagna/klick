@@ -14,12 +14,12 @@
   let copies = $state<CloudCopy[]>([]);
   let loaded = $state(false);
   let failed = $state(false); // a lista não carregou: o aviso diz isso, não que não há cópias
-  let listPaused = $state<CopiesPaused | null>(null); // a pausa que a lista trouxe
+  let listPaused = $state<CopiesPaused | null>(null); // a pausa que a lista trouxe ('ops' também quando ela não carregou por isso)
   let asking = $state<string | null>(null); // a cópia que espera o segundo clique
   let busy = $state(false);
-  // A pausa no topo: a da lista, quando ela carregou (a mais nova; 'ops' também é a lista que não se renovou este mês); antes, ou sem ela, a
-  // do último sync.
-  const paused = $derived(loaded && !failed ? listPaused : (app.account?.sync.copiesPaused ?? null));
+  // A pausa no topo: a da lista, quando ela carregou (a mais nova; 'ops' também é a lista que não se renovou este mês) ou quando não carregou
+  // por falta de operações do R2 no mês; antes, ou numa falha sem pausa, a do último sync.
+  const paused = $derived(loaded && (!failed || listPaused !== null) ? listPaused : (app.account?.sync.copiesPaused ?? null));
 
   // A mensagem de cada recusa da restauração.
   const REFUSED: Readonly<Record<RestoreRefusal, string>> = {
@@ -44,11 +44,13 @@
       copies = list?.copies ?? [];
       listPaused = list?.paused ?? null;
     } catch (err) {
+      // Sem operações do R2 no mês e sem lista guardada, o servidor diz isso: o aviso, e a pausa fica no topo; o resto é a falta de rede de
+      // sempre.
+      const ops = err instanceof ApiError && err.code === 'r2-budget';
       copies = [];
-      listPaused = null;
+      listPaused = ops ? 'ops' : null;
       failed = true;
-      // Sem operações do R2 no mês e sem lista guardada, o servidor diz isso; o resto é a falta de rede de sempre.
-      app.showToast(err instanceof ApiError && err.code === 'r2-budget' ? T.conta.cloudOpsLimit : T.conta.cloudLoadFailed);
+      app.showToast(ops ? T.conta.cloudOpsLimit : T.conta.cloudLoadFailed);
     }
     loaded = true;
   }
