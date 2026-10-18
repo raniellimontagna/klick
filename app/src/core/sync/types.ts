@@ -58,6 +58,9 @@ export interface SyncResponse {
   // continuam na fila.
   deferred?: number;
   retryAt?: number; // quando mandar de novo o que foi adiado: a virada do dia do orçamento, ou a hora do pedido (o corte do pedido: já)
+  // O orçamento de leituras do dia da conta acabou (worker/limits.ts, DAILY_READ_BUDGET): o servidor não leu nada, nem a página (`changes`
+  // vazio, o cursor do pedido de volta, `more` false) nem o lote (todo em `deferred`), e os dois voltam em `retryAt`, a virada do dia UTC.
+  readsDeferred?: boolean;
   copiesPaused?: CopiesPaused | null; // as cópias na nuvem da conta estão pausadas, e por quê
 }
 

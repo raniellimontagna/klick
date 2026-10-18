@@ -34,6 +34,18 @@ export type CapName =
 // O orçamento do dia (decisão 6) conta linhas gravadas no SQLite do objeto, o que o grátis conta (100 mil por dia, somadas entre todas as
 // contas): 20 mil por conta por dia UTC, 20% do dia de todas. A chave do estado continua 'writes' ({ day, n }), agora em linhas (rowsOf).
 export const DAILY_WRITE_BUDGET = 20_000;
+// O orçamento de leituras do dia (revisão final, I2 c): as linhas que os pedidos de uma conta leem no SQLite do objeto por dia UTC (a página do
+// sync, as mudanças do lote, a cascata, a cópia do dia e a restauração). O grátis tem 5 milhões por dia somadas entre todas as contas; pedir
+// sempre do cursor 0 lê uma página inteira por pedido, e na rajada uma conta só as esvaziaria em horas. Folgado: o primeiro sync inteiro de
+// uma conta de 100 mil solves (~110 mil registros) cabe quatro vezes. A conta corre na memória do objeto e vai para o estado a cada
+// READS_SAVE_EVERY linhas (contar não grava uma linha por pedido); o que ainda estava só na memória quando o objeto sai dela se perde.
+export const DAILY_READ_BUDGET = 500_000;
+export const READS_SAVE_EVERY = 10_000;
+// O aparelho de cada pedido (a tabela `devices`, que a página de privacidade cita e nada lê): gravado só quando é novo ou quando a linha dele
+// passou de DEVICE_TOUCH_MS, e só os MAX_DEVICES mais recentes ficam. Assim um sync que só recebe não grava nada, e um id de aparelho novo a
+// cada pedido não enche o espaço que todas as contas dividem.
+export const DEVICE_TOUCH_MS = 3_600_000;
+export const MAX_DEVICES = 20;
 export const RESTORES_PER_DAY = 3; // restaurações por conta por dia UTC (spec 7.1)
 // As tentativas de restaurar que chegam ao R2 (as duas operações B reservadas), por conta por dia UTC, deem certo ou não: uma recusa depois
 // de ler a cópia (o nome que sumiu, too-big, write-budget, no-room) também gasta as B do mês, que todas as contas dividem.

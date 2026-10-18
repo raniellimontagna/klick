@@ -37,13 +37,17 @@ export class MapView implements RecordView {
 // que cabem no que sobra do dia são lidas, e o resto volta em `deferred`, com `retryAt` na virada do dia UTC de `now` (newDay() zera o
 // dia). A exclusão de uma sessão conta junto os solves ativos dela, que a cascata grava: a que não cabe no que sobra fica para amanhã com o
 // resto, e a que não caberia nem num dia inteiro volta com o motivo da cota (e o resto segue). Com `perRequest`, no máximo tantas mudanças
-// por pedido, e o resto volta em `deferred` com `retryAt` = `now` (MAX_WRITES_PER_REQUEST). `copiesPaused` vai em toda resposta.
+// por pedido, e o resto volta em `deferred` com `retryAt` = `now` (MAX_WRITES_PER_REQUEST). Com `reads` (registros por dia; o de verdade
+// conta linhas, DAILY_READ_BUDGET), cada página conta o que levou, e passado dele o pedido não lê nada: a página volta vazia, com o cursor
+// do pedido, o lote todo em `deferred`, `retryAt` na virada do dia e `readsDeferred`. `copiesPaused` vai em toda resposta.
 export class FakeServer {
   readonly records = new Map<string, Change & { rev: number }>();
   rev = 0;
   now = 0;
   requests = 0;
   written = 0; // registros gravados no dia, a cascata inclusive (o orçamento)
+  reads: number | null = null; // o orçamento de leituras do dia, em registros
+  read = 0; // registros lidos no dia (as páginas)
   copiesPaused: CopiesPaused | null = null;
   admit: ApplyOptions['admit'] = undefined;
   budget: number | null;
@@ -59,6 +63,22 @@ export class FakeServer {
   sync(req: SyncRequest): SyncResponse {
     if (req.v !== SYNC_PROTOCOL) throw new ApiError('update', 426);
     this.requests++;
+    const nextDay = (Math.floor(this.now / DAY_MS) + 1) * DAY_MS;
+    if (this.reads !== null && this.read >= this.reads) {
+      const n = req.changes.length;
+      return {
+        accepted: 0,
+        rejected: [],
+        changes: [],
+        cursor: req.cursor,
+        more: false,
+        serverTime: this.now,
+        ...(n > 0 ? { deferred: n } : {}),
+        retryAt: nextDay,
+        readsDeferred: true,
+        copiesPaused: this.copiesPaused,
+      };
+    }
     const view = new MapView(this.records);
     const read: unknown[] = [];
     const refused: Rejected[] = [];
@@ -86,6 +106,7 @@ export class FakeServer {
     this.written += result.writes.length;
     const after = [...this.records.values()].filter((r) => r.rev > req.cursor).sort((a, b) => a.rev - b.rev);
     const page = after.slice(0, this.batch);
+    this.read += page.length;
     const deferred = req.changes.length - taken;
     return {
       accepted: read.length - result.rejected.length,
@@ -94,13 +115,14 @@ export class FakeServer {
       cursor: page.length > 0 ? page[page.length - 1].rev : req.cursor,
       more: after.length > page.length,
       serverTime: this.now,
-      ...(deferred > 0 ? { deferred, retryAt: cut ? this.now : (Math.floor(this.now / DAY_MS) + 1) * DAY_MS } : {}),
+      ...(deferred > 0 ? { deferred, retryAt: cut ? this.now : nextDay } : {}),
       copiesPaused: this.copiesPaused,
     };
   }
-  // A virada do dia do orçamento: as gravações do dia voltam a zero (a hora fica a de `now`).
+  // A virada do dia do orçamento: as gravações e as leituras do dia voltam a zero (a hora fica a de `now`).
   newDay(): void {
     this.written = 0;
+    this.read = 0;
   }
   // Os ativos de cada store contada, como o objeto da conta guarda no estado.
   counts(): ActiveCounts {

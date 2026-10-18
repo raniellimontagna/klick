@@ -5,6 +5,7 @@ import { env } from 'cloudflare:workers';
 import { describe, expect, it, vi } from 'vitest';
 import { defaultSeason } from '../../src/core/season';
 import { QUOTA_REASON, type ActiveCounts } from '../../src/core/sync/limits';
+import { exportFromRecords } from '../../src/core/sync/snapshot';
 import { ACCOUNT_HEADER, SYNC_BATCH, SYNC_PROTOCOL, type Change, type SyncResponse } from '../../src/core/sync/types';
 import type { Env } from '../../worker/env';
 import { ACTIVE_CHILDREN } from '../../worker/records-sql';
@@ -12,12 +13,16 @@ import {
   ACCOUNT_BYTES_CAP,
   capsOf,
   COMPACT_PER_DAY,
+  DAILY_READ_BUDGET,
   DAILY_WRITE_BUDGET,
+  DEVICE_TOUCH_MS,
+  MAX_DEVICES,
   MAX_SYNC_REQUEST,
   MAX_WRITES_PER_REQUEST,
   nextUtcDay,
   PULL_PAGE,
   PULL_PAGE_WITH_PUSH,
+  READS_SAVE_EVERY,
   RECORDS_PER_DAY,
   REQUEST_ROWS,
   rowsOf,
@@ -26,7 +31,7 @@ import {
   SESSION_PREPAY,
   utcDay,
 } from '../../worker/limits';
-import { dayOf } from '../../worker/snapshots';
+import { dayOf, gzipJson, snapshotKey } from '../../worker/snapshots';
 import { seeded } from '../unit/sync-random';
 import { call, postJson, setState, stateOf, stubOf, T0, testDeps } from './helpers';
 
@@ -398,7 +403,8 @@ describe('os tamanhos que cabem (Task 12)', () => {
     const rest = await sync(user, batch.slice(MAX_WRITES_PER_REQUEST), { cursor: first.cursor });
     expect([rest.accepted, rest.rejected, rest.deferred, rest.retryAt]).toEqual([left, [], undefined, undefined]);
     expect((await sync(user, [], { device: 'd2' })).changes.map((c) => c.id)).toEqual(batch.map((c) => c.id));
-    expect(await json(user, 'writes')).toEqual({ day: utcDay(T0), n: rowsOf(MAX_WRITES_PER_REQUEST) + rowsOf(left) });
+    // Mais as linhas do estado de um pedido pelo aparelho novo (d2) que só recebeu: a linha dele conta no orçamento (revisão final, I2).
+    expect(await json(user, 'writes')).toEqual({ day: utcDay(T0), n: rowsOf(MAX_WRITES_PER_REQUEST) + rowsOf(left) + REQUEST_ROWS });
   });
 
   it('o corte do pedido e o orçamento juntos: lê o menor dos dois; o que o orçamento corta fica para amanhã, o que o pedido corta, para agora', async () => {
@@ -430,7 +436,8 @@ describe('os tamanhos que cabem (Task 12)', () => {
     expect([res.accepted, res.rejected, res.deferred]).toEqual([1, [], undefined]);
     const all = byId(await sync(user, [], { device: 'd2' }));
     expect(['s1', 'a', 'b', 'c'].map((id) => all.get(id)!.deletedAt)).toEqual([T0 + 10, T0 + 10, T0 + 10, T0 + 10]);
-    expect(await json(user, 'writes')).toEqual({ day: utcDay(T0), n: rowsOf(4) + rowsOf(4) }); // a sessão e os 3 solves da cascata
+    // A sessão e os 3 solves da cascata, e o aparelho novo (d2) que recebeu.
+    expect(await json(user, 'writes')).toEqual({ day: utcDay(T0), n: rowsOf(4) + rowsOf(4) + REQUEST_ROWS });
   });
 
   it('a cascata que não cabe no que sobra hoje fica para amanhã, com o resto do lote, e passa no dia seguinte', async () => {
@@ -442,7 +449,7 @@ describe('os tamanhos que cabem (Task 12)', () => {
     const seen = byId(await sync(user, [], { device: 'd2' }));
     expect(['s1', 'a', 'b', 'c'].map((id) => seen.get(id)!.deletedAt)).toEqual([null, null, null, null]);
     expect([seen.has('antes'), seen.has('depois')]).toEqual([true, false]);
-    expect(await json(user, 'writes')).toEqual({ day: utcDay(T0), n: DAILY_WRITE_BUDGET - rowsOf(3) + rowsOf(1) });
+    expect(await json(user, 'writes')).toEqual({ day: utcDay(T0), n: DAILY_WRITE_BUDGET - rowsOf(3) + rowsOf(1) + REQUEST_ROWS }); // e o d2
     // No dia seguinte (UTC), o aparelho manda o resto, e a cascata passa.
     const tomorrow = nextUtcDay(T0);
     const next = await sync(user, [session('s1', gone(T0 + 10)), practice('depois')], { now: tomorrow });
@@ -450,7 +457,8 @@ describe('os tamanhos que cabem (Task 12)', () => {
     const all = byId(await sync(user, [], { device: 'd2', now: tomorrow }));
     expect(['s1', 'a', 'b', 'c'].map((id) => all.get(id)!.deletedAt)).toEqual([T0 + 10, T0 + 10, T0 + 10, T0 + 10]);
     expect(all.has('depois')).toBe(true);
-    expect(await json(user, 'writes')).toEqual({ day: utcDay(tomorrow), n: rowsOf(5) }); // a sessão, os 3 solves e a tentativa
+    // A sessão, os 3 solves e a tentativa; e a linha do d2, que passou de uma hora.
+    expect(await json(user, 'writes')).toEqual({ day: utcDay(tomorrow), n: rowsOf(5) + REQUEST_ROWS });
   });
 
   // Nenhum pedido grava mais que o dia de uma conta, e a compactação do alarme sempre cabe ao lado: a exclusão de uma sessão cuja cascata
@@ -506,5 +514,247 @@ describe('os tamanhos que cabem (Task 12)', () => {
     expect([res.accepted, res.rejected.length, res.deferred]).toEqual([0, MAX_WRITES_PER_REQUEST, undefined]);
     expect(res.rejected.every((r) => r.id === 's1' && r.reason === QUOTA_REASON)).toBe(true);
     expect(reads.n).toBe(1);
+  });
+});
+
+// As gravações do SQLite do objeto de `user` passam a falhar, como no grátis depois das 100 mil linhas do dia somadas entre todas as contas,
+// e cada tentativa é contada. Só as gravações: as leituras seguem.
+async function failWrites(user: string): Promise<{ n: number }> {
+  const tried = { n: 0 };
+  await runInDurableObject(stubOf(user), (instance) => {
+    const o = instance as unknown as { sql: SqlStorage };
+    const real = o.sql;
+    o.sql = new Proxy(real, {
+      get(target, key) {
+        const value = Reflect.get(target, key) as unknown;
+        if (key !== 'exec') return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+        return (query: string, ...bindings: unknown[]) => {
+          if (/^\s*(INSERT|UPDATE|DELETE|REPLACE|CREATE|DROP)\b/i.test(query)) {
+            tried.n++;
+            throw new Error('Exceeded allowed rows written in Durable Objects free tier.');
+          }
+          return target.exec(query, ...(bindings as SqlStorageValue[]));
+        };
+      },
+    });
+  });
+  return tried;
+}
+
+// As consultas aos registros (FROM records) no objeto de `user`, contadas.
+async function countRecordQueries(user: string): Promise<{ n: number }> {
+  const seen = { n: 0 };
+  await runInDurableObject(stubOf(user), (instance) => {
+    const o = instance as unknown as { sql: SqlStorage };
+    const real = o.sql;
+    o.sql = new Proxy(real, {
+      get(target, key) {
+        const value = Reflect.get(target, key) as unknown;
+        if (key !== 'exec') return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+        return (query: string, ...bindings: unknown[]) => {
+          if (/FROM records\b/.test(query)) seen.n++;
+          return target.exec(query, ...(bindings as SqlStorageValue[]));
+        };
+      },
+    });
+  });
+  return seen;
+}
+
+// N solves ativos na sessão s1 (ids `prefix`1 a `prefix`N), direto no SQLite do objeto, com as revisões depois das dela. Sem ler nada pelo
+// pedido: as leituras do teste são só as dos pedidos dele.
+async function seedRecords(user: string, n: number, prefix = 'x'): Promise<void> {
+  const data = JSON.stringify(solve('x').data);
+  await runInDurableObject(stubOf(user), (_o, state) => {
+    const sql = state.storage.sql;
+    const rev = Number(sql.exec<{ value: string }>("SELECT value FROM state WHERE key = 'rev'").toArray()[0]?.value ?? '0');
+    sql.exec(
+      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?)
+       INSERT INTO records (store, id, data, updated_at, deleted_at, deletion_stamp, rev, parent) SELECT 'solves', ? || i, ?, ?, NULL, ?, ? + i, 's1' FROM n`,
+      n, prefix, data, T0, T0, rev,
+    );
+    sql.exec("INSERT INTO state (key, value) VALUES ('rev', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", String(rev + n));
+  });
+}
+
+// Revisão final (I2 a, b): o que um pedido grava além das mudanças dele. O aparelho (a tabela `devices`, que a página de privacidade cita e
+// nada lê) é gravado só quando é novo ou quando a linha dele passou de DEVICE_TOUCH_MS, só os MAX_DEVICES mais recentes ficam, e a gravação
+// conta no orçamento do dia; um sync que só recebe, com a linha do aparelho fresca, não grava nada.
+describe('o que um pedido grava além das mudanças (revisão final, I2)', () => {
+  const DAY = nextUtcDay(T0); // a meia-noite UTC depois de T0: o dia inteiro pela frente
+  const devicesOf = (user: string) =>
+    runInDurableObject(stubOf(user), (_o, state) =>
+      state.storage.sql.exec<{ device_id: string; last_sync_at: number }>('SELECT device_id, last_sync_at FROM devices ORDER BY last_sync_at, device_id').toArray(),
+    );
+
+  it('as constantes', () => {
+    expect([DEVICE_TOUCH_MS, MAX_DEVICES]).toEqual([3_600_000, 20]);
+  });
+
+  it('esgotadas as gravações do dia, um sync que só recebe, com a linha do aparelho fresca, devolve a página sem gravar nada', async () => {
+    const user = 'so-recebe-sem-gravar';
+    await sync(user, [session(), solve('a'), solve('b')], { now: DAY });
+    await sync(user, [], { device: 'd2', now: DAY }); // a linha do d2 nasce aqui
+    await setState(user, 'writes', { day: utcDay(DAY), n: DAILY_WRITE_BUDGET });
+    const tried = await failWrites(user);
+    const res = await sync(user, [], { device: 'd2', now: DAY + DEVICE_TOUCH_MS });
+    expect(res.changes.map((c) => c.id)).toEqual(['s1', 'a', 'b']);
+    expect(tried.n).toBe(0);
+  });
+
+  it('com a linha do aparelho velha e as gravações falhando, o recebimento continua: o aparelho fica para depois', async () => {
+    const user = 'so-recebe-aparelho-velho';
+    await sync(user, [session(), solve('a')], { now: DAY });
+    const tried = await failWrites(user);
+    const res = await sync(user, [], { now: DAY + DEVICE_TOUCH_MS + 1 });
+    expect(res.changes.map((c) => c.id)).toEqual(['s1', 'a']);
+    expect(tried.n).toBeGreaterThan(0); // tentou gravar o aparelho, e a falha não derrubou o pedido
+  });
+
+  it('o aparelho é gravado quando é novo ou quando a linha dele passou de DEVICE_TOUCH_MS, e conta no orçamento do dia', async () => {
+    const user = 'aparelho-hora';
+    await sync(user, [session()], { now: DAY });
+    expect(await devicesOf(user)).toEqual([{ device_id: 'd1', last_sync_at: DAY }]);
+    expect(await json(user, 'writes')).toEqual({ day: utcDay(DAY), n: rowsOf(1) }); // num pedido que grava, o aparelho está nas REQUEST_ROWS
+    await sync(user, [], { now: DAY + DEVICE_TOUCH_MS }); // fresca: nada
+    expect(await devicesOf(user)).toEqual([{ device_id: 'd1', last_sync_at: DAY }]);
+    expect(await json(user, 'writes')).toEqual({ day: utcDay(DAY), n: rowsOf(1) });
+    await sync(user, [], { now: DAY + DEVICE_TOUCH_MS + 1 }); // velha: gravada, e conta as linhas do estado de um pedido
+    expect(await devicesOf(user)).toEqual([{ device_id: 'd1', last_sync_at: DAY + DEVICE_TOUCH_MS + 1 }]);
+    expect(await json(user, 'writes')).toEqual({ day: utcDay(DAY), n: rowsOf(1) + REQUEST_ROWS });
+    await sync(user, [], { device: 'd2', now: DAY + DEVICE_TOUCH_MS + 2 }); // novo
+    expect((await devicesOf(user)).map((d) => d.device_id)).toEqual(['d1', 'd2']);
+    expect(await json(user, 'writes')).toEqual({ day: utcDay(DAY), n: rowsOf(1) + 2 * REQUEST_ROWS });
+    // Sem linhas no dia para ele, um aparelho novo não é gravado (nada o lê), e o sync dele segue.
+    await setState(user, 'writes', { day: utcDay(DAY), n: DAILY_WRITE_BUDGET - REQUEST_ROWS + 1 });
+    expect((await sync(user, [], { device: 'd3', now: DAY + DEVICE_TOUCH_MS + 3 })).changes.map((c) => c.id)).toEqual(['s1']);
+    expect((await devicesOf(user)).map((d) => d.device_id)).toEqual(['d1', 'd2']);
+    expect(await json(user, 'writes')).toEqual({ day: utcDay(DAY), n: DAILY_WRITE_BUDGET - REQUEST_ROWS + 1 });
+  });
+
+  it('só os MAX_DEVICES aparelhos mais recentes ficam: o mais velho sai quando entra um novo além deles', async () => {
+    const user = 'aparelhos-teto';
+    for (let i = 0; i < MAX_DEVICES + 5; i++) await sync(user, [], { device: `d${i}`, now: DAY + i });
+    expect((await devicesOf(user)).map((d) => d.device_id)).toEqual(Array.from({ length: MAX_DEVICES }, (_, i) => `d${i + 5}`));
+  });
+});
+
+// Revisão final (I2 c): pedir sempre do cursor 0 lê uma página inteira por pedido; na rajada, uma conta só esvaziaria as 5 milhões de linhas
+// lidas por dia que todas dividem. Cada conta tem um orçamento de leituras por dia UTC (DAILY_READ_BUDGET), folgado para o primeiro sync de
+// uma conta de 100 mil solves; passado dele, o pedido não lê nada, o lote volta todo para a virada do dia, e o cursor fica.
+describe('o orçamento de leituras do dia (revisão final, I2 c)', () => {
+  it('as constantes', () => {
+    expect([DAILY_READ_BUDGET, READS_SAVE_EVERY]).toEqual([500_000, 10_000]);
+    expect(DAILY_READ_BUDGET).toBeGreaterThan(4 * 110_034); // o primeiro sync de uma conta de 100 mil solves (110.034 registros), quatro vezes
+  });
+
+  it('passado o orçamento, o pedido não lê nada: nem a página, nem o lote, que volta todo; no dia seguinte, recomeça do mesmo cursor e nada se perde', async () => {
+    const user = 'leituras-fim';
+    await sync(user, [session(), solve('a'), solve('b')]);
+    await setState(user, 'reads', { day: utcDay(T0), n: DAILY_READ_BUDGET });
+    const writes = await json(user, 'writes');
+    const rev = await stateOf(user, 'rev');
+    const queries = await countRecordQueries(user);
+    const out = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    let res: SyncResponse;
+    try {
+      res = await sync(user, [solve('c')], { device: 'd2' });
+      const logged = out.mock.calls.flat().flatMap((l) => (String(l).startsWith('{') ? [JSON.parse(String(l)) as unknown] : []));
+      expect(logged).toContainEqual(expect.objectContaining({ evt: 'sync', user, pushed: 1, deferred: 1, pulled: 0, unread: 1 }));
+    } finally {
+      out.mockRestore();
+    }
+    expect(res).toMatchObject({ accepted: 0, rejected: [], changes: [], cursor: 0, more: false, deferred: 1, retryAt: nextUtcDay(T0), readsDeferred: true });
+    const quiet = await sync(user, [], { device: 'd2', cursor: 1 }); // só recebendo: o cursor do pedido volta como veio
+    expect(quiet).toMatchObject({ changes: [], cursor: 1, more: false, retryAt: nextUtcDay(T0), readsDeferred: true });
+    expect(quiet.deferred).toBeUndefined();
+    expect(queries.n).toBe(0);
+    expect([await json(user, 'writes'), await stateOf(user, 'rev')]).toEqual([writes, rev]);
+    // No dia seguinte (UTC), do mesmo cursor: a conta inteira chega, e o solve que esperou entra.
+    const next = await sync(user, [solve('c')], { device: 'd2', now: nextUtcDay(T0) });
+    expect([next.accepted, next.rejected, next.deferred, next.readsDeferred]).toEqual([1, [], undefined, undefined]);
+    expect(next.changes.map((c) => c.id)).toEqual(['s1', 'a', 'b', 'c']);
+  });
+
+  it('as linhas lidas contam na memória do objeto e vão para o estado só a cada READS_SAVE_EVERY', async () => {
+    const user = 'leituras-conta';
+    await seedRecords(user, PULL_PAGE + 100); // sem nenhum pedido antes: o que conta é só o que os pedidos daqui leem
+    const pull = () => sync(user, [], { device: 'd2' }); // do cursor 0: PULL_PAGE + 1 linhas (a página e a que diz `more`)
+    const per = PULL_PAGE + 1;
+    const until = Math.ceil(READS_SAVE_EVERY / per);
+    for (let i = 1; i < until; i++) await pull();
+    expect(await stateOf(user, 'reads')).toBeNull();
+    await pull();
+    expect(await json(user, 'reads')).toEqual({ day: utcDay(T0), n: until * per });
+    await pull();
+    expect(await json(user, 'reads')).toEqual({ day: utcDay(T0), n: until * per }); // o resto fica na memória até a próxima vez
+    // O que está na memória conta: com o guardado a uma página do teto, mais um pedido passa e o seguinte já não lê.
+    await setState(user, 'reads', { day: utcDay(T0), n: DAILY_READ_BUDGET - per - 1 });
+    expect((await pull()).changes).toHaveLength(PULL_PAGE);
+    expect((await pull()).readsDeferred).toBe(true);
+  });
+
+  it('a cópia do dia e a restauração também contam as linhas que leem', async () => {
+    // Uma conta de 10 solves sem nenhum pedido antes, a uma linha do teto de leituras do dia.
+    const fresh = async (user: string): Promise<void> => {
+      await setState(user, 'userId', user);
+      await seedRecords(user, 10);
+      await setState(user, 'reads', { day: utcDay(T0), n: DAILY_READ_BUDGET - 1 });
+    };
+    await fresh('leituras-controle');
+    expect((await sync('leituras-controle', [], { device: 'd2' })).readsDeferred).toBeUndefined(); // sozinho, o pedido ainda lê
+    await fresh('leituras-copia');
+    expect(await stubOf('leituras-copia').snapshot(T0)).toBe(true);
+    expect((await sync('leituras-copia', [], { device: 'd2' })).readsDeferred).toBe(true);
+    const other = 'leituras-restaura';
+    await fresh(other);
+    await env.SNAPSHOTS.put(snapshotKey(other, dayOf(T0)), await gzipJson(exportFromRecords([], T0))); // uma cópia vazia: tudo vai para a lixeira
+    const restored = await call(`/api/snapshots/${dayOf(T0)}/restore`, postJson({}, { [ACCOUNT_HEADER]: other }), { deps: testDeps({ user: other, now: () => T0 + 1000 }) });
+    expect(restored.status).toBe(204);
+    expect((await sync(other, [], { device: 'd2' })).readsDeferred).toBe(true);
+  });
+});
+
+// Revisão final (pino 7): a mesma chave duas vezes no lote de um pedido (um app torto, ou de outra versão). Fica fixado o de hoje: o lote
+// grava cada chave uma vez (a última versão que vence), o corte do pedido conta as duas (por cima, como deve), e a cota e o teto de bytes
+// enxergam a versão do lote que veio antes.
+describe('a mesma chave duas vezes no lote (pino)', () => {
+  it('grava uma vez, com a revisão e as linhas de uma gravação', async () => {
+    const user = 'repetida-grava';
+    await sync(user, [session()]);
+    const rev = Number(await stateOf(user, 'rev'));
+    const writes = (await json<{ n: number }>(user, 'writes')).n;
+    const res = await sync(user, [solve('a', { note: 'um' }), solve('a', { note: 'dois', updatedAt: T0 + 10 })]);
+    expect([res.accepted, res.rejected]).toEqual([2, []]);
+    expect(Number(await stateOf(user, 'rev'))).toBe(rev + 1);
+    expect((await json<{ n: number }>(user, 'writes')).n).toBe(writes + rowsOf(1));
+    expect(byId(await sync(user, [], { device: 'd2' })).get('a')!.data).toMatchObject({ note: 'dois' });
+  });
+
+  it('o corte do pedido conta as duas: com linhas para uma gravação, a segunda fica para amanhã', async () => {
+    const user = 'repetida-corte';
+    await setState(user, 'writes', { day: utcDay(T0), n: DAILY_WRITE_BUDGET - rowsOf(1) });
+    const res = await sync(user, [solve('a', { note: 'um' }), solve('a', { note: 'dois', updatedAt: T0 + 10 })]);
+    expect([res.accepted, res.deferred, res.retryAt]).toEqual([1, 1, nextUtcDay(T0)]);
+  });
+
+  it('a cota e o teto de bytes veem a versão do lote que veio antes', async () => {
+    const user = 'repetida-cota';
+    await sync(user, [session(), solve('a')]);
+    await setState(user, 'active', { solves: 99_999, sessions: 1, practice: 0 });
+    // A vaga que sobra vai para o novo; a segunda versão dele é uma edição de um ativo, e passa. Outro novo, não.
+    const quota = await sync(user, [solve('n', { note: 'um' }), solve('n', { note: 'dois', updatedAt: T0 + 10 }), solve('m')]);
+    expect(quota.rejected).toEqual([cota('m')]);
+    expect(await json(user, 'active')).toEqual({ solves: 100_000, sessions: 1, practice: 0 });
+    // Com folga de 25 bytes: a segunda versão cresce 10 sobre a primeira (não 20 sobre a gravada), e as duas passam.
+    const note = (n: number) => 'x'.repeat(n);
+    await setState(user, 'bytes', ACCOUNT_BYTES_CAP - 25);
+    const cap = await sync(user, [solve('a', { note: note(10), updatedAt: T0 + 20 }), solve('a', { note: note(20), updatedAt: T0 + 30 })]);
+    expect(cap.rejected).toEqual([]);
+    expect(await json(user, 'bytes')).toBe(ACCOUNT_BYTES_CAP - 25 + 20);
+    // A terceira passaria do teto pela soma corrente do lote: volta com a cota, e a segunda fica gravada.
+    const over = await sync(user, [solve('a', { note: note(22), updatedAt: T0 + 40 }), solve('a', { note: note(28), updatedAt: T0 + 50 })]);
+    expect(over.rejected).toEqual([cota('a')]);
+    expect(byId(await sync(user, [], { device: 'd2' })).get('a')!.data).toMatchObject({ note: note(22) });
   });
 });

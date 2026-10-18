@@ -241,7 +241,8 @@ export async function handle(request: Request, env: Env, ctx: ExecutionContext, 
     const res = (await account.syncBatch(user.id, req, started)) as unknown as SyncResponse | 'deleted';
     if (res === 'deleted') return fail(401, 'auth'); // a conta foi apagada: o aparelho sai, como numa sessão revogada
     const deferred = res.deferred ?? 0; // o resto do lote que o orçamento do dia deixou para amanhã
-    log({ evt: 'sync', user: user.id, pushed: req.changes.length, rejected: res.rejected.length, deferred, pulled: res.changes.length, ms: deps.now() - started });
+    const unread: Record<string, number> = res.readsDeferred ? { unread: 1 } : {}; // o orçamento de leituras do dia acabou: nada foi lido
+    log({ evt: 'sync', user: user.id, pushed: req.changes.length, rejected: res.rejected.length, deferred, pulled: res.changes.length, ...unread, ms: deps.now() - started });
     return json(res);
   }
 

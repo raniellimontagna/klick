@@ -116,11 +116,11 @@ const recordCount = (user: string): Promise<number> =>
   runInDurableObject(stubOf(user), (_o, state) => state.storage.sql.exec<{ n: number }>('SELECT count(*) AS n FROM records').one().n);
 
 // O que uma restauração recusada não pode mudar: os registros e os contadores do objeto, e as cópias no R2. Fora, a lista guardada das
-// cópias e as tentativas do dia (`attempts`), que contam justamente as que chegaram ao R2, recusadas ou não.
+// cópias e o que conta o que a recusa leu: as tentativas do dia (`attempts`, as que chegaram ao R2) e as linhas lidas (`reads`).
 const accountOf = (user: string) =>
   runInDurableObject(stubOf(user), (_o, state) => ({
     records: state.storage.sql.exec('SELECT * FROM records ORDER BY store, id').toArray(),
-    state: state.storage.sql.exec("SELECT key, value FROM state WHERE key NOT IN ('copies', 'attempts') ORDER BY key").toArray(),
+    state: state.storage.sql.exec("SELECT key, value FROM state WHERE key NOT IN ('copies', 'attempts', 'reads') ORDER BY key").toArray(),
   }));
 // Quantas mudanças restaurar a cópia `name` daria agora (restoreChanges, como o objeto faz, com a conta inteira lida do SQLite dele).
 async function restoreCount(user: string, name: string): Promise<number> {

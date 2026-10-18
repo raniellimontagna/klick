@@ -1557,6 +1557,69 @@ describe('a cota e o orçamento do dia (endurecimento 4.1 e decisões 4 e 6)', (
     expect([trash.sessions.map((x) => x.id), trash.solves.length]).toEqual([[s.id], 7]);
   });
 
+  // Revisão final (I2 c): o orçamento de leituras do dia da conta acabou. O servidor não lê nada (nem a página, nem o lote) e diz
+  // readsDeferred, com retryAt na virada do dia. A rodada para sem laço, com o aviso 'reads', o cursor fica, e nada sobe antes de retryAt. Um
+  // primeiro login não deduplica nem sobe com a conta pela metade: no dia seguinte, ele continua do mesmo cursor, e nada se perde.
+  it('passado o orçamento de leituras, o primeiro login para sem laço e com o aviso, e continua no dia seguinte do mesmo cursor', async () => {
+    const server = new FakeServer(2);
+    server.now = t;
+    const desktop = await device();
+    const ds = await desktop.createSession({ event: '333', name: 'Do computador' });
+    for (let i = 0; i < 4; i++) await desktop.addSolve(ns(ds.id, 5000 + i, t + i));
+    await engineFor(desktop, network(server)).engine.run();
+    server.reads = 3; // registros lidos por dia
+    server.newDay();
+    const phone = await device(null);
+    const mine = await phone.createSession({ event: '333', name: 'Do celular' });
+    await phone.addSolve(ns(mine.id, 1000, t));
+    const net = network(server);
+    const { engine } = engineFor(phone, net);
+    const retryAt = (Math.floor(t / DAY) + 1) * DAY;
+    expect(await engine.firstLogin(ACCOUNT)).toMatchObject({ phase: 'idle', error: null, notice: 'reads' });
+    expect(net.calls.map((c) => [c.cursor, c.changes.length])).toEqual([[0, 0], [2, 0], [4, 0]]); // duas páginas; a terceira volta sem nada
+    expect(await phone.getSyncState()).toMatchObject({ firstSync: true, cursor: 4, pushAfter: retryAt });
+    expect(activeSolves(server)).toHaveLength(4); // nada daqui subiu
+    // Antes de retryAt, outra rodada pede uma vez, e para de novo.
+    t += 1000;
+    server.now = t;
+    const before = net.calls.length;
+    expect(await engine.run()).toMatchObject({ phase: 'idle', notice: 'reads' });
+    expect(net.calls.length).toBe(before + 1);
+    // No dia seguinte: o resto chega do mesmo cursor, a deduplicação roda, e o daqui sobe.
+    t = retryAt + 1;
+    server.now = t;
+    server.newDay();
+    const resumed = net.calls.length;
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, notice: null });
+    expect(net.calls[resumed].cursor).toBe(4);
+    expect(await phone.getSyncState()).toMatchObject({ firstSync: false, pushAfter: null });
+    expect(activeSolves(server)).toHaveLength(5);
+    expect(await phone.listSolves()).toHaveLength(5);
+  });
+
+  it('passado o orçamento de leituras numa rodada comum, o lote volta todo, a fila espera a virada do dia, e sobe nela', async () => {
+    const server = new FakeServer();
+    server.now = t;
+    const repo = await device();
+    const s = await repo.createSession({ event: '333' });
+    await engineFor(repo, network(server)).engine.run();
+    server.reads = 0;
+    const solve = await repo.addSolve(ns(s.id, 1000, t));
+    const net = network(server);
+    const { engine } = engineFor(repo, net);
+    const retryAt = (Math.floor(t / DAY) + 1) * DAY;
+    const cursor = (await repo.getSyncState()).cursor;
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 1, notice: 'reads' });
+    expect(net.calls.map((c) => c.changes.length)).toEqual([1]); // um pedido só: sem laço
+    expect(await repo.getSyncState()).toMatchObject({ cursor, pushAfter: retryAt });
+    expect(activeSolves(server)).toEqual([]);
+    t = retryAt;
+    server.now = t;
+    server.reads = null;
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, notice: null });
+    expect(activeSolves(server).map((x) => x.id)).toEqual([solve.id]);
+  });
+
   it('a resposta grava copiesPaused no estado do sync', async () => {
     const server = new FakeServer();
     const repo = await device();

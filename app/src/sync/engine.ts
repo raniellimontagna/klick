@@ -6,7 +6,9 @@
 //
 // A cota e o orçamento do dia (endurecimento 4.1 e decisões 4 e 6): o que a conta recusa pela cota sai da fila e fica só neste aparelho (a
 // lista do repositório), sem reenvio sozinho; quando o orçamento de gravações do dia acaba, o servidor lê só o começo do lote, o resto fica na
-// fila, e nada sobe antes de `retryAt` (pushAfter, no estado do sync): a rodada só recebe.
+// fila, e nada sobe antes de `retryAt` (pushAfter, no estado do sync): a rodada só recebe. Quando o orçamento de leituras do dia da conta
+// acaba (readsDeferred, revisão final), o servidor não lê nada: a rodada para ali, sem laço, nada sobe antes de `retryAt`, e um primeiro
+// login espera com a conta pela metade (sem deduplicar nem subir), para continuar do mesmo cursor.
 import { BUILD_ID } from '../build';
 import { QUOTA_REASON } from '../core/sync/limits';
 import { isCopiesPaused, SYNC_BATCH, SYNC_PROTOCOL, syncKey, type Change, type CopiesPaused, type OutboxEntry } from '../core/sync/types';
@@ -19,13 +21,16 @@ const BUSY_POLL_MS = 1000;
 // O teto da espera do orçamento do dia (pushAfter): o servidor pede até a virada do dia UTC, menos de um dia. Um retryAt absurdo (um servidor
 // torto) não prende a fila por mais que isso: no pior caso, o servidor adia de novo.
 export const MAX_BUDGET_WAIT_MS = 2 * 86_400_000;
+// A fila espera o orçamento do dia: pushAfter no futuro.
+const waitingFor = (pushAfter: number | null, now: number): boolean => pushAfter !== null && pushAfter > now;
 const MAX_EXCHANGES = 100_000; // trava de um laço que não termina (a fila que nunca esvazia, a conta que nunca acaba): 25 milhões de mudanças
 
 export type SyncPhase = 'off' | 'idle' | 'syncing' | 'offline' | 'error';
 // O aviso da última rodada: 'quota', algo dela ficou só neste aparelho (a conta recusou pela cota); 'budget', o orçamento de gravações do
-// dia da conta acabou e o que está na fila sobe depois (pushAfter). Os dois na mesma rodada: 'budget' (a contagem dos guardados aparece à
-// parte, em Ajustes, e o resto da fila só ia ser explicado aqui).
-export type SyncNotice = 'quota' | 'budget' | null;
+// dia da conta acabou e o que está na fila sobe depois (pushAfter); 'reads', o orçamento de leituras do dia da conta acabou, e nem o
+// recebimento nem a fila andam até a virada do dia. Mais de um na mesma rodada: 'reads', depois 'budget' (a contagem dos guardados aparece
+// à parte, em Ajustes, e o resto da fila só ia ser explicado aqui).
+export type SyncNotice = 'quota' | 'budget' | 'reads' | null;
 
 export interface SyncStatus {
   phase: SyncPhase; // off: sem conta, ou fora da conta
@@ -208,15 +213,16 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
   // atrás ou à frente) espera o mesmo que os outros. `later`: o resto da fila fica para depois (pushAfter no futuro, ou um lote do qual o
   // servidor não leu nada: mandá-lo de novo na mesma rodada só repetiria o pedido). O corte de um pedido (o servidor lê no máximo
   // MAX_WRITES_PER_REQUEST, worker/limits.ts) volta com retryAt = a hora do servidor: a espera é 0, ele leu alguma coisa, e o resto sobe na
-  // mesma rodada.
+  // mesma rodada. `unread`: o servidor não leu nada, nem a página (readsDeferred, o orçamento de leituras do dia): a espera vale mesmo num
+  // pedido que só recebia, e a rodada para.
   async function exchange(
     wants: boolean,
     accountId: string,
-  ): Promise<{ more: boolean; sent: number; received: number; held: number; later: boolean }> {
+  ): Promise<{ more: boolean; sent: number; received: number; held: number; later: boolean; unread: boolean }> {
     await idle();
     const [state, meta] = await Promise.all([deps.repo().getSyncState(), deps.repo().getMeta()]);
     if (!isAccount(state, accountId)) throw new AccountChangedError();
-    const waiting = state.pushAfter !== null && state.pushAfter > now();
+    const waiting = waitingFor(state.pushAfter, now());
     const push = wants && !waiting;
     const batch = push ? await deps.repo().outboxBatch(SYNC_BATCH) : { changes: [], sent: [], refused: 0, missing: 0, held: 0 };
     refused += batch.refused;
@@ -240,12 +246,13 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
     refused += res.rejected.length - held.length;
     for (const r of res.rejected) log(`sync: o servidor recusou ${r.store}/${r.id} (${r.reason})`);
     const retryAt = retryAtOf(res.retryAt);
+    const unread = res.readsDeferred === true;
     const serverNow = Number.isSafeInteger(res.serverTime) && res.serverTime > 0 ? res.serverTime : at;
-    const delay = deferred > 0 && retryAt !== null ? Math.min(Math.max(retryAt - serverNow, 0), MAX_BUDGET_WAIT_MS) : 0;
+    const delay = (deferred > 0 || unread) && retryAt !== null ? Math.min(Math.max(retryAt - serverNow, 0), MAX_BUDGET_WAIT_MS) : 0;
     const wait = delay > 0;
     const stuck = deferred > 0 && taken.length === 0;
-    // Subiu sem pausa nova: um pushAfter que já passou sai. Sem subir (esperando), fica como está.
-    const pushAfter = !push ? undefined : wait ? at + delay : null;
+    // Uma pausa nova vale sempre. Subiu sem pausa nova: um pushAfter que já passou sai. Sem subir (esperando), fica como está.
+    const pushAfter = wait ? at + delay : push ? null : undefined;
     // A resposta chegou durante um solve: junta depois dele. Parado sem solve, junta (o stop() espera o pedido em andamento voltar e ser
     // juntado). Parado com a volta esperando o solve, não espera mais: a volta não é juntada nem o cursor anda (a próxima rodada a recebe de
     // novo); o que subiu já saiu da fila, e o servidor o tem.
@@ -261,7 +268,14 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
       pushAfter,
       copiesPaused: copiesPausedOf(res.copiesPaused),
     });
-    return { more: res.more, sent: taken.length, received: res.changes.length, held: held.length + batch.held, later: waiting || wait || stuck };
+    return {
+      more: res.more,
+      sent: taken.length,
+      received: res.changes.length,
+      held: held.length + batch.held,
+      later: waiting || wait || stuck || unread,
+      unread,
+    };
   }
 
   // O começo do primeiro login (spec 6.5), dentro da rodada: a cópia 'pre-sync' e, numa transação, o estado da conta com tudo na fila
@@ -295,41 +309,49 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
     // vez (a revisão final, I2). Juntar o que já está aqui não muda nada.
     if (state.refusedBuild !== null && state.refusedBuild !== build) await deps.repo().restartAfterUpdate(build);
     // O total é o que a rodada vai mandar: com pushAfter no futuro, nada (a fila espera o orçamento do dia, e a rodada só recebe).
-    const parked = state.pushAfter !== null && state.pushAfter > now();
+    const parked = waitingFor(state.pushAfter, now());
     const progress = { sent: 0, total: parked ? 0 : await deps.repo().outboxCount(), received: 0 };
     set({ phase: 'syncing', progress: { ...progress } });
+    // O fim da rodada, com o aviso dela.
+    const finish = async (notice: SyncNotice): Promise<void> => {
+      const after = await deps.repo().getSyncState();
+      const pending = await deps.repo().outboxCount();
+      set({ phase: 'idle', error: null, pending, lastSyncAt: after.lastSyncAt, progress: null, notice });
+    };
     if (state.firstSync) {
       for (let i = 0, more = true; more; i++) {
         if (i === MAX_EXCHANGES) throw new RoundError(`o primeiro sync passou de ${MAX_EXCHANGES} pedidos`);
         const r = await exchange(false, accountId); // a conta inteira chega antes de subir qualquer coisa
         progress.received += r.received;
         set({ progress: { ...progress } });
+        // O orçamento de leituras acabou com a conta pela metade: sem deduplicar nem subir, o primeiro login continua depois, do cursor.
+        if (r.unread) return finish('reads');
         more = r.more;
       }
       await idle();
       await deps.repo().dedupeFirstLogin(); // desliga firstSync na mesma transação
       progress.total = await deps.repo().outboxCount();
     }
-    // Com o resto para depois (o orçamento do dia), a rodada para de mandar e só recebe, até `more` acabar.
+    // Com o resto para depois (o orçamento do dia), a rodada para de mandar e só recebe, até `more` acabar. Sem leituras no dia, para.
     let held = 0;
     let later = false;
+    let unread = false;
     for (let i = 0; ; i++) {
       if (i === MAX_EXCHANGES) throw new RoundError(`a rodada passou de ${MAX_EXCHANGES} pedidos`);
       const r = await exchange(!later, accountId);
       held += r.held;
       later ||= r.later;
+      unread ||= r.unread;
       const left = await deps.repo().outboxCount();
       progress.sent += r.sent;
       progress.received += r.received;
       // O que foi gravado durante a rodada sobe nela; com o resto para depois, o total é o que subiu (a linha não diz "Enviando 0 de N").
       progress.total = later ? progress.sent : Math.max(progress.total, progress.sent + left);
       set({ pending: left, progress: { ...progress } });
-      if (!r.more && (left === 0 || later)) break;
+      if (unread || (!r.more && (left === 0 || later))) break;
     }
-    const after = await deps.repo().getSyncState();
     const pending = await deps.repo().outboxCount();
-    const notice: SyncNotice = later && pending > 0 ? 'budget' : held > 0 ? 'quota' : null;
-    set({ phase: 'idle', error: null, pending, lastSyncAt: after.lastSyncAt, progress: null, notice });
+    await finish(unread ? 'reads' : later && pending > 0 ? 'budget' : held > 0 ? 'quota' : null);
   }
 
   function retryLater(): void {

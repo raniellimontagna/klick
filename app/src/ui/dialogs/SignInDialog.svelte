@@ -291,16 +291,19 @@
     error = T.conta.verifyFailed;
   }
 
-  // "Pronto": o orçamento do dia cortou o primeiro sync (decisão 6), e o resto sobe amanhã; senão, tudo está na conta. Segue o aviso da
-  // última rodada: enquanto o resto espera, toda rodada termina com 'budget'; quando ele sobe, o "Pronto" de sempre passa a valer. O limite
-  // da conta vem abaixo enquanto houver registros só neste aparelho (account.held): uma rodada sem recusa nova não o apaga.
+  // "Pronto": o orçamento do dia cortou o primeiro sync (decisão 6), ou o de leituras parou a rodada (revisão final), e o resto sobe amanhã;
+  // senão, tudo está na conta. Segue o aviso da última rodada: enquanto o resto espera, toda rodada termina com 'budget' (ou 'reads'); quando
+  // ele sobe, o "Pronto" de sempre passa a valer. O limite da conta vem abaixo enquanto houver registros só neste aparelho (account.held):
+  // uma rodada sem recusa nova não o apaga.
   function doneLine(s: SyncStatus): string {
-    return s.notice === 'budget' ? T.conta.doneTomorrow : T.conta.done;
+    return s.notice === 'budget' || s.notice === 'reads' ? T.conta.doneTomorrow : T.conta.done;
   }
 
-  // Enquanto o primeiro sync não termina: o progresso, a falta de rede ou o erro (com a nova tentativa); antes da primeira rodada, "Sincronizando…".
+  // Enquanto o primeiro sync não termina: o progresso, a falta de rede ou o erro (com a nova tentativa), ou o orçamento de leituras do dia da
+  // conta, que o parou com a conta pela metade (ele continua amanhã, sozinho); antes da primeira rodada, "Sincronizando…".
   function waitingLine(s: SyncStatus): string {
-    return s.phase === 'syncing' || s.phase === 'offline' || s.phase === 'error' ? syncLine(s, Date.now()) : T.conta.syncing;
+    const stopped = s.phase === 'idle' && s.notice === 'reads';
+    return stopped || s.phase === 'syncing' || s.phase === 'offline' || s.phase === 'error' ? syncLine(s, Date.now()) : T.conta.syncing;
   }
 </script>
 

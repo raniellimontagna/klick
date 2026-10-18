@@ -623,6 +623,8 @@ export const T = Object.freeze({
     // cota também é o teto de bytes da conta, então o texto não fala em solves.
     quotaFull: 'A conta chegou ao limite do plano gratuito. Os novos ficam só neste aparelho.',
     budgetDeferred: 'Muita coisa para subir hoje: o resto sobe amanhã.',
+    // O orçamento de leituras do dia da conta (revisão final): nem o que chega nem o que sobe andam até a virada do dia.
+    readsDeferred: 'Muita coisa para sincronizar hoje: o resto fica para amanhã.',
     heldCount: (n: number): string => (n === 1 ? '1 registro só neste aparelho' : `${n.toLocaleString('pt-BR')} registros só neste aparelho`),
     heldResend: 'Enviar de novo',
     heldResendAria: (n: number): string =>

@@ -377,6 +377,23 @@ describe('diálogo de entrar (spec 7.2 e 9.2)', () => {
     expect(screen.queryByText(T.conta.quotaFull)).toBeNull();
   });
 
+  // Revisão final (I2 c): o orçamento de leituras do dia da conta acabou no meio do primeiro sync. A conta não chegou inteira: o passo 4
+  // não diz "Pronto", diz que o resto fica para amanhã, e o primeiro sync continua sozinho no dia seguinte.
+  it('primeiro sync com o orçamento de leituras da conta cheio: a linha diz que o resto fica para amanhã, sem "Pronto"', async () => {
+    const server = new FakeServer(500);
+    server.now = Date.now();
+    server.reads = 0;
+    const { app, repo } = await openDialog({}, server);
+    await app.addSolve({ ms: 9000, penalty: null, at: Date.now() });
+    await typeEmailAndCode();
+    await skipPasskey();
+    await vi.waitFor(() => expect(document.querySelector('[data-sync-line]')).toHaveTextContent(T.conta.readsDeferred));
+    expect(document.querySelector('[data-sync-line]')).not.toHaveTextContent(T.conta.done);
+    expect(screen.getByText(T.conta.keepsGoing)).toBeInTheDocument();
+    expect((await repo.getSyncState()).firstSync).toBe(true);
+    expect(await repo.outboxCount()).toBeGreaterThan(0); // nada subiu, e nada se perdeu
+  });
+
   it('primeiro sync com a conta cheia: Pronto, e abaixo o limite da conta', async () => {
     const server = new FakeServer(500, { limits: { solves: 1, sessions: 10, practice: 10 } });
     const { app } = await openDialog({}, server);
@@ -411,6 +428,20 @@ describe('diálogo de entrar (spec 7.2 e 9.2)', () => {
     expect(await screen.findByText(/Bem-vindo de volta/)).toBeInTheDocument();
     await vi.waitFor(() => expect(app.account!.signedIn).toBe(true));
     expect((await repo.listBackups()).map((b) => b.reason)).not.toContain('pre-sync');
+  });
+
+  // A volta não é primeiro login: a rodada termina, mas com o orçamento de leituras do dia da conta cheio nada andou. "Pronto" diz que o
+  // resto fica para amanhã.
+  it('a mesma conta de antes volta com o orçamento de leituras cheio: Pronto diz que o resto sobe amanhã', async () => {
+    const server = new FakeServer(500);
+    server.now = Date.now();
+    server.reads = 0;
+    const { repo } = await openDialog({}, server);
+    await repo.saveSyncState({ accountId: 'conta-1', signedIn: false });
+    await typeEmailAndCode();
+    await skipPasskey();
+    await vi.waitFor(() => expect(document.querySelector('[data-sync-line]')).toHaveTextContent(T.conta.doneTomorrow));
+    expect(document.querySelector('[data-sync-line]')).not.toHaveTextContent(T.conta.done);
   });
 
   it('outra conta no aparelho (spec 7.6): três saídas; cancelar sai da sessão nova e não mexe em nada', async () => {

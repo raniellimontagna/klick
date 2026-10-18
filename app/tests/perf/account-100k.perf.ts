@@ -242,6 +242,8 @@ class NodeSql {
     if (query === COMPACT_SOLVE) return Number(this.get("SELECT count(*) AS n FROM records WHERE store = 'solves' AND id = ?", b[0])?.n);
     if (query.startsWith('INSERT INTO state')) return this.get('SELECT 1 AS x FROM state WHERE key = ?', b[0]) === undefined ? 2 : 1;
     if (query.startsWith('INSERT INTO devices')) return this.get('SELECT 1 AS x FROM devices WHERE device_id = ?', b[0]) === undefined ? 2 : 1;
+    // Os aparelhos além de MAX_DEVICES (revisão final): cada um que sai tira a linha e a chave.
+    if (query.startsWith('DELETE FROM devices')) return 2 * Number(this.get(query.replace(/^DELETE FROM devices/, 'SELECT count(*) AS n FROM devices'), ...b)?.n);
     const created = /^CREATE (TABLE|INDEX) IF NOT EXISTS (\w+)/.exec(query);
     if (created) {
       if (this.get('SELECT 1 AS x FROM sqlite_master WHERE name = ?', created[2]) !== undefined) return 0;
@@ -338,15 +340,15 @@ interface Batch {
 interface Inside {
   ctx: DurableObjectState;
   env: Env;
-  all(): Change[];
+  all(now: number): Change[];
   batch(): Batch;
   usage(now: number): unknown;
   commit(result: Pick<ApplyResult, 'writes' | 'activeDelta'>, batch: Batch, usage: unknown): void;
-  dayCount(key: 'writes' | 'restores', now: number): { day: string; n: number };
+  dayCount(key: 'writes' | 'restores' | 'attempts' | 'reads', now: number): { day: string; n: number };
   getState(key: string): string | null;
   setState(key: string, value: string): void;
-  copies(): { at: number; list: CloudCopy[] | null; paused: CopiesPaused | null };
-  recordCount(): number;
+  copies(): { at: number; list: CloudCopy[] | null; paused: CopiesPaused | null; gz: number | null };
+  recordCount(now: number): number;
   renewCopies(): void;
   deleted(): boolean;
   exclusive<T>(fn: () => Promise<T>): Promise<T>;
@@ -795,7 +797,7 @@ const wakeOp = (a: Account): Op<Account> => ({
 // Uma conta nova, com a cópia de ontem (o arquivo dela, gzip) no R2 falso: a restauração regrava tudo o que a cópia tem.
 async function withCopy(n: number): Promise<Account> {
   const a = buildAccount(n);
-  a.r2.objects.set(snapshotKey(USER, RESTORED), await gzipJson(exportFromRecords(inside(a.store).all(), T0 - DAY)));
+  a.r2.objects.set(snapshotKey(USER, RESTORED), await gzipJson(exportFromRecords(inside(a.store).all(T0 - DAY), T0 - DAY)));
   return a;
 }
 
@@ -831,7 +833,7 @@ function restoreRecomputing(store: AccountStore, name: string, now: number): Pro
     const { list, at } = s.copies();
     if (list !== null && now - at < COPIES_CACHE_MS && !list.some((c) => c.name === name)) return 'not-found';
     const caps = capsOf(s.env);
-    if (caps.restoreRecords === 0 || s.recordCount() > Math.min(caps.restoreRecords, RECORDS_PER_DAY)) return 'too-big';
+    if (caps.restoreRecords === 0 || s.recordCount(now) > Math.min(caps.restoreRecords, RECORDS_PER_DAY)) return 'too-big';
     if (!(await takeOps(s.env.DB, 'B', 2, now, caps.classBMonth))) return 'r2-budget';
     const object = await s.env.SNAPSHOTS.get(snapshotKey(userId, name));
     if (!object) {
@@ -839,7 +841,7 @@ function restoreRecomputing(store: AccountStore, name: string, now: number): Pro
       return 'not-found';
     }
     const copy = (await gunzipJson(await object.arrayBuffer())) as KlickExport;
-    const current = s.all();
+    const current = s.all(now);
     const stamp = current.reduce((max, c) => Math.max(max, c.updatedAt + 1, c.deletionStamp + 1), now);
     const practice = Array.isArray(copy.practice) ? copy.practice : null;
     const input = { sessions: copy.sessions, solves: copy.solves, practice };
@@ -911,7 +913,7 @@ interface GzipRef {
   raw: number; // ms
 }
 async function gzipRef(a: Account): Promise<GzipRef> {
-  const data = exportFromRecords(inside(a.store).all(), T0);
+  const data = exportFromRecords(inside(a.store).all(T0), T0);
   const json = Buffer.byteLength(JSON.stringify(data));
   const stream: number[] = [];
   const raw: number[] = [];

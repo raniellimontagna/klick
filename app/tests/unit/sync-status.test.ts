@@ -39,6 +39,8 @@ describe('a situação do sync em palavras (spec 9.1)', () => {
       'A conta chegou ao limite do plano gratuito. Os novos ficam só neste aparelho.',
     );
     expect(syncLine(at({ lastSyncAt: NOW - 20_000, notice: 'budget' }), NOW)).toBe('Muita coisa para subir hoje: o resto sobe amanhã.');
+    // O orçamento de leituras do dia da conta (revisão final, I2 c): nem receber nem subir andam até amanhã.
+    expect(syncLine(at({ lastSyncAt: NOW - 20_000, notice: 'reads' }), NOW)).toBe('Muita coisa para sincronizar hoje: o resto fica para amanhã.');
     expect(syncLine(at({ lastSyncAt: NOW - 20_000, notice: null }), NOW)).toBe('Sincronizado agora');
     // Fora da fase idle, o aviso não troca nada: a rodada, a falta de rede e o erro falam por si.
     expect(syncLine(at({ phase: 'offline', pending: 2, notice: 'budget' }), NOW)).toBe('2 mudanças esperando rede');

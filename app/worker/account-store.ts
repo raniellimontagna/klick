@@ -28,11 +28,15 @@ import {
   capsOf,
   COMPACT_PER_DAY,
   COPIES_CACHE_MS,
+  DAILY_READ_BUDGET,
   DAILY_WRITE_BUDGET,
+  DEVICE_TOUCH_MS,
+  MAX_DEVICES,
   MAX_WRITES_PER_REQUEST,
   nextUtcDay,
   PULL_PAGE,
   PULL_PAGE_WITH_PUSH,
+  READS_SAVE_EVERY,
   RECORDS_PER_DAY,
   REQUEST_ROWS,
   RESTORE_ATTEMPTS_PER_DAY,
@@ -73,7 +77,7 @@ interface Copies {
 }
 
 // Uma contagem por dia UTC no estado (`writes`, as linhas gravadas, rowsOf; `restores`, as restaurações que deram certo; `attempts`, as
-// tentativas de restaurar que chegaram ao R2).
+// tentativas de restaurar que chegaram ao R2; `reads`, as linhas lidas, guardadas a cada READS_SAVE_EVERY).
 interface DayCount {
   day: string;
   n: number;
@@ -94,21 +98,24 @@ interface Usage {
 }
 
 // O que um pedido do sync lê do lote (cut): as mudanças lidas, as recusadas pela cascata, quantas do começo do lote foram tomadas (lidas
-// ou recusadas; as outras voltam em `deferred`) e se o corte foi o do pedido (MAX_WRITES_PER_REQUEST: o resto vai já) ou o do orçamento
-// (o resto vai na virada do dia).
+// ou recusadas; as outras voltam em `deferred`), se o corte foi o do pedido (MAX_WRITES_PER_REQUEST: o resto vai já) ou o do orçamento
+// (o resto vai na virada do dia), e as linhas que contar a cascata leu no índice (o orçamento de leituras).
 interface Cut {
   read: unknown[];
   refused: Rejected[];
   taken: number;
   now: boolean;
+  rows: number;
 }
 
 // Os registros que um lote lê (um sync, uma restauração), cada um uma vez: applyChanges os lê pela vista, e o teto de bytes e write() pegam
 // o tamanho do conteúdo gravado de cada um sem ler de novo. `json` é o texto de um `data`, guardado: o teto o mede e write() o grava.
+// `rows`: as linhas que o lote leu até aqui (uma por registro procurado, e os solves de cada sessão da cascata), o orçamento de leituras.
 interface Batch {
   view: RecordView;
   storedBytes(store: SyncStore, id: string): number;
   json(data: unknown): string;
+  rows(): number;
 }
 
 // O teto de bytes (o `admit` de applyChanges): a mudança que faria o conteúdo gravado da conta passar de ACCOUNT_BYTES_CAP volta com o
@@ -148,6 +155,8 @@ function bytesCap(batch: Batch, stored: number): (before: Change | undefined, ne
 
 export class AccountStore extends DurableObject<Env> {
   private readonly sql: SqlStorage;
+  // As linhas lidas no dia que ainda não foram para o estado (o orçamento de leituras: readsOf, countReads, saveReads).
+  private unsaved: DayCount = { day: '', n: 0 };
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -173,12 +182,14 @@ export class AccountStore extends DurableObject<Env> {
 
   private batch(): Batch {
     const rows = new Map<string, Row | null>();
+    let read = 0;
     const load = (store: string, id: string): Row | null => {
       const key = syncKey(store, id);
       let row = rows.get(key);
       if (row === undefined) {
         row = this.sql.exec<Row>('SELECT * FROM records WHERE store = ? AND id = ?', store, id).toArray()[0] ?? null;
         rows.set(key, row);
+        read += 1;
       }
       return row;
     };
@@ -189,15 +200,15 @@ export class AccountStore extends DurableObject<Env> {
           const row = load(store, id);
           return row ? rowToChange(row) : undefined;
         },
-        solvesOf: (sessionId) =>
-          this.sql
-            .exec<Row>("SELECT * FROM records WHERE store = 'solves' AND parent = ?", sessionId)
-            .toArray()
-            .map((row) => {
-              const key = syncKey('solves', row.id);
-              if (!rows.has(key)) rows.set(key, row);
-              return rowToChange(row);
-            }),
+        solvesOf: (sessionId) => {
+          const found = this.sql.exec<Row>("SELECT * FROM records WHERE store = 'solves' AND parent = ?", sessionId).toArray();
+          read += found.length;
+          return found.map((row) => {
+            const key = syncKey('solves', row.id);
+            if (!rows.has(key)) rows.set(key, row);
+            return rowToChange(row);
+          });
+        },
       },
       storedBytes: (store, id) => {
         const row = load(store, id);
@@ -212,6 +223,7 @@ export class AccountStore extends DurableObject<Env> {
         }
         return text;
       },
+      rows: () => read,
     };
   }
 
@@ -239,11 +251,39 @@ export class AccountStore extends DurableObject<Env> {
   }
 
   // A contagem do dia UTC de `now` (num dia novo, 0), sem gravar nada. O dia nunca volta atrás (usage, acima).
-  private dayCount(key: 'writes' | 'restores' | 'attempts', now: number): DayCount {
+  private dayCount(key: 'writes' | 'restores' | 'attempts' | 'reads', now: number): DayCount {
     const stored = JSON.parse(this.getState(key) ?? 'null') as DayCount | null;
     const today = utcDay(now);
     const day = stored !== null && stored.day > today ? stored.day : today;
     return { day, n: stored?.day === day ? stored.n : 0 };
+  }
+
+  // As linhas lidas no dia UTC de `now` (o orçamento de leituras, DAILY_READ_BUDGET): as guardadas no estado mais as que ainda estão só na
+  // memória. Num dia novo, o que estava na memória era do dia de antes, e sai.
+  private readsOf(now: number): DayCount {
+    const stored = this.dayCount('reads', now);
+    if (this.unsaved.day !== stored.day) this.unsaved = { day: stored.day, n: 0 };
+    return { day: stored.day, n: stored.n + this.unsaved.n };
+  }
+
+  // Soma `n` linhas lidas, na memória.
+  private countReads(n: number, now: number): void {
+    this.readsOf(now);
+    this.unsaved.n += n;
+  }
+
+  // As linhas lidas vão para o estado só quando juntam READS_SAVE_EVERY: contar não grava uma linha por pedido. Fora da transação de quem
+  // leu, e uma falha (no grátis, passadas as linhas gravadas do dia de todas as contas) fica para a próxima vez. O que está só na memória
+  // quando o objeto sai dela se perde, no máximo READS_SAVE_EVERY por vez.
+  private saveReads(now: number): void {
+    if (this.unsaved.n < READS_SAVE_EVERY) return;
+    try {
+      const reads = this.readsOf(now);
+      this.setState('reads', JSON.stringify(reads));
+      this.unsaved = { day: reads.day, n: 0 };
+    } catch {
+      console.log(JSON.stringify({ evt: 'reads-unsaved' }));
+    }
   }
 
   private copies(): Copies {
@@ -279,13 +319,19 @@ export class AccountStore extends DurableObject<Env> {
     this.addUsage(usage, { active: result.activeDelta, bytes: grew, writes: rowsOf(result.writes.length) });
   }
 
-  private all(): Change[] {
-    return this.sql.exec<Row>('SELECT * FROM records').toArray().map(rowToChange);
+  // A conta inteira (a cópia do dia, a restauração), contada no orçamento de leituras.
+  private all(now: number): Change[] {
+    const rows = this.sql.exec<Row>('SELECT * FROM records').toArray();
+    this.countReads(rows.length, now);
+    return rows.map(rowToChange);
   }
 
-  // O tamanho da conta em registros (COUNT_RECORDS), o que a cópia do dia e a restauração conferem antes de ler tudo.
-  private recordCount(): number {
-    return this.sql.exec<{ n: number }>(COUNT_RECORDS).one().n;
+  // O tamanho da conta em registros (COUNT_RECORDS), o que a cópia do dia e a restauração conferem antes de ler tudo. O COUNT percorre o
+  // índice inteiro: conta no orçamento de leituras como as linhas que contou.
+  private recordCount(now: number): number {
+    const n = this.sql.exec<{ n: number }>(COUNT_RECORDS).one().n;
+    this.countReads(n, now);
+    return n;
   }
 
   // A sessão que a mudança apaga (o id), ou null: só uma exclusão de sessão que passa por checkChange tem cascata.
@@ -313,8 +359,9 @@ export class AccountStore extends DurableObject<Env> {
     const children = new Map<string, number>(); // os solves ativos de cada sessão apagada no lote, lidos uma vez
     let writes = 0; // registros que o que foi lido grava, a cascata inclusive
     let taken = 0;
+    let rows = 0; // as linhas que as contagens leram no índice
     for (const raw of changes) {
-      if (taken === MAX_WRITES_PER_REQUEST) return { read, refused, taken, now: true };
+      if (taken === MAX_WRITES_PER_REQUEST) return { read, refused, taken, now: true, rows };
       const sid = this.deletedSession(raw);
       let n = 1;
       if (sid !== null) {
@@ -322,6 +369,7 @@ export class AccountStore extends DurableObject<Env> {
         if (count === undefined) {
           count = this.sql.exec<{ n: number }>(ACTIVE_CHILDREN, sid, RECORDS_PER_DAY).one().n;
           children.set(sid, count);
+          rows += count;
         }
         n += count;
       }
@@ -333,7 +381,7 @@ export class AccountStore extends DurableObject<Env> {
       }
       taken++;
     }
-    return { read, refused, taken, now: false };
+    return { read, refused, taken, now: false, rows };
   }
 
   // A marca que wipe deixa: o objeto de uma conta apagada recusa o sync, a restauração e a cópia, e não marca alarme. Sem ela, um sync com a
@@ -387,25 +435,28 @@ export class AccountStore extends DurableObject<Env> {
   // pedido, quando foi o corte do pedido (o app manda o resto em seguida). A exclusão de uma sessão cuja cascata não caberia num dia volta
   // em `rejected`, com o motivo da cota. O recebimento segue igual, com ou sem orçamento. Toda resposta leva `copiesPaused`, a pausa das
   // cópias na nuvem (null quando elas seguem).
+  //
+  // O orçamento de leituras (revisão final, I2 c): passadas DAILY_READ_BUDGET linhas lidas no dia, o pedido não lê nada (unread). Senão, as
+  // linhas que ele leu (as contagens da cascata, os registros do lote, a página) contam. O aparelho do pedido vem depois, fora da transação
+  // (touchDevice): um sync que só recebe, com a linha do aparelho fresca, não grava nada, e o recebimento nunca cai por uma gravação.
   async syncBatch(userId: string, req: SyncRequest, now: number): Promise<SyncResponse | 'deleted'> {
-    const response = this.ctx.storage.transactionSync((): SyncResponse | 'deleted' => {
+    const done = this.ctx.storage.transactionSync((): { response: SyncResponse; wrote: boolean; unread: boolean } | 'deleted' => {
       if (this.deleted()) return 'deleted';
       if (this.getState('userId') === null) this.setState('userId', userId);
+      const reads = this.readsOf(now);
+      if (reads.n >= DAILY_READ_BUDGET) return { response: this.unread(req, now, reads.day), wrote: false, unread: true };
       const from = req.cursor > Number(this.getState('rev') ?? '0') ? 0 : req.cursor;
       const usage = this.usage(now);
       const cut = this.cut(req.changes, DAILY_WRITE_BUDGET - usage.writes);
       const batch = this.batch();
       const result = applyChanges(batch.view, cut.read, { mode: 'server', quota: { active: usage.active }, admit: bytesCap(batch, usage.bytes) });
       this.commit(result, batch, usage);
-      this.sql.exec(
-        'INSERT INTO devices (device_id, last_sync_at) VALUES (?, ?) ON CONFLICT(device_id) DO UPDATE SET last_sync_at = excluded.last_sync_at',
-        req.deviceId, now,
-      );
       const size = req.changes.length > 0 ? PULL_PAGE_WITH_PUSH : PULL_PAGE;
       const rows = this.sql.exec<Row>('SELECT * FROM records WHERE rev > ? ORDER BY rev LIMIT ?', from, size + 1).toArray();
+      this.countReads(cut.rows + batch.rows() + rows.length, now);
       const page = rows.slice(0, size);
       const deferred = req.changes.length - cut.taken;
-      return {
+      const response: SyncResponse = {
         accepted: cut.read.length - result.rejected.length,
         rejected: [...result.rejected, ...cut.refused],
         changes: page.map(rowToChange),
@@ -415,11 +466,63 @@ export class AccountStore extends DurableObject<Env> {
         ...(deferred > 0 ? { deferred, retryAt: cut.now ? now : nextUtcDay(Date.parse(usage.day)) } : {}),
         copiesPaused: this.copies().paused,
       };
+      return { response, wrote: result.writes.length > 0, unread: false };
     });
-    if (response === 'deleted') return response;
+    if (done === 'deleted') return done;
+    if (!done.unread) this.touchDevice(req.deviceId, now, done.wrote);
+    this.saveReads(now);
     // A cópia diária: o primeiro sync marca o alarme. Pela hora de verdade, não pela do pedido: um alarme no passado dispararia na hora.
     if ((await this.ctx.storage.getAlarm()) === null) await this.ctx.storage.setAlarm(nextSnapshotAt(Date.now()));
-    return response;
+    return done.response;
+  }
+
+  // O pedido que chega depois do orçamento de leituras do dia: nada é lido nem gravado. A página volta vazia, com o cursor do pedido e sem
+  // `more` (o aparelho não pede de novo na mesma rodada), o lote volta todo em `deferred`, e os dois esperam a virada do dia UTC (retryAt),
+  // com `readsDeferred`, que diz ao app que o recebimento também ficou para lá.
+  private unread(req: SyncRequest, now: number, day: string): SyncResponse {
+    const deferred = req.changes.length;
+    return {
+      accepted: 0,
+      rejected: [],
+      changes: [],
+      cursor: req.cursor,
+      more: false,
+      serverTime: now,
+      ...(deferred > 0 ? { deferred } : {}),
+      retryAt: nextUtcDay(Date.parse(day)),
+      readsDeferred: true,
+      copiesPaused: this.copies().paused,
+    };
+  }
+
+  // O aparelho do pedido, na tabela `devices` (a página de privacidade a cita; nada a lê): gravado só quando é novo ou quando a linha dele
+  // passou de DEVICE_TOUCH_MS, e só os MAX_DEVICES mais recentes ficam (um aparelho novo além deles tira o mais velho dos outros). A gravação
+  // conta no orçamento do dia: num pedido que gravou mudanças (`paid`), ela já está nas REQUEST_ROWS dele; num que só recebe, ela conta as
+  // REQUEST_ROWS, e sem elas no dia fica para depois. Fora da transação do pedido, e uma falha só vai para o log: no grátis, passadas as
+  // linhas gravadas do dia de todas as contas, toda gravação falha, e o recebimento não pode cair por isso.
+  private touchDevice(deviceId: string, now: number, paid: boolean): void {
+    try {
+      this.ctx.storage.transactionSync(() => {
+        const seen = this.sql.exec<{ at: number }>('SELECT last_sync_at AS at FROM devices WHERE device_id = ?', deviceId).toArray()[0]?.at;
+        if (seen !== undefined && now - seen <= DEVICE_TOUCH_MS) return;
+        const writes = this.dayCount('writes', now);
+        const rows = paid ? 0 : REQUEST_ROWS;
+        if (writes.n + rows > DAILY_WRITE_BUDGET) return;
+        this.sql.exec(
+          'INSERT INTO devices (device_id, last_sync_at) VALUES (?, ?) ON CONFLICT(device_id) DO UPDATE SET last_sync_at = excluded.last_sync_at',
+          deviceId, now,
+        );
+        if (seen === undefined) {
+          this.sql.exec(
+            'DELETE FROM devices WHERE device_id IN (SELECT device_id FROM devices WHERE device_id <> ? ORDER BY last_sync_at DESC, device_id DESC LIMIT -1 OFFSET ?)',
+            deviceId, MAX_DEVICES - 1,
+          );
+        }
+        if (rows > 0) this.setState('writes', JSON.stringify({ day: writes.day, n: writes.n + rows }));
+      });
+    } catch {
+      console.log(JSON.stringify({ evt: 'device-skipped' }));
+    }
   }
 
   // Uma vez por dia (spec 8.3): a compactação e depois a cópia do dia, só se a conta mudou desde a última. Uma conta apagada (ou sem dono)
@@ -431,6 +534,7 @@ export class AccountStore extends DurableObject<Env> {
       const now = Date.now();
       this.compact(now);
       await this.takeSnapshot(now);
+      this.saveReads(now);
       await this.ctx.storage.setAlarm(nextSnapshotAt(now));
     });
   }
@@ -447,6 +551,7 @@ export class AccountStore extends DurableObject<Env> {
       const limit = Math.min(COMPACT_PER_DAY, Math.max(0, fit));
       if (limit === 0) return 0;
       const due = this.sql.exec<{ id: string; bytes: number }>(COMPACTABLE, now - TOMBSTONE_KEEP_MS, limit).toArray();
+      this.countReads(due.length, now);
       let freed = 0;
       for (const r of due) {
         this.sql.exec(COMPACT_SOLVE, r.id);
@@ -458,7 +563,9 @@ export class AccountStore extends DurableObject<Env> {
   }
 
   async snapshot(now: number): Promise<boolean> {
-    return this.exclusive(() => this.takeSnapshot(now));
+    const done = await this.exclusive(() => this.takeSnapshot(now));
+    this.saveReads(now);
+    return done;
   }
 
   // A cópia do dia, dentro do grátis (endurecimento 4.2 e Task 12): uma conta com mais registros que SNAPSHOT_MAX_RECORDS não tem cópia
@@ -472,11 +579,11 @@ export class AccountStore extends DurableObject<Env> {
     const rev = this.getState('rev') ?? '0';
     if (this.deleted() || userId === null || this.getState('snapshotRev') === rev) return false;
     const caps = capsOf(this.env);
-    if (caps.snapshotRecords === 0 || this.recordCount() > caps.snapshotRecords) return this.pauseCopies(userId, 'size');
+    if (caps.snapshotRecords === 0 || this.recordCount(now) > caps.snapshotRecords) return this.pauseCopies(userId, 'size');
     const estimate = this.copies().gz;
     const short = estimate === null ? null : await copyRoom(this.env.DB, estimate, now, caps);
     if (short !== null) return this.pauseCopies(userId, short);
-    const data = exportFromRecords(this.all(), now);
+    const data = exportFromRecords(this.all(now), now);
     const day = dayOf(now);
     const gz = await gzipJson(data);
     const paused = await reserveCopy(this.env.DB, gz.byteLength, now, caps);
@@ -544,7 +651,7 @@ export class AccountStore extends DurableObject<Env> {
   // nunca se restaura sem ela, decisão 3) e a operação A do put dela (r2-budget). As de depois de ler a cópia continuam a autoridade. Sem o
   // atalho da lista, alternar "restaurar um nome que não existe" com "abrir a lista" gastaria uma operação A por par.
   async restoreSnapshot(name: string, now: number): Promise<'ok' | 'not-found' | 'deleted' | RestoreRefusal> {
-    return this.exclusive(async (): Promise<'ok' | 'not-found' | 'deleted' | RestoreRefusal> => {
+    const outcome = await this.exclusive(async (): Promise<'ok' | 'not-found' | 'deleted' | RestoreRefusal> => {
       if (this.deleted()) return 'deleted';
       const restores = this.dayCount('restores', now);
       const attempts = this.dayCount('attempts', now);
@@ -554,7 +661,7 @@ export class AccountStore extends DurableObject<Env> {
       const { list, at, gz: estimate } = this.copies();
       if (list !== null && now - at < COPIES_CACHE_MS && !list.some((c) => c.name === name)) return 'not-found';
       const caps = capsOf(this.env);
-      if (caps.restoreRecords === 0 || this.recordCount() > Math.min(caps.restoreRecords, RECORDS_PER_DAY)) return 'too-big';
+      if (caps.restoreRecords === 0 || this.recordCount(now) > Math.min(caps.restoreRecords, RECORDS_PER_DAY)) return 'too-big';
       const usage = this.usage(now);
       if (rowsOf(usage.active.sessions + usage.active.solves) > DAILY_WRITE_BUDGET - usage.writes) return 'write-budget';
       const short = estimate === null ? null : await copyRoom(this.env.DB, estimate, now, caps);
@@ -567,7 +674,7 @@ export class AccountStore extends DurableObject<Env> {
         return 'not-found';
       }
       const copy = (await gunzipJson(await object.arrayBuffer())) as KlickExport;
-      const current = this.all();
+      const current = this.all(now);
       const stamp = current.reduce((max, c) => Math.max(max, c.updatedAt + 1, c.deletionStamp + 1), now); // vence tudo o que existe
       const practice = Array.isArray(copy.practice) ? copy.practice : null;
       const changes = restoreChanges(current, { sessions: copy.sessions, solves: copy.solves, practice }, accountPrefsOf(copy.profile), stamp);
@@ -591,10 +698,13 @@ export class AccountStore extends DurableObject<Env> {
         const usage = this.usage(now);
         const batch = this.batch();
         this.commit(applyChanges(batch.view, changes, { mode: 'server' }), batch, usage);
+        this.countReads(batch.rows(), now);
         this.setState('restores', JSON.stringify({ day: restores.day, n: restores.n + 1 }));
       });
       return 'ok';
     });
+    this.saveReads(now);
+    return outcome;
   }
 
   // Apagar a conta (spec 7.7): o banco inteiro do objeto e o alarme somem na hora, e fica só a marca de apagada. Depois de uma cópia ou de
