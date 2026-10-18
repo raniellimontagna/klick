@@ -348,7 +348,7 @@ interface Inside {
   getState(key: string): string | null;
   setState(key: string, value: string): void;
   copies(): { at: number; list: CloudCopy[] | null; paused: CopiesPaused | null; gz: number | null };
-  recordCount(now: number): number;
+  recordCount(limit: number, now: number): number;
   renewCopies(): void;
   deleted(): boolean;
   exclusive<T>(fn: () => Promise<T>): Promise<T>;
@@ -833,7 +833,8 @@ function restoreRecomputing(store: AccountStore, name: string, now: number): Pro
     const { list, at } = s.copies();
     if (list !== null && now - at < COPIES_CACHE_MS && !list.some((c) => c.name === name)) return 'not-found';
     const caps = capsOf(s.env);
-    if (caps.restoreRecords === 0 || s.recordCount(now) > Math.min(caps.restoreRecords, RECORDS_PER_DAY)) return 'too-big';
+    const most = Math.min(caps.restoreRecords, RECORDS_PER_DAY);
+    if (caps.restoreRecords === 0 || s.recordCount(most, now) > most) return 'too-big';
     if (!(await takeOps(s.env.DB, 'B', 2, now, caps.classBMonth))) return 'r2-budget';
     const object = await s.env.SNAPSHOTS.get(snapshotKey(userId, name));
     if (!object) {

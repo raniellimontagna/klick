@@ -42,13 +42,15 @@ export const UPSERT_RECORD = `INSERT INTO records (store, id, data, updated_at, 
   deletion_stamp = excluded.deletion_stamp, rev = excluded.rev, parent = excluded.parent`;
 
 // Os contadores de uma conta que ainda não os tem (as do beta), contados uma vez no banco: os ativos de cada store e o tamanho do conteúdo
-// gravado, em bytes de UTF-8 (o mesmo que utf8Bytes conta de cada `data` gravado depois).
+// gravado, em bytes de UTF-8 (o mesmo que utf8Bytes conta de cada `data` gravado depois), com quantos registros a varredura leu (`rows`, o
+// orçamento de leituras).
 export const COUNT_ACTIVE = 'SELECT store, count(*) AS n FROM records WHERE deleted_at IS NULL GROUP BY store';
-export const STORED_BYTES = 'SELECT coalesce(sum(length(CAST(data AS BLOB))), 0) AS n FROM records';
+export const STORED_BYTES = 'SELECT coalesce(sum(length(CAST(data AS BLOB))), 0) AS n, count(*) AS rows FROM records';
 
-// O tamanho da conta em registros (sessões, solves, treino e ajustes; na lixeira e as marcas compactadas inclusive), contado pelo índice:
-// a cópia do dia (SNAPSHOT_MAX_RECORDS) e a restauração (RESTORE_MAX_RECORDS) o conferem antes de ler a conta inteira (Task 12).
-export const COUNT_RECORDS = 'SELECT count(*) AS n FROM records';
+// O tamanho da conta em registros (sessões, solves, treino e ajustes; na lixeira e as marcas compactadas inclusive), contado pelo índice
+// até ?: a cópia do dia (SNAPSHOT_MAX_RECORDS) e a restauração (RESTORE_MAX_RECORDS) o conferem antes de ler a conta inteira (Task 12),
+// com o limite em uso + 1, o bastante para saber que ela passou dele, sem percorrer uma conta enorme inteira (revisão final).
+export const COUNT_RECORDS = 'SELECT count(*) AS n FROM (SELECT 1 FROM records LIMIT ?)';
 
 // Os solves ativos da sessão ?1, que a cascata de apagá-la grava, contados pelo índice records_parent até ?2: o bastante para saber que ela
 // não cabe num dia, sem ler uma sessão enorme inteira (Task 12).

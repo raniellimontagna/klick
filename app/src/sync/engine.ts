@@ -141,6 +141,16 @@ const deferredOf = (v: unknown, sent: number): number => (Number.isSafeInteger(v
 const retryAtOf = (v: unknown): number | null => (Number.isSafeInteger(v) ? (v as number) : null);
 const copiesPausedOf = (v: unknown): CopiesPaused | null | undefined => (v === null || isCopiesPaused(v) ? v : undefined);
 
+// A cópia antes de apagar em massa (spec 6.6), por rodada: os solves daqui que os lotes da rodada já apagaram e se a cópia 'pre-sync' já
+// saiu nela. Uma sessão apagada chega aos outros aparelhos como exclusões comuns, em páginas (a fila manda os solves antes dela): uma cópia
+// por página com 50 ou mais faria várias cópias inteiras numa rodada, e as mais novas tirariam das guardadas as de antes (PRE_SYNC_PINNED,
+// data/safety.ts), a do primeiro login inclusive. Uma por rodada, antes do lote com o qual a soma chega a MASS_DELETE, guarda o que a spec
+// promete: uma cópia antes de o sync apagar 50 solves. A do primeiro login, no começo da rodada, vale como a dela.
+interface MassGuard {
+  deleted: number;
+  copied: boolean;
+}
+
 // Uma rodada que não pode continuar por algo do servidor que não é um código HTTP (o cursor parado, um laço sem fim): erro do servidor e
 // nova tentativa. A mensagem vai para o log: só contagens e cursores.
 class RoundError extends Error {
@@ -205,9 +215,9 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
 
   // Um pedido: manda até SYNC_BATCH da fila (ou nada, só recebendo) e junta a volta. A ordem conta: o que subiu sai da fila antes de juntar
   // a volta (a temporada que acabou de subir adota o que o servidor decidiu, em vez de ficar "na fila" e divergir; a chave recusada pela
-  // cota entra na lista antes de uma escrita dela na volta ser juntada), e a cópia local vem antes de juntar um lote que apaga MASS_DELETE
-  // solves daqui ou mais, contando a cascata (spec 6.6). `accountId` é a conta de quando a rodada começou: um pedido não sai com o cursor de
-  // outra conta, e a volta só entra nela.
+  // cota entra na lista antes de uma escrita dela na volta ser juntada), e a cópia local vem antes de juntar o lote com o qual as exclusões
+  // da rodada chegam a MASS_DELETE solves daqui, contando a cascata (spec 6.6), uma vez por rodada (`guard`). `accountId` é a conta de
+  // quando a rodada começou: um pedido não sai com o cursor de outra conta, e a volta só entra nela.
   //
   // Nada sobe com pushAfter no futuro. Da resposta: as últimas `deferred` do lote o servidor não leu (o orçamento do dia acabou) e ficam na
   // fila, na mesma ordem; do que ele leu, o recusado pela cota vai para a lista "só neste aparelho" e não conta em `refused`. Com algo
@@ -221,6 +231,7 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
   async function exchange(
     wants: boolean,
     accountId: string,
+    guard: MassGuard,
   ): Promise<{ more: boolean; sent: number; received: number; held: number; later: boolean; unread: boolean }> {
     await idle();
     const [state, meta] = await Promise.all([deps.repo().getSyncState(), deps.repo().getMeta()]);
@@ -260,7 +271,13 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
     // juntado). Parado com a volta esperando o solve, não espera mais: a volta não é juntada nem o cursor anda (a próxima rodada a recebe de
     // novo); o que subiu já saiu da fila, e o servidor o tem.
     if (!(await waitIdle())) throw new Paused();
-    if (hasDeletion(res.changes) && (await deps.repo().countRemoteDeletions(res.changes)) >= MASS_DELETE) await deps.backup();
+    if (!guard.copied && hasDeletion(res.changes)) {
+      guard.deleted += await deps.repo().countRemoteDeletions(res.changes);
+      if (guard.deleted >= MASS_DELETE) {
+        await deps.backup();
+        guard.copied = true;
+      }
+    }
     await sameAccount(accountId); // de novo: a espera e a cópia levam tempo
     // O repositório confere a conta dentro da transação (outra aba) e grava o cursor nela: juntar e andar o cursor acontecem juntos ou não.
     // O relógio sobe até a hora do servidor ali também, e o orçamento e a pausa das cópias vão para o estado com o cursor.
@@ -284,10 +301,11 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
   // O começo do primeiro login (spec 6.5), dentro da rodada: a cópia 'pre-sync' e, numa transação, o estado da conta com tudo na fila
   // (beginFirstSync). Se a cópia ou a fila falham, nada começou e a nova tentativa recomeça por aqui. A mesma conta já gravada (o primeiro
   // login dela já começou, ou ela volta depois de sair) não ganha cópia nem fila nova: volta a estar dentro, e a rodada continua de onde
-  // parou (firstSync) ou sobe o que mudou enquanto esteve fora (decisão 12).
-  async function begin(account: Account): Promise<void> {
+  // parou (firstSync) ou sobe o que mudou enquanto esteve fora (decisão 12). Devolve se fez a cópia.
+  async function begin(account: Account): Promise<boolean> {
     const state = await deps.repo().getSyncState();
-    if (state.accountId !== account.accountId) {
+    const copied = state.accountId !== account.accountId;
+    if (copied) {
       await deps.backup();
       // A transação que põe tudo na fila é grande: não cai num solve que começou durante a cópia. Parado durante a cópia, o primeiro login não
       // começa.
@@ -297,11 +315,13 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
       await deps.repo().saveSyncState({ signedIn: true, email: account.email });
     }
     if (login === account) login = null;
+    return copied;
   }
 
   async function round(): Promise<void> {
     await idle();
-    if (login) await begin(login);
+    const guard: MassGuard = { deleted: 0, copied: false };
+    if (login) guard.copied = await begin(login);
     const state = await deps.repo().getSyncState();
     if (!state.signedIn || state.accountId === null) {
       set({ ...idleStatus(), pending: await deps.repo().outboxCount() });
@@ -324,7 +344,7 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
     if (state.firstSync) {
       for (let i = 0, more = true; more; i++) {
         if (i === MAX_EXCHANGES) throw new RoundError(`o primeiro sync passou de ${MAX_EXCHANGES} pedidos`);
-        const r = await exchange(false, accountId); // a conta inteira chega antes de subir qualquer coisa
+        const r = await exchange(false, accountId, guard); // a conta inteira chega antes de subir qualquer coisa
         progress.received += r.received;
         set({ progress: { ...progress } });
         // O orçamento de leituras acabou com a conta pela metade: sem deduplicar nem subir, o primeiro login continua depois, do cursor.
@@ -341,7 +361,7 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
     let unread = false;
     for (let i = 0; ; i++) {
       if (i === MAX_EXCHANGES) throw new RoundError(`a rodada passou de ${MAX_EXCHANGES} pedidos`);
-      const r = await exchange(!later, accountId);
+      const r = await exchange(!later, accountId, guard);
       held += r.held;
       later ||= r.later;
       unread ||= r.unread;

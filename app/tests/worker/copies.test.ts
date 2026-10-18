@@ -14,6 +14,7 @@ import type { Env } from '../../worker/env';
 import {
   capsOf,
   COPIES_CACHE_MS,
+  DAILY_READ_BUDGET,
   DAILY_WRITE_BUDGET,
   RECORDS_PER_DAY,
   RESTORE_ATTEMPTS_PER_DAY,
@@ -23,7 +24,7 @@ import {
   utcDay,
   utcMonth,
 } from '../../worker/limits';
-import { rowToChange, type Row } from '../../worker/records-sql';
+import { COMPACTABLE, rowToChange, type Row } from '../../worker/records-sql';
 import { dayOf, gunzipJson, preRestoreName, snapshotKey, snapshotPrefix } from '../../worker/snapshots';
 import { call, postJson, setState, stateOf, stubOf, T0, testDeps } from './helpers';
 
@@ -563,5 +564,70 @@ describe('apagar a conta (spec 7.7) com as operações no fim', () => {
     expect(await objectsOf(user)).toEqual([]);
     expect(await opsOf('A')).toBe(caps.classAMonth + 2); // a página com a cópia e a vazia, que confirma o fim
     expect(await list(user)).toEqual({ status: 401, body: { error: 'auth' } });
+  });
+});
+
+// Revisão final (resíduo, I1): o COUNT do tamanho da conta percorria a tabela inteira, antes de qualquer teto da restauração; a restauração
+// não olhava o orçamento de leituras; e, contado nele, um punhado de restaurações recusadas numa conta grande travava o sync do dia. O COUNT
+// para em (o limite em uso) + 1, e a restauração recusa com restore-limit antes dele quando o orçamento de leituras do dia acabou.
+describe('a contagem limitada do tamanho da conta', () => {
+  // As linhas que o SQLite do objeto de `user` leu nas consultas aos registros (o rowsRead de cada cursor, o que o grátis conta), desde agora.
+  // Fora, a da compactação do alarme (um trabalho à parte dele, com o próprio teto).
+  async function rowsRead(user: string): Promise<() => number> {
+    const cursors: SqlStorageCursor<Record<string, SqlStorageValue>>[] = [];
+    await runInDurableObject(stubOf(user), (instance) => {
+      const o = instance as unknown as { sql: SqlStorage };
+      const real = o.sql;
+      o.sql = new Proxy(real, {
+        get(target, key) {
+          const value = Reflect.get(target, key) as unknown;
+          if (key !== 'exec') return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+          return (query: string, ...bindings: unknown[]) => {
+            const cursor = target.exec(query, ...(bindings as SqlStorageValue[]));
+            if (/FROM records\b/.test(query) && query !== COMPACTABLE) cursors.push(cursor);
+            return cursor;
+          };
+        },
+      });
+    });
+    return () => cursors.reduce((sum, c) => sum + c.rowsRead, 0);
+  }
+  const most = Math.min(caps.restoreRecords, RECORDS_PER_DAY); // o tamanho que a restauração aceita
+
+  it('pausada pelo tamanho, a cópia do alarme lê no máximo SNAPSHOT_MAX_RECORDS + 1 linhas', async () => {
+    const user = 'tamanho-pausado-limitado';
+    await sync(user, [session, solve('a')]);
+    await seedSolves(user, 2 * caps.snapshotRecords);
+    const read = await rowsRead(user);
+    expect(await runDurableObjectAlarm(stubOf(user))).toBe(true);
+    expect(read()).toBeGreaterThan(0);
+    expect(read()).toBeLessThanOrEqual(caps.snapshotRecords + 1);
+    expect((await sync(user, [])).copiesPaused).toBe('size');
+  });
+
+  it('a restauração recusada de uma conta grande lê no máximo o limite + 1; passado o orçamento de leituras, restore-limit sem ler nada', async () => {
+    const user = 'restaura-grande-limitada';
+    await setState(user, 'userId', user);
+    await seedSolves(user, 3 * most);
+    const read = await rowsRead(user);
+    expect(await restore(user, dayOf(T0), T0 + 1000)).toEqual({ status: 413, body: { error: 'too-big' } });
+    expect(read()).toBeLessThanOrEqual(most + 1);
+    await setState(user, 'reads', { day: utcDay(T0), n: DAILY_READ_BUDGET });
+    const before = read();
+    const r2 = await countR2(user);
+    for (let i = 2; i <= 4; i++) expect(await restore(user, dayOf(T0), T0 + i * 1000)).toEqual({ status: 429, body: { error: 'restore-limit' } });
+    expect([read(), r2]).toEqual([before, {}]);
+  });
+
+  it('umas restaurações recusadas numa conta grande não travam o sync dela pelo orçamento de leituras', async () => {
+    const user = 'restaura-grande-sync';
+    await setState(user, 'userId', user);
+    await seedSolves(user, 3 * most);
+    const taps = 5;
+    await setState(user, 'reads', { day: utcDay(T0), n: DAILY_READ_BUDGET - taps * (most + 1) - 1 });
+    for (let i = 1; i <= taps; i++) expect((await restore(user, dayOf(T0), T0 + i * 1000)).status).toBe(413);
+    const res = await sync(user, []);
+    expect(res.readsDeferred).toBeUndefined();
+    expect(res.changes.length).toBeGreaterThan(0);
   });
 });

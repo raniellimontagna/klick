@@ -679,6 +679,8 @@ describe('o orçamento de leituras do dia (revisão final, I2 c)', () => {
   it('as linhas lidas contam na memória do objeto e vão para o estado só a cada READS_SAVE_EVERY', async () => {
     const user = 'leituras-conta';
     await seedRecords(user, PULL_PAGE + 100); // sem nenhum pedido antes: o que conta é só o que os pedidos daqui leem
+    await setState(user, 'active', { solves: PULL_PAGE + 100, sessions: 0, practice: 0 }); // e com os contadores: sem a contagem inicial
+    await setState(user, 'bytes', 1);
     const pull = () => sync(user, [], { device: 'd2' }); // do cursor 0: PULL_PAGE + 1 linhas (a página e a que diz `more`)
     const per = PULL_PAGE + 1;
     const until = Math.ceil(READS_SAVE_EVERY / per);
@@ -692,6 +694,19 @@ describe('o orçamento de leituras do dia (revisão final, I2 c)', () => {
     await setState(user, 'reads', { day: utcDay(T0), n: DAILY_READ_BUDGET - per - 1 });
     expect((await pull()).changes).toHaveLength(PULL_PAGE);
     expect((await pull()).readsDeferred).toBe(true);
+  });
+
+  // Revisão final (resíduo, I1): toda leitura conta, também a contagem inicial de uma conta sem os contadores (as do beta, uma vez), que
+  // varre a tabela duas vezes (os ativos e os bytes) no primeiro pedido, seja um sync ou uma restauração.
+  it('a contagem inicial de uma conta sem os contadores conta as duas varreduras da tabela', async () => {
+    const user = 'leituras-contadores';
+    const n = 300;
+    await seedRecords(user, n); // sem os contadores no estado
+    await setState(user, 'reads', { day: utcDay(T0), n: DAILY_READ_BUDGET - 2 * n });
+    const first = await sync(user, [], { cursor: n }); // do cursor da conta: a página não lê nada
+    expect([first.changes, first.readsDeferred]).toEqual([[], undefined]);
+    expect(await stateOf(user, 'active')).not.toBeNull();
+    expect((await sync(user, [], { cursor: n })).readsDeferred).toBe(true);
   });
 
   it('a cópia do dia e a restauração também contam as linhas que leem', async () => {

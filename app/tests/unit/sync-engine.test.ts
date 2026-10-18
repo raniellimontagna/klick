@@ -364,6 +364,86 @@ describe('motor do sync (spec 6.1 e 6.2)', () => {
     expect(await desktop.listSolves()).toEqual([]);
   });
 
+  // Revisão final (resíduo, spec 6.6): uma sessão apagada chega aos outros aparelhos como exclusões comuns de solves, em páginas. A cópia
+  // 'pre-sync' sai uma vez por rodada, antes da página com a qual as exclusões da rodada chegam a MASS_DELETE: antes, cada página com 50 ou
+  // mais fazia uma cópia inteira, e cinco delas tiravam das 5 guardadas as de antes (a do primeiro login inclusive).
+  describe('a cópia antes de apagar em massa, uma por rodada', () => {
+    // O servidor com uma sessão e `count` solves (como se outro aparelho os tivesse subido), em páginas de `page`.
+    function seeded(count: number, page: number): { server: FakeServer; sid: string; ids: string[] } {
+      const server = new FakeServer(page);
+      server.now = t;
+      const sid = 'sessao-grande';
+      server.records.set(`sessions/${sid}`, {
+        store: 'sessions', id: sid, data: { name: 'Grande', event: '333', order: 0, createdAt: t }, updatedAt: t, deletedAt: null, deletionStamp: t, rev: ++server.rev,
+      });
+      const ids = Array.from({ length: count }, (_, i) => `solve-${String(i).padStart(4, '0')}`);
+      for (const [i, id] of ids.entries()) {
+        server.records.set(`solves/${id}`, {
+          store: 'solves', id, data: { sessionId: sid, event: '333', ms: 1000 + i, penalty: null, at: t, scramble: 'R', note: '', createdAt: t },
+          updatedAt: t, deletedAt: null, deletionStamp: t, rev: ++server.rev,
+        });
+      }
+      return { server, sid, ids };
+    }
+    // Outro aparelho apagou `ids` (exclusões comuns, como a fila manda os solves antes da sessão): revisões novas no servidor.
+    function deleteOnServer(server: FakeServer, ids: readonly string[], at: number): void {
+      for (const id of ids) {
+        const r = server.records.get(`solves/${id}`)!;
+        server.records.set(`solves/${id}`, { ...r, updatedAt: at, deletedAt: at, deletionStamp: at, rev: ++server.rev });
+      }
+    }
+    // O aparelho que recebe: a cópia anota quantos solves vivos ela pegou e quantas páginas já tinham chegado.
+    async function receiver(server: FakeServer) {
+      const repo = await device();
+      const net = network(server);
+      const pages: number[] = [];
+      const real = net.api.sync;
+      net.api.sync = async (req) => {
+        const res = await real(req);
+        pages.push(res.changes.length);
+        return res;
+      };
+      const copies: { at: number; solves: number }[] = [];
+      const { engine } = engineFor(repo, net, {
+        backup: async () => {
+          const copy = await createBackup(repo, 'pre-sync', t);
+          copies.push({ at: pages.length, solves: copy.solveCount });
+        },
+      });
+      await engine.run();
+      return { repo, engine, pages, copies };
+    }
+
+    it('dez páginas de 50 exclusões numa rodada: uma cópia só, antes da primeira', async () => {
+      const { server, ids } = seeded(10 * MASS_DELETE, MASS_DELETE);
+      const { repo, engine, pages, copies } = await receiver(server);
+      expect(await repo.listSolves()).toHaveLength(10 * MASS_DELETE);
+      deleteOnServer(server, ids, t + 1000);
+      const before = pages.length;
+      await engine.run();
+      expect(pages.slice(before).filter((n) => n === MASS_DELETE)).toHaveLength(10);
+      expect(copies).toEqual([{ at: before + 1, solves: 10 * MASS_DELETE }]); // antes de juntar a primeira página, com tudo vivo
+      expect(await repo.listSolves()).toEqual([]);
+    });
+
+    it('páginas menores: a cópia sai antes da que leva as exclusões da rodada a MASS_DELETE; uma página com 50 ou mais, uma cópia por rodada', async () => {
+      const { server, ids } = seeded(3 * MASS_DELETE, 20);
+      const { repo, engine, pages, copies } = await receiver(server);
+      deleteOnServer(server, ids.slice(0, MASS_DELETE), t + 1000); // páginas de 20, 20 e 10
+      let before = pages.length;
+      await engine.run();
+      expect(copies).toEqual([{ at: before + 3, solves: 3 * MASS_DELETE - 40 }]); // as duas primeiras já tinham apagado 40
+      expect(await repo.listSolves()).toHaveLength(2 * MASS_DELETE);
+      // Outra rodada, outra cópia: uma página só com MASS_DELETE exclusões.
+      const big = seeded(MASS_DELETE, 500);
+      const other = await receiver(big.server);
+      deleteOnServer(big.server, big.ids, t + 2000);
+      before = other.pages.length;
+      await other.engine.run();
+      expect(other.copies).toEqual([{ at: before + 1, solves: MASS_DELETE }]);
+    });
+  });
+
   it('426: o servidor pede um app mais novo, sem nova tentativa; outro 4xx (429) tenta de novo', async () => {
     const repo = await device();
     const net = network(new FakeServer());
@@ -1567,6 +1647,31 @@ describe('a cota e o orçamento do dia (endurecimento 4.1 e decisões 4 e 6)', (
     expect(statuses.some((x) => x.notice === 'quota')).toBe(false);
     const trash = await phone.listTrash();
     expect([trash.sessions.map((x) => x.id), trash.solves.length]).toEqual([[s.id], 25]);
+  });
+
+  // Revisão final (resíduo, Minor 1): a sessão que a cota já guarda (só neste aparelho) não está no servidor, e não há cascata lá para
+  // dividir. Apagá-la manda a sessão antes dos solves, como antes: na ordem nova, os solves dela iriam antes, a regra (b) os guardaria de novo
+  // (a sessão ainda não estaria no lote), e o aviso da conta cheia voltaria.
+  it('apagar uma sessão que a cota guarda: ela vai antes dos solves, nada fica guardado, e sem o aviso da conta cheia', async () => {
+    const server = new FakeServer(500, { limits: { solves: 100, sessions: 1, practice: 10 } });
+    server.now = t;
+    const phone = await device();
+    await phone.createSession({ event: '333', name: 'Na conta' });
+    const { engine, statuses } = engineFor(phone, network(server));
+    await engine.run();
+    const s = await phone.createSession({ event: '333', name: 'Só aqui' });
+    for (let i = 0; i < 3; i++) await phone.addSolve(ns(s.id, 1000 + i, t + i));
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, notice: 'quota' });
+    expect(await phone.heldCount()).toBe(4);
+    t += 10;
+    await phone.deleteSession(s.id);
+    const before = statuses.length;
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, notice: null });
+    expect(await phone.heldCount()).toBe(0);
+    // Nenhuma rodada termina com ele (durante a rodada, o estado ainda leva o aviso da anterior).
+    expect(statuses.slice(before).some((x) => x.phase === 'idle' && x.notice === 'quota')).toBe(false);
+    expect(server.records.get(`sessions/${s.id}`)?.deletedAt).not.toBeNull();
+    expect(activeSolves(server).filter((x) => (x.data as { sessionId: string }).sessionId === s.id)).toEqual([]);
   });
 
   // Task 12, fix round 1 (c): a sessão cuja cascata nunca caberia num dia, na fila de um app de antes da revisão final (I4), em que a exclusão

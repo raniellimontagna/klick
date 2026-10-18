@@ -12,9 +12,11 @@ export function filledPieces(sent: number, total: number): number {
 }
 
 // O cubo do passo do primeiro sync. "Enchendo" só com o total conhecido (a fase de enviar, a mesma regra do syncLine); baixando a conta, "girando".
+// Parado pelo orçamento de leituras do dia da conta (idle com o aviso 'reads'), parado: ele só continua amanhã.
 export function firstSyncCube(progress: SignInSync | null, status: SyncStatus): { state: CubeState; filled: number } {
   if (progress === 'done') return { state: 'solved', filled: 9 };
   if (progress === 'cancelled' || status.phase === 'error' || status.phase === 'offline') return { state: 'error', filled: 0 };
+  if (status.phase === 'idle' && status.notice === 'reads') return { state: 'idle', filled: 0 };
   if (status.progress && isSending(status.progress)) return { state: 'fill', filled: filledPieces(status.progress.sent, status.progress.total) };
   return { state: 'turn', filled: 0 };
 }

@@ -230,21 +230,28 @@ export class AccountStore extends DurableObject<Env> {
   // Os contadores (Usage), lidos do estado. Uma conta de antes deles (as do beta) os ganha da contagem do banco, uma vez, antes de o lote
   // gravar qualquer coisa. As gravações contam no dia UTC de `now`: num dia novo, o orçamento volta inteiro. O dia nunca volta atrás: um
   // pedido com a hora de um dia que já passou (o relógio de outro Worker, atrasado), atendido depois de um do dia seguinte, conta no dia mais
-  // novo que o objeto já viu, sem zerar o que foi gravado nele.
+  // novo que o objeto já viu, sem zerar o que foi gravado nele. Cada contagem do banco varre a tabela inteira, e conta no orçamento de
+  // leituras como os registros dela (STORED_BYTES diz quantos).
   private usage(now: number): Usage {
     let active = this.getState('active');
-    if (active === null) {
-      const counts = zeroCounts();
-      for (const r of this.sql.exec<{ store: string; n: number }>(COUNT_ACTIVE)) {
-        if (isCounted(r.store as SyncStore)) counts[r.store as CountedStore] = r.n;
-      }
-      active = JSON.stringify(counts);
-      this.setState('active', active);
-    }
     let bytes = this.getState('bytes');
-    if (bytes === null) {
-      bytes = String(this.sql.exec<{ n: number }>(STORED_BYTES).one().n);
-      this.setState('bytes', bytes);
+    if (active === null || bytes === null) {
+      const stored = this.sql.exec<{ n: number; rows: number }>(STORED_BYTES).one();
+      let scans = 1;
+      if (active === null) {
+        const counts = zeroCounts();
+        for (const r of this.sql.exec<{ store: string; n: number }>(COUNT_ACTIVE)) {
+          if (isCounted(r.store as SyncStore)) counts[r.store as CountedStore] = r.n;
+        }
+        active = JSON.stringify(counts);
+        this.setState('active', active);
+        scans += 1;
+      }
+      if (bytes === null) {
+        bytes = String(stored.n);
+        this.setState('bytes', bytes);
+      }
+      this.countReads(scans * stored.rows, now);
     }
     const writes = this.dayCount('writes', now);
     return { active: JSON.parse(active) as ActiveCounts, bytes: Number(bytes), day: writes.day, writes: writes.n };
@@ -326,10 +333,10 @@ export class AccountStore extends DurableObject<Env> {
     return rows.map(rowToChange);
   }
 
-  // O tamanho da conta em registros (COUNT_RECORDS), o que a cópia do dia e a restauração conferem antes de ler tudo. O COUNT percorre o
-  // índice inteiro: conta no orçamento de leituras como as linhas que contou.
-  private recordCount(now: number): number {
-    const n = this.sql.exec<{ n: number }>(COUNT_RECORDS).one().n;
+  // O tamanho da conta em registros (COUNT_RECORDS), o que a cópia do dia e a restauração conferem antes de ler tudo, até `limit` + 1: acima
+  // de `limit`, quem chama recusa, e o COUNT não percorre o resto de uma conta enorme. Conta no orçamento de leituras as linhas que contou.
+  private recordCount(limit: number, now: number): number {
+    const n = this.sql.exec<{ n: number }>(COUNT_RECORDS, limit + 1).one().n;
     this.countReads(n, now);
     return n;
   }
@@ -579,7 +586,7 @@ export class AccountStore extends DurableObject<Env> {
     const rev = this.getState('rev') ?? '0';
     if (this.deleted() || userId === null || this.getState('snapshotRev') === rev) return false;
     const caps = capsOf(this.env);
-    if (caps.snapshotRecords === 0 || this.recordCount(now) > caps.snapshotRecords) return this.pauseCopies(userId, 'size');
+    if (caps.snapshotRecords === 0 || this.recordCount(caps.snapshotRecords, now) > caps.snapshotRecords) return this.pauseCopies(userId, 'size');
     const estimate = this.copies().gz;
     const short = estimate === null ? null : await copyRoom(this.env.DB, estimate, now, caps);
     if (short !== null) return this.pauseCopies(userId, short);
@@ -638,10 +645,11 @@ export class AccountStore extends DurableObject<Env> {
   // gravações entram nos contadores como as de um sync (commit), sem a cota nem o teto de bytes: a cópia volta inteira ou não volta.
   //
   // Dentro do grátis (decisões 1, 2, 3 e 6, Task 12 e a revisão final), as conferências vêm nesta ordem, todas antes de qualquer gravação, e
-  // uma recusa não muda nada na conta (só a tentativa, abaixo, conta): a conta apagada; as restaurações do dia UTC (RESTORES_PER_DAY) e as
-  // tentativas do dia que chegaram ao R2 (RESTORE_ATTEMPTS_PER_DAY), restore-limit; um nome fora da lista guardada ainda válida (not-found,
-  // sem perguntar ao R2: toda cópia passa por este objeto e renova a lista, então a lista válida tem tudo o que existe); o tamanho da conta,
-  // mais registros que RESTORE_MAX_RECORDS ou que RECORDS_PER_DAY (too-big, num COUNT só: nem o D1, nem o R2, nem o gunzip); as linhas de
+  // uma recusa não muda nada na conta (só a tentativa, abaixo, conta): a conta apagada; as restaurações do dia UTC (RESTORES_PER_DAY), as
+  // tentativas do dia que chegaram ao R2 (RESTORE_ATTEMPTS_PER_DAY) e as leituras do dia da conta (DAILY_READ_BUDGET), restore-limit; um
+  // nome fora da lista guardada ainda válida (not-found, sem perguntar ao R2: toda cópia passa por este objeto e renova a lista, então a lista
+  // válida tem tudo o que existe); o tamanho da conta, mais registros que RESTORE_MAX_RECORDS ou que RECORDS_PER_DAY (too-big, num COUNT só,
+  // que para no limite + 1 e conta nas leituras: nem o D1, nem o R2, nem o gunzip); as linhas de
   // hoje para o mínimo que a restauração grava (write-budget: cada sessão e cada solve ativo de agora ganha uma mudança, volte da cópia ou vá
   // para a lixeira; os contadores do estado, sem ler a conta); com o tamanho da última cópia da conta, o espaço e a operação A da cópia de
   // antes (copyRoom: no-room, r2-budget; sem a estimativa, só a reserva de depois confere). Até aqui, nada do R2. Depois: as duas leituras do
@@ -656,12 +664,14 @@ export class AccountStore extends DurableObject<Env> {
       const restores = this.dayCount('restores', now);
       const attempts = this.dayCount('attempts', now);
       if (restores.n >= RESTORES_PER_DAY || attempts.n >= RESTORE_ATTEMPTS_PER_DAY) return 'restore-limit';
+      if (this.readsOf(now).n >= DAILY_READ_BUDGET) return 'restore-limit'; // nem o COUNT: as leituras do dia da conta acabaram
       const userId = this.getState('userId');
       if (userId === null) return 'not-found'; // nunca sincronizou: nenhuma cópia, e nada a perguntar ao R2
       const { list, at, gz: estimate } = this.copies();
       if (list !== null && now - at < COPIES_CACHE_MS && !list.some((c) => c.name === name)) return 'not-found';
       const caps = capsOf(this.env);
-      if (caps.restoreRecords === 0 || this.recordCount(now) > Math.min(caps.restoreRecords, RECORDS_PER_DAY)) return 'too-big';
+      const most = Math.min(caps.restoreRecords, RECORDS_PER_DAY);
+      if (caps.restoreRecords === 0 || this.recordCount(most, now) > most) return 'too-big';
       const usage = this.usage(now);
       if (rowsOf(usage.active.sessions + usage.active.solves) > DAILY_WRITE_BUDGET - usage.writes) return 'write-budget';
       const short = estimate === null ? null : await copyRoom(this.env.DB, estimate, now, caps);

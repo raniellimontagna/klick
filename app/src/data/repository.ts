@@ -868,9 +868,12 @@ export function createRepository(
         // Na fila, a exclusão dos solves vai antes, e a da sessão por último, com a data seguinte do relógio (revisão final, I4; como em
         // requeueHeld): a de uma sessão cuja cascata não cabe num dia voltaria com a cota, e os solves dela esperariam com ela "só neste
         // aparelho", com o aviso da conta cheia numa conta que não está. Assim os solves sobem pelo orçamento de cada dia, e a sessão chega
-        // sem solves ativos no servidor. As datas dos registros continuam as da exclusão.
+        // sem solves ativos no servidor. As datas dos registros continuam as da exclusão. A sessão que a cota já guarda vai antes, como
+        // antes (a mesma data, e a chave a põe na frente): ela não está no servidor, não há cascata lá para dividir, e com os solves na frente
+        // a regra (b) de outboxBatch os guardaria de novo, porque a sessão ainda não estaria no lote.
+        const held = (await heldOf(tx)).includes(syncKey('sessions', id));
         await each(live, (s) => ctx.track('solves', s.id));
-        if (live.length > 0) ctx.raise(ctx.stamp() + 1); // o relógio passa desta escrita: o track seguinte tem uma data depois
+        if (live.length > 0 && !held) ctx.raise(ctx.stamp() + 1); // o relógio passa desta escrita: o track seguinte tem uma data depois
         await ctx.track('sessions', id);
         return live.map((s) => s.id);
       });
