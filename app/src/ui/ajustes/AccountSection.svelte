@@ -25,6 +25,7 @@
   let confirmArmedAt: number | null = null; // a hora do primeiro clique: o segundo, antes de CONFIRM_DELAY_MS, é o clique duplo e não vale
   let busy = $state(false);
   let sectionEl = $state<HTMLElement>();
+  let syncRowEl = $state<HTMLElement>();
 
   // Os diálogos que esta seção abre.
   const ACCOUNT_DIALOGS: readonly DialogId[] = ['signout', 'cloud', 'deleteAccount'];
@@ -88,30 +89,33 @@
   });
 
   // A seção troca de conteúdo ao entrar, sair ou apagar a conta, e o botão que tinha o foco (ou que abriu o diálogo) some com ela. Depois
-  // da troca, com nenhum diálogo aberto e nada esperando (os botões que `busy` desliga voltam antes), o foco que caiu no <body> vai para o
-  // primeiro controle da seção que dá para usar (spec 9.6): "Entrar ou criar conta", ao sair; "Sincronizar agora" (ou, com o sync
-  // rodando, o seguinte), quando a linha dos guardados some com o "Enviar de novo" que tinha o foco. Um foco que está em outro lugar fica
-  // onde está.
+  // da troca, com nenhum diálogo aberto e nada esperando (os botões que `busy` desliga voltam antes), o foco que caiu no <body> volta para a
+  // seção (spec 9.6): ao entrar ou sair, o primeiro controle que dá para usar ("Entrar ou criar conta", ao sair); quando a linha dos
+  // guardados some com o "Enviar de novo" que tinha o foco, a linha do sync (tabindex -1: só o script a foca), que diz o que aconteceu. Não o
+  // primeiro botão: com o sync rodando, "Sincronizar agora" está desligado, e ele seria "Criar passkey", onde um Enter abriria o pedido do
+  // WebAuthn (revisão final). Um foco que está em outro lugar fica onde está.
   let shownSignedIn: boolean | undefined;
   let shownHeld = false;
-  let refocus = $state(false);
+  let refocus = $state<'section' | 'sync' | null>(null);
   $effect(() => {
     const signedIn = account?.signedIn;
-    if (shownSignedIn !== undefined && signedIn !== shownSignedIn) refocus = true;
+    if (shownSignedIn !== undefined && signedIn !== shownSignedIn) refocus = 'section';
     shownSignedIn = signedIn;
   });
   $effect(() => {
     const held = (account?.held ?? 0) > 0;
-    if (shownHeld && !held) refocus = true;
+    if (shownHeld && !held) refocus = 'sync';
     shownHeld = held;
   });
   $effect(() => {
-    if (!refocus || app.dialog !== null || busy) return;
-    refocus = false;
+    if (refocus === null || app.dialog !== null || busy) return;
+    const target = refocus;
+    refocus = null;
     void tick().then(() => {
       const active = document.activeElement;
       if (active !== null && active !== document.body && active.isConnected) return;
-      sectionEl?.querySelector<HTMLElement>('button:not(:disabled)')?.focus();
+      if (target === 'sync' && syncRowEl?.isConnected) syncRowEl.focus();
+      else sectionEl?.querySelector<HTMLElement>('button:not(:disabled)')?.focus();
     });
   });
 
@@ -180,7 +184,7 @@
         <button type="button" class="btn" onclick={() => (app.dialog = 'signin')}>{T.conta.signIn}</button>
       </div>
     {:else}
-      <div class="setting">
+      <div class="setting" data-sync-row tabindex="-1" bind:this={syncRowEl}>
         <span>{account.sync.email}<small data-sync-line data-fresh={fresh ? 'true' : undefined}>{syncLine(lineStatus(account.status, account.held), now)}</small></span>
         {#if account.status.error === 'auth'}
           <button type="button" class="btn" onclick={() => (app.dialog = 'signin')}>{T.conta.signInAgain}</button>

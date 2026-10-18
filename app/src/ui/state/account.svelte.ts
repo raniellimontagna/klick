@@ -13,6 +13,7 @@ import { type AuthClientLike, type AuthUser, loadAuthClient, type PasskeyInfo, t
 import { type Captcha, CaptchaError, turnstile } from '../../sync/captcha';
 import { type Account, createServerClock, createSyncEngine, idleStatus, type ServerClock, type SyncEngine, type SyncStatus } from '../../sync/engine';
 import { acquireLeadership, browserTriggerEnv, type LocksLike, startTriggers, type TriggerEnv, type Triggers } from '../../sync/triggers';
+import { lookForUpdate } from './update.svelte';
 
 const CHANNEL = 'klick-sync';
 // Quanto uma aba que não lidera espera a líder parar o motor (sair, apagar os dados). Sem resposta, segue: o repositório confere a conta
@@ -700,8 +701,10 @@ export class AccountState {
   }
 
   // O estado na tela. A região aria-live segue o erro (spec 9.6): fala quando um erro aparece e quando uma rodada termina bem depois dele.
-  // As rodadas ('syncing'), a falta de rede ('offline', que o indicador mostra) e sair da conta ('off') não falam.
+  // As rodadas ('syncing'), a falta de rede ('offline', que o indicador mostra) e sair da conta ('off') não falam. O servidor pediu um app
+  // mais novo (426): o service worker procura a versão nova, uma vez, e o aviso de atualizar pode aparecer sem recarregar.
   private show(next: SyncStatus): void {
+    if (next.error === 'update') lookForUpdate();
     if (next.error !== null && !this.failing) {
       this.failing = true;
       this.host.announce(T.conta.syncFailedLive);

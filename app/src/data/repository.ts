@@ -861,12 +861,17 @@ export function createRepository(
         if (session.deletedAt !== null) return null;
         const at = ctx.stamp();
         await sessions.put({ ...session, deletedAt: at, updatedAt: at, deletionStamp: at });
-        await ctx.track('sessions', id);
         // Os solves já excluídos antes ficam com a marca antiga, para restoreSession não trazê-los de volta.
         const solves = tx.objectStore('solves');
         const live = (await solves.index('bySession').getAll(keyRange(id))).filter((s) => s.deletedAt === null);
         await each(live, (s) => solves.put({ ...s, deletedAt: at, updatedAt: at, deletionStamp: at }));
+        // Na fila, a exclusão dos solves vai antes, e a da sessão por último, com a data seguinte do relógio (revisão final, I4; como em
+        // requeueHeld): a de uma sessão cuja cascata não cabe num dia voltaria com a cota, e os solves dela esperariam com ela "só neste
+        // aparelho", com o aviso da conta cheia numa conta que não está. Assim os solves sobem pelo orçamento de cada dia, e a sessão chega
+        // sem solves ativos no servidor. As datas dos registros continuam as da exclusão.
         await each(live, (s) => ctx.track('solves', s.id));
+        if (live.length > 0) ctx.raise(ctx.stamp() + 1); // o relógio passa desta escrita: o track seguinte tem uma data depois
+        await ctx.track('sessions', id);
         return live.map((s) => s.id);
       });
       if (touched === null) return;
@@ -1391,7 +1396,9 @@ export function createRepository(
         });
         await each(empty, (s) => outbox.delete(syncKey('sessions', s.id)));
         // A sessão atual do aparelho (que nunca sobe) saiu agora, não existe ou já está na lixeira da conta: o aparelho passa para a sessão do
-        // mesmo evento com mais solves (a mais usada da conta), senão ficaria parado na vazia, e o próximo solve a traria de volta.
+        // mesmo evento com mais solves (a mais usada da conta), senão ficaria parado na vazia, e o próximo solve a traria de volta. Sem
+        // nenhuma sessão viva do evento dela, a mais usada de qualquer evento (revisão final, 5.1); sem nenhuma sessão viva, o aparelho fica
+        // sem sessão atual (null), e o app cria uma nova quando precisar (AppState.replaceCurrent), sem reviver a da lixeira.
         const profile = tx.objectStore('profile');
         const device = await profile.get('current');
         const current = device?.currentSessionId ?? null;
@@ -1401,13 +1408,12 @@ export function createRepository(
         if (device && current !== null && (emptied.has(current) || !record || record.deletedAt !== null)) {
           const solvesOf = new Map<string, number>();
           for (const s of allSolves) if (s.deletedAt === null && !gone.has(s.id)) solvesOf.set(s.sessionId, (solvesOf.get(s.sessionId) ?? 0) + 1);
-          const [best] = liveSessions
-            .filter((s) => !emptied.has(s.id) && (!record || s.event === record.event))
-            .sort((a, b) => (solvesOf.get(b.id) ?? 0) - (solvesOf.get(a.id) ?? 0) || bySessionOrder(a, b));
-          if (best) {
-            await profile.put({ ...device, currentSessionId: best.id }, 'current');
-            switched = true;
-          }
+          const most = (list: StoredSession[]): StoredSession | undefined =>
+            list.sort((a, b) => (solvesOf.get(b.id) ?? 0) - (solvesOf.get(a.id) ?? 0) || bySessionOrder(a, b))[0];
+          const left = liveSessions.filter((s) => !emptied.has(s.id));
+          const best = most(left.filter((s) => !record || s.event === record.event)) ?? most(left);
+          await profile.put({ ...device, currentSessionId: best?.id ?? null }, 'current');
+          switched = true;
         }
         return { solves: twins.map((s) => s.id), noted: edits.map((s) => s.id), sessions: empty.map((s) => s.id), switched };
       });

@@ -34,6 +34,23 @@ export function askReload(): void {
   reloadAsked = true;
 }
 
+// O servidor pediu um app mais novo (o sync respondeu 426): procura a versão nova uma vez por abertura, para o aviso aparecer sem recarregar
+// a aba (o service worker só procura sozinho ao abrir). O main.ts entrega aqui o registration.update() do service worker; sem ele (os
+// testes, um navegador sem service worker), nada. Uma falha (sem rede) não tenta de novo: a próxima abertura procura.
+let lookup: (() => Promise<unknown>) | null = null;
+let looked = false;
+
+export function onUpdateLookup(fn: (() => Promise<unknown>) | null): void {
+  lookup = fn;
+  looked = false;
+}
+
+export function lookForUpdate(): void {
+  if (looked || lookup === null) return;
+  looked = true;
+  lookup().catch(() => undefined);
+}
+
 // Recarrega se há pedido e a tela está livre. O pedido sai antes de recarregar, então vale uma vez. Devolve se recarregou.
 export function reloadIfFree(busy: ReloadBusy, reload: () => void = () => window.location.reload()): boolean {
   if (!reloadAsked || !canReloadNow(busy)) return false;

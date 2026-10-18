@@ -21,8 +21,11 @@ const BUSY_POLL_MS = 1000;
 // O teto da espera do orçamento do dia (pushAfter): o servidor pede até a virada do dia UTC, menos de um dia. Um retryAt absurdo (um servidor
 // torto) não prende a fila por mais que isso: no pior caso, o servidor adia de novo.
 export const MAX_BUDGET_WAIT_MS = 2 * 86_400_000;
-// A fila espera o orçamento do dia: pushAfter no futuro.
-const waitingFor = (pushAfter: number | null, now: number): boolean => pushAfter !== null && pushAfter > now;
+// A fila espera o orçamento do dia: pushAfter no futuro, até MAX_BUDGET_WAIT_MS. Mais longe que isso, ele foi gravado num relógio que depois
+// voltou (a pessoa mexeu na data): conta como vencido, a fila sobe, e o servidor adia de novo se ainda for o caso. Senão, a fila esperaria
+// os dias que o relógio voltou.
+const waitingFor = (pushAfter: number | null, now: number): boolean =>
+  pushAfter !== null && pushAfter > now && pushAfter - now <= MAX_BUDGET_WAIT_MS;
 const MAX_EXCHANGES = 100_000; // trava de um laço que não termina (a fila que nunca esvazia, a conta que nunca acaba): 25 milhões de mudanças
 
 export type SyncPhase = 'off' | 'idle' | 'syncing' | 'offline' | 'error';

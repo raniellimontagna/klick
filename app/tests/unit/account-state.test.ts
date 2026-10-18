@@ -8,6 +8,7 @@ import type { SyncEngine } from '../../src/sync/engine';
 import type { LocksLike, TriggerEnv } from '../../src/sync/triggers';
 import { BUSY_BEAT_MS, BUSY_STALE_MS } from '../../src/ui/state/account.svelte';
 import type { AppState } from '../../src/ui/state/app.svelte';
+import { onUpdateLookup } from '../../src/ui/state/update.svelte';
 import { appWithAccount, bus, fakeApi, manualEnv } from './sync-account';
 import { FakeServer } from './sync-fakes';
 
@@ -166,6 +167,26 @@ describe('a conta no app (spec 6.2 e 8.4)', () => {
     net.fail(null);
     await app.account!.syncNow();
     await vi.waitFor(() => expect(app.live).toBe(T.conta.syncBackLive));
+  });
+
+  // Revisão final (Minor 5): no 426, o app pede ao service worker que procure a versão nova, uma vez: sem isso, uma aba aberta mostra
+  // "Atualize o Klick" e não tem o que tocar até recarregar (o service worker só procura sozinho ao abrir).
+  it('um 426 procura a versão nova do app uma vez (registration.update)', async () => {
+    const lookup = vi.fn(async () => undefined);
+    onUpdateLookup(lookup);
+    try {
+      const net = fakeApi(new FakeServer());
+      const { app } = await appWithAccount(net.api, { signedIn: true });
+      await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
+      expect(lookup).not.toHaveBeenCalled();
+      net.fail(new ApiError('update', 426));
+      await app.account!.syncNow();
+      expect(app.account!.status.error).toBe('update');
+      await app.account!.syncNow();
+      expect(lookup).toHaveBeenCalledTimes(1);
+    } finally {
+      onUpdateLookup(null);
+    }
   });
 
   it('sem rede não é falha: a região aria-live não fala ao cair nem ao voltar (spec 9.6)', async () => {

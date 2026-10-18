@@ -8,6 +8,8 @@ import { MAX_STAMP, SYNC_BATCH, SYNC_PROTOCOL, syncKey, type Change } from '../.
 import type { SeasonProgress } from '../../src/core/types';
 import { openKlickDb, type KlickDB } from '../../src/data/db';
 import { AccountChangedError, createRepository, createSyncClock, LocalOnlyError, PendingChangesError, type ChangeKind, type ChangeOrigin, type Repository } from '../../src/data/repository';
+import { createScrambleQueue } from '../../src/scramble/queue';
+import { AppState } from '../../src/ui/state/app.svelte';
 import { FakeServer } from './sync-fakes';
 
 let n = 0;
@@ -516,6 +518,61 @@ describe('primeiro login num aparelho com dados (spec 6.5)', () => {
     await b.repo.dedupeFirstLogin();
     expect((await b.repo.getProfile()).currentSessionId).toBe(kept.id);
     expect(heard).toContainEqual(['profile', 'remote']);
+  });
+
+  // Revisão final (5.1, de novo): sem nenhuma sessão viva do evento da "Sessão 1" da lixeira, a atual ficava nela, e o próximo solve a
+  // trazia de volta. O aparelho passa para a mais usada de qualquer evento; sem nenhuma sessão viva, fica sem sessão atual.
+  it('a "Sessão 1" padrão na lixeira, sem sessão viva do evento dela: o aparelho passa para a mais usada de outro evento', async () => {
+    const server = new FakeServer();
+    server.now = t;
+    const a = await fresh();
+    await a.repo.createSession({ event: '333', id: 'default-333' });
+    const two = await a.repo.createSession({ event: '222', name: 'Dois' });
+    const four = await a.repo.createSession({ event: '444', name: 'Quatro' });
+    await a.repo.addSolve({ ...ns(two.id, 3000, t - 30), event: '222' });
+    await a.repo.addSolve({ ...ns(two.id, 3100, t - 20), event: '222' });
+    await a.repo.addSolve({ ...ns(four.id, 60_000, t - 10), event: '444' });
+    await syncRound(a.repo, server);
+    t += 1000;
+    await a.repo.deleteSession('default-333'); // o dono apagou a "Sessão 1"
+    await syncRound(a.repo, server);
+    const b = await fresh(null);
+    const mine = await b.repo.createSession({ event: '333', id: 'default-333' });
+    await b.repo.saveProfile({ currentSessionId: mine.id });
+    await b.repo.beginFirstSync({ accountId: 'conta-1', email: 'a@b.c' });
+    await syncRound(b.repo, server, false);
+    await b.repo.dedupeFirstLogin();
+    expect((await b.repo.getProfile()).currentSessionId).toBe(two.id);
+    expect((await b.repo.listSessions({ includeDeleted: true })).find((s) => s.id === 'default-333')?.deletedAt).not.toBeNull();
+  });
+
+  it('a "Sessão 1" padrão na lixeira e nenhuma sessão viva na conta: o aparelho fica sem sessão atual, e o próximo solve não a traz de volta', async () => {
+    const server = new FakeServer();
+    server.now = t;
+    const a = await fresh();
+    await a.repo.createSession({ event: '333', id: 'default-333' });
+    await syncRound(a.repo, server);
+    t += 1000;
+    await a.repo.deleteSession('default-333');
+    await syncRound(a.repo, server);
+    const b = await fresh(null);
+    const mine = await b.repo.createSession({ event: '333', id: 'default-333' });
+    await b.repo.saveProfile({ currentSessionId: mine.id });
+    await b.repo.beginFirstSync({ accountId: 'conta-1', email: 'a@b.c' });
+    await syncRound(b.repo, server, false);
+    const heard: [ChangeKind, ChangeOrigin][] = [];
+    b.repo.onChange((kind, origin) => heard.push([kind, origin]));
+    await b.repo.dedupeFirstLogin();
+    expect((await b.repo.getProfile()).currentSessionId).toBeNull();
+    expect(heard).toContainEqual(['profile', 'remote']);
+    // O app (AppState) abre sem sessão atual: cria uma nova, e o solve vai para ela; a da lixeira continua lá.
+    const app = new AppState({ repo: b.repo, queue: createScrambleQueue({ generate: async () => 'R U' }), storage: null, storageManager: null });
+    await app.init();
+    const solve = await app.addSolve({ ms: 9000, penalty: null, at: t });
+    expect(solve?.sessionId).not.toBe('default-333');
+    const sessions = await b.repo.listSessions({ includeDeleted: true });
+    expect(sessions.find((s) => s.id === 'default-333')?.deletedAt).not.toBeNull();
+    expect(sessions.find((s) => s.id === solve?.sessionId)?.deletedAt).toBeNull();
   });
 
   it('a sessão padrão que a conta devolveu fica, mesmo vazia, e o aparelho continua nela; a escolha do aparelho fora da padrão não muda (I1)', async () => {

@@ -325,11 +325,17 @@ describe('motor do sync (spec 6.1 e 6.2)', () => {
     expect(await desktop.listSolves()).toEqual([]);
   });
 
+  // A exclusão da sessão vem de um aparelho que não tinha os solves dela (o notebook só viu a sessão): no servidor, a cascata os apaga depois
+  // dela, nas revisões seguintes, e a exclusão chega aqui com só 4 deles. (A fila de quem tem os solves leva a exclusão deles antes da
+  // sessão, revisão final I4: esses chegam como exclusões comuns.)
   it(`um lote pequeno cuja cascata apaga ${MASS_DELETE} solves também pede a cópia antes de juntar (spec 6.6)`, async () => {
     const server = new FakeServer(5); // a exclusão da sessão chega com só 4 dos solves dela
     const phone = await device();
+    const laptop = await device();
     const desktop = await device();
     const s = await phone.createSession({ event: '333' });
+    await engineFor(phone, network(server)).engine.run();
+    await engineFor(laptop, network(server)).engine.run();
     for (let i = 0; i < MASS_DELETE; i++) await phone.addSolve(ns(s.id, 1000 + i, t + i));
     await engineFor(phone, network(server)).engine.run();
     const net = network(server);
@@ -349,8 +355,8 @@ describe('motor do sync (spec 6.1 e 6.2)', () => {
     });
     await engine.run();
     t += 1000;
-    await phone.deleteSession(s.id);
-    await engineFor(phone, network(server)).engine.run();
+    await laptop.deleteSession(s.id);
+    await engineFor(laptop, network(server)).engine.run();
     const before = sizes.length;
     await engine.run();
     expect(sizes[before]).toBeLessThan(MASS_DELETE);
@@ -1395,6 +1401,30 @@ describe('a cota e o orçamento do dia (endurecimento 4.1 e decisões 4 e 6)', (
     expect((await third.getSyncState()).pushAfter).toBe(t + MAX_BUDGET_WAIT_MS);
   });
 
+  // Revisão final (Minor 4): o relógio do aparelho volta dias depois da pausa (a pessoa mexeu na data). pushAfter, gravado no relógio de
+  // antes, ficaria mais longe do que qualquer espera que o servidor pede, e a fila esperaria esses dias a mais. Mais longe que
+  // MAX_BUDGET_WAIT_MS conta como vencido: a fila sobe, e o servidor adia de novo se ainda for o caso.
+  it('com o relógio do aparelho atrasado depois da pausa, um pushAfter além de MAX_BUDGET_WAIT_MS conta como vencido, e a fila sobe', async () => {
+    const server = new FakeServer(500, { budget: 2 });
+    server.now = t;
+    const repo = await device();
+    const s = await repo.createSession({ event: '333' });
+    for (let i = 0; i < 3; i++) await repo.addSolve(ns(s.id, 1000 + i, t + i));
+    const net = network(server);
+    const { engine } = engineFor(repo, net);
+    expect(await engine.run()).toMatchObject({ pending: 2, notice: 'budget' });
+    const pushAfter = (await repo.getSyncState()).pushAfter!;
+    server.now = pushAfter + 1; // o dia virou para o servidor
+    server.newDay();
+    t -= 3 * DAY; // e o relógio daqui voltou três dias
+    expect(pushAfter - t).toBeGreaterThan(MAX_BUDGET_WAIT_MS);
+    const before = net.calls.length;
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, notice: null });
+    expect(ids(net.calls[before])).toHaveLength(2);
+    expect(activeSolves(server)).toHaveLength(3);
+    expect((await repo.getSyncState()).pushAfter).toBeNull();
+  });
+
   // Fix round 1, item 3: o servidor recusa por outro motivo o que está só neste aparelho (editado e mandado de novo).
   it('um guardado recusado por outro motivo sai da fila, conta como recusado e continua só neste aparelho', async () => {
     const { repo, net, engine, c } = await fullAccount();
@@ -1506,13 +1536,49 @@ describe('a cota e o orçamento do dia (endurecimento 4.1 e decisões 4 e 6)', (
     expect((await desktop.listSessions()).map((x) => x.id)).not.toContain(s.id);
   });
 
-  // Task 12, fix round 1 (c): a sessão cuja cascata nunca caberia num dia. Ela volta com a cota; os solves dela que ficaram para depois
-  // esperam com ela na lista (Task 6). Um toque em Enviar de novo põe a exclusão dos solves antes da sessão: eles sobem pelo orçamento de
-  // cada dia (pushAfter os leva de um dia para o outro), e a sessão, sem solves ativos lá, cabe no fim. Nada se perde no aparelho.
+  // Revisão final (I4): apagar uma sessão com mais solves ativos do que um dia comporta. A fila leva a exclusão dos solves antes da sessão,
+  // que vai por último: os solves sobem pelo orçamento de cada dia (pushAfter os leva de um dia para o outro), e a sessão chega sem solves
+  // ativos no servidor. Nada fica "só neste aparelho", e o aviso da conta cheia não aparece numa conta que não está cheia. O falso lê no
+  // máximo 4 mudanças por pedido, menos que o dia (como MAX_WRITES_PER_REQUEST e RECORDS_PER_DAY no de verdade).
+  it('apagar uma sessão maior que um dia: os solves sobem pelo orçamento de cada dia, a sessão por último, e nada fica guardado', async () => {
+    const server = new FakeServer(500, { perRequest: 4 });
+    server.now = t;
+    const phone = await device();
+    const s = await phone.createSession({ event: '333' });
+    for (let i = 0; i < 25; i++) await phone.addSolve(ns(s.id, 1000 + i, t + i));
+    const { engine, statuses } = engineFor(phone, network(server));
+    await engine.run();
+    expect(activeSolves(server)).toHaveLength(25);
+    server.budget = 10; // a sessão e a cascata dela (26) nunca caberiam num dia
+    server.newDay();
+    t += 10;
+    server.now = t;
+    await phone.deleteSession(s.id);
+    for (let day = 0; day < 6 && (await phone.outboxCount()) > 0; day++) {
+      await engine.run();
+      t = (Math.floor(t / DAY) + 1) * DAY;
+      server.now = t;
+      server.newDay();
+    }
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, notice: null });
+    expect(server.active().has(`sessions/${s.id}`)).toBe(false);
+    expect(activeSolves(server)).toEqual([]);
+    expect(await phone.heldCount()).toBe(0);
+    expect(statuses.some((x) => x.notice === 'quota')).toBe(false);
+    const trash = await phone.listTrash();
+    expect([trash.sessions.map((x) => x.id), trash.solves.length]).toEqual([[s.id], 25]);
+  });
+
+  // Task 12, fix round 1 (c): a sessão cuja cascata nunca caberia num dia, na fila de um app de antes da revisão final (I4), em que a exclusão
+  // da sessão ia antes da dos solves. Ela volta com a cota; os solves dela que ficaram para depois esperam com ela na lista (Task 6). Um toque
+  // em Enviar de novo põe a exclusão dos solves antes da sessão: eles sobem pelo orçamento de cada dia (pushAfter os leva de um dia para o
+  // outro), e a sessão, sem solves ativos lá, cabe no fim. Nada se perde no aparelho.
   it('apagar uma sessão grande demais para um dia: um toque em Enviar de novo leva os solves pelo orçamento e a sessão por último', async () => {
     const server = new FakeServer();
     server.now = t;
-    const phone = await device();
+    const db = await openKlickDb(`engine-${++n}`);
+    const phone = createRepository(db, { now, channel: null });
+    await phone.saveSyncState({ accountId: 'conta-1', email: 'a@b.c', signedIn: true });
     const s = await phone.createSession({ event: '333' });
     for (let i = 0; i < 7; i++) await phone.addSolve(ns(s.id, 1000 + i, t + i));
     const net = network(server);
@@ -1530,6 +1596,10 @@ describe('a cota e o orçamento do dia (endurecimento 4.1 e decisões 4 e 6)', (
     t += 10;
     server.now = t;
     await phone.deleteSession(s.id);
+    // A fila de um app de antes da revisão final: a sessão com a mesma data dos solves, e (pela chave) antes deles.
+    const entries = await db.getAll('outbox');
+    const together = entries.find((e) => e.store === 'solves')!.queuedAt;
+    await db.put('outbox', { store: 'sessions', id: s.id, queuedAt: together }, `sessions/${s.id}`);
     // A sessão volta com a cota; 3 solves do mesmo lote entram, e os outros 4 ficam para amanhã.
     expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 4, notice: 'budget' });
     expect(await phone.heldCount()).toBe(1);

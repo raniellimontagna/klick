@@ -193,9 +193,10 @@ describe('Ajustes: o que só está neste aparelho e as cópias pausadas', () => 
     expect(document.querySelector('[data-sync-line]')).toHaveTextContent('Sincronizado agora');
   });
 
-  // Spec 9.6: o botão some com a linha (a refresh de resendHeld zera a contagem) enquanto tem o foco. O foco não cai no <body>: vai para o
-  // primeiro controle da seção que dá para usar, como depois de sair.
-  it('depois de "Enviar de novo", a linha some e o foco fica na seção, não no <body> (spec 9.6)', async () => {
+  // Spec 9.6: o botão some com a linha (a refresh de resendHeld zera a contagem) enquanto tem o foco. O foco não cai no <body>: vai para a
+  // linha do sync (focável só pelo script, tabindex -1), que diz o que aconteceu. Não para o primeiro botão da seção: com o sync rodando,
+  // "Sincronizar agora" está desligado, e ele seria "Criar passkey", onde um Enter abriria o pedido do WebAuthn (revisão final, Minor 3).
+  it('depois de "Enviar de novo", a linha some e o foco fica na linha do sync, não no <body> nem num botão (spec 9.6)', async () => {
     const limits = { solves: 1, sessions: 10, practice: 10 };
     const server = new FakeServer(500, { limits });
     const { app } = await appWithAccount(fakeApi(server).api, { signedIn: true });
@@ -212,8 +213,9 @@ describe('Ajustes: o que só está neste aparelho e as cópias pausadas', () => 
     await vi.waitFor(() => {
       const active = document.activeElement;
       expect(active).not.toBe(document.body);
-      expect(active?.tagName).toBe('BUTTON');
-      expect(active?.closest('[data-slot="conta"]')).not.toBeNull();
+      expect(active).toBe(document.querySelector('[data-sync-row]'));
+      expect(active?.getAttribute('tabindex')).toBe('-1');
+      expect(active?.querySelector('[data-sync-line]')).not.toBeNull();
     });
   });
 
