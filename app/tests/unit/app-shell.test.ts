@@ -326,6 +326,25 @@ describe('casca do app: robustez (brief 9b)', () => {
     }
   });
 
+  it('o download que falha mostra upgradeDownloadFailed (não o de leitura) e mantém os dois botões', async () => {
+    await stuckDevice();
+    failUpgrade();
+    // Sem URL.createObjectURL (o jsdom não tem), o downloadText devolve false: a leitura deu certo, o arquivo é que não saiu.
+    delete urlApi.createObjectURL;
+    try {
+      render(App, { reload: vi.fn() });
+      await screen.findByRole('alert');
+      screen.getByRole('button', { name: T.data.upgradeExport }).click();
+      expect(await screen.findByText(T.data.upgradeDownloadFailed)).toBeInTheDocument();
+      expect(screen.queryByText(T.data.upgradeExportFailed)).toBeNull();
+      expect(screen.getByRole('button', { name: T.data.upgradeExport })).toBeEnabled();
+      expect(screen.getByRole('button', { name: T.data.upgradeRetry })).toBeInTheDocument();
+    } finally {
+      vi.restoreAllMocks();
+      setDbUpgrade('idle');
+    }
+  });
+
   it('o aviso (toast) não tem role=status: o anúncio sai só pela região aria-live', async () => {
     const app = await makeApp();
     hooks.boot = async () => app;

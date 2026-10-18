@@ -341,6 +341,7 @@ export const T = Object.freeze({
     upgradeExport: 'Exportar meus dados',
     upgradeRetry: 'Tentar de novo',
     upgradeExportFailed: 'Não consegui ler os dados antigos. Libere espaço no aparelho e tente de novo.',
+    upgradeDownloadFailed: 'Não consegui baixar o arquivo. Tente de novo.',
     saveFailed: 'Não consegui salvar. Exporte seus dados agora.', // só para solve: é o alarme de solve perdido
     changeFailed: 'Não consegui guardar esta mudança. Tente de novo.',
     folderSaveFailed: 'Não consegui guardar a pasta escolhida. Tente de novo.',

@@ -56,19 +56,19 @@ import SyncIndicator from './SyncIndicator.svelte';
   let failed = $state(false);
 
   // A atualização dos dados falhou: "Exportar meus dados" lê o banco como ficou (exportStuckDb) e baixa o arquivo do Klick. Se a leitura
-  // ou o download não saem, o aviso aparece e os dois botões ficam.
+  // ou o download não saem, o aviso (de cada um) aparece e os dois botões ficam.
   let exporting = $state(false);
-  let exportFailed = $state(false);
+  let exportFailed = $state<'read' | 'download' | null>(null);
   async function exportStuck(): Promise<void> {
     if (exporting) return;
     exporting = true;
-    exportFailed = false;
+    exportFailed = null;
     try {
       const now = Date.now();
       const file = await exportStuckDb(undefined, now);
-      if (!downloadText(backupFileName(now), JSON.stringify(file))) exportFailed = true;
+      if (!downloadText(backupFileName(now), JSON.stringify(file))) exportFailed = 'download';
     } catch {
-      exportFailed = true;
+      exportFailed = 'read';
     } finally {
       exporting = false;
     }
@@ -338,7 +338,7 @@ import SyncIndicator from './SyncIndicator.svelte';
     <main class="screen">
       <p role="alert">{T.data.upgradeFailed}</p>
       {#if exportFailed}
-        <p role="alert">{T.data.upgradeExportFailed}</p>
+        <p role="alert">{exportFailed === 'download' ? T.data.upgradeDownloadFailed : T.data.upgradeExportFailed}</p>
       {/if}
       <div class="data-actions">
         <button type="button" class="btn" disabled={exporting} onclick={exportStuck}>{T.data.upgradeExport}</button>

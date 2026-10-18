@@ -193,9 +193,19 @@ export async function exportStuckDb(name: string = DB_NAME, now: number = Date.n
     giveUp = reject;
   });
   gate.catch(() => {}); // sem ninguém esperando por ele (a abertura saiu primeiro), a rejeição tardia não vira erro solto
-  const opening = openDB<KlickDB>(name, undefined, { blocked: () => giveUp(new Error('A abertura do banco está bloqueada por outra aba.')) });
+  let db: IDBPDatabase<KlickDB> | null = null;
+  const opening = openDB<KlickDB>(name, undefined, {
+    // Só roda se o banco não existe (oldVersion 0): abortar desfaz a criação. Um banco vazio na versão 1 faria o app pular a criação das
+    // stores e a migração falhar para sempre.
+    upgrade(_db, _old, _new, tx) {
+      tx.done.catch(() => {}); // a rejeição do `done` não tem quem a ouça; a da abertura chega a quem chamou
+      tx.abort();
+    },
+    blocked: () => giveUp(new Error('A abertura do banco está bloqueada por outra aba.')),
+    // Outra aba pede uma versão mais nova no meio da leitura: larga a conexão para não segurar a atualização dela.
+    blocking: () => db?.close(),
+  });
   const timer = setTimeout(() => giveUp(new Error('A abertura do banco não terminou.')), openTimeoutMs);
-  let db: IDBPDatabase<KlickDB>;
   try {
     db = await Promise.race([opening, gate]);
   } catch (err) {
@@ -204,9 +214,10 @@ export async function exportStuckDb(name: string = DB_NAME, now: number = Date.n
   } finally {
     clearTimeout(timer);
   }
+  const open = db;
   try {
-    const names = (['solves', 'sessions', 'practice', 'profile'] as const).filter((store) => db.objectStoreNames.contains(store));
-    const tx = names.length > 0 ? db.transaction(names, 'readonly') : null;
+    const names = (['solves', 'sessions', 'practice', 'profile'] as const).filter((store) => open.objectStoreNames.contains(store));
+    const tx = names.length > 0 ? open.transaction(names, 'readonly') : null;
     const has = (store: (typeof names)[number]): boolean => names.includes(store);
     const [solves, sessions, practice, stored] = await Promise.all([
       has('solves') ? (tx!.objectStore('solves').getAll() as Promise<Solve[]>) : [],
@@ -216,6 +227,6 @@ export async function exportStuckDb(name: string = DB_NAME, now: number = Date.n
     ]);
     return beforeV3File(now, solves, sessions, practice, stored);
   } finally {
-    db.close();
+    open.close();
   }
 }

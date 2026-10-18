@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { seasonOne } from '../../src/core/season';
 import { defaultSettings, type KlickExport, type Meta, type Practice, type Profile, type Session, type Solve } from '../../src/core/types';
 import { DB_VERSION, exportStuckDb, openKlickDb, type StoredSolve } from '../../src/data/db';
+import { parseKlickJson } from '../../src/data/transfer';
 import { createRepository } from '../../src/data/repository';
 import { createScrambleQueue } from '../../src/scramble/queue';
 import { AppState } from '../../src/ui/state/app.svelte';
@@ -209,9 +210,38 @@ describe('migração para a versão 3 (spec 5.6)', () => {
     const holder = await openDB(name, 2);
     const pending = openKlickDb(name, {}, DB_VERSION, () => MIGRATED_AT);
     await expect(exportStuckDb(name, MIGRATED_AT, 50)).rejects.toThrow('não terminou');
-    holder.close(); // a aba antiga larga: a migração termina, e a leitura tardia não segura nada
+    holder.close(); // a aba antiga larga: a migração termina, e a leitura tardia abre por último (e tem de largar a conexão na hora)
     const db = await pending;
     expect(db.version).toBe(DB_VERSION);
     db.close();
+    await new Promise((resolve) => setTimeout(resolve, 50)); // dá tempo da abertura tardia da leitura terminar
+    const blocked = vi.fn();
+    const upgrade = openKlickDb(name, { blocked }, DB_VERSION + 1, () => MIGRATED_AT);
+    await Promise.race([upgrade, new Promise((resolve) => setTimeout(resolve, 300))]);
+    expect(blocked).not.toHaveBeenCalled(); // uma conexão tardia esquecida aberta seguraria esta abertura
+    (await upgrade).close();
+  });
+
+  it('exportStuckDb num banco que não existe falha e não cria banco nenhum', async () => {
+    const name = `nao-existe-${++n}`;
+    await expect(exportStuckDb(name, MIGRATED_AT)).rejects.toMatchObject({ name: 'AbortError' });
+    expect((await indexedDB.databases()).map((d) => d.name)).not.toContain(name);
+    // Abrir com versão confirma: continua sem banco (versão anterior 0), e o app cria as stores como num aparelho novo.
+    let oldVersion = -1;
+    const db = await openDB(name, 1, { upgrade: (_db, old) => void (oldVersion = old) });
+    db.close();
+    expect(oldVersion).toBe(0);
+  });
+
+  it('o arquivo do exportStuckDb entra pela importação normal do app, com as mesmas sessões, solves e treino', async () => {
+    const { name, data } = await v2Device();
+    const file = await exportStuckDb(name, MIGRATED_AT);
+    const parsed = parseKlickJson(JSON.stringify(file));
+    expect(parsed.sessions).toEqual([...data.sessions].sort((a, b) => a.order - b.order));
+    expect(parsed.solves).toHaveLength(data.solves.length);
+    expect([...parsed.solves].sort((a, b) => (a.id < b.id ? -1 : 1))).toEqual(data.solves);
+    expect(parsed.practice).toHaveLength(data.practice.length);
+    expect(parsed.practice).toEqual(data.practice);
+    expect(parsed.profile).toMatchObject({ onboarded: true, finish: 'gelo', currentSessionId: 'main' });
   });
 });
