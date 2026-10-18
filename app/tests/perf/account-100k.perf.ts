@@ -9,10 +9,12 @@
 // compactação por alarme e a página do sync), que a medição sobe ou desce em casos marcados, e (2) chamar a sonda de memória depois das
 // funções pesadas. Nenhum mock muda o que a função faz.
 import { writeFileSync, mkdirSync } from 'node:fs';
-import { cpus, release, totalmem } from 'node:os';
+import { cpus, loadavg, platform, release, totalmem } from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { DatabaseSync, type SQLInputValue, type StatementSync } from 'node:sqlite';
+import { deserialize, serialize } from 'node:v8';
+import { gzipSync } from 'node:zlib';
 import { expect, it, vi } from 'vitest';
 
 // As constantes que a medição troca em casos marcados (null: o valor de verdade) e a sonda de memória (null: desligada).
@@ -126,7 +128,9 @@ const SIZES = [1_000, 5_000, 10_000, 25_000, 50_000, 100_000] as const;
 const BIGGEST = SIZES[SIZES.length - 1];
 const PAGES = [500, 250, 100, 50] as const; // o maior que cabe, para o envio e o recebimento
 const COMPACTS = [2_000, 1_000, 500, 250, 100] as const; // a compactação por alarme, a 100 mil
-const REPS = 3; // cada operação, três vezes: fica a mediana
+const REPS = 3; // as operações pesadas (cópia, restauração, alarme): três vezes, fica a mediana
+const LIGHT_REPS = 15; // as leves (mediana abaixo de LIGHT_MS nas três primeiras): quinze vezes, porque a linha dos 5 ms é estreita
+const LIGHT_MS = 20;
 const KINDS_AT = 25_000; // a conta das linhas gravadas por tipo de mudança (não dependem do tamanho)
 const SHARED_ROWS_PER_DAY = 100_000; // linhas gravadas por dia no grátis, somadas entre todas as contas
 const ACCOUNT_SHARE = 0.2; // o que uma conta pode gastar delas
@@ -401,7 +405,8 @@ interface Account {
   store: AccountStore;
   session: string; // uma sessão ativa, onde os solves novos entram
   sample: Change[]; // os primeiros 500 solves ativos, para editar e apagar
-  sampleRows: Record<string, SQLInputValue>[]; // as linhas deles, como ficaram gravadas
+  doomed: Change; // a sessão que a cascata apaga (a segunda)
+  cascaded: number; // os solves ativos dela, que a cascata apaga junto
   state: Map<string, string>; // o estado de quando a conta ficou pronta
   due: number; // os solves que a compactação de hoje pode tirar
   close(): void;
@@ -435,23 +440,30 @@ function buildAccount(n: number): Account {
   ]);
   for (const [k, v] of state) set.run(k, v);
   db.exec('COMMIT');
+  // A cópia das linhas de agora, fora das consultas do objeto: reset() volta a conta a ela.
+  db.exec('CREATE TABLE records_orig AS SELECT * FROM records');
+  db.exec('CREATE UNIQUE INDEX records_orig_key ON records_orig (store, id)');
   const sample = records.filter((c) => c.store === 'solves' && c.deletedAt === null).slice(0, 500);
-  const one = db.prepare('SELECT * FROM records WHERE store = ? AND id = ?');
-  const sampleRows = sample.map((c) => one.get(c.store, c.id) as Record<string, SQLInputValue>);
+  const doomed = records.find((c) => c.store === 'sessions' && c.id === sessions[1].id)!;
+  const cascaded = Number(
+    (db.prepare("SELECT count(*) AS n FROM records WHERE store = 'solves' AND parent = ? AND deleted_at IS NULL").get(doomed.id) as { n: number }).n,
+  );
   const due = Number(
     (db.prepare("SELECT count(*) AS n FROM records WHERE store = 'solves' AND deleted_at IS NOT NULL AND data <> '{}' AND deleted_at < ?").get(T0 - TOMBSTONE_KEEP_MS) as { n: number }).n,
   );
-  return { n, rows: records.length, rev, sql, ctx, env, r2, alarm, store, session: sessions[0].id, sample, sampleRows, state, due, close: () => db.close() };
+  return { n, rows: records.length, rev, sql, ctx, env, r2, alarm, store, session: sessions[0].id, sample, doomed, cascaded, state, due, close: () => db.close() };
 }
 
-// Volta a conta ao estado de quando ficou pronta: tira os registros gravados depois (e devolve os solves de exemplo, que editar e apagar
-// regravam), o estado novo e os aparelhos (não é medido).
+// Volta a conta ao estado de quando ficou pronta (não é medido): tira o que foi gravado depois (toda gravação ganha revisão nova), devolve
+// da cópia o que essas gravações tinham trocado e o conteúdo que a compactação tirou (ela não muda a revisão), e o estado e os aparelhos.
 function reset(a: Account): void {
   const db = a.sql.db;
   db.exec('BEGIN');
   db.prepare('DELETE FROM records WHERE rev > ?').run(a.rev);
-  const back = db.prepare(UPSERT_RECORD);
-  for (const r of a.sampleRows) back.run(r.store, r.id, r.data, r.updated_at, r.deleted_at, r.deletion_stamp, r.rev, r.parent);
+  db.exec('INSERT INTO records SELECT o.* FROM records_orig o WHERE NOT EXISTS (SELECT 1 FROM records r WHERE r.store = o.store AND r.id = o.id)');
+  db.exec(
+    "UPDATE records SET data = (SELECT o.data FROM records_orig o WHERE o.store = 'solves' AND o.id = records.id) WHERE store = 'solves' AND data = '{}'",
+  );
   db.exec('DELETE FROM state');
   db.exec('DELETE FROM devices');
   const set = db.prepare('INSERT INTO state (key, value) VALUES (?, ?)');
@@ -481,6 +493,8 @@ interface Phase {
 
 interface Result {
   cpu: number; // ms, mediana (process.cpuUsage: o processo inteiro)
+  cpuMin: number;
+  cpuMax: number;
   jsCpu: number; // ms, mediana (process.threadCpuUsage: só a linha do JS)
   phases: Phase[]; // as etapas da rodada da mediana
   wall: number; // ms, mediana
@@ -496,10 +510,19 @@ interface Result {
 
 const median = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
 
-// Depois do gc() da montagem, o V8 ainda varre a memória em linhas auxiliares por alguns milissegundos: a CPU delas não é da operação.
+// Depois do gc() da montagem, o V8 ainda varre a memória em linhas auxiliares por alguns milissegundos: a CPU delas não é da operação. Dois
+// gc() com uma espera entre eles, e outra espera antes de medir. Depois da espera, 10 ms de laço ocupado: um núcleo parado baixa o relógio
+// (ou o sistema passa a linha para um núcleo de economia), e a rodada começaria devagar.
+const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 async function settle(): Promise<void> {
   gc();
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await wait(20);
+  gc();
+  await wait(60);
+  const end = performance.now() + 10;
+  while (performance.now() < end) {
+    // aquece o núcleo
+  }
 }
 
 // Os textos e bytes grandes do caminho (o arquivo da cópia em JSON, os bytes dele) aparecem e somem dentro de uma função só: a sonda roda
@@ -546,11 +569,14 @@ interface Op<A> {
   count?(out: unknown, a: A): number;
 }
 
-async function measure<A>(op: Op<A>, reps = REPS): Promise<Result> {
+// As rodadas de CPU e relógio: três; se a mediana delas fica abaixo de LIGHT_MS, a operação é leve e vai a LIGHT_REPS (a linha dos 5 ms é
+// estreita, e um GC no meio de uma rodada pesa nela). `reps` fixo (as linhas por tipo) não cresce.
+async function measure<A>(op: Op<A>, fixed?: number): Promise<Result> {
   const cpu: number[] = [];
   const wall: number[] = [];
   const jsCpu: number[] = [];
   const runs: Phase[][] = [];
+  let reps = fixed ?? REPS;
   for (let i = 0; i < reps; i++) {
     const a = await op.setup();
     await settle();
@@ -576,6 +602,7 @@ async function measure<A>(op: Op<A>, reps = REPS): Promise<Result> {
       prev = m;
     }
     runs.push(phases);
+    if (fixed === undefined && i === REPS - 1 && median(cpu) < LIGHT_MS) reps = LIGHT_REPS;
   }
   const mid = cpu.indexOf(median(cpu));
   // A rodada instrumentada: a sonda (gc() e process.memoryUsage()) nos pontos pesados, e as linhas gravadas.
@@ -617,6 +644,8 @@ async function measure<A>(op: Op<A>, reps = REPS): Promise<Result> {
   op.teardown?.(a);
   return {
     cpu: median(cpu),
+    cpuMin: Math.min(...cpu),
+    cpuMax: Math.max(...cpu),
     jsCpu: median(jsCpu),
     phases: runs[mid],
     wall: median(wall),
@@ -627,7 +656,7 @@ async function measure<A>(op: Op<A>, reps = REPS): Promise<Result> {
     rows,
     gzip,
     count,
-    reps,
+    reps: cpu.length,
   };
 }
 
@@ -650,30 +679,46 @@ const copyOp = (a: Account): Op<Account> => ({
   count: (_o, x) => x.rows,
 });
 
-// Um pedido do sync (syncBatch de verdade): `changes` sobe, e volta a página de `page` desde o cursor.
-const syncOp = (a: Account, o: { changes: number; page: number; cursor: 'zero' | 'head'; kind?: 'novo' | 'edição' | 'exclusão' }): Op<Account> => {
-  let changes: Change[] = [];
+// Um pedido do sync (syncBatch de verdade): `changes` sobe, e volta a página de `page` desde o cursor. Com a RPC do objeto dentro da
+// conta: o pedido chega serializado (v8.serialize, feito antes, do lado de quem chama) e o objeto o desserializa; a resposta sai
+// serializada. `kind` 'sessão' apaga uma sessão (uma mudança, e a cascata regrava os solves dela). `wake`: o pedido é o primeiro depois do
+// deploy numa conta do beta (o objeto nasce e monta records_tombs, e o usage() do lote conta os ativos e os bytes).
+type Kind = 'novo' | 'edição' | 'exclusão' | 'sessão';
+const syncOp = (a: Account, o: { changes: number; page: number; cursor: 'zero' | 'head'; kind?: Kind; wake?: boolean }): Op<Account> => {
+  let bytes: Buffer = Buffer.alloc(0);
+  const kind = o.kind ?? 'novo';
   return {
     setup: () => {
       reset(a);
+      if (o.wake) {
+        a.sql.db.exec('DROP INDEX IF EXISTS records_tombs');
+        a.sql.db.exec("DELETE FROM state WHERE key IN ('active', 'bytes')");
+      }
       knobs.page = o.page;
-      const kind = o.kind ?? 'novo';
+      let changes: Change[];
       if (kind === 'novo') changes = newSolves(a, o.changes, 'novo');
       else if (kind === 'edição') changes = a.sample.slice(0, o.changes).map((c) => ({ ...c, data: { ...(c.data as object), note: 'editado' }, updatedAt: T0 }));
-      else changes = a.sample.slice(0, o.changes).map((c) => ({ ...c, updatedAt: T0, deletedAt: T0, deletionStamp: T0 }));
+      else if (kind === 'exclusão') changes = a.sample.slice(0, o.changes).map((c) => ({ ...c, updatedAt: T0, deletedAt: T0, deletionStamp: T0 }));
+      else changes = [{ ...a.doomed, updatedAt: T0, deletedAt: T0, deletionStamp: T0 }];
+      bytes = serialize(request(changes, o.cursor === 'zero' ? 0 : a.rev));
       return a;
     },
-    run: (x) => x.store.syncBatch(USER, request(changes, o.cursor === 'zero' ? 0 : x.rev), NOW()),
+    run: async (x) => {
+      const store = o.wake ? new AccountStore(x.ctx, x.env) : x.store;
+      const res = await store.syncBatch(USER, deserialize(bytes) as SyncRequest, NOW());
+      serialize(res);
+      return res;
+    },
     check: (out) => {
       const res = out as { accepted: number; rejected: unknown[]; changes: unknown[] };
       expect(res.rejected).toEqual([]);
-      expect(res.accepted).toBe(o.changes);
+      expect(res.accepted).toBe(kind === 'sessão' ? 1 : o.changes);
       if (o.cursor === 'zero') expect(res.changes.length).toBe(o.page);
     },
     teardown: () => {
       knobs.page = null;
     },
-    count: () => o.changes,
+    count: () => (kind === 'sessão' ? a.cascaded : o.changes),
   };
 };
 
@@ -780,16 +825,16 @@ function restoreRecomputing(store: AccountStore, name: string, now: number): Pro
 }
 
 // A compactação de um alarme (compact(), privada): COMPACTABLE e os UPDATE, no máximo COMPACT_PER_DAY (ou `limit`).
-const compactOp = (n: number, limit: number | null = null): Op<Account> => ({
+const compactOp = (a: Account, limit: number | null = null): Op<Account> => ({
   setup: () => {
+    reset(a);
     knobs.compact = limit;
-    return buildAccount(n);
+    return a;
   },
-  run: async (a) => inside(a.store).compact(NOW()),
-  check: (out, a) => expect(out).toBe(Math.min(limit ?? COMPACT_PER_DAY, a.due)),
-  teardown: (a) => {
+  run: async (x) => inside(x.store).compact(NOW()),
+  check: (out, x) => expect(out).toBe(Math.min(limit ?? COMPACT_PER_DAY, x.due)),
+  teardown: () => {
     knobs.compact = null;
-    a.close();
   },
   count: (out) => out as number,
 });
@@ -802,6 +847,36 @@ const alarmOp = (n: number): Op<Account> => ({
   teardown: (a) => a.close(),
   gzip: (a) => a.r2.lastPut,
 });
+
+// A CPU de uma função síncrona ou assíncrona, uma rodada, depois de settle() (a referência do gzip, que alterna as duas formas).
+const GZIP_REPS = 9;
+async function cpuOf(fn: () => unknown): Promise<number> {
+  await settle();
+  const c0 = process.cpuUsage();
+  await fn();
+  const c = process.cpuUsage(c0);
+  return (c.user + c.system) / 1000;
+}
+
+// O gzip de referência: o mesmo arquivo da cópia pelo gzipJson de verdade (JSON.stringify, TextEncoder e o CompressionStream do Node) e
+// pelo zlib cru (JSON.stringify e zlib.gzipSync, na linha do JS). No workerd o CompressionStream é nativo e roda na linha do pedido.
+interface GzipRef {
+  n: number;
+  json: number; // bytes do JSON
+  stream: number; // ms
+  raw: number; // ms
+}
+async function gzipRef(a: Account): Promise<GzipRef> {
+  const data = exportFromRecords(inside(a.store).all(), T0);
+  const json = Buffer.byteLength(JSON.stringify(data));
+  const stream: number[] = [];
+  const raw: number[] = [];
+  for (let i = 0; i < GZIP_REPS; i++) {
+    stream.push(await cpuOf(() => gzipJson(data)));
+    raw.push(await cpuOf(() => gzipSync(JSON.stringify(data))));
+  }
+  return { n: a.n, json, stream: median(stream), raw: median(raw) };
+}
 
 // --- O documento ---
 
@@ -819,15 +894,16 @@ interface Line {
 }
 
 function table(lines: Line[], o: { gzip?: boolean; count?: string; where?: boolean } = {}): string {
-  const head = ['Solves', 'Registros', 'CPU (ms)', 'CPU do JS (ms)', 'Relógio (ms)', 'Memória viva (MB)', 'Ocupada (MB)'];
+  const head = ['Solves', 'Registros', 'Rodadas', 'CPU (ms)', 'CPU mín–máx', 'CPU do JS (ms)', 'Relógio (ms)', 'Memória viva (MB)', 'Ocupada (MB)'];
   if (o.gzip) head.push('Gzip (KB)');
   if (o.count) head.push(o.count);
   head.push('Linhas gravadas');
   if (o.where) head.push('Pico vivo em');
   head.push('');
-  const out = [`| ${head.join(' | ')} |`, `|${head.map((h) => (h === 'Solves' || h === '' || h === 'Pico vivo em' ? ' --- ' : ' ---: ')).join('|')}|`];
+  const left = new Set(['Solves', '', 'Pico vivo em']);
+  const out = [`| ${head.join(' | ')} |`, `|${head.map((h) => (left.has(h) ? ' --- ' : ' ---: ')).join('|')}|`];
   for (const { n, rows, r } of lines) {
-    const cells = [nf(n), nf(rows), ms(r.cpu), ms(r.jsCpu), ms(r.wall), mb(r.live), mb(r.occupied)];
+    const cells = [nf(n), nf(rows), String(r.reps), ms(r.cpu), `${ms(r.cpuMin)}–${ms(r.cpuMax)}`, ms(r.jsCpu), ms(r.wall), mb(r.live), mb(r.occupied)];
     if (o.gzip) cells.push(kb(r.gzip));
     if (o.count) cells.push(r.count === null ? '—' : nf(r.count));
     cells.push(nf(r.rows));
@@ -880,11 +956,19 @@ function largest(lines: Line[]): Line | null {
   return best;
 }
 
+// A linha que o teste descartável do workerd devolveu (o `rowsWritten` de cada comando, num objeto da conta do Miniflare, com o
+// UPSERT_RECORD e o COMPACT_SOLVE de records-sql.ts). Fica no documento como prova da regra das linhas.
+const WORKERD_ROWS =
+  'ROWS {"insert session":4,"insert solve (new)":4,"edit solve (same parent)":3,"edit solve (identical values but rev)":3,"move solve (parent change)":3,"delete solve (keeps content)":4,"edit deleted (stays in tombs)":4,"undelete (leaves tombs)":3,"delete again":4,"compact solve":1,"compact again (no-op data same)":1,"re-send compacted -> content back":4,"insert practice":4,"insert pref":4,"update pref":3,"state insert":2,"state update":1,"device insert":2,"device update":1,"drop tombs":0,"create tombs (1000 rows, 100 match)":102,"drop rev":0,"create rev (1000+ rows)":1005,"count active":0}';
+
+const WAKE_PAGE = 250; // o despertar junto com um pedido: o envio de 250 e a página de 250
+
 it(
   'uma conta de 100 mil solves no plano gratuito',
   async () => {
     expect(typeof gc).toBe('function');
     const started = performance.now();
+    const loadStart = loadavg()[0];
     const ops = {
       copia: [] as Line[],
       restauracao: [] as Line[],
@@ -893,50 +977,89 @@ it(
       recebimento: [] as Line[],
       contagem: [] as Line[],
       despertar: [] as Line[],
+      despertarEnvio: [] as Line[],
+      despertarRecebimento: [] as Line[],
+      cascata: [] as Line[],
       compactacao: [] as Line[],
       alarme: [] as Line[],
     };
+    const gzips: GzipRef[] = [];
+    const dues = new Map<number, number>();
+    const doomedSolves = new Map<number, number>();
 
     // O aquecimento: cada operação algumas vezes numa conta pequena, descartadas (o código frio do V8 não entra na mediana de 1 mil).
     {
       const a = buildAccount(SIZES[0]);
-      for (const op of [copyOp(a), syncOp(a, { changes: 500, page: 500, cursor: 'zero' }), syncOp(a, { changes: 0, page: 500, cursor: 'zero' }), countOp(a), wakeOp(a)]) {
-        await measure(op as Op<Account>);
-      }
+      const warm = [
+        copyOp(a),
+        syncOp(a, { changes: 500, page: 500, cursor: 'zero' }),
+        syncOp(a, { changes: 0, page: 500, cursor: 'zero' }),
+        syncOp(a, { changes: 1, page: 500, cursor: 'head', kind: 'sessão' }),
+        syncOp(a, { changes: WAKE_PAGE, page: WAKE_PAGE, cursor: 'zero', wake: true }),
+        countOp(a),
+        wakeOp(a),
+        compactOp(a),
+      ];
+      for (const op of warm) await measure(op as Op<Account>, REPS + 1);
       a.close();
-      await measure(restoreOp(SIZES[0], 'como está'));
-      await measure(restoreOp(SIZES[0], 'alternativa'));
-      await measure(compactOp(SIZES[0]));
-      await measure(alarmOp(SIZES[0]));
+      await measure(restoreOp(SIZES[0], 'como está'), REPS + 1);
+      await measure(restoreOp(SIZES[0], 'alternativa'), REPS + 1);
+      await measure(alarmOp(SIZES[0]), REPS + 1);
     }
 
-    const dues = new Map<number, number>();
+    // A 100 mil, além da tabela: o envio e o recebimento por pedido menor, a compactação por alarme menor, e o primeiro sync com os dois
+    // valores quando eles saem diferentes.
+    const envioPages = new Map<number, Result>();
+    const recebimentoPages = new Map<number, Result>();
+    const compacts = new Map<number, Result>();
+    const combined = new Map<number, Result>();
+    let writesPer: number | null = null;
+    let pullPer: number | null = null;
+    let pullPage: number | null = null;
+    const pick = (m: Map<number, Result>): number | null => [...m.entries()].find(([, r]) => fits(r))?.[0] ?? null;
+
     for (const n of SIZES) {
       const a = buildAccount(n);
       dues.set(n, a.due);
+      doomedSolves.set(n, a.cascaded);
       const line = (r: Result): Line => ({ n, rows: a.rows, r });
       ops.copia.push(line(await measure(copyOp(a))));
+      gzips.push(await gzipRef(a));
       ops.envio.push(line(await measure(syncOp(a, { changes: 500, page: 500, cursor: 'zero' }))));
       ops.recebimento.push(line(await measure(syncOp(a, { changes: 0, page: 500, cursor: 'zero' }))));
       ops.contagem.push(line(await measure(countOp(a))));
       ops.despertar.push(line(await measure(wakeOp(a))));
+      ops.despertarEnvio.push(line(await measure(syncOp(a, { changes: WAKE_PAGE, page: WAKE_PAGE, cursor: 'zero', wake: true }))));
+      ops.despertarRecebimento.push(line(await measure(syncOp(a, { changes: 0, page: WAKE_PAGE, cursor: 'zero', wake: true }))));
+      ops.cascata.push(line(await measure(syncOp(a, { changes: 1, page: 500, cursor: 'head', kind: 'sessão' }))));
+      ops.compactacao.push(line(await measure(compactOp(a))));
+      if (n === BIGGEST) {
+        for (const p of PAGES) {
+          envioPages.set(p, p === 500 ? ops.envio.at(-1)!.r : await measure(syncOp(a, { changes: p, page: p, cursor: 'zero' })));
+          recebimentoPages.set(p, p === 500 ? ops.recebimento.at(-1)!.r : await measure(syncOp(a, { changes: 0, page: p, cursor: 'zero' })));
+        }
+        for (const c of COMPACTS) compacts.set(c, c === COMPACT_PER_DAY ? ops.compactacao.at(-1)!.r : await measure(compactOp(a, c)));
+        writesPer = pick(envioPages);
+        pullPer = pick(recebimentoPages);
+        pullPage = pullPer;
+        // O envio de um e a página do outro no mesmo pedido. Se não couber, a página desce até caber junto com o envio (no tamanho do
+        // envio, cabe: é a medição do envio).
+        if (writesPer !== null && pullPer !== null && writesPer !== pullPer) {
+          for (const p of PAGES.filter((x) => x <= pullPer!)) {
+            const r = p === writesPer ? envioPages.get(p)! : await measure(syncOp(a, { changes: writesPer, page: p, cursor: 'zero' }));
+            combined.set(p, r);
+            if (fits(r)) {
+              pullPage = p;
+              break;
+            }
+          }
+        }
+      }
       a.close();
       ops.restauracao.push(line(await measure(restoreOp(n, 'como está'))));
       ops.alternativa.push(line(await measure(restoreOp(n, 'alternativa'))));
-      ops.compactacao.push(line(await measure(compactOp(n))));
       ops.alarme.push(line(await measure(alarmOp(n))));
     }
-
-    // A 100 mil: o envio e o recebimento por pedido menor, e a compactação por alarme menor.
-    const big = buildAccount(BIGGEST);
-    const envioPages = new Map<number, Result>();
-    const recebimentoPages = new Map<number, Result>();
-    for (const p of PAGES) {
-      envioPages.set(p, p === 500 ? ops.envio.at(-1)!.r : await measure(syncOp(big, { changes: p, page: p, cursor: 'zero' })));
-      recebimentoPages.set(p, p === 500 ? ops.recebimento.at(-1)!.r : await measure(syncOp(big, { changes: 0, page: p, cursor: 'zero' })));
-    }
-    const compacts = new Map<number, Result>();
-    for (const c of COMPACTS) compacts.set(c, c === COMPACT_PER_DAY ? ops.compactacao.at(-1)!.r : await measure(compactOp(BIGGEST, c)));
 
     // (a) As linhas gravadas por tipo de mudança, num pedido de 500 (sem página de volta que conte: o recebimento não grava registro).
     const kinds = buildAccount(KINDS_AT);
@@ -945,13 +1068,9 @@ it(
       kindRows.set(kind, await measure(syncOp(kinds, { changes: 500, page: 500, cursor: 'head', kind }), 1));
     }
     kindRows.set('vazio', await measure(syncOp(kinds, { changes: 0, page: 500, cursor: 'head' }), 1));
+    const compactKind = await measure(compactOp(kinds), 1);
     kinds.close();
-    const compactKind = await measure(compactOp(KINDS_AT), 1);
 
-    // Os vereditos.
-    const pick = (m: Map<number, Result>): number | null => [...m.entries()].find(([, r]) => fits(r))?.[0] ?? null;
-    const writesPer = pick(envioPages);
-    const pullPer = pick(recebimentoPages);
     // Sem nenhum tamanho que caiba a 100 mil, o sync de 50 nas contas menores (a cota desce para a maior em que ele cabe).
     const fallbackSync = async (changes: number): Promise<Line[]> => {
       const lines: Line[] = [];
@@ -964,33 +1083,22 @@ it(
     };
     const envio50 = writesPer === null ? await fallbackSync(50) : null;
     const recebimento50 = pullPer === null ? await fallbackSync(0) : null;
-    // O pedido do primeiro sync com os dois valores, quando eles saem diferentes: o envio de um e a página do outro no mesmo pedido. Se não
-    // couber, a página desce até caber junto com o envio (no tamanho do envio, cabe: é a medição do envio).
-    const combined = new Map<number, Result>();
-    let pullPage = pullPer;
-    if (writesPer !== null && pullPer !== null && writesPer !== pullPer) {
-      for (const p of PAGES.filter((x) => x <= pullPer)) {
-        const r = p === writesPer ? envioPages.get(p)! : await measure(syncOp(big, { changes: writesPer, page: p, cursor: 'zero' }));
-        combined.set(p, r);
-        if (fits(r)) {
-          pullPage = p;
-          break;
-        }
-      }
-    }
-    big.close();
 
+    // Os vereditos.
     const copyBest = largest(ops.copia);
     const restoreBest = largest(ops.restauracao);
     const altBest = largest(ops.alternativa);
     const countBest = largest(ops.contagem);
     const wakeBest = largest(ops.despertar);
+    const wakeSendBest = largest(ops.despertarEnvio);
+    const wakePullBest = largest(ops.despertarRecebimento);
+    const cascadeBest = largest(ops.cascata);
     const alarmBest = largest(ops.alarme);
-    const compactBest = [...compacts.entries()].find(([, r]) => fits(r))?.[0] ?? null;
+    const compactBest = pick(compacts);
     const all100 = (lines: Line[]) => fits(lines.at(-1)!.r) && largest(lines)?.n === BIGGEST;
     const upTo = (l: Line | null): string => (l ? `cabe até ${nf(l.n)} solves` : 'nenhuma conta medida cabe');
-    // O maior N pela memória só, contando de baixo como em largest().
     const memText = (l: Line | null): string => (l ? `${nf(l.n)} solves` : 'nenhuma conta medida');
+    // O maior N pela memória só, contando de baixo como em largest().
     const memOnly = (lines: Line[]): Line | null => {
       let best: Line | null = null;
       for (const l of lines) {
@@ -999,12 +1107,16 @@ it(
       }
       return best;
     };
+    const memPick = (m: Map<number, Result>): number | null => [...m.entries()].find(([, r]) => r.live <= MEM_LIMIT_MB)?.[0] ?? null;
     // Quantos registros caberiam pela CPU por registro da menor conta: uma conta linear, que põe o custo fixo nos registros (estimativa, não
     // medida).
     const perRecord = (lines: Line[]): string =>
       `Nenhuma conta medida cabe: a menor, de ${nf(lines[0].n)} solves, gasta ${ms(lines[0].r.cpu)} ms. Pela CPU por registro dela, caberiam uns ${nf(Math.floor((CPU_LIMIT_MS * lines[0].rows) / lines[0].r.cpu))} registros (uma estimativa linear, não medida).`;
     // O valor escolhido perto da linha: a regra o aceita, mas a margem é pequena.
-    const close = (r: Result | undefined): string => (r && r.cpu > CPU_LIMIT_MS * 0.8 ? ` Na linha: ${ms(r.cpu)} ms de CPU nesse tamanho.` : '');
+    const close = (r: Result | undefined): string =>
+      r && r.cpu > CPU_LIMIT_MS * 0.8 ? ` Na linha: mediana de ${ms(r.cpu)} ms (${ms(r.cpuMin)}–${ms(r.cpuMax)} em ${r.reps} rodadas) nesse tamanho.` : '';
+    const cascadeVerdict = (best: Line | null): string =>
+      best ? `cabe até a conta de ${nf(best.n)} solves (${nf(doomedSolves.get(best.n) ?? 0)} solves ativos na sessão)` : `nenhuma conta medida cabe (a menor apaga ${nf(doomedSolves.get(SIZES[0]) ?? 0)} solves numa sessão)`;
 
     const v = {
       copia: all100(ops.copia) ? 'cabe' : `não cabe → SNAPSHOT_MAX_RECORDS = ${copyBest ? code(copyBest.rows) : '0'}`,
@@ -1021,8 +1133,15 @@ it(
           : pullPer !== null
             ? `não cabe → PULL_PAGE = ${pullPer}`
             : `não cabe → ACCOUNT_LIMITS.solves = ${code(largest(recebimento50!)?.n ?? 0)} (com 50 por pedido)`,
+      primeiroSync:
+        writesPer === 500 && pullPage === 500
+          ? 'cabe'
+          : `não cabe → MAX_WRITES_PER_REQUEST = ${writesPer ?? 50} e PULL_PAGE = ${pullPage ?? 50}`,
+      cascata: all100(ops.cascata) ? 'cabe' : `não cabe → ${cascadeVerdict(cascadeBest)}`,
       contagem: all100(ops.contagem) ? 'cabe' : `não cabe → ${upTo(countBest)}`,
       despertar: all100(ops.despertar) ? 'cabe' : `não cabe → ${upTo(wakeBest)}`,
+      despertarEnvio: all100(ops.despertarEnvio) ? 'cabe' : `não cabe → ${upTo(wakeSendBest)}`,
+      despertarRecebimento: all100(ops.despertarRecebimento) ? 'cabe' : `não cabe → ${upTo(wakePullBest)}`,
       compactacao: compactBest === COMPACT_PER_DAY ? 'cabe' : `não cabe → COMPACT_PER_DAY = ${compactBest === null ? '0 (nenhum dos medidos)' : code(compactBest)}`,
       alarme: all100(ops.alarme) ? 'cabe' : `não cabe → ${upTo(alarmBest)}`,
     };
@@ -1035,11 +1154,32 @@ it(
     const restoreRowsPerRecord = ops.restauracao.at(-1)!.r.rows / ops.restauracao.at(-1)!.r.count!;
     const everythingFits = Object.values(v).every((x) => x === 'cabe');
 
+    // A leitura de 30 s do limite de CPU (seção 12): a CPU para de decidir, e decidem a memória e as linhas.
+    const copyMem = memOnly(ops.copia);
+    const restoreMem = memOnly(ops.restauracao);
+    const restoreRows = Math.floor(rowsBudget / restoreRowsPerRecord);
+    const restore30 = Math.min(restoreMem ? restoreMem.rows : 0, restoreRows);
+    const cascadeMem = memOnly(ops.cascata);
+    const cascadeRows100 = ops.cascata.at(-1)!.r.rows;
+    const reading = (x: Line | null, lines: Line[]): string =>
+      x && x.n === lines.at(-1)!.n
+        ? `sem teto (a conta de ${nf(x.n)} solves, ${mb(x.r.live)} MB vivos)`
+        : x
+          ? `${code(x.rows)} (a conta de ${nf(x.n)} solves, ${mb(x.r.live)} MB vivos)`
+          : '0';
+
+    // O gzip: o CompressionStream do Node contra o zlib cru, no mesmo arquivo.
+    const gzRatio = (g: GzipRef): number => g.stream / g.raw;
+    const copyRaw = (i: number): number => Math.max(0, ops.copia[i].r.cpu - gzips[i].stream + gzips[i].raw);
+
     const dueText = SIZES.map((n) => `${nf(dues.get(n) ?? 0)} a ${nf(n)}`).join(', ');
     const fullFrom = SIZES.find((n) => (dues.get(n) ?? 0) >= COMPACT_PER_DAY);
     const minutes = (performance.now() - started) / 60_000;
     const cpu = cpus();
     const fmtLimit = `CPU ≤ ${CPU_LIMIT_MS} ms e memória viva ≤ ${MEM_LIMIT_MB} MB`;
+    const zero = !all100(ops.copia) && !copyBest ? 'as cópias' : '';
+    const zeroRestore = !all100(ops.restauracao) && !restoreBest ? 'as restaurações' : '';
+    const zeroWhat = [zero, zeroRestore].filter(Boolean).join(' e ');
 
     const doc = `# Klick — uma conta de 100 mil solves no plano gratuito (medição)
 
@@ -1047,24 +1187,28 @@ Data: ${new Date(T0).toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo'
 
 Este arquivo é escrito pela própria medição (\`app/tests/perf/account-100k.perf.ts\`, com \`./node_modules/.bin/vitest run -c vitest.perf.config.ts\` em \`app/\`). Não edite à mão: rode de novo.
 
-- Máquina: ${cpu[0]?.model ?? '?'} (${cpu.length} núcleos), ${nf(totalmem() / 1024 ** 3)} GB, Darwin ${release()}. O Mac é dividido com outras sessões: a carga delas entra no relógio, e um pouco na CPU.
+- Máquina: ${cpu[0]?.model ?? '?'} (${cpu.length} núcleos), ${nf(totalmem() / 1024 ** 3)} GB de memória, ${platform()} ${release()}. Carga (média de 1 min do sistema) no começo e no fim da medição: ${nf(loadStart, 1)} e ${nf(loadavg()[0], 1)}.
 - Node ${process.version}, SQLite ${process.versions.sqlite} (\`node:sqlite\`), V8 ${process.versions.v8}.
-- A medição levou ${nf(minutes, 1)} min. Cada operação rodou ${REPS} vezes por conta (fica a mediana), mais uma rodada instrumentada para a memória e as linhas gravadas.
+- A medição levou ${nf(minutes, 1)} min. As operações pesadas (cópia, restauração, alarme) rodaram ${REPS} vezes por conta; as leves (mediana abaixo de ${LIGHT_MS} ms nas ${REPS} primeiras), ${LIGHT_REPS}. Fica a mediana, e as tabelas mostram o mínimo e o máximo. Mais uma rodada instrumentada, à parte, para a memória e as linhas gravadas.
 
 ## 1. Os vereditos
 
 A regra (Task 11): o grátis dá 10 ms de CPU por pedido e 128 MB; a medição no Node conta metade, para a diferença do workerd e do SQLite do objeto. **Cabe se ${fmtLimit}.** Por operação: (a) envio ou recebimento a 100 mil que não cabe → o maior de {500, 250, 100, 50} por pedido que cabe; se nem 50 cabe, \`ACCOUNT_LIMITS.solves\` desce para o maior N em que o sync cabe (o único caso da spec 7.2 em que a cota baixa); (b) cópia → \`SNAPSHOT_MAX_RECORDS\` = o maior N medido que cabe (0 se nenhum); (c) restauração → \`RESTORE_MAX_RECORDS\` do mesmo jeito. Tudo cabendo a 100 mil, a Task 12 não roda.
 
-"O maior N que cabe" conta de baixo para cima e para no primeiro que não cabe. O valor das constantes da Task 12 vem em **registros do objeto** (sessões, solves, treino e ajustes), que é o que o objeto conta antes de copiar ou restaurar; a coluna "Solves" diz de que conta ele saiu.
+"O maior N que cabe" conta de baixo para cima e para no primeiro que não cabe. O valor das constantes da Task 12 vem em **registros do objeto** (sessões, solves, treino e ajustes), que é o que o objeto conta antes de copiar ou restaurar; a coluna "Solves" diz de que conta ele saiu. A seção 12 mostra os mesmos valores na outra leitura do limite de CPU (30 s).
 
 | Operação | Veredito |
 | --- | --- |
 | Cópia diária | \`${v.copia}\` |
 | Restauração | \`${v.restauracao}\` |
 | Envio do primeiro sync | \`${v.envio}\` |
-| Recebimento (uma página) | \`${v.recebimento}\` |
+| Recebimento (uma página, sem envio) | \`${v.recebimento}\` |
+| Primeiro sync (o envio e a página no mesmo pedido) | \`${v.primeiroSync}\` |
+| Apagar uma sessão (a cascata, seção 9 (e)) | \`${v.cascata}\` |
 | Contagem inicial dos ativos | \`${v.contagem}\` |
-| (b) Primeiro despertar de uma conta do beta | \`${v.despertar}\` |
+| (b) Primeiro despertar de uma conta do beta, sozinho | \`${v.despertar}\` |
+| (b) O despertar com o primeiro sync (${WAKE_PAGE} subindo, página de ${WAKE_PAGE}) | \`${v.despertarEnvio}\` |
+| (b) O despertar com um recebimento (página de ${WAKE_PAGE}) | \`${v.despertarRecebimento}\` |
 | (d) Compactação de um alarme (${nf(COMPACT_PER_DAY)} solves) | \`${v.compactacao}\` |
 | (d) O alarme inteiro (compactação, cópia e o próximo alarme) | \`${v.alarme}\` |
 
@@ -1074,10 +1218,11 @@ ${everythingFits ? '**Tudo cabe a 100 mil: a Task 12 não roda.**' : '**Alguma o
 
 Dentro do workerd o relógio não anda enquanto o pedido usa CPU (\`Date.now()\` e \`performance.now()\` ficam parados), então a CPU de um pedido só se mede fora dele. Aqui, o objeto da conta de verdade (\`worker/account-store.ts\`, a mesma classe) roda no Node: o import de \`cloudflare:workers\` vira uma casca com o \`ctx\` e o \`env\`, o banco é um \`node:sqlite\` em memória com o mesmo esquema (\`RECORDS_SCHEMA\`) e o mesmo SQL (\`worker/records-sql.ts\`), e o D1 e o R2 são falsos (a reserva no D1 sempre passa; o R2 guarda o arquivo). As funções do núcleo são as de sempre (\`applyChanges\`, \`restoreChanges\`, \`exportFromRecords\`, \`accountPrefsOf\`), e o gzip é o \`CompressionStream\` do Node, pelo \`gzipJson\` de \`worker/snapshots.ts\`.
 
-**O Node não é o workerd.** Outra CPU (um ${cpu[0]?.model ?? '?'} de mesa, não o servidor da Cloudflare), outro build do V8, e o SQLite do objeto grava em disco e confirma a transação de outro jeito. Contar metade dos limites é uma margem para essa diferença, não uma conversão: um número entre a metade e o limite (2,5 a 5 ms, 32 a 64 MB) não prova que cabe, e um número acima não prova que estoura. A Cloudflare também não corta exatamente no milissegundo. O veredito é a regra aplicada aos números daqui, e nada além disso.
+**O Node não é o workerd.** Outra CPU (um ${cpu[0]?.model ?? '?'}, não o servidor da Cloudflare), outro build do V8, e o SQLite do objeto grava em disco e confirma a transação de outro jeito. Contar metade dos limites é uma margem para essa diferença, não uma conversão: um número entre a metade e o limite (2,5 a 5 ms, 32 a 64 MB) não prova que cabe, e um número acima não prova que estoura. A Cloudflare também não corta exatamente no milissegundo. O veredito é a regra aplicada aos números daqui, e nada além disso.
 
-- **CPU**: \`process.cpuUsage()\` antes e depois da operação (usuário + sistema), mediana de ${REPS} rodadas. É a CPU do processo inteiro: entram as linhas auxiliares do V8 (o GC concorrente, o compilador) e a do zlib do \`CompressionStream\` (no Node ele roda no pool de threads). É o número da regra. Antes de cada rodada, um \`gc()\` e 50 ms de espera (fora da conta) limpam o lixo da montagem e deixam o V8 terminar de varrer.
+- **CPU**: \`process.cpuUsage()\` antes e depois da operação (usuário + sistema). É a CPU do processo inteiro: entram as linhas auxiliares do V8 (o GC concorrente, o compilador) e a do zlib do \`CompressionStream\` (no Node ele roda no pool de threads). É o número da regra, na mediana: ${REPS} rodadas nas operações pesadas, ${LIGHT_REPS} nas leves (as que ficam abaixo de ${LIGHT_MS} ms nas ${REPS} primeiras: o envio, o recebimento, o primeiro sync, a contagem, o despertar e a compactação), porque um GC no meio de uma rodada move uma operação curta de um lado para o outro da linha. Antes de cada rodada, dois \`gc()\` com esperas de 20 e 60 ms (fora da conta) limpam o lixo da montagem e deixam o V8 terminar de varrer, e 10 ms de laço ocupado acordam o núcleo. Mesmo assim, as rodadas de uma operação curta variam bastante (veja o mínimo e o máximo): numa operação perto de 5 ms, a mediana decide, mas o lado da linha é frágil.
 - **CPU do JS**: \`process.threadCpuUsage()\`, só a linha que roda o código do objeto, mediana. Fica de fora o que o V8 faz nas outras linhas e o gzip (no pool de threads do Node). Não decide nada: mostra quanto da CPU do processo é do código do objeto. Quando a CPU passa do relógio, a diferença é dessas outras linhas.
+- **A RPC**: nos pedidos do sync, a conta inclui o lado do objeto na chamada RPC. O pedido chega serializado (\`v8.serialize\`, feito antes, fora da conta, como faria o Worker que chama) e o objeto o desserializa (\`v8.deserialize\`, dentro da conta); a resposta sai serializada (\`v8.serialize\`, dentro). O workerd usa o mesmo serializador do V8 na RPC. Na cópia, na restauração e no alarme, a chamada não leva nada que pese.
 - **Relógio**: \`performance.now()\`, mediana. No Node, sem rede: o D1 e o R2 respondem na hora.
 - **Memória viva**: numa rodada à parte, uma sonda chama \`gc()\` e lê \`process.memoryUsage()\` (heap usado + memória externa, onde ficam os ArrayBuffers) nos pontos pesados do caminho: depois de cada \`SELECT\` de 50 linhas ou mais, de cada gravação no estado (o fim de \`write()\`, com o lote inteiro vivo), de \`applyChanges\`, \`restoreChanges\`, \`exportFromRecords\`, \`gzipJson\`, \`gunzipJson\`, do get e do put no R2, e logo depois de cada \`JSON.stringify\`, \`JSON.parse\`, \`TextEncoder.encode\` e \`TextDecoder.decode\` de 256 KB ou mais (os textos e bytes do arquivo da cópia, que aparecem e somem dentro de uma função), e no fim, com o que a operação devolve ainda vivo (a página do sync). O número é o maior vivo nessas sondas menos o de antes da operação (também depois de \`gc()\`). Entre duas sondas pode haver um pico um pouco maior que nenhuma pegou: é um piso bem apertado, não um teto.
 - **Ocupada**: nas mesmas sondas, o heap + externa **antes** do \`gc()\`, menos o de antes da operação: o que o V8 segurava naquele instante, lixo incluído. Não decide nada (o V8 coleta antes de desistir), mas mostra a pressão.
@@ -1087,7 +1232,7 @@ Dentro do workerd o relógio não anda enquanto o pedido usa CPU (\`Date.now()\`
 
 ## 3. As contas medidas
 
-N ∈ {${SIZES.map((n) => nf(n)).join(', ')}} solves, mais 20 sessões, N/10 tentativas do treino e os ${ops.copia[0].rows - SIZES[0] - 20 - SIZES[0] / 10} ajustes padrão da conta (\`prefsFromProfile\` com \`withDefaults\`). Os solves se espalham pelo último ano, nas 20 sessões, com o formato do app: id de 17 caracteres, embaralhamento de 20 movimentos, tempo de 8 a 30 s, 2% com +2, 1% com DNF, 1% com nota. Um em cada dez está na lixeira (apagado uma hora depois do solve, com o conteúdo): os de mais de 30 dias são o que a compactação tira (${dueText}). A conta já tem os contadores da Task 4 no estado (os ativos e os bytes) e o alarme da cópia marcado. Cada conta é montada direto no banco, fora da conta.
+N ∈ {${SIZES.map((n) => nf(n)).join(', ')}} solves, mais 20 sessões, N/10 tentativas do treino e os ${ops.copia[0].rows - SIZES[0] - 20 - SIZES[0] / 10} ajustes padrão da conta (\`prefsFromProfile\` com \`withDefaults\`). Os solves se espalham pelo último ano, nas 20 sessões (N/20 em cada uma), com o formato do app: id de 17 caracteres, embaralhamento de 20 movimentos, tempo de 8 a 30 s, 2% com +2, 1% com DNF, 1% com nota. Um em cada dez está na lixeira (apagado uma hora depois do solve, com o conteúdo): os de mais de 30 dias são o que a compactação tira (${dueText}). A conta já tem os contadores da Task 4 no estado (os ativos e os bytes) e o alarme da cópia marcado. Cada conta é montada direto no banco, fora da conta; entre as rodadas de uma operação que grava, ela volta ao estado de pronta (fora da conta).
 
 ## 4. A cópia diária
 
@@ -1098,6 +1243,12 @@ ${table(ops.copia, { gzip: true })}
 Para onde vai a CPU (a rodada da mediana; cada linha é a CPU desde a de cima até o fim da função dela):
 
 ${phaseTable(ops.copia, COPY_PHASES)}
+
+O gzip de referência: o mesmo arquivo pelo \`gzipJson\` de verdade (\`JSON.stringify\`, \`TextEncoder\` e o \`CompressionStream\` do Node) e pelo zlib cru (\`JSON.stringify\` e \`zlib.gzipSync\`, no mesmo nível), alternados, mediana de ${GZIP_REPS} de cada. O \`CompressionStream\` do Node passa pelos streams da web e pelo pool de threads; o do workerd é nativo e roda na linha do pedido, então o custo de lá deve ficar mais perto do zlib cru que do número daqui. A última coluna é a cópia com o zlib cru no lugar do \`gzipJson\`: uma estimativa (a CPU da cópia, menos o \`gzipJson\`, mais o cru), não uma medida.
+
+| Solves | JSON (KB) | gzipJson (ms) | stringify + gzipSync (ms) | Razão | Cópia com o zlib cru (estimativa, ms) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+${gzips.map((g, i) => `| ${nf(g.n)} | ${nf(g.json / 1024)} | ${ms(g.stream)} | ${ms(g.raw)} | ${nf(gzRatio(g), 1)}× | ${ms(copyRaw(i))} |`).join('\n')}
 
 O alarme roda a compactação e a cópia na mesma invocação: o custo dele está na seção 9 (d).
 
@@ -1113,7 +1264,7 @@ ${phaseTable(ops.restauracao, RESTORE_PHASES)}
 
 ## 6. O envio do primeiro sync
 
-\`syncBatch\` de verdade, com o pedido que o motor do app manda no primeiro sync de um aparelho: 500 solves novos subindo (numa sessão que existe, com a cota, o teto de bytes pelo \`admit\` e o orçamento do dia) e o cursor 0, então a resposta leva a primeira página de 500. A conta tem 90% dos N solves ativos: a 100 mil, os 500 novos cabem na cota.
+\`syncBatch\` de verdade, com o pedido que o motor do app manda no primeiro sync de um aparelho: 500 solves novos subindo (numa sessão que existe, com a cota, o teto de bytes pelo \`admit\` e o orçamento do dia) e o cursor 0, então a resposta leva a primeira página de 500. Com a RPC do lado do objeto (seção 2). A conta tem 90% dos N solves ativos: a 100 mil, os 500 novos cabem na cota.
 
 ${table(ops.envio, { count: 'Mudanças' })}
 
@@ -1123,7 +1274,7 @@ ${table(PAGES.map((p) => ({ n: BIGGEST, rows: ops.envio.at(-1)!.rows, r: envioPa
 ${envio50 ? `\nNem 50 cabe a ${nf(BIGGEST)}. O envio de 50 nas contas menores:\n\n${table(envio50, { count: 'Mudanças' })}\n` : ''}
 ## 7. O recebimento
 
-\`syncBatch\` sem mudanças, do cursor 0: a página de 500 (\`SELECT ... WHERE rev > ? ORDER BY rev LIMIT 501\` e \`rowToChange\` em cada linha) e a linha do aparelho.
+\`syncBatch\` sem mudanças, do cursor 0: a página de 500 (\`SELECT ... WHERE rev > ? ORDER BY rev LIMIT 501\` e \`rowToChange\` em cada linha), a linha do aparelho e a RPC.
 
 ${table(ops.recebimento)}
 
@@ -1160,6 +1311,12 @@ A regra, conferida uma vez no workerd (o \`rowsWritten\` do cursor do SQLite do 
 | \`CREATE INDEX\` numa tabela que existe | uma por entrada do índice, mais 1 |
 | \`setAlarm()\` | 1 (tabela de preços da Cloudflare) |
 
+A linha que o teste do workerd devolveu (o \`rowsWritten\` de cada comando, nessa ordem, num objeto com 1.000 solves para os índices):
+
+\`\`\`
+${WORKERD_ROWS}
+\`\`\`
+
 Pedidos de 500 mudanças de cada tipo, numa conta de ${nf(KINDS_AT)} solves (as linhas não dependem do tamanho), com o \`syncBatch\` de verdade:
 
 | Pedido | Linhas gravadas | Por mudança (menos o pedido de só receber, ÷ 500) |
@@ -1168,22 +1325,36 @@ Pedidos de 500 mudanças de cada tipo, numa conta de ${nf(KINDS_AT)} solves (as 
 | 500 edições | ${nf(kindRows.get('edição')!.rows)} | ${nf(perChange('edição'), 2)} |
 | 500 exclusões (solves ativos para a lixeira) | ${nf(kindRows.get('exclusão')!.rows)} | ${nf(perChange('exclusão'), 2)} |
 | Só recebimento (o fixo de um pedido) | ${nf(kindRows.get('vazio')!.rows)} | — |
-| Compactação (${nf(compactKind.count ?? 0)} solves num alarme) | ${nf(compactKind.rows)} | ${nf((compactKind.rows) / (compactKind.count || 1), 2)} |
+| Compactação (${nf(compactKind.count ?? 0)} solves num alarme) | ${nf(compactKind.rows)} | ${nf(compactKind.rows / (compactKind.count || 1), 2)} |
 | Restauração a ${nf(BIGGEST)} (${nf(ops.restauracao.at(-1)!.r.count ?? 0)} mudanças) | ${nf(ops.restauracao.at(-1)!.r.rows)} | ${nf(restoreRowsPerRecord, 2)} |
+| Apagar uma sessão a ${nf(BIGGEST)} (1 mudança, ${nf(doomedSolves.get(BIGGEST) ?? 0)} solves ativos na cascata) | ${nf(cascadeRows100)} | ${nf(cascadeRows100 / (doomedSolves.get(BIGGEST) || 1), 2)} por solve da sessão |
+| O primeiro despertar de uma conta do beta a ${nf(BIGGEST)} (seção 9 (b)) | ${nf(ops.despertar.at(-1)!.r.rows)} | uma por solve da lixeira com conteúdo, mais 5 |
 
 O fixo de um pedido que grava é a revisão, os contadores que mudaram (ativos, bytes, as gravações do dia) e o aparelho: até umas 5 linhas.
 
 **O orçamento em linhas.** Para uma conta ficar em ${nf(ACCOUNT_SHARE * 100)}% ou menos das ${nf(SHARED_ROWS_PER_DAY)} linhas do dia: **${nf(rowsBudget)} linhas por dia por conta**. Contado em mudanças, com a pior (${nf(worstPerChange, 2)} linhas), são ${nf(changesBudget)} mudanças por dia. Hoje, ${nf(DAILY_WRITE_BUDGET)} mudanças de solves novos gravam umas ${nf(DAILY_WRITE_BUDGET * perChange('novo'))} linhas: uma conta só gasta ${nf((DAILY_WRITE_BUDGET * perChange('novo') * 100) / SHARED_ROWS_PER_DAY)}% do dia de todas. Consequências para a Task 12:
 
 - Um primeiro sync de 100 mil solves (um import grande do csTimer) sobe em uns ${nf(Math.ceil(BIGGEST / changesBudget))} dias com ${nf(changesBudget)} mudanças por dia (hoje, ${nf(Math.ceil(BIGGEST / DAILY_WRITE_BUDGET))}).
-- A restauração grava ${nf(restoreRowsPerRecord, 1)} linhas por registro e conta inteira no orçamento: com ${nf(rowsBudget)} linhas por dia, a maior que passa tem uns ${nf(Math.floor(rowsBudget / restoreRowsPerRecord))} registros, seja qual for a CPU. Hoje, a de ${nf(DAILY_WRITE_BUDGET)} mudanças grava umas ${nf(DAILY_WRITE_BUDGET * restoreRowsPerRecord)} linhas.
+- A restauração grava ${nf(restoreRowsPerRecord, 1)} linhas por registro e conta inteira no orçamento: com ${nf(rowsBudget)} linhas por dia, a maior que passa tem uns ${nf(restoreRows)} registros, seja qual for a CPU. Hoje, a de ${nf(DAILY_WRITE_BUDGET)} mudanças grava umas ${nf(DAILY_WRITE_BUDGET * restoreRowsPerRecord)} linhas.
+- Apagar uma sessão de ${nf(doomedSolves.get(BIGGEST) ?? 0)} solves ativos grava ${nf(cascadeRows100)} linhas num pedido só (seção 9 (e)), e o orçamento do dia não as limita.
+- O primeiro despertar de uma conta do beta de ${nf(BIGGEST)} solves grava ${nf(ops.despertar.at(-1)!.r.rows)} linhas (o índice novo), também fora do orçamento.
 - A compactação já conta no orçamento (uma por solve, uma linha cada). O alarme de cada conta grava ainda o \`setAlarm\` e umas 3 linhas do estado da cópia por dia, fora do orçamento.
 
 ### (b) O primeiro despertar de uma conta do beta
 
-O primeiro pedido depois do deploy da Task 4, numa conta que já existia: o objeto nasce (\`migrate()\`: \`RECORDS_SCHEMA\` sobre a tabela que já existe; \`records_rev\` e \`records_parent\` vêm do 5a, só \`records_tombs\` é novo e é montado aqui) e o primeiro \`syncBatch\` conta os ativos e os bytes (\`COUNT_ACTIVE\`, \`STORED_BYTES\`) e grava os dois contadores. A tabela mede o nascimento e a contagem; o pedido em si (envio ou recebimento, seções 6 e 7) vem por cima, na mesma invocação. Contas criadas depois da Task 4 (todas as da raiz) nunca passam por isto.
+O primeiro pedido depois do deploy da Task 4, numa conta que já existia: o objeto nasce (\`migrate()\`: \`RECORDS_SCHEMA\` sobre a tabela que já existe; \`records_rev\` e \`records_parent\` vêm do 5a, só \`records_tombs\` é novo e é montado aqui) e o primeiro \`syncBatch\` conta os ativos e os bytes (\`COUNT_ACTIVE\`, \`STORED_BYTES\`) e grava os dois contadores. Contas criadas depois da Task 4 (todas as da raiz) nunca passam por isto.
+
+Sozinho (o nascimento e a contagem, sem o pedido):
 
 ${table(ops.despertar)}
+
+Com o pedido que vem junto, na mesma invocação (o objeto nasce e o \`syncBatch\` de verdade roda, com a contagem dentro dele): o primeiro sync de um aparelho, com ${WAKE_PAGE} solves subindo e a página de ${WAKE_PAGE} voltando do cursor 0,
+
+${table(ops.despertarEnvio, { count: 'Mudanças' })}
+
+e um recebimento, com a página de ${WAKE_PAGE}:
+
+${table(ops.despertarRecebimento)}
 
 ### (c) O pico de memória da restauração
 
@@ -1201,7 +1372,7 @@ ${
       altBest || restoreBest
         ? `A alternativa cabe até ${altBest ? `${nf(altBest.n)} solves` : 'nenhuma conta medida'}; como está, até ${restoreBest ? `${nf(restoreBest.n)} solves` : 'nenhuma conta medida'}.`
         : 'Nenhuma das duas cabe em nenhuma conta medida (a CPU já passa na menor).'
-    } Só pela memória viva (≤ ${MEM_LIMIT_MB} MB), como está caberia até ${memText(memOnly(ops.restauracao))}, e a alternativa até ${memText(memOnly(ops.alternativa))}.
+    } Só pela memória viva (≤ ${MEM_LIMIT_MB} MB), como está caberia até ${memText(restoreMem)}, e a alternativa até ${memText(memOnly(ops.alternativa))}.
 
 ### (d) A compactação de um alarme
 
@@ -1217,23 +1388,37 @@ O alarme inteiro (\`alarm()\`: a compactação, a cópia do dia e o \`setAlarm\`
 
 ${table(ops.alarme, { gzip: true })}
 
+### (e) Apagar uma sessão: a cascata
+
+Um pedido do sync com uma mudança só: uma sessão apagada. O servidor regrava, no mesmo pedido, todos os solves ativos dela (\`applyChanges\`, a cascata em \`apply.ts\`: \`view.solvesOf\` lê os solves da sessão e \`cascade\` apaga os mais antigos que a exclusão). Nas contas medidas, cada sessão tem N/20 solves, 90% ativos. \`syncBatch\` de verdade, com a RPC, o cursor na revisão da conta (a resposta leva de volta a página do que a cascata gravou). "Solves na cascata" é quantos solves ativos a sessão tinha.
+
+${table(ops.cascata, { count: 'Solves na cascata' })}
+
+Hoje nada limita esse pedido: o orçamento do dia corta \`req.changes\` (aqui, uma mudança) antes de \`applyChanges\`, e a cascata grava depois, sem conta; um \`MAX_WRITES_PER_REQUEST\` que corte o lote do mesmo jeito também não a alcança (seção 12).
+
 ## 10. O que a Task 12 recebe
 
 ${
   everythingFits
     ? '**A Task 12 não roda**: todas as operações cabem a 100 mil.'
     : [
+        zeroWhat
+          ? `- **Antes de tudo: 0 desliga ${zeroWhat} para toda conta**, até uma de ${nf(SIZES[0])} solves. É mais do que a spec 7.2 previa ("contas grandes passam a ter cópia com menos frequência, ou nenhuma acima de um tamanho", "a restauração de uma conta grande que não couber é recusada"): a Task 12 não deve aplicar 0 sem a decisão do Ranielli. Na leitura de 30 s do limite de CPU (seção 12), os valores são outros.`
+          : '',
         !all100(ops.copia)
-          ? `- \`SNAPSHOT_MAX_RECORDS = ${copyBest ? code(copyBest.rows) : 0}\`. ${copyBest ? `É a conta de ${nf(copyBest.n)} solves.` : `${perRecord(ops.copia)} Com 0, nenhuma conta tem cópia do dia.`} Na menor conta, só a linha do JS gasta ${ms(ops.copia[0].r.jsCpu)} ms: o resto é o gzip, que o Node faz no pool de threads (no workerd ele roda no próprio pedido e conta na CPU dele). O alarme soma a compactação à cópia; sem a cópia, ele só compacta (${ms(ops.compactacao.at(-1)!.r.cpu)} ms a ${nf(BIGGEST)}).`
+          ? `- \`SNAPSHOT_MAX_RECORDS = ${copyBest ? code(copyBest.rows) : 0}\`. ${copyBest ? `É a conta de ${nf(copyBest.n)} solves.` : `${perRecord(ops.copia)} Com 0, nenhuma conta tem cópia do dia.`} Na menor conta, só a linha do JS gasta ${ms(ops.copia[0].r.jsCpu)} ms; o resto é, quase todo, o \`CompressionStream\` do Node, que aqui custa ${nf(gzRatio(gzips[0]), 1)}× o zlib cru no mesmo arquivo (seção 4). No workerd ele é nativo e roda na linha do pedido: conta na CPU do pedido, mas deve custar menos que aqui. Com o zlib cru no lugar, a cópia da menor conta ficaria em uns ${ms(copyRaw(0))} ms (estimativa, não medida). O alarme soma a compactação à cópia; sem a cópia, ele só compacta (${ms(ops.compactacao.at(-1)!.r.cpu)} ms a ${nf(BIGGEST)}).`
           : '',
         !all100(ops.restauracao)
-          ? `- \`RESTORE_MAX_RECORDS = ${restoreBest ? code(restoreBest.rows) : 0}\`. ${restoreBest ? `É a conta de ${nf(restoreBest.n)} solves; acima dele, a restauração é \`too-big\`.` : `${perRecord(ops.restauracao)} Com 0, toda restauração é \`too-big\`.`} A alternativa da seção (c) ${altBest && (!restoreBest || altBest.n > restoreBest.n) ? `deixaria ${code(altBest.rows)}` : 'não muda o valor'}. Com o orçamento em linhas, o teto das linhas também vale (seção 9 (a)).`
+          ? `- \`RESTORE_MAX_RECORDS = ${restoreBest ? code(restoreBest.rows) : 0}\`. ${restoreBest ? `É a conta de ${nf(restoreBest.n)} solves; acima dele, a restauração é \`too-big\`.` : `${perRecord(ops.restauracao)} Com 0, toda restauração é \`too-big\`.`} A alternativa da seção 9 (c) ${altBest && (!restoreBest || altBest.n > restoreBest.n) ? `deixaria ${code(altBest.rows)}` : 'não muda o valor'}. Com o orçamento em linhas, o teto das linhas também vale (seção 9 (a)).`
           : '',
         writesPer !== 500 ? `- \`MAX_WRITES_PER_REQUEST = ${writesPer ?? 50}\`${writesPer === null ? `, e \`ACCOUNT_LIMITS.solves = ${code(largest(envio50!)?.n ?? 0)}\`` : ''}.${close(writesPer === null ? undefined : envioPages.get(writesPer))}` : '',
         pullPage !== 500 ? `- \`PULL_PAGE = ${pullPage ?? 50}\`${pullPer === null ? `, e \`ACCOUNT_LIMITS.solves = ${code(largest(recebimento50!)?.n ?? 0)}\`` : pullPage !== pullPer ? ` (sozinha, a página de ${pullPer} cabe; junto com o envio de ${writesPer} no mesmo pedido, só a de ${pullPage}: seção 7)` : ''}.${close(pullPage === null ? undefined : (combined.get(pullPage) ?? recebimentoPages.get(pullPage)))}` : '',
         compactBest !== COMPACT_PER_DAY ? `- \`COMPACT_PER_DAY = ${code(compactBest ?? 0)}\` (o maior limite medido que cabe a ${nf(BIGGEST)}).${close(compactBest === null ? undefined : compacts.get(compactBest))}` : '',
-        !all100(ops.despertar) || !all100(ops.contagem)
-          ? `- Sem constante na Task 12: o primeiro despertar de uma conta do beta (montar \`records_tombs\` e contar os ativos e os bytes) ${upTo(wakeBest)}, e a contagem sozinha ${upTo(countBest)}. Só as contas do beta passam por isso, uma vez, no primeiro pedido depois do deploy; vale conferir o tamanho da maior delas antes do deploy.`
+        !all100(ops.cascata)
+          ? `- Sem constante na Task 12: apagar uma sessão ${cascadeVerdict(cascadeBest)}. Nem \`MAX_WRITES_PER_REQUEST\` nem o orçamento do dia limitam a cascata (seção 9 (e)); limitá-la pede uma decisão própria (por exemplo, a cascata em partes, ou um teto de solves por sessão apagada no servidor).`
+          : '',
+        !all100(ops.despertar) || !all100(ops.contagem) || !all100(ops.despertarEnvio) || !all100(ops.despertarRecebimento)
+          ? `- Sem constante na Task 12: o primeiro despertar de uma conta do beta, sozinho, ${upTo(wakeBest)}; com o primeiro sync no mesmo pedido, ${upTo(wakeSendBest)}; com um recebimento, ${upTo(wakePullBest)}. Só as contas do beta passam por isso, uma vez, no primeiro pedido depois do deploy; vale conferir o tamanho da maior delas antes do deploy.`
           : '',
         `- \`DAILY_WRITE_BUDGET\` em linhas: **${nf(rowsBudget)} por dia por conta** (${nf(ACCOUNT_SHARE * 100)}% das ${nf(SHARED_ROWS_PER_DAY)} do grátis), ou ${nf(changesBudget)} mudanças se ele continuar contando mudanças (seção 9 (a)).`,
       ]
@@ -1244,18 +1429,31 @@ ${
 ## 11. Onde a medição se afasta do objeto de verdade
 
 - **\`cloudflare:workers\`**: a classe base do objeto vira uma casca que só guarda o \`ctx\` e o \`env\` (\`tests/perf/cloudflare-workers.ts\`). O resto de \`account-store.ts\` roda como está.
-- **O banco**: \`node:sqlite\` em memória, sem disco; \`transactionSync\` é \`BEGIN\`/\`COMMIT\`; o \`exec\` guarda o comando preparado pelo texto, como o do workerd. Fora de uma transação, cada comando se confirma sozinho (no workerd, eles se juntam até o próximo ponto de saída). O cursor devolve as linhas já lidas (\`all()\`), não uma a uma.
+- **O banco**: \`node:sqlite\` em memória, sem disco; \`transactionSync\` é \`BEGIN\`/\`COMMIT\`; o \`exec\` guarda o comando preparado pelo texto, como o do workerd. Fora de uma transação, cada comando se confirma sozinho (no workerd, eles se juntam até o próximo ponto de saída). O cursor devolve as linhas já lidas (\`all()\`), não uma a uma. O banco tem ainda uma cópia das linhas de quando a conta ficou pronta (\`records_orig\`, que nenhuma consulta do objeto lê), para voltar a conta a ela entre as rodadas.
 - **D1 e R2 falsos**: a reserva de espaço e de operações sempre passa, sem rede; o get devolve os bytes da cópia (uma cópia nova, como um corpo que chega), o put só guarda o tamanho, e o head diz que a cópia de antes não existe. A espera da rede não é CPU do objeto.
-- **O pedido chega pronto**: o \`SyncRequest\` é montado fora da conta; no workerd, o objeto ainda desserializa a chamada RPC (as 500 mudanças), e o Worker de fora lê e confere o JSON do pedido numa invocação dele.
-- **Três constantes por getter**: \`DAILY_WRITE_BUDGET\` foi levantado só na restauração (seções 5 e (c)), \`SYNC_BATCH\` desce para medir 250, 100 e 50, e \`COMPACT_PER_DAY\` desce para medir os limites menores. Nos outros casos, os valores de verdade.
-- **As sondas**: \`applyChanges\`, \`restoreChanges\`, \`exportFromRecords\`, \`gzipJson\` e \`gunzipJson\` passam por um invólucro que chama a sonda depois da função de verdade; o mesmo com \`JSON\`, \`TextEncoder\` e \`TextDecoder\` grandes. As sondas só ligam na rodada instrumentada; as rodadas de CPU e relógio não têm nenhuma.
-- **Privados chamados direto**: \`compact()\` (a compactação sem a cópia), \`usage()\` (a contagem inicial e o despertar, numa transação, como no primeiro \`syncBatch\`). A restauração alternativa da seção (c) é código da medição, não do objeto: \`restoreSnapshot\` copiado com a única diferença descrita lá (e a contagem dos solves ativos dos metadados, que no objeto é uma função privada de uma linha, escrita no lugar).
+- **A RPC**: só o lado do objeto (desserializar o pedido, serializar a resposta), com o \`v8\` do Node, dentro da conta dos pedidos do sync. O Worker de fora, que lê e confere o JSON do pedido e chama o objeto, roda numa invocação dele, que não está aqui.
+- **Três constantes por getter**: \`DAILY_WRITE_BUDGET\` foi levantado só na restauração (seções 5 e 9 (c)), \`SYNC_BATCH\` desce para medir 250, 100 e 50 (e fica em ${WAKE_PAGE} no despertar com um pedido), e \`COMPACT_PER_DAY\` desce para medir os limites menores. Nos outros casos, os valores de verdade.
+- **As sondas**: \`applyChanges\`, \`restoreChanges\`, \`exportFromRecords\`, \`gzipJson\` e \`gunzipJson\` passam por um invólucro que chama a sonda depois da função de verdade; o mesmo com \`JSON\`, \`TextEncoder\` e \`TextDecoder\` grandes. As sondas só ligam na rodada instrumentada; as rodadas de CPU e relógio só marcam as etapas (um \`process.cpuUsage()\` em cada fim de função).
+- **Privados chamados direto**: \`compact()\` (a compactação sem a cópia), \`usage()\` (a contagem inicial e o despertar sozinho, numa transação, como no primeiro \`syncBatch\`). A restauração alternativa da seção 9 (c) é código da medição, não do objeto: \`restoreSnapshot\` copiado com a única diferença descrita lá (e a contagem dos solves ativos dos metadados, que no objeto é uma função privada de uma linha, escrita no lugar).
 - **O aquecimento**: antes de medir, cada operação roda ${REPS + 1} vezes numa conta de ${nf(SIZES[0])}, descartadas. No workerd, um objeto que acorda frio paga a compilação do código por cima.
-- **As linhas gravadas**: contadas pela regra da seção (a), não lidas do SQLite (o \`node:sqlite\` não conta entradas de índice). A regra veio do \`rowsWritten\` do workerd, comando por comando.
+- **As linhas gravadas**: contadas pela regra da seção 9 (a), não lidas do SQLite (o \`node:sqlite\` não conta entradas de índice). A regra veio do \`rowsWritten\` do workerd, comando por comando.
 
-## 12. O que esta medição não diz
+## 12. O que esta medição não diz, e a outra leitura do limite de CPU
 
-- O limite de CPU dos Durable Objects no grátis: a página de limites deles diz 30 s por pedido (o padrão) e, no mesmo lugar, que eles têm os limites de CPU por invocação dos Workers do plano; no grátis, 10 ms. A spec adota 10 ms, e a regra também.
+- **O limite de CPU dos Durable Objects no grátis.** A página de limites deles diz 30 s por pedido (o padrão) e, no mesmo lugar, que eles têm os limites de CPU por invocação dos Workers do plano; no grátis, 10 ms. A spec adota 10 ms, e a regra também. Se valer 30 s, a CPU de quase tudo aqui deixa de decidir, e decidem a memória (≤ ${MEM_LIMIT_MB} MB, a mesma metade) e as linhas do dia (${nf(rowsBudget)} por conta, seção 9 (a)). Os valores lado a lado:
+
+| Constante | Leitura de 10 ms (a regra) | Leitura de 30 s (memória e linhas) |
+| --- | ---: | ---: |
+| \`SNAPSHOT_MAX_RECORDS\` | ${copyBest ? (all100(ops.copia) ? 'sem teto' : code(copyBest.rows)) : '0'} | ${reading(copyMem, ops.copia)} |
+| \`RESTORE_MAX_RECORDS\` | ${restoreBest ? (all100(ops.restauracao) ? 'sem teto' : code(restoreBest.rows)) : '0'} | ${code(restore30)} (o menor entre a memória, ${restoreMem ? `${nf(restoreMem.rows)} registros da conta de ${nf(restoreMem.n)} solves` : 'nenhuma conta medida'}, e as linhas, ${nf(restoreRows)} registros) |
+| \`MAX_WRITES_PER_REQUEST\` | ${writesPer ?? 50} | ${memPick(envioPages) ?? 50} |
+| \`PULL_PAGE\` | ${pullPage ?? 50} | ${memPick(recebimentoPages) ?? 50} |
+| \`COMPACT_PER_DAY\` | ${compactBest === null ? '0' : code(compactBest)} | ${code(memPick(compacts) ?? 0)} |
+| Apagar uma sessão | ${cascadeBest ? `até a conta de ${nf(cascadeBest.n)} solves` : 'nenhuma conta medida'} | ${cascadeMem ? `até a conta de ${nf(cascadeMem.n)} solves pela memória` : 'nenhuma conta medida'}; pelas linhas, ${nf(cascadeRows100)} num pedido a ${nf(BIGGEST)} |
+| \`DAILY_WRITE_BUDGET\` | ${nf(rowsBudget)} linhas por conta | ${nf(rowsBudget)} linhas por conta |
+
+- **O isolate de 128 MB pode ser dividido.** Vários objetos (de contas diferentes) podem rodar no mesmo isolate e dividir os 128 MB dele; a margem de ${MEM_LIMIT_MB} MB é para um objeto sozinho.
+- **A cascata de apagar uma sessão** não é limitada hoje nem por \`MAX_WRITES_PER_REQUEST\` (se a Task 12 o puser como um corte de \`req.changes\`, como o orçamento) nem pelo orçamento do dia: os dois cortam as mudanças que chegam, e a cascata grava os solves da sessão depois delas, dentro de \`applyChanges\`.
 - Se o tempo do SQLite conta como CPU do objeto: a Cloudflare diz que a espera de armazenamento não conta; o SQLite do objeto roda na mesma linha do código. Aqui ele conta inteiro.
 - O pico entre duas sondas, e a memória do SQLite do objeto (seção 2).
 - Contas de verdade: a distribuição dos solves (sessões, notas, embaralhamentos de outros eventos) é a de uma conta inventada, parecida com a do app.
