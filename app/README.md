@@ -86,6 +86,37 @@ DNS de cada um. A v1 não está mais no ar (o projeto da Vercel foi apagado em 1
 - **Política de privacidade:** `public/privacidade/index.html`, servida em `/privacidade/` (com a barra no fim: é a URL que o service
   worker guarda). Uma mudança no que o servidor guarda muda a política junto.
 
+### Os portões antes de publicar a conta (endurecimento)
+
+Nesta ordem; um passo só começa com o anterior feito. O plano é o de `docs/superpowers/specs/2026-10-17-klick-conta-endurecimento-design.md`,
+e os números vêm de `docs/superpowers/measurements/2026-10-17-conta-100k.md`.
+
+Antes do beta:
+
+1. **As correções da revisão final** do endurecimento no ramo que vai ser publicado.
+2. **A migração 0003 nos dois D1 remotos** (`klick-auth-beta` e `klick-auth`), antes de qualquer deploy deste código:
+   `npx wrangler d1 migrations apply DB --remote` (e `--env production`). Sem ela, pedir o código por e-mail falha no beta (o teto de
+   e-mails lê a tabela nova), e o Cron da raiz loga `recount-failed` todo dia.
+3. **A maior conta do beta:** conferir o tamanho dela. Até 10 mil solves cabe mesmo na leitura de 10 ms do limite de CPU (o primeiro
+   despertar de cada conta do beta, uma vez, depois do deploy).
+4. **Publicar o beta** (`pnpm run deploy:beta`) e conferir as vars novas na saída do deploy (`SNAPSHOT_MAX_RECORDS` em `4747`,
+   `RESTORE_MAX_RECORDS` em `5000`).
+5. **Quem usa o beta vê "Atualize o Klick"** até recarregar (o protocolo do sync subiu); a fila de cada aparelho fica guardada.
+6. **Teste de fumaça:** o código por e-mail, o sync e a lista das cópias na nuvem. No dia seguinte, a cópia do alarme e a linha
+   `{evt:'cleanup', storage:N}` nos logs.
+7. **Sonda de CPU:** a cópia e a restauração de uma conta de teste com alguns milhares de solves, conferindo a CPU nos Workers Logs. Se
+   valer a leitura de 10 ms, as duas vars (`SNAPSHOT_MAX_RECORDS` e `RESTORE_MAX_RECORDS`) vão a `"0"`, e a cascata de apagar uma sessão
+   ganha um teto no código.
+8. **Sonda do apagar a conta** (`deleteAll`): apagar uma conta de teste e conferir no painel as linhas gravadas.
+
+Antes da raiz:
+
+9. **A conta da Cloudflare continua no Workers Free.**
+10. **O uso dos outros projetos da conta**, no painel: as operações A e B do R2, e Durable Objects, D1 e Workers.
+11. **As decisões do Ranielli:** um orçamento de linhas gravadas por dia somado entre todas as contas, e uma regra de rate limit do WAF
+    em `/api/*`.
+12. **`ACCOUNTS_ENABLED` em `"true"` na raiz** (`wrangler.jsonc`, `env.production`) e publicar (`pnpm run deploy:production`).
+
 ## Por que o cubing.js é empacotado à parte
 
 O worker de embaralhamento do cubing.js não sobe quando passa pelo bundler do Vite ("Module worker instantiation failed"). Por isso `scripts/build-cubing.mjs` empacota o cubing.js com esbuild em `public/vendor/cubing/` (fora do git), e o app o importa em tempo de execução. Os scripts `dev` e `build` rodam esse passo antes do Vite.
