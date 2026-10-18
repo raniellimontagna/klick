@@ -3,8 +3,8 @@
 // própria cláusula WHERE (count + n <= teto). O D1 escreve numa fila só, e o UPDATE confere e soma no mesmo passo: pedidos em paralelo não
 // passam do teto, e o `meta.changes` diz se passou. Recusado, nada é somado. O teto vem de limits.ts (capOf/capsOf), onde uma var torta já
 // vale 0: com o teto 0, nada passa. Além das reservas: countOps conta sem recusar (o que já foi feito), releaseStorage devolve uma reserva
-// de espaço que não virou cópia, reserveCopy junta o espaço e a operação A de um put, e recountStorage lista snap/ no R2 (cada página, uma
-// operação A reservada antes) e troca o espaço contado pelo que existe.
+// de espaço que não virou cópia, reserveCopy junta o espaço e a operação A de um put, copyRoom confere os dois sem reservar (antes de ler a
+// conta), e recountStorage lista snap/ no R2 (cada página, uma operação A reservada antes) e troca o espaço contado pelo que existe.
 import type { CopiesPaused } from '../src/core/sync/types';
 import type { Env } from './env';
 import { capsOf, STORAGE_HEADROOM, utcDay, utcMonth } from './limits';
@@ -75,6 +75,19 @@ export async function reserveCopy(db: D1Database, bytes: number, now: number, ca
   if (await takeOps(db, 'A', 1, now, caps.classAMonth)) return null;
   await releaseStorage(db, bytes);
   return 'ops';
+}
+
+// Antes de ler e comprimir uma conta para uma cópia (a do dia, a de antes de restaurar), com o tamanho estimado dela (o da última cópia da
+// conta): ela cabe no espaço, e sobra a operação A do put? Só lê, numa consulta, sem reservar nada: a reserva com o tamanho de verdade
+// (reserveCopy) continua a autoridade. Volta o que falta ('space' ou 'ops'), na mesma ordem de reserveCopy, ou null.
+export async function copyRoom(db: D1Database, bytes: number, now: number, caps: Pick<Caps, 'snapshotBytes' | 'classAMonth'>): Promise<CopiesPaused | null> {
+  const row = await db
+    .prepare("SELECT (SELECT bytes FROM r2_storage WHERE id = 1) AS used, (SELECT count FROM r2_ops WHERE month = ?1 AND class = 'A') AS ops")
+    .bind(utcMonth(now))
+    .first<{ used: number | null; ops: number | null }>();
+  if (!isCount(bytes) || !isCount(caps.snapshotBytes) || (row?.used ?? 0) + bytes > Math.floor(caps.snapshotBytes * STORAGE_HEADROOM)) return 'space';
+  if (!isCount(caps.classAMonth) || (row?.ops ?? 0) + 1 > caps.classAMonth) return 'ops';
+  return null;
 }
 
 // A recontagem diária do espaço das cópias (o Cron, worker/index.ts): lista snap/ inteiro e troca o uso contado pela soma do que existe, para

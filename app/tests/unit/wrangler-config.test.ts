@@ -111,9 +111,11 @@ describe('wrangler.jsonc', () => {
 
   // Task 12 (a leitura de 30 s do limite de CPU dos Durable Objects): os tamanhos que a cópia do dia e a restauração aceitam, em registros
   // da conta, iguais nos dois ambientes. Na leitura de 10 ms, as duas vão a 0 (nenhuma cópia, toda restauração recusada), só na configuração.
+  // A cópia do dia vai só até o que o app consegue restaurar (RECORDS_PER_DAY, worker/limits.ts: os testes do Worker conferem o mesmo
+  // número): uma cópia maior ocuparia o espaço gratuito das cópias de todas as contas sem nunca poder voltar (revisão final, I5).
   it('os tamanhos da cópia do dia e da restauração ficam na configuração, nos dois ambientes', () => {
     for (const vars of [config.vars, config.env.production.vars]) {
-      expect(vars.SNAPSHOT_MAX_RECORDS).toBe('55000');
+      expect(vars.SNAPSHOT_MAX_RECORDS).toBe('4747');
       expect(vars.RESTORE_MAX_RECORDS).toBe('5000');
     }
   });

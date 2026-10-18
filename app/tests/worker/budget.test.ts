@@ -45,7 +45,7 @@ describe('os tetos do Worker (spec 4, 7.1, 7.6)', () => {
       R2_CLASS_B_MONTH: '500000',
       MAIL_PER_DAY: '10',
       MAIL_PER_MONTH: '250',
-      SNAPSHOT_MAX_RECORDS: '55000',
+      SNAPSHOT_MAX_RECORDS: '4747',
       RESTORE_MAX_RECORDS: '5000',
     } as unknown as Env;
     expect(capsOf(e)).toEqual({
@@ -54,7 +54,7 @@ describe('os tetos do Worker (spec 4, 7.1, 7.6)', () => {
       classBMonth: 500_000,
       mailDay: 10,
       mailMonth: 250,
-      snapshotRecords: 55_000,
+      snapshotRecords: 4_747,
       restoreRecords: 5_000,
     });
   });

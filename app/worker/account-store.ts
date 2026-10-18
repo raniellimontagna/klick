@@ -21,7 +21,7 @@ import {
   type SyncStore,
 } from '../src/core/sync/types';
 import type { KlickExport } from '../src/core/types';
-import { reserveCopy, takeOps } from './budget';
+import { copyRoom, reserveCopy, takeOps } from './budget';
 import type { Env } from './env';
 import {
   ACCOUNT_BYTES_CAP,
@@ -35,6 +35,7 @@ import {
   PULL_PAGE_WITH_PUSH,
   RECORDS_PER_DAY,
   REQUEST_ROWS,
+  RESTORE_ATTEMPTS_PER_DAY,
   RESTORES_PER_DAY,
   rowsOf,
   ROWS_PER_COMPACT,
@@ -60,15 +61,19 @@ import { dayOf, gunzipJson, gzipJson, listCopiesIn, nextSnapshotAt, preRestoreNa
 const activeSolves = (data: KlickExport): number => data.solves.filter((s) => s.deletedAt === null).length;
 
 // As cópias na nuvem da conta, no estado (`copies`, endurecimento 4.2 e decisão 1): a lista guardada (`list`, de quando `at`; null, nenhuma
-// ainda) e a pausa da cópia do dia (`paused`: o espaço ou as operações do R2 acabaram; null, as cópias seguem), que todo sync leva. A lista
-// vale por COPIES_CACHE_MS; uma cópia gravada e uma que sumiu (a restauração achou 404) a renovam (`at` 0: a próxima lista o R2 de novo).
+// ainda), a pausa da cópia do dia (`paused`: o espaço ou as operações do R2 acabaram; null, as cópias seguem), que todo sync leva, e o
+// tamanho comprimido da última cópia da conta (`gz`, a do dia ou a de antes de restaurar, gravada ou não; null, nenhuma ainda), a
+// estimativa da próxima: com ela, o espaço e a operação A são conferidos antes de ler a conta (copyRoom). A lista vale por
+// COPIES_CACHE_MS; uma cópia gravada e uma que sumiu (a restauração achou 404) a renovam (`at` 0: a próxima lista o R2 de novo).
 interface Copies {
   at: number;
   list: CloudCopy[] | null;
   paused: CopiesPaused | null;
+  gz: number | null;
 }
 
-// Uma contagem por dia UTC no estado (`writes`, as linhas gravadas, rowsOf; `restores`, as restaurações que deram certo).
+// Uma contagem por dia UTC no estado (`writes`, as linhas gravadas, rowsOf; `restores`, as restaurações que deram certo; `attempts`, as
+// tentativas de restaurar que chegaram ao R2).
 interface DayCount {
   day: string;
   n: number;
@@ -234,7 +239,7 @@ export class AccountStore extends DurableObject<Env> {
   }
 
   // A contagem do dia UTC de `now` (num dia novo, 0), sem gravar nada. O dia nunca volta atrás (usage, acima).
-  private dayCount(key: 'writes' | 'restores', now: number): DayCount {
+  private dayCount(key: 'writes' | 'restores' | 'attempts', now: number): DayCount {
     const stored = JSON.parse(this.getState(key) ?? 'null') as DayCount | null;
     const today = utcDay(now);
     const day = stored !== null && stored.day > today ? stored.day : today;
@@ -242,7 +247,8 @@ export class AccountStore extends DurableObject<Env> {
   }
 
   private copies(): Copies {
-    return (JSON.parse(this.getState('copies') ?? 'null') as Copies | null) ?? { at: 0, list: null, paused: null };
+    const stored = JSON.parse(this.getState('copies') ?? 'null') as Partial<Copies> | null;
+    return { at: stored?.at ?? 0, list: stored?.list ?? null, paused: stored?.paused ?? null, gz: stored?.gz ?? null };
   }
 
   private setCopies(copies: Copies): void {
@@ -456,30 +462,36 @@ export class AccountStore extends DurableObject<Env> {
   }
 
   // A cópia do dia, dentro do grátis (endurecimento 4.2 e Task 12): uma conta com mais registros que SNAPSHOT_MAX_RECORDS não tem cópia
-  // (a cópia não cabe num pedido do objeto; 'size'), conferido por um COUNT antes de ler a conta; o espaço dela e a operação A do put são
-  // reservados antes (reserveCopy). Recusada, ela não é gravada nem marca snapshotRev (o alarme de amanhã tenta de novo), e a pausa fica no
-  // estado, com o motivo; gravada, a pausa sai e a lista guardada se renova.
+  // (a cópia não cabe num pedido do objeto; 'size'), conferido por um COUNT antes de ler a conta; com o tamanho da última cópia (`gz`), o
+  // espaço e a operação A também são conferidos antes de ler (copyRoom): uma conta pausada por eles não lê nem comprime a conta inteira todo
+  // dia para descobrir de novo que não cabe (a primeira cópia lê, como antes). Depois de comprimir, o espaço dela e a operação A do put são
+  // reservados (reserveCopy, a autoridade). Recusada, ela não é gravada nem marca snapshotRev (o alarme de amanhã tenta de novo), e a pausa
+  // fica no estado, com o motivo; gravada, a pausa sai e a lista guardada se renova.
   private async takeSnapshot(now: number): Promise<boolean> {
     const userId = this.getState('userId');
     const rev = this.getState('rev') ?? '0';
     if (this.deleted() || userId === null || this.getState('snapshotRev') === rev) return false;
     const caps = capsOf(this.env);
     if (caps.snapshotRecords === 0 || this.recordCount() > caps.snapshotRecords) return this.pauseCopies(userId, 'size');
+    const estimate = this.copies().gz;
+    const short = estimate === null ? null : await copyRoom(this.env.DB, estimate, now, caps);
+    if (short !== null) return this.pauseCopies(userId, short);
     const data = exportFromRecords(this.all(), now);
     const day = dayOf(now);
     const gz = await gzipJson(data);
     const paused = await reserveCopy(this.env.DB, gz.byteLength, now, caps);
-    if (paused !== null) return this.pauseCopies(userId, paused);
+    if (paused !== null) return this.pauseCopies(userId, paused, gz.byteLength);
     await this.env.SNAPSHOTS.put(snapshotKey(userId, day), gz, { customMetadata: { kind: 'daily', day, solves: String(activeSolves(data)) } });
     this.setState('snapshotRev', rev);
     this.setState('lastSnapshotDay', day);
-    this.setCopies({ ...this.copies(), at: 0, paused: null });
+    this.setCopies({ ...this.copies(), at: 0, paused: null, gz: gz.byteLength });
     return true;
   }
 
-  // A cópia do dia não saiu: a pausa fica no estado, com o motivo, e vai no log.
-  private pauseCopies(userId: string, why: CopiesPaused): false {
-    this.setCopies({ ...this.copies(), paused: why });
+  // A cópia do dia não saiu: a pausa fica no estado, com o motivo (e o tamanho dela, quando chegou a ser comprimida), e vai no log.
+  private pauseCopies(userId: string, why: CopiesPaused, gz?: number): false {
+    const copies = this.copies();
+    this.setCopies({ ...copies, paused: why, gz: gz ?? copies.gz });
     console.log(JSON.stringify({ evt: 'copy-paused', user: userId, why }));
     return false;
   }
@@ -504,7 +516,7 @@ export class AccountStore extends DurableObject<Env> {
       };
       try {
         const { copies: list } = await listCopiesIn(metered, userId);
-        this.setCopies({ at: now, list, paused: copies.paused });
+        this.setCopies({ ...copies, at: now, list });
         return { copies: list, paused: copies.paused };
       } catch (error) {
         if (error !== OUT_OF_OPS) throw error;
@@ -518,28 +530,37 @@ export class AccountStore extends DurableObject<Env> {
   // Tudo sem um sync no meio: o que a cópia de antes guarda é o que a restauração substitui. Os aparelhos recebem pelo sync normal. As
   // gravações entram nos contadores como as de um sync (commit), sem a cota nem o teto de bytes: a cópia volta inteira ou não volta.
   //
-  // Dentro do grátis (decisões 1, 2, 3 e 6, e Task 12), as conferências vêm nesta ordem, todas antes de qualquer gravação, e uma recusa não
-  // muda nada na conta: a conta apagada; as restaurações do dia UTC (RESTORES_PER_DAY, restore-limit); um nome fora da lista guardada ainda
-  // válida (not-found, sem perguntar ao R2: toda cópia passa por este objeto e renova a lista, então a lista válida tem tudo o que existe);
-  // o tamanho da conta, mais registros que RESTORE_MAX_RECORDS ou que RECORDS_PER_DAY (too-big, num COUNT só: nem o D1, nem o R2, nem o
-  // gunzip; uma restauração regrava cada registro, e a conferência das linhas, depois, continua a autoridade); as duas leituras do R2, ler
-  // a cópia e conferir a de antes (operações B, r2-budget); a cópia (not-found; a lista só se renova quando o nome estava nela, ou quando
-  // ela já não valia); as linhas que as mudanças da restauração gravam (rowsOf) contra o orçamento de um dia inteiro (too-big) e contra o
-  // que sobra hoje (write-budget); o espaço da cópia de antes (no-room: nunca se restaura sem ela, decisão 3) e a operação A do put dela
-  // (r2-budget). Só a restauração que deu certo conta no dia. Sem o atalho da lista, alternar "restaurar um nome que não existe" com "abrir
-  // a lista" gastaria uma operação A por par.
+  // Dentro do grátis (decisões 1, 2, 3 e 6, Task 12 e a revisão final), as conferências vêm nesta ordem, todas antes de qualquer gravação, e
+  // uma recusa não muda nada na conta (só a tentativa, abaixo, conta): a conta apagada; as restaurações do dia UTC (RESTORES_PER_DAY) e as
+  // tentativas do dia que chegaram ao R2 (RESTORE_ATTEMPTS_PER_DAY), restore-limit; um nome fora da lista guardada ainda válida (not-found,
+  // sem perguntar ao R2: toda cópia passa por este objeto e renova a lista, então a lista válida tem tudo o que existe); o tamanho da conta,
+  // mais registros que RESTORE_MAX_RECORDS ou que RECORDS_PER_DAY (too-big, num COUNT só: nem o D1, nem o R2, nem o gunzip); as linhas de
+  // hoje para o mínimo que a restauração grava (write-budget: cada sessão e cada solve ativo de agora ganha uma mudança, volte da cópia ou vá
+  // para a lixeira; os contadores do estado, sem ler a conta); com o tamanho da última cópia da conta, o espaço e a operação A da cópia de
+  // antes (copyRoom: no-room, r2-budget; sem a estimativa, só a reserva de depois confere). Até aqui, nada do R2. Depois: as duas leituras do
+  // R2, ler a cópia e conferir a de antes (operações B, r2-budget), e a tentativa conta no dia; a cópia (not-found; a lista só se renova
+  // quando o nome estava nela, ou quando ela já não valia); as mudanças da restauração contra o que um pedido grava num dia (RECORDS_PER_DAY,
+  // too-big, como no corte do sync) e as linhas delas (rowsOf) contra o que sobra hoje (write-budget); o espaço da cópia de antes (no-room:
+  // nunca se restaura sem ela, decisão 3) e a operação A do put dela (r2-budget). As de depois de ler a cópia continuam a autoridade. Sem o
+  // atalho da lista, alternar "restaurar um nome que não existe" com "abrir a lista" gastaria uma operação A por par.
   async restoreSnapshot(name: string, now: number): Promise<'ok' | 'not-found' | 'deleted' | RestoreRefusal> {
     return this.exclusive(async (): Promise<'ok' | 'not-found' | 'deleted' | RestoreRefusal> => {
       if (this.deleted()) return 'deleted';
       const restores = this.dayCount('restores', now);
-      if (restores.n >= RESTORES_PER_DAY) return 'restore-limit';
+      const attempts = this.dayCount('attempts', now);
+      if (restores.n >= RESTORES_PER_DAY || attempts.n >= RESTORE_ATTEMPTS_PER_DAY) return 'restore-limit';
       const userId = this.getState('userId');
       if (userId === null) return 'not-found'; // nunca sincronizou: nenhuma cópia, e nada a perguntar ao R2
-      const { list, at } = this.copies();
+      const { list, at, gz: estimate } = this.copies();
       if (list !== null && now - at < COPIES_CACHE_MS && !list.some((c) => c.name === name)) return 'not-found';
       const caps = capsOf(this.env);
       if (caps.restoreRecords === 0 || this.recordCount() > Math.min(caps.restoreRecords, RECORDS_PER_DAY)) return 'too-big';
+      const usage = this.usage(now);
+      if (rowsOf(usage.active.sessions + usage.active.solves) > DAILY_WRITE_BUDGET - usage.writes) return 'write-budget';
+      const short = estimate === null ? null : await copyRoom(this.env.DB, estimate, now, caps);
+      if (short !== null) return short === 'space' ? 'no-room' : 'r2-budget';
       if (!(await takeOps(this.env.DB, 'B', 2, now, caps.classBMonth))) return 'r2-budget';
+      this.setState('attempts', JSON.stringify({ day: attempts.day, n: attempts.n + 1 }));
       const object = await this.env.SNAPSHOTS.get(snapshotKey(userId, name));
       if (!object) {
         this.renewCopies();
@@ -550,9 +571,8 @@ export class AccountStore extends DurableObject<Env> {
       const stamp = current.reduce((max, c) => Math.max(max, c.updatedAt + 1, c.deletionStamp + 1), now); // vence tudo o que existe
       const practice = Array.isArray(copy.practice) ? copy.practice : null;
       const changes = restoreChanges(current, { sessions: copy.sessions, solves: copy.solves, practice }, accountPrefsOf(copy.profile), stamp);
-      const rows = rowsOf(changes.length);
-      if (rows > DAILY_WRITE_BUDGET) return 'too-big';
-      if (rows > DAILY_WRITE_BUDGET - this.dayCount('writes', now).n) return 'write-budget';
+      if (changes.length > RECORDS_PER_DAY) return 'too-big';
+      if (rowsOf(changes.length) > DAILY_WRITE_BUDGET - this.dayCount('writes', now).n) return 'write-budget';
       // Uma segunda restauração no mesmo segundo (o clique duplo) acha a cópia de antes da primeira, que já guarda o estado de antes: ela
       // fica como está, e não precisa de espaço nem de operação A.
       const key = snapshotKey(userId, preRestoreName(now));
@@ -560,9 +580,12 @@ export class AccountStore extends DurableObject<Env> {
         const before = exportFromRecords(current, now);
         const gz = await gzipJson(before);
         const refused = await reserveCopy(this.env.DB, gz.byteLength, now, caps);
-        if (refused !== null) return refused === 'space' ? 'no-room' : 'r2-budget';
+        if (refused !== null) {
+          this.setCopies({ ...this.copies(), gz: gz.byteLength });
+          return refused === 'space' ? 'no-room' : 'r2-budget';
+        }
         await this.env.SNAPSHOTS.put(key, gz, { customMetadata: { kind: 'pre-restore', day: dayOf(now), solves: String(activeSolves(before)) } });
-        this.renewCopies();
+        this.setCopies({ ...this.copies(), at: 0, gz: gz.byteLength });
       }
       this.ctx.storage.transactionSync(() => {
         const usage = this.usage(now);

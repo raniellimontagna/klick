@@ -7,8 +7,8 @@
 // decisões da Task 12. A cópia do dia, a restauração e a cascata de apagar uma sessão seguem a leitura de 30 s do limite de CPU de um
 // Durable Object (a tabela dos objetos com SQLite, os únicos do grátis, diz 30 s por pedido): decidem a memória e as linhas do dia. Se
 // valer a leitura de 10 ms, a cópia e a restauração param só na configuração (as duas vars a 0: nenhuma cópia, toda restauração recusada);
-// a cascata não: uma de 5 mil solves custou 36 ms na medição (seção 9 (e)), e nos 10 ms só cabem umas 250, então ela pediria um teto no
-// código (RECORDS_PER_DAY ou a cascata em partes).
+// a cascata não: a de 5 mil solves passou muito dos 10 ms na medição (a tabela da seção 9 (e)), e nos 10 ms só cabem umas centenas, então
+// ela pediria um teto no código (RECORDS_PER_DAY ou a cascata em partes).
 import { MAX_DATA_CHARS } from '../src/core/sync/shape';
 import type { Env } from './env';
 
@@ -35,6 +35,9 @@ export type CapName =
 // contas): 20 mil por conta por dia UTC, 20% do dia de todas. A chave do estado continua 'writes' ({ day, n }), agora em linhas (rowsOf).
 export const DAILY_WRITE_BUDGET = 20_000;
 export const RESTORES_PER_DAY = 3; // restaurações por conta por dia UTC (spec 7.1)
+// As tentativas de restaurar que chegam ao R2 (as duas operações B reservadas), por conta por dia UTC, deem certo ou não: uma recusa depois
+// de ler a cópia (o nome que sumiu, too-big, write-budget, no-room) também gasta as B do mês, que todas as contas dividem.
+export const RESTORE_ATTEMPTS_PER_DAY = 10;
 export const COPIES_CACHE_MS = 600_000; // a lista de cópias guardada (spec 7.1)
 // Solves compactados por alarme. A medição (seção 9 (d)): 2.000 ficam na linha dos 5 ms de CPU e mudam de lado entre as rodadas; 1.000
 // chegam no máximo a 2,9 ms.
