@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { openDB } from 'idb';
+import { describe, expect, it, vi } from 'vitest';
 import { seasonOne } from '../../src/core/season';
 import { defaultSettings, type KlickExport, type Meta, type Practice, type Profile, type Session, type Solve } from '../../src/core/types';
-import { DB_VERSION, openKlickDb, type StoredSolve } from '../../src/data/db';
+import { DB_VERSION, exportStuckDb, openKlickDb, type StoredSolve } from '../../src/data/db';
 import { createRepository } from '../../src/data/repository';
 import { createScrambleQueue } from '../../src/scramble/queue';
 import { AppState } from '../../src/ui/state/app.svelte';
@@ -132,5 +133,85 @@ describe('migração para a versão 3 (spec 5.6)', () => {
     expect(app.profile).toEqual(data.profile);
     expect(app.practice).toEqual(data.practice);
     expect(app.profile.season.past).toHaveLength(2);
+  });
+
+  it('exportStuckDb lê um banco da versão 2 sem mudar a versão nem os dados', async () => {
+    const { name, data } = await v2Device();
+    const file = await exportStuckDb(name, MIGRATED_AT);
+    expect(file).toEqual({
+      format: 'klick',
+      version: 1,
+      exportedAt: MIGRATED_AT,
+      sessions: data.sessions,
+      solves: [...data.solves].sort((a, b) => a.at - b.at),
+      profile: data.profile,
+      practice: data.practice,
+    });
+    // Reaberto na versão 2 (sem pedir a 3), o banco continua como estava: a versão, as stores e os registros.
+    const db = await openKlickDb(name, {}, 2);
+    try {
+      expect(db.version).toBe(2);
+      expect([...db.objectStoreNames].sort()).toEqual(['backups', 'meta', 'practice', 'profile', 'sessions', 'solves']);
+      expect((await db.getAll('sessions')).sort((a, b) => a.order - b.order)).toEqual(data.sessions);
+      expect(await db.getAll('solves')).toEqual(data.solves);
+      expect(await db.getAll('practice')).toEqual(data.practice);
+      expect(await db.get('profile', 'current')).toEqual(data.profile);
+      expect(await db.getAll('backups')).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('o arquivo do exportStuckDb tem o mesmo formato da cópia "antes da v3" (uma função monta os dois)', async () => {
+    const { name } = await v2Device();
+    const stuck = await exportStuckDb(name, MIGRATED_AT);
+    (await openKlickDb(name, {}, DB_VERSION, () => MIGRATED_AT)).close();
+    const db = await openKlickDb(name);
+    const [backup] = await db.getAll('backups');
+    expect(JSON.stringify(stuck)).toBe(backup.payload);
+  });
+
+  it('num banco da versão 1, o arquivo sai sem treino', async () => {
+    const name = `migracao-${++n}`;
+    const data = fixture();
+    const v1 = await openKlickDb(name, {}, 1);
+    for (const s of data.sessions) await v1.put('sessions', s as never);
+    for (const s of data.solves) await v1.put('solves', s as never);
+    await v1.put('profile', data.profile as never, 'current');
+    v1.close();
+    const file = await exportStuckDb(name, MIGRATED_AT);
+    expect(file.sessions).toEqual(data.sessions);
+    expect(file.solves).toHaveLength(4);
+    expect(file.profile).toEqual(data.profile);
+    expect(file.practice).toEqual([]);
+    const db = await openKlickDb(name, {}, 1);
+    try {
+      expect(db.version).toBe(1);
+      expect([...db.objectStoreNames]).not.toContain('practice');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('exportStuckDb solta a conexão: a migração abre em seguida sem ficar presa', async () => {
+    const { name } = await v2Device();
+    await exportStuckDb(name, MIGRATED_AT);
+    const blocked = vi.fn();
+    const db = await openKlickDb(name, { blocked }, DB_VERSION, () => MIGRATED_AT);
+    expect(db.version).toBe(DB_VERSION);
+    expect(blocked).not.toHaveBeenCalled();
+    db.close();
+  });
+
+  it('exportStuckDb não trava quando outra aba segura a abertura: desiste no prazo e solta a conexão tardia', async () => {
+    const { name } = await v2Device();
+    // Uma aba antiga segura a versão 2 sem largar; a abertura da versão 3 fica na fila e a leitura, atrás dela.
+    const holder = await openDB(name, 2);
+    const pending = openKlickDb(name, {}, DB_VERSION, () => MIGRATED_AT);
+    await expect(exportStuckDb(name, MIGRATED_AT, 50)).rejects.toThrow('não terminou');
+    holder.close(); // a aba antiga larga: a migração termina, e a leitura tardia não segura nada
+    const db = await pending;
+    expect(db.version).toBe(DB_VERSION);
+    db.close();
   });
 });

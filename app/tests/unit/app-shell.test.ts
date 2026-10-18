@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { tick } from 'svelte';
-import { openKlickDb } from '../../src/data/db';
+import { DB_NAME, openKlickDb } from '../../src/data/db';
 import { createRepository } from '../../src/data/repository';
 import { createScrambleQueue } from '../../src/scramble/queue';
 import { T } from '../../src/strings';
@@ -232,6 +232,96 @@ describe('casca do app: robustez (brief 9b)', () => {
       expect(await screen.findByRole('alert')).toHaveTextContent(T.data.upgradeFailed);
       expect(screen.queryByText(T.data.dbUnavailable)).toBeNull();
       unmount();
+      setDbUpgrade('idle');
+    }
+  });
+
+  // A atualização que falhou deixa o banco na versão de antes. Aqui ele nasce na versão 2, com um solve, uma sessão e um treino.
+  async function stuckDevice(): Promise<void> {
+    const db = await openKlickDb(DB_NAME, {}, 2);
+    await db.put('sessions', { id: 's1', name: 'Principal', event: '333', order: 0, createdAt: 1, updatedAt: 1, deletedAt: null } as never);
+    await db.put('solves', { id: 'v1', sessionId: 's1', event: '333', ms: 31_000, penalty: null, at: 2, scramble: 'R U', note: '', createdAt: 2, updatedAt: 2, deletedAt: null } as never);
+    await db.put('practice', { id: 'p1', caseId: 'oll2-sune', ms: 2500, ok: true, helped: false, at: 3 } as never);
+    db.close();
+  }
+  const failUpgrade = (): void => {
+    hooks.boot = () =>
+      trackingUpgrade(
+        (async () => {
+          dbEvents(() => null).upgrading?.();
+          throw new DOMException('falhou', 'QuotaExceededError');
+        })(),
+      );
+  };
+  const urlApi = URL as unknown as Record<string, unknown>;
+  // O jsdom não tem URL.createObjectURL nem clica em link: guarda o blob e o nome que iriam para o download.
+  function captureDownloads(): { blobs: Blob[]; names: string[] } {
+    const got = { blobs: [] as Blob[], names: [] as string[] };
+    urlApi.createObjectURL = (blob: Blob) => (got.blobs.push(blob), 'blob:klick');
+    urlApi.revokeObjectURL = () => {};
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      got.names.push(this.download);
+    });
+    return got;
+  }
+  const readBlob = (blob: Blob): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(blob);
+    });
+
+  it('a atualização que falhou oferece exportar (baixa klick-*.json) e tentar de novo (recarrega)', async () => {
+    await stuckDevice();
+    failUpgrade();
+    const got = captureDownloads();
+    const reload = vi.fn();
+    try {
+      render(App, { reload });
+      expect(await screen.findByRole('alert')).toHaveTextContent(T.data.upgradeFailed);
+      screen.getByRole('button', { name: T.data.upgradeExport }).click();
+      await waitFor(() => expect(got.names).toHaveLength(1));
+      expect(got.names[0]).toMatch(/^klick-\d{4}-\d{2}-\d{2}-\d{4}\.json$/);
+      const file = JSON.parse(await readBlob(got.blobs[0])) as { format: string; sessions: unknown[]; solves: unknown[]; practice: unknown[] };
+      expect(file).toMatchObject({ format: 'klick', version: 1 });
+      expect([file.sessions.length, file.solves.length, file.practice.length]).toEqual([1, 1, 1]);
+      expect(screen.queryByText(T.data.upgradeExportFailed)).toBeNull();
+      expect(reload).not.toHaveBeenCalled();
+      screen.getByRole('button', { name: T.data.upgradeRetry }).click();
+      expect(reload).toHaveBeenCalledTimes(1);
+    } finally {
+      delete urlApi.createObjectURL;
+      delete urlApi.revokeObjectURL;
+      vi.restoreAllMocks();
+      setDbUpgrade('idle');
+    }
+  });
+
+  it('a leitura que falha mostra upgradeExportFailed', async () => {
+    failUpgrade();
+    const got = captureDownloads();
+    const reload = vi.fn();
+    try {
+      render(App, { reload });
+      await screen.findByRole('alert');
+      const open = vi.spyOn(indexedDB, 'open').mockImplementation(() => {
+        throw new DOMException('sem espaço', 'QuotaExceededError');
+      });
+      screen.getByRole('button', { name: T.data.upgradeExport }).click();
+      expect(await screen.findByText(T.data.upgradeExportFailed)).toBeInTheDocument();
+      expect(open).toHaveBeenCalled();
+      expect(got.names).toEqual([]);
+      // Os dois botões continuam: dá para tentar de novo, e a próxima leitura (que agora funciona) baixa o arquivo.
+      expect(screen.getByRole('button', { name: T.data.upgradeRetry })).toBeInTheDocument();
+      open.mockRestore();
+      screen.getByRole('button', { name: T.data.upgradeExport }).click();
+      await waitFor(() => expect(got.names).toHaveLength(1));
+      expect(screen.queryByText(T.data.upgradeExportFailed)).toBeNull();
+    } finally {
+      delete urlApi.createObjectURL;
+      delete urlApi.revokeObjectURL;
+      vi.restoreAllMocks();
       setDbUpgrade('idle');
     }
   });

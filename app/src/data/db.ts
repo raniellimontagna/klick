@@ -70,6 +70,20 @@ function fullProfile(old: Partial<Profile> | undefined): Profile {
   };
 }
 
+// O arquivo do Klick de um banco da versão 1 ou 2, na ordem do export (exportAll): sessões pela ordem, solves e treino pelo instante.
+// A cópia "antes da v3" (migrateToV3) e o export do banco que não atualizou (exportStuckDb) saem desta função, e por isso têm o mesmo formato.
+function beforeV3File(at: number, solves: Solve[], sessions: Session[], practice: Practice[], stored: Partial<Profile> | undefined): KlickExport {
+  return {
+    format: 'klick',
+    version: 1,
+    exportedAt: at,
+    sessions: [...sessions].sort((a, b) => a.order - b.order),
+    solves: [...solves].sort((a, b) => a.at - b.at),
+    profile: stored ? fullProfile(stored) : null,
+    practice: [...practice].sort((a, b) => a.at - b.at),
+  };
+}
+
 // A migração para a versão 3 (spec 5.6), dentro da transação de upgrade: ou tudo acontece, ou nada. Só acrescenta; nenhum dado sai.
 // A cópia "antes da v3" vai em JSON puro: a transação de upgrade não sobrevive a esperar o CompressionStream.
 async function migrateToV3(tx: UpgradeTx, at: number): Promise<void> {
@@ -85,16 +99,7 @@ async function migrateToV3(tx: UpgradeTx, at: number): Promise<void> {
     profile.get('current') as Promise<Partial<Profile> | undefined>,
   ]);
   if (allSolves.length + allSessions.length + allPractice.length === 0 && stored === undefined) return; // banco vazio: nada a migrar
-  // Na ordem do export (exportAll): sessões pela ordem, solves e treino pelo instante.
-  const copy: KlickExport = {
-    format: 'klick',
-    version: 1,
-    exportedAt: at,
-    sessions: [...allSessions].sort((a, b) => a.order - b.order),
-    solves: [...allSolves].sort((a, b) => a.at - b.at),
-    profile: stored ? fullProfile(stored) : null,
-    practice: [...allPractice].sort((a, b) => a.at - b.at),
-  };
+  const copy = beforeV3File(at, allSolves, allSessions, allPractice, stored);
   const solveCount = allSolves.filter((s) => s.deletedAt === null).length;
   const pending: Promise<unknown>[] = [
     tx.objectStore('backups').put({ id: newId(at), createdAt: at, reason: 'pre-sync', label: 'v3', solveCount, encoding: 'json', payload: JSON.stringify(copy) }),
@@ -173,4 +178,44 @@ export async function openKlickDb(
     },
   });
   return opened;
+}
+
+// Quanto exportStuckDb espera a abertura do banco antes de desistir: com outra aba segurando a versão velha, a abertura fica na fila.
+const STUCK_OPEN_MS = 5000;
+
+// O export do banco que a atualização para a versão 3 não conseguiu migrar (endurecimento 5.2). Lê na versão que está lá, só leitura:
+// abre sem pedir versão e sem `upgrade` (nada é criado nem mudado) e sempre larga a conexão. Uma store que falta (o treino não existe na
+// versão 1) fica de fora do arquivo. Se a abertura não sai no prazo, ou o navegador avisa que ela está bloqueada, a leitura falha, e quem
+// chamou mostra o erro e deixa tentar de novo; a conexão que abrir depois do prazo é fechada na hora, para não segurar a migração.
+export async function exportStuckDb(name: string = DB_NAME, now: number = Date.now(), openTimeoutMs: number = STUCK_OPEN_MS): Promise<KlickExport> {
+  let giveUp: (reason: Error) => void = () => {};
+  const gate = new Promise<never>((_, reject) => {
+    giveUp = reject;
+  });
+  gate.catch(() => {}); // sem ninguém esperando por ele (a abertura saiu primeiro), a rejeição tardia não vira erro solto
+  const opening = openDB<KlickDB>(name, undefined, { blocked: () => giveUp(new Error('A abertura do banco está bloqueada por outra aba.')) });
+  const timer = setTimeout(() => giveUp(new Error('A abertura do banco não terminou.')), openTimeoutMs);
+  let db: IDBPDatabase<KlickDB>;
+  try {
+    db = await Promise.race([opening, gate]);
+  } catch (err) {
+    opening.then((late) => late.close(), () => {});
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+  try {
+    const names = (['solves', 'sessions', 'practice', 'profile'] as const).filter((store) => db.objectStoreNames.contains(store));
+    const tx = names.length > 0 ? db.transaction(names, 'readonly') : null;
+    const has = (store: (typeof names)[number]): boolean => names.includes(store);
+    const [solves, sessions, practice, stored] = await Promise.all([
+      has('solves') ? (tx!.objectStore('solves').getAll() as Promise<Solve[]>) : [],
+      has('sessions') ? (tx!.objectStore('sessions').getAll() as Promise<Session[]>) : [],
+      has('practice') ? (tx!.objectStore('practice').getAll() as Promise<Practice[]>) : [],
+      has('profile') ? (tx!.objectStore('profile').get('current') as Promise<Partial<Profile> | undefined>) : undefined,
+    ]);
+    return beforeV3File(now, solves, sessions, practice, stored);
+  } finally {
+    db.close();
+  }
 }

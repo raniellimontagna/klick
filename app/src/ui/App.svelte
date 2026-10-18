@@ -1,7 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { eventInfo } from '../core/events';
+  import { backupFileName } from '../data/folder';
+  import { exportStuckDb } from '../data/db';
   import { T } from '../strings';
+  import { downloadText } from './download';
   import { dateLabel } from './format';
   import { importFile } from './import-flow';
   import { type InstallPromptEvent, isStandalone, shouldShowInstallGuide } from './platform';
@@ -37,8 +40,11 @@ import SyncIndicator from './SyncIndicator.svelte';
   // A aba Trilha carrega na primeira vez que abre: as aulas ficam fora do código da abertura (spec 9.5). O service worker guarda o pedaço.
   // Se ele não carrega, a aba mostra a linha de erro, e "Tentar de novo" refaz o import (loadTrilha é trocável nos testes). Alguns
   // navegadores guardam a falha do import dinâmico: se a nova tentativa também falha, a linha oferece recarregar a página.
-  let { loadTrilha = () => import('./trilha/TrilhaScreen.svelte') }: { loadTrilha?: () => Promise<typeof import('./trilha/TrilhaScreen.svelte')> } =
-    $props();
+  // `reload` recarrega a página (a tela de atualização que falhou; trocável nos testes).
+  let {
+    loadTrilha = () => import('./trilha/TrilhaScreen.svelte'),
+    reload = () => location.reload(),
+  }: { loadTrilha?: () => Promise<typeof import('./trilha/TrilhaScreen.svelte')>; reload?: () => void } = $props();
   let trilhaTry = $state(0);
   // O botão de tentar de novo sumiu com o clique (o bloco refaz o import): o de recarregar, que entra no lugar dele, recebe o foco que
   // caiu no body.
@@ -48,6 +54,25 @@ import SyncIndicator from './SyncIndicator.svelte';
 
   let app = $state.raw<AppState | null>(null);
   let failed = $state(false);
+
+  // A atualização dos dados falhou: "Exportar meus dados" lê o banco como ficou (exportStuckDb) e baixa o arquivo do Klick. Se a leitura
+  // ou o download não saem, o aviso aparece e os dois botões ficam.
+  let exporting = $state(false);
+  let exportFailed = $state(false);
+  async function exportStuck(): Promise<void> {
+    if (exporting) return;
+    exporting = true;
+    exportFailed = false;
+    try {
+      const now = Date.now();
+      const file = await exportStuckDb(undefined, now);
+      if (!downloadText(backupFileName(now), JSON.stringify(file))) exportFailed = true;
+    } catch {
+      exportFailed = true;
+    } finally {
+      exporting = false;
+    }
+  }
 
   // A CSS mostra a barra de baixo abaixo de 640 px e esconde a do topo. O atributo hidden faz o mesmo com a barra de baixo,
   // para só uma barra de abas ficar na árvore de acessibilidade, também onde a CSS não carrega (os testes).
@@ -312,6 +337,13 @@ import SyncIndicator from './SyncIndicator.svelte';
   {:else if failed && dbUpgrade() === 'failed'}
     <main class="screen">
       <p role="alert">{T.data.upgradeFailed}</p>
+      {#if exportFailed}
+        <p role="alert">{T.data.upgradeExportFailed}</p>
+      {/if}
+      <div class="data-actions">
+        <button type="button" class="btn" disabled={exporting} onclick={exportStuck}>{T.data.upgradeExport}</button>
+        <button type="button" class="btn" onclick={() => reload()}>{T.data.upgradeRetry}</button>
+      </div>
     </main>
   {:else if failed && dbNotice() !== 'closeOthers'}
     <main class="screen">

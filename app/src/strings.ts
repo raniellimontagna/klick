@@ -337,7 +337,10 @@ export const T = Object.freeze({
   data: {
     dbUnavailable: 'O navegador bloqueou o armazenamento do Klick. Sem ele, os solves não ficam salvos neste aparelho. Libere o armazenamento para este site e recarregue a página.',
     upgrading: 'Atualizando seus dados… não feche esta aba.',
-    upgradeFailed: 'Não consegui atualizar seus dados para esta versão. Eles continuam guardados neste aparelho como estavam. Libere espaço no aparelho e recarregue a página.',
+    upgradeFailed: 'Não consegui atualizar seus dados para esta versão. Eles continuam guardados neste aparelho como estavam. Exporte uma cópia agora, libere espaço no aparelho e tente de novo.',
+    upgradeExport: 'Exportar meus dados',
+    upgradeRetry: 'Tentar de novo',
+    upgradeExportFailed: 'Não consegui ler os dados antigos. Libere espaço no aparelho e tente de novo.',
     saveFailed: 'Não consegui salvar. Exporte seus dados agora.', // só para solve: é o alarme de solve perdido
     changeFailed: 'Não consegui guardar esta mudança. Tente de novo.',
     folderSaveFailed: 'Não consegui guardar a pasta escolhida. Tente de novo.',
