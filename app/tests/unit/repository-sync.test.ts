@@ -493,6 +493,31 @@ describe('primeiro login num aparelho com dados (spec 6.5)', () => {
     expect((await b.repo.getSyncState()).firstSync).toBe(false);
   });
 
+  // Revisão final (5.1): a "Sessão 1" padrão que o dono apagou volta no aparelho novo com a data da lixeira; a atual do aparelho não pode
+  // ficar nela.
+  it('a "Sessão 1" padrão que está na lixeira deixa de ser a atual depois do primeiro login', async () => {
+    const server = new FakeServer();
+    server.now = t;
+    const a = await fresh();
+    await a.repo.createSession({ event: '333', id: 'default-333' });
+    const kept = await a.repo.createSession({ event: '333', name: 'Treino' });
+    await a.repo.addSolve(ns(kept.id, 9000, t - 20));
+    await syncRound(a.repo, server);
+    t += 1000;
+    await a.repo.deleteSession('default-333'); // o dono apagou a "Sessão 1"
+    await syncRound(a.repo, server);
+    const b = await fresh(null);
+    const mine = await b.repo.createSession({ event: '333', id: 'default-333' });
+    await b.repo.saveProfile({ currentSessionId: mine.id });
+    await b.repo.beginFirstSync({ accountId: 'conta-1', email: 'a@b.c' });
+    await syncRound(b.repo, server, false);
+    const heard: [ChangeKind, ChangeOrigin][] = [];
+    b.repo.onChange((kind, origin) => heard.push([kind, origin]));
+    await b.repo.dedupeFirstLogin();
+    expect((await b.repo.getProfile()).currentSessionId).toBe(kept.id);
+    expect(heard).toContainEqual(['profile', 'remote']);
+  });
+
   it('a sessão padrão que a conta devolveu fica, mesmo vazia, e o aparelho continua nela; a escolha do aparelho fora da padrão não muda (I1)', async () => {
     const server = new FakeServer();
     server.now = t;

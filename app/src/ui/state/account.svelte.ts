@@ -594,17 +594,23 @@ export class AccountState {
   // Apagar a conta (spec 7.7): o e-mail digitado confirma, sem diferença de maiúsculas nem de espaços nas pontas. Antes do servidor, o sync
   // para em todas as abas (espera a rodada em andamento): a volta dela depois do apagar seria um 401, e a região aria-live diria que o sync
   // parou. Sem resposta do servidor, a conta continua e o sync volta. Apagada, os dados e a fila ficam neste aparelho, fora de qualquer
-  // conta; as outras abas saem pelo aviso 'sync' do repositório, e o motor de todas fica parado até um novo primeiro login.
-  async deleteAccount(email: string): Promise<'ok' | 'mismatch' | 'failed'> {
+  // conta; as outras abas saem pelo aviso 'sync' do repositório, e o motor de todas fica parado até um novo primeiro login. As respostas do
+  // servidor que não são falta de rede: 400, o e-mail não confere ('mismatch'); 401 'gone', a conta já foi apagada em outro aparelho (sai
+  // dela como no apagar); outro 401, a sessão venceu ('auth': entrar de novo). Nos três, o sync só volta se a conta continua.
+  async deleteAccount(email: string): Promise<'ok' | 'mismatch' | 'auth' | 'failed'> {
     const typed = email.trim();
     const expected = this.sync.email?.trim().toLowerCase();
     if (!expected || typed.toLowerCase() !== expected) return 'mismatch';
     await this.stopSync();
     try {
       await this.deps.api.deleteAccount(typed, await this.accountId());
-    } catch {
-      this.resumeSync(); // a conta continua: o sync não fica parado
-      return 'failed';
+    } catch (err) {
+      const gone = err instanceof ApiError && err.status === 401 && err.code === 'gone';
+      if (!gone) {
+        this.resumeSync(); // a conta continua: o sync não fica parado
+        if (err instanceof ApiError && err.status === 400) return 'mismatch';
+        return err instanceof ApiError && err.status === 401 ? 'auth' : 'failed';
+      }
     }
     this.user = null;
     this.next = null;

@@ -204,7 +204,16 @@ export async function handle(request: Request, env: Env, ctx: ExecutionContext, 
   if (path.startsWith('/api/auth/')) return authRoute(request, path, env, ctx, deps);
 
   const user = await deps.resolveUser(request, env, ctx);
-  if (!user) return fail(401, 'auth');
+  if (!user) {
+    // Apagar a conta sem sessão: o aparelho precisa saber se a conta acabou (apagada em outro aparelho: ele sai dela) ou se só a sessão
+    // venceu (ele entra de novo). O id da conta é aleatório e só o aparelho o conhece, então dizer 'gone' ou 'auth' para ele não revela
+    // nada de nenhum e-mail; nunca se procura por e-mail aqui.
+    if (path === '/api/account' && request.method === 'DELETE') {
+      const id = request.headers.get(ACCOUNT_HEADER);
+      if (isAccountId(id) && (await env.DB.prepare('SELECT 1 AS found FROM "user" WHERE id = ?').bind(id).first()) === null) return fail(401, 'gone');
+    }
+    return fail(401, 'auth');
+  }
   // O objeto da conta nasce no leste dos EUA (a página de privacidade diz "servidores nos EUA"); a dica só vale quando ele é criado.
   const account = env.ACCOUNT.get(env.ACCOUNT.idFromName(user.id), { locationHint: 'enam' });
 

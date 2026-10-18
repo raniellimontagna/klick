@@ -298,6 +298,25 @@ describe('apagar a conta (spec 7.7)', () => {
     expect((await syncCall(user, [])).status).toBe(401);
   });
 
+  // Revisão final (5.3): sem sessão, o aparelho precisa saber se a conta acabou (apagada em outro aparelho) ou se só a sessão venceu. O id da
+  // conta é aleatório e só o aparelho o conhece: dizer 'gone' ou 'auth' para ele não revela nada de nenhum e-mail.
+  it('apagar a conta sem sessão: 401 gone para uma conta que já não existe, 401 auth para uma que existe', async () => {
+    const user = 'conta-sem-sessao';
+    const at = new Date(T0).toISOString();
+    await env.DB.prepare('INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 1, ?, ?)')
+      .bind(user, '', `${user}@exemplo.com`, at, at)
+      .run();
+    const del = (headers: Record<string, string>) =>
+      call('/api/account', { method: 'DELETE', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ email: `${user}@exemplo.com` }) }, {
+        deps: testDeps({ user: null }),
+      });
+    const answer = async (res: Response) => [res.status, await res.json()];
+    expect(await answer(await del(as('conta-que-nao-existe')))).toEqual([401, { error: 'gone' }]);
+    expect(await answer(await del(as(user)))).toEqual([401, { error: 'auth' }]); // a conta existe: só a sessão venceu
+    expect(await answer(await del({}))).toEqual([401, { error: 'auth' }]); // sem o id da conta, nada a dizer
+    expect(await env.DB.prepare('SELECT id FROM "user" WHERE id = ?').bind(user).first()).not.toBeNull(); // e nada foi apagado
+  });
+
   it('o objeto apagado não volta: com a sessão ainda aberta, o sync e a restauração recebem 401, e nada é gravado nem agendado', async () => {
     const user = 'conta-volta-nao';
     await sync(user, [session, solve('a')]);

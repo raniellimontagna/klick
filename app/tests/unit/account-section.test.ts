@@ -6,10 +6,13 @@ import { createRepository } from '../../src/data/repository';
 import { idleStatus } from '../../src/sync/engine';
 import { T } from '../../src/strings';
 import AjustesScreen from '../../src/ui/ajustes/AjustesScreen.svelte';
+import { CONFIRM_DELAY_MS, confirmReady } from '../../src/ui/confirm';
 import { appWithAccount, fakeApi, fakeAuth } from './sync-account';
 import { FakeServer } from './sync-fakes';
 
 describe('Ajustes: "Conta e sync" (spec 9.1)', () => {
+  afterEach(() => vi.useRealTimers());
+
   it('com a conta desligada no ambiente, a seção não aparece', async () => {
     const { app } = await appWithAccount(fakeApi(new FakeServer(), { accounts: false, turnstileSiteKey: null }).api);
     render(AjustesScreen, { app });
@@ -117,11 +120,37 @@ describe('Ajustes: "Conta e sync" (spec 9.1)', () => {
     const { app } = await appWithAccount(fakeApi(new FakeServer()).api, { signedIn: true, auth });
     render(AjustesScreen, { app });
     const button = await screen.findByRole('button', { name: 'Sair de todos os aparelhos' });
+    vi.useFakeTimers({ toFake: ['Date'] }); // só o relógio: o segundo clique só vale depois de CONFIRM_DELAY_MS
     await fireEvent.click(button);
     expect(calls).not.toContain('sign-out-everywhere');
+    vi.setSystemTime(Date.now() + CONFIRM_DELAY_MS);
     await fireEvent.click(screen.getByRole('button', { name: 'Tem certeza? Clique de novo' }));
     await vi.waitFor(() => expect(calls).toContain('sign-out-everywhere'));
     await vi.waitFor(() => expect(app.account!.signedIn).toBe(false));
+  });
+
+  it('o segundo clique em "Sair de todos os aparelhos" antes de 400 ms não confirma', async () => {
+    const { auth, calls } = fakeAuth();
+    const { app } = await appWithAccount(fakeApi(new FakeServer()).api, { signedIn: true, auth });
+    render(AjustesScreen, { app });
+    const button = await screen.findByRole('button', { name: 'Sair de todos os aparelhos' });
+    vi.useFakeTimers({ toFake: ['Date'] });
+    await fireEvent.click(button);
+    vi.setSystemTime(Date.now() + CONFIRM_DELAY_MS - 1);
+    await fireEvent.click(screen.getByRole('button', { name: 'Tem certeza? Clique de novo' })); // o clique duplo
+    await new Promise((r) => setTimeout(r, 50)); // a saída espera o motor parar: dá tempo de ela chegar ao cliente, se houver
+    expect(calls).not.toContain('sign-out-everywhere');
+    expect(screen.getByRole('button', { name: 'Tem certeza? Clique de novo' })).toBeInTheDocument(); // continua armado
+    vi.setSystemTime(Date.now() + 1);
+    await fireEvent.click(screen.getByRole('button', { name: 'Tem certeza? Clique de novo' }));
+    await vi.waitFor(() => expect(calls).toContain('sign-out-everywhere'));
+  });
+
+  it('CONFIRM_DELAY_MS é 400', () => {
+    expect(CONFIRM_DELAY_MS).toBe(400);
+    expect(confirmReady(null, 10_000)).toBe(false);
+    expect(confirmReady(1000, 1399)).toBe(false);
+    expect(confirmReady(1000, 1400)).toBe(true);
   });
 });
 

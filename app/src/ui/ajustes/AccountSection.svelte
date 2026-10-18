@@ -8,6 +8,7 @@
   import { onDestroy, onMount, tick } from 'svelte';
   import { T } from '../../strings';
   import type { SyncStatus } from '../../sync/engine';
+  import { confirmReady } from '../confirm';
   import CloudCopiesDialog from '../dialogs/CloudCopiesDialog.svelte';
   import DeleteAccountDialog from '../dialogs/DeleteAccountDialog.svelte';
   import SignOutDialog from '../dialogs/SignOutDialog.svelte';
@@ -21,6 +22,7 @@
   const account = $derived(app.account);
   let now = $state(Date.now()); // o "há 2 min" anda sozinho
   let confirmAll = $state(false); // "Sair de todos os aparelhos" espera o segundo clique
+  let confirmArmedAt: number | null = null; // a hora do primeiro clique: o segundo, antes de CONFIRM_DELAY_MS, é o clique duplo e não vale
   let busy = $state(false);
   let sectionEl = $state<HTMLElement>();
 
@@ -149,8 +151,10 @@
     if (!account || busy) return;
     if (!confirmAll) {
       confirmAll = true;
+      confirmArmedAt = Date.now();
       return;
     }
+    if (!confirmReady(confirmArmedAt, Date.now())) return;
     busy = true;
     try {
       app.showToast((await account.signOutEverywhere()) ? T.conta.signOutAllDone : T.conta.signOutAllFailed);

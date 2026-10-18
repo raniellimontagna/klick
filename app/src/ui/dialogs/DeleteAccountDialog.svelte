@@ -9,12 +9,14 @@
   let dialogEl = $state<HTMLDialogElement>();
   let typed = $state('');
   let error = $state<string | null>(null);
+  let signInAgain = $state(false); // a sessão venceu: o aviso traz o caminho para entrar de novo
   let busy = $state(false);
   const email = $derived(app.account?.sync.email ?? '');
 
   function onclose(): void {
     typed = '';
     error = null;
+    signInAgain = false;
     if (app.dialog === 'deleteAccount') app.dialog = null;
   }
 
@@ -23,11 +25,15 @@
     const account = app.account;
     if (!account || busy) return;
     busy = true;
+    signInAgain = false;
     try {
       const result = await account.deleteAccount(typed);
       if (result === 'ok') {
         app.showToast(T.conta.deleted);
         dialogEl?.close();
+      } else if (result === 'auth') {
+        error = T.conta.deleteSignInAgain;
+        signInAgain = true;
       } else error = result === 'mismatch' ? T.conta.deleteMismatch : T.conta.deleteFailed;
     } catch {
       error = T.conta.deleteFailed; // o banco daqui falhou
@@ -48,6 +54,9 @@
       </label>
       {#if error}
         <p role="alert">{error}</p>
+      {/if}
+      {#if signInAgain}
+        <button type="button" class="btn" onclick={() => (app.dialog = 'signin')}>{T.conta.signInAgain}</button>
       {/if}
       <div class="row">
         <button type="submit" class="btn danger" disabled={busy || typed.trim() === ''}>{T.conta.deleteConfirm}</button>

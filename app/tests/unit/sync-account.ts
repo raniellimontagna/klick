@@ -45,10 +45,11 @@ export function manualEnv() {
 }
 
 // A API falsa: /api/health e /api/sync, com o servidor falso de uma conta, e as cópias na nuvem e o apagar da conta (`cloud` anota o que
-// foi restaurado e apagado; `paused` é a pausa que a lista traz). Depois de apagada, a conta responde 401 ao sync e às cópias, como o objeto marcado da Task 17.
+// foi restaurado e apagado; `paused` é a pausa que a lista traz; `deleteError` é o erro que o apagar devolve: o 400 do e-mail que não
+// confere e o 401 da sessão vencida ou da conta já apagada). Depois de apagada, a conta responde 401 ao sync e às cópias, como o objeto marcado da Task 17.
 export function fakeApi(server: FakeServer, health: Health | null = { accounts: true, turnstileSiteKey: '1x00000000000000000000BB' }) {
   let failure: Error | null = null;
-  const cloud = { copies: [] as CloudCopy[], paused: null as CopiesPaused | null, restored: [] as string[], deleted: [] as string[] };
+  const cloud = { copies: [] as CloudCopy[], paused: null as CopiesPaused | null, restored: [] as string[], deleted: [] as string[], deleteError: null as ApiError | null };
   const check = (): void => {
     if (failure) throw failure;
     if (cloud.deleted.length > 0) throw new ApiError('auth', 401);
@@ -68,6 +69,7 @@ export function fakeApi(server: FakeServer, health: Health | null = { accounts: 
       cloud.restored.push(name);
     },
     deleteAccount: async (email) => {
+      if (cloud.deleteError) throw cloud.deleteError;
       check();
       cloud.deleted.push(email);
     },

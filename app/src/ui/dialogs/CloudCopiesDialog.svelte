@@ -5,6 +5,7 @@
   import type { CopiesPaused, RestoreRefusal } from '../../core/sync/types';
   import { T } from '../../strings';
   import { ApiError, type CloudCopy } from '../../sync/api';
+  import { confirmReady } from '../confirm';
   import type { AppState } from '../state/app.svelte';
   import { modal } from './modal';
 
@@ -16,6 +17,7 @@
   let failed = $state(false); // a lista não carregou: o aviso diz isso, não que não há cópias
   let listPaused = $state<CopiesPaused | null>(null); // a pausa que a lista trouxe ('ops' também quando ela não carregou por isso)
   let asking = $state<string | null>(null); // a cópia que espera o segundo clique
+  let armedAt: number | null = null; // a hora do primeiro clique: o segundo, antes de CONFIRM_DELAY_MS, é o clique duplo e não vale
   let busy = $state(false);
   // A pausa no topo: a da lista, quando ela carregou (a mais nova; 'ops' também é a lista que não se renovou este mês) ou quando não carregou
   // por falta de operações do R2 no mês; antes, ou numa falha sem pausa, a do último sync.
@@ -66,8 +68,10 @@
     if (busy || !account) return;
     if (asking !== c.name) {
       asking = c.name;
+      armedAt = Date.now();
       return;
     }
+    if (!confirmReady(armedAt, Date.now())) return;
     busy = true;
     try {
       const outcome = await account.restoreCloudCopy(c.name);

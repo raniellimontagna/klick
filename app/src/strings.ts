@@ -733,6 +733,7 @@ export const T = Object.freeze({
     deleteConfirm: 'Apagar para sempre',
     deleteMismatch: 'O e-mail não confere.',
     deleteFailed: 'Não consegui apagar agora. Confira a conexão e tente de novo.',
+    deleteSignInAgain: 'Sua sessão expirou. Entre de novo para apagar a conta.',
     deleted: 'Conta apagada. Os dados continuam neste aparelho.',
   }),
 });

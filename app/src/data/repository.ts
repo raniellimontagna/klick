@@ -1379,15 +1379,15 @@ export function createRepository(
           return sessions.put({ ...s, deletedAt: at, updatedAt: at, deletionStamp: at });
         });
         await each(empty, (s) => outbox.delete(syncKey('sessions', s.id)));
-        // A sessão atual do aparelho (que nunca sobe) saiu agora, ou não existe: o aparelho passa para a sessão do mesmo evento com mais
-        // solves (a mais usada da conta), senão ficaria parado na vazia, e o próximo solve a traria de volta.
+        // A sessão atual do aparelho (que nunca sobe) saiu agora, não existe ou já está na lixeira da conta: o aparelho passa para a sessão do
+        // mesmo evento com mais solves (a mais usada da conta), senão ficaria parado na vazia, e o próximo solve a traria de volta.
         const profile = tx.objectStore('profile');
         const device = await profile.get('current');
         const current = device?.currentSessionId ?? null;
         const emptied = new Set(empty.map((s) => s.id));
         const record = allSessions.find((s) => s.id === current);
         let switched = false;
-        if (device && current !== null && (emptied.has(current) || !record)) {
+        if (device && current !== null && (emptied.has(current) || !record || record.deletedAt !== null)) {
           const solvesOf = new Map<string, number>();
           for (const s of allSolves) if (s.deletedAt === null && !gone.has(s.id)) solvesOf.set(s.sessionId, (solvesOf.get(s.sessionId) ?? 0) + 1);
           const [best] = liveSessions

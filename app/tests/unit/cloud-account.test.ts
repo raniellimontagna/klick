@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RestoreRefusal, SyncRequest, SyncResponse } from '../../src/core/sync/types';
 import { openKlickDb } from '../../src/data/db';
 import { type ChangeKind, createRepository, defaultSyncState } from '../../src/data/repository';
@@ -7,12 +7,18 @@ import { T } from '../../src/strings';
 import { ApiError, createSyncApi } from '../../src/sync/api';
 import type { LocksLike } from '../../src/sync/triggers';
 import AjustesScreen from '../../src/ui/ajustes/AjustesScreen.svelte';
+import { CONFIRM_DELAY_MS } from '../../src/ui/confirm';
 import { appWithAccount, bus, fakeApi } from './sync-account';
 import { FakeServer } from './sync-fakes';
 
 const EMAIL = 'ranielli@exemplo.com';
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 let dbs = 0;
+
+// O segundo clique de "Restaurar" só vale depois de CONFIRM_DELAY_MS (5.4): só o relógio (Date) é falso, o resto do teste segue real.
+const fakeClock = () => vi.useFakeTimers({ toFake: ['Date'] });
+const later = (ms = CONFIRM_DELAY_MS) => vi.setSystemTime(Date.now() + ms);
+afterEach(() => vi.useRealTimers());
 
 // Uma promessa que o teste resolve na hora que quer (um pedido que fica "na rede").
 function deferred() {
@@ -46,11 +52,32 @@ describe('cópias na nuvem (spec 8.3 e 9.1)', () => {
     expect(await screen.findByText('1234 solves')).toBeInTheDocument();
     expect(screen.getByText('2026-10-14, antes de uma restauração')).toBeInTheDocument();
     const sync = vi.spyOn(app.account!, 'syncNow');
+    fakeClock();
     await fireEvent.click(screen.getByRole('button', { name: 'Restaurar a cópia de 2026-10-15' }));
     expect(net.cloud.restored).toEqual([]);
+    later();
     await fireEvent.click(screen.getByRole('button', { name: 'Tem certeza? Clique de novo' }));
     await vi.waitFor(() => expect(net.cloud.restored).toEqual(['2026-10-15']));
     expect(sync).toHaveBeenCalled();
+  });
+
+  it('o segundo clique em "Restaurar este dia" antes de 400 ms não restaura; depois, restaura', async () => {
+    const net = fakeApi(new FakeServer());
+    net.cloud.copies = [{ name: '2026-10-15', day: '2026-10-15', kind: 'daily', solves: 5 }];
+    const { app } = await appWithAccount(net.api, { signedIn: true });
+    render(AjustesScreen, { app });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Ver cópias na nuvem' }));
+    await screen.findByText('5 solves');
+    fakeClock();
+    await fireEvent.click(screen.getByRole('button', { name: 'Restaurar a cópia de 2026-10-15' }));
+    later(CONFIRM_DELAY_MS - 1);
+    await fireEvent.click(screen.getByRole('button', { name: 'Tem certeza? Clique de novo' })); // o clique duplo
+    await sleep(20);
+    expect(net.cloud.restored).toEqual([]);
+    expect(screen.getByRole('button', { name: 'Tem certeza? Clique de novo' })).toBeInTheDocument(); // continua armado
+    later(1);
+    await fireEvent.click(screen.getByRole('button', { name: 'Tem certeza? Clique de novo' }));
+    await vi.waitFor(() => expect(net.cloud.restored).toEqual(['2026-10-15']));
   });
 
   it('a cópia que não existe mais (404) avisa e relê a lista, sem sincronizar; sem rede, nada muda', async () => {
@@ -64,7 +91,9 @@ describe('cópias na nuvem (spec 8.3 e 9.1)', () => {
       net.cloud.copies = []; // passou dos 30 dias: a regra do bucket a apagou
       throw new ApiError('client', 404);
     };
+    fakeClock();
     await fireEvent.click(await screen.findByRole('button', { name: 'Restaurar a cópia de 2026-09-10' }));
+    later();
     await fireEvent.click(screen.getByRole('button', { name: 'Tem certeza? Clique de novo' }));
     await vi.waitFor(() => expect(app.toast?.text).toBe(T.conta.cloudGone));
     expect(await screen.findByText(T.conta.cloudEmpty)).toBeInTheDocument();
@@ -114,7 +143,9 @@ describe('cópias na nuvem: pausas e recusas', () => {
     await screen.findByText('3 solves');
     const sync = vi.spyOn(app.account!, 'syncNow');
     net.api.restoreCloudCopy = createSyncApi(async () => Response.json({ error: code }, { status })).restoreCloudCopy;
+    fakeClock();
     await fireEvent.click(screen.getByRole('button', { name: 'Restaurar a cópia de 2026-10-15' }));
+    later();
     await fireEvent.click(screen.getByRole('button', { name: 'Tem certeza? Clique de novo' }));
     await vi.waitFor(() => expect(app.toast?.text).toBe(message));
     expect(await app.account!.restoreCloudCopy('2026-10-15')).toBe(code);
@@ -237,6 +268,56 @@ describe('apagar minha conta (spec 7.7)', () => {
     await app.account!.syncNow();
     await sleep(100); // a região aria-live põe o texto 50 ms depois
     expect(app.live).toBe('');
+  });
+
+  it('400 do servidor diz que o e-mail não confere', async () => {
+    const net = fakeApi(new FakeServer());
+    const { app } = await appWithAccount(net.api, { signedIn: true });
+    await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
+    net.cloud.deleteError = new ApiError('client', 400, 'confirm'); // o e-mail daqui bate com o guardado, o do servidor não
+    const syncs = vi.spyOn(net.api, 'sync');
+    expect(await app.account!.deleteAccount(EMAIL)).toBe('mismatch');
+    expect(app.account!.signedIn).toBe(true);
+    await app.account!.syncNow();
+    expect(syncs).toHaveBeenCalledTimes(1); // o sync não ficou parado
+    render(AjustesScreen, { app });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Apagar minha conta' }));
+    await fireEvent.input(await screen.findByLabelText('Para confirmar, digite ranielli@exemplo.com'), { target: { value: EMAIL } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Apagar para sempre' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(T.conta.deleteMismatch);
+  });
+
+  it('401 de sessão vencida pede para entrar de novo e o sync volta', async () => {
+    const net = fakeApi(new FakeServer());
+    const { app } = await appWithAccount(net.api, { signedIn: true });
+    await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
+    net.cloud.deleteError = new ApiError('auth', 401, 'auth');
+    const syncs = vi.spyOn(net.api, 'sync');
+    expect(await app.account!.deleteAccount(EMAIL)).toBe('auth');
+    expect(app.account!.signedIn).toBe(true); // a conta continua: só a sessão venceu
+    await app.account!.syncNow();
+    expect(syncs).toHaveBeenCalledTimes(1);
+    render(AjustesScreen, { app });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Apagar minha conta' }));
+    await fireEvent.input(await screen.findByLabelText('Para confirmar, digite ranielli@exemplo.com'), { target: { value: EMAIL } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Apagar para sempre' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(T.conta.deleteSignInAgain);
+    expect(screen.getByRole('alert')).not.toHaveTextContent('conexão');
+    await fireEvent.click(screen.getByRole('button', { name: T.conta.signInAgain }));
+    await vi.waitFor(() => expect(app.dialog).toBe('signin'));
+  });
+
+  it('401 de conta já apagada sai da conta como no apagar', async () => {
+    const net = fakeApi(new FakeServer());
+    const { app, repo } = await appWithAccount(net.api, { signedIn: true });
+    await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
+    await app.addSolve({ ms: 9000, penalty: null, at: Date.now() });
+    net.cloud.deleteError = new ApiError('auth', 401, 'gone'); // apagada em outro aparelho
+    expect(await app.account!.deleteAccount(EMAIL)).toBe('ok');
+    expect(app.account!.signedIn).toBe(false);
+    expect(await repo.listSolves()).toHaveLength(1); // os dados ficam no aparelho
+    expect(await repo.getSyncState()).toMatchObject({ accountId: null, cursor: 0 });
+    expect(app.account!.status.phase).toBe('off');
   });
 
   it('o e-mail que não confere não para o sync; sem resposta do servidor, a conta continua e o sync volta', async () => {
