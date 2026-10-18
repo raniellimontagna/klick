@@ -307,6 +307,17 @@ describe('apagar minha conta (spec 7.7)', () => {
     await vi.waitFor(() => expect(app.dialog).toBe('signin'));
   });
 
+  it('o 401 "gone" do servidor chega pelo cliente HTTP como ApiError e a conta o trata como conta já apagada', async () => {
+    const net = fakeApi(new FakeServer());
+    const { app } = await appWithAccount(net.api, { signedIn: true });
+    await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
+    const http = createSyncApi(async () => Response.json({ error: 'gone' }, { status: 401 }));
+    await expect(http.deleteAccount(EMAIL, 'conta-1')).rejects.toMatchObject({ kind: 'auth', status: 401, code: 'gone' });
+    net.api.deleteAccount = http.deleteAccount;
+    expect(await app.account!.deleteAccount(EMAIL)).toBe('ok');
+    expect(app.account!.signedIn).toBe(false);
+  });
+
   it('401 de conta já apagada sai da conta como no apagar', async () => {
     const net = fakeApi(new FakeServer());
     const { app, repo } = await appWithAccount(net.api, { signedIn: true });

@@ -207,10 +207,16 @@ export async function handle(request: Request, env: Env, ctx: ExecutionContext, 
   if (!user) {
     // Apagar a conta sem sessão: o aparelho precisa saber se a conta acabou (apagada em outro aparelho: ele sai dela) ou se só a sessão
     // venceu (ele entra de novo). O id da conta é aleatório e só o aparelho o conhece, então dizer 'gone' ou 'auth' para ele não revela
-    // nada de nenhum e-mail; nunca se procura por e-mail aqui.
+    // nada de nenhum e-mail; nunca se procura por e-mail aqui. Como nas outras gravações, a origem e a rajada vêm antes de tocar no D1:
+    // uma página de outra origem não ganha resposta, e o pedido sem sessão não martela o banco.
     if (path === '/api/account' && request.method === 'DELETE') {
+      const guard = writeGuard(request, env);
+      if (guard) return guard;
       const id = request.headers.get(ACCOUNT_HEADER);
-      if (isAccountId(id) && (await env.DB.prepare('SELECT 1 AS found FROM "user" WHERE id = ?').bind(id).first()) === null) return fail(401, 'gone');
+      if (isAccountId(id)) {
+        if (!(await env.API_BURST.limit({ key: id })).success) return fail(429, 'limited');
+        if ((await env.DB.prepare('SELECT 1 AS found FROM "user" WHERE id = ?').bind(id).first()) === null) return fail(401, 'gone');
+      }
     }
     return fail(401, 'auth');
   }

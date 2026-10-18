@@ -9,7 +9,7 @@ import type { Env } from '../../worker/env';
 import { COMPACT_PER_DAY, DAILY_WRITE_BUDGET, utcDay } from '../../worker/limits';
 import { COMPACTABLE } from '../../worker/records-sql';
 import { dayOf, gunzipJson, nextSnapshotAt, preRestoreName, snapshotKey, snapshotPrefix } from '../../worker/snapshots';
-import { authDeps, call, postJson, setState, stateOf, stubOf, T0, testDeps, testEnv } from './helpers';
+import { authDeps, call, ORIGIN, postJson, setState, stateOf, stubOf, T0, testDeps, testEnv } from './helpers';
 
 const as = (user: string): Record<string, string> => ({ [ACCOUNT_HEADER]: user }); // a conta que o aparelho espera (C1)
 
@@ -306,8 +306,9 @@ describe('apagar a conta (spec 7.7)', () => {
     await env.DB.prepare('INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 1, ?, ?)')
       .bind(user, '', `${user}@exemplo.com`, at, at)
       .run();
-    const del = (headers: Record<string, string>) =>
-      call('/api/account', { method: 'DELETE', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ email: `${user}@exemplo.com` }) }, {
+    const del = (headers: Record<string, string>, e = testEnv()) =>
+      call('/api/account', { method: 'DELETE', headers: { 'Content-Type': 'application/json', Origin: ORIGIN, ...headers }, body: JSON.stringify({ email: `${user}@exemplo.com` }) }, {
+        env: e,
         deps: testDeps({ user: null }),
       });
     const answer = async (res: Response) => [res.status, await res.json()];
@@ -315,6 +316,35 @@ describe('apagar a conta (spec 7.7)', () => {
     expect(await answer(await del(as(user)))).toEqual([401, { error: 'auth' }]); // a conta existe: só a sessão venceu
     expect(await answer(await del({}))).toEqual([401, { error: 'auth' }]); // sem o id da conta, nada a dizer
     expect(await env.DB.prepare('SELECT id FROM "user" WHERE id = ?').bind(user).first()).not.toBeNull(); // e nada foi apagado
+  });
+
+  // A mesma guarda das outras gravações: uma página de outra origem não ganha resposta (nem gone, nem auth), e a rajada vale também sem
+  // sessão, para que este caminho não martele o D1.
+  it('apagar a conta sem sessão passa pelo writeGuard e pela rajada, antes de ler o D1', async () => {
+    const reads: string[] = [];
+    const spy = new Proxy(env.DB, {
+      get(target, key) {
+        if (key === 'prepare') return (sql: string) => (reads.push(sql), target.prepare(sql));
+        const value = Reflect.get(target, key) as unknown;
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    const del = (headers: Record<string, string>, over: Partial<Env> = {}) =>
+      call('/api/account', { method: 'DELETE', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ email: 'x@exemplo.com' }) }, {
+        env: testEnv({ DB: spy, ...over }),
+        deps: testDeps({ user: null }),
+      });
+    const cross = await del({ ...as('conta-que-nao-existe'), Origin: 'https://outra.exemplo.com' });
+    expect([cross.status, await cross.json()]).toEqual([403, { error: 'origin' }]);
+    const plain = await call('/api/account', { method: 'DELETE', headers: as('conta-que-nao-existe'), body: '{}' }, { env: testEnv({ DB: spy }), deps: testDeps({ user: null }) });
+    expect(plain.status).toBe(415);
+    const busy = await del({ ...as('conta-que-nao-existe'), Origin: ORIGIN }, { API_BURST: { limit: async () => ({ success: false }) } });
+    expect([busy.status, await busy.json()]).toEqual([429, { error: 'limited' }]);
+    expect(reads).toEqual([]); // nada chegou ao D1
+    const keys: string[] = [];
+    await del({ ...as('conta-que-nao-existe'), Origin: ORIGIN }, { API_BURST: { limit: async ({ key }) => (keys.push(key), { success: true }) } });
+    expect(keys).toEqual(['conta-que-nao-existe']); // a rajada é por id da conta do cabeçalho
+    expect(reads).toHaveLength(1);
   });
 
   it('o objeto apagado não volta: com a sessão ainda aberta, o sync e a restauração recebem 401, e nada é gravado nem agendado', async () => {
