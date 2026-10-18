@@ -3,6 +3,7 @@
 //
 // Duas coisas andam numa fila única, na ordem em que foram pedidas: as leituras do banco (reload) e as contas depois de cada
 // solve gravado (afterSave). Assim, uma leitura que começou antes de um solve gravado não volta a esconder esse solve.
+import { untrack } from 'svelte';
 import { eventInfo } from '../../core/events';
 import { createSeasonTracker, defaultSeason, type MarkStatus, planAdvance, seasonKey } from '../../core/season';
 import { dayKey } from '../../core/stats';
@@ -255,8 +256,10 @@ export class AppState {
   importDraft = $state<CsTimerSession[] | null>(null); // sessões de um csTimer à espera de o evento ser escolhido
   importSummary = $state<string[] | null>(null); // linhas do resumo da última importação
   importBusy = $state(false); // uma importação (arquivo ou versão anterior) está gravando
-  timerBusy = $state(false); // o timer está na inspeção, armado, pronto ou rodando (a tela atualiza): o guia de instalação e o lembrete esperam
-  pendingInspect = $state(false); // o espaço segurado antes da inspeção (o timer ainda parado): conta como ocupado, como o timerBusy
+  // timerBusy, pendingInspect e trainerRunning (os getters e setters, depois do construtor): seguram o sync desta aba e o das outras.
+  private busyTimer = $state(false);
+  private busyInspect = $state(false);
+  private busyTrainer = $state(false);
   folderNeedsPermission = $state(false); // a pasta de cópias perdeu a permissão de gravar: Ajustes pede de novo, num clique
   private folderCheck = 0; // geração da última conferência da pasta: uma resposta velha não apaga a de uma tentativa mais nova
   solvesInFlight = $state(0); // addSolve ainda não voltou (o solve não está gravado nem na fila): o unsaved espera por ele
@@ -264,7 +267,6 @@ export class AppState {
   practice = $state.raw<Practice[]>([]); // as tentativas do treino, em ordem de at (lista de referência, como os solves)
   trailView = $state<TrailView>({ kind: 'home' });
   trailFlashes = $state(0); // soma 1 a cada vez que uma etapa nova fica marcada: o Centro da Trilha pisca a face lateral
-  trainerRunning = $state(false); // o timer do treino está rodando: os atalhos da tela do Timer esperam (a tecla que para não troca de aba)
 
   readonly account: AccountState | null; // a conta e o sync; null sem os deps (AppDeps.account)
   private repo: Repository; // troca quando a conexão é reaberta (useRepo)
@@ -341,6 +343,40 @@ export class AppState {
       onSaveError: (err) => {
         if (isConnectionError(err)) void this.reopenRepo();
       },
+    });
+  }
+
+  // O timer está na inspeção, armado, pronto ou rodando (a tela atualiza): o guia de instalação e o lembrete esperam.
+  get timerBusy(): boolean {
+    return this.busyTimer;
+  }
+  set timerBusy(busy: boolean) {
+    this.setBusy('busyTimer', busy);
+  }
+
+  // O espaço segurado antes da inspeção (o timer ainda parado): conta como ocupado, como o timerBusy.
+  get pendingInspect(): boolean {
+    return this.busyInspect;
+  }
+  set pendingInspect(busy: boolean) {
+    this.setBusy('busyInspect', busy);
+  }
+
+  // O timer do treino está rodando: os atalhos da tela do Timer esperam (a tecla que para não troca de aba).
+  get trainerRunning(): boolean {
+    return this.busyTrainer;
+  }
+  set trainerRunning(busy: boolean) {
+    this.setBusy('busyTrainer', busy);
+  }
+
+  // Os três seguram o sync de todas as abas (revisão final 5.5): só uma mudança de verdade avisa a conta, que conta às outras abas. Sem
+  // rastrear o que lê: quem escreve de dentro de um efeito não passa a depender destes campos (como na escrita de um $state comum).
+  private setBusy(key: 'busyTimer' | 'busyInspect' | 'busyTrainer', busy: boolean): void {
+    untrack(() => {
+      if (this[key] === busy) return;
+      this[key] = busy;
+      this.account?.busyChanged();
     });
   }
 

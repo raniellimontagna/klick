@@ -8,6 +8,8 @@ import type { Solve } from '../../src/core/types';
 import { createScrambleQueue } from '../../src/scramble/queue';
 import { T } from '../../src/strings';
 import { AppState, type AppDeps } from '../../src/ui/state/app.svelte';
+import { appWithAccount, fakeApi } from './sync-account';
+import { FakeServer } from './sync-fakes';
 
 let n = 0;
 let t = 1_791_500_000_000;
@@ -1846,3 +1848,25 @@ describe('estado do app: escritas próprias e avisos por tipo (parte B)', () => 
   });
 });
 
+
+// A revisão final, 5.5: o timer, o espaço segurado antes da inspeção e o treino seguram o sync de todas as abas. Cada mudança de verdade
+// avisa a conta, que conta às outras abas.
+describe('estado do app: o timer ocupado avisa a conta', () => {
+  it('mudar timerBusy, pendingInspect ou trainerRunning avisa a conta', async () => {
+    const { app } = await appWithAccount(fakeApi(new FakeServer()).api);
+    const told = vi.spyOn(app.account!, 'busyChanged');
+    app.timerBusy = true;
+    app.timerBusy = true; // o mesmo valor: nada a avisar
+    app.pendingInspect = true;
+    app.trainerRunning = true;
+    app.trainerRunning = true;
+    expect(told).toHaveBeenCalledTimes(3);
+    expect([app.timerBusy, app.pendingInspect, app.trainerRunning]).toEqual([true, true, true]);
+    app.timerBusy = false;
+    app.pendingInspect = false;
+    app.pendingInspect = false;
+    app.trainerRunning = false;
+    expect(told).toHaveBeenCalledTimes(6);
+    expect([app.timerBusy, app.pendingInspect, app.trainerRunning]).toEqual([false, false, false]);
+  });
+});

@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { SyncRequest, SyncResponse } from '../../src/core/sync/types';
 import { openKlickDb } from '../../src/data/db';
-import { createRepository, type Repository } from '../../src/data/repository';
+import { type ChannelLike, createRepository, type Repository } from '../../src/data/repository';
 import { T } from '../../src/strings';
 import { ApiError } from '../../src/sync/api';
 import type { SyncEngine } from '../../src/sync/engine';
-import type { LocksLike } from '../../src/sync/triggers';
+import type { LocksLike, TriggerEnv } from '../../src/sync/triggers';
+import { BUSY_BEAT_MS, BUSY_STALE_MS } from '../../src/ui/state/account.svelte';
 import type { AppState } from '../../src/ui/state/app.svelte';
 import { appWithAccount, bus, fakeApi, manualEnv } from './sync-account';
 import { FakeServer } from './sync-fakes';
@@ -700,5 +701,162 @@ describe('uma aba só sincroniza (spec 6.2)', () => {
     await first.app.account!.syncNow();
     expect(syncs).toHaveBeenCalled();
     await vi.waitFor(() => expect(first.app.account!.status.error).toBeNull());
+  });
+});
+
+// A revisão final, 5.5: um solve (ou a inspeção, ou o treino) em qualquer aba segura o sync da líder. Cada aba avisa pelo canal quando
+// fica ocupada ou livre, e repete o aviso enquanto está ocupada; a líder esquece a aba que some sem avisar.
+describe('a aba ocupada segura o sync de todas (revisão final 5.5)', () => {
+  // Os avisos 'busy' que passam pelo canal, vistos de uma aba a mais.
+  function busyLog(channel: ChannelLike) {
+    const seen: { type: string; tab: string; busy: boolean }[] = [];
+    channel.onmessage = (ev) => {
+      const m = ev.data as { type: string; tab: string; busy: boolean };
+      if (m.type === 'busy') seen.push(m);
+    };
+    return seen;
+  }
+
+  // Uma aba que nunca lidera (o lock fica com outra).
+  const never: LocksLike = { request: () => new Promise(() => undefined) };
+
+  it('as esperas da aba ocupada: BUSY_BEAT_MS 5 s e BUSY_STALE_MS 15 s', async () => {
+    expect([BUSY_BEAT_MS, BUSY_STALE_MS]).toEqual([5_000, 15_000]);
+    const make = bus();
+    const manual = manualEnv();
+    const delays: number[] = [];
+    const env: TriggerEnv = {
+      ...manual.env,
+      schedule: (fn, ms) => {
+        delays.push(ms);
+        return manual.env.schedule(fn, ms);
+      },
+    };
+    const { app } = await appWithAccount(fakeApi(new FakeServer()).api, { signedIn: true, locks: never, channel: make(), env });
+    const seen = busyLog(make());
+    delays.length = 0;
+    app.timerBusy = true;
+    expect(seen.map((m) => m.busy)).toEqual([true]);
+    expect(delays).toEqual([BUSY_BEAT_MS]);
+    manual.fireDelayed(); // 5 s depois, ainda ocupada: avisa de novo
+    expect(seen.map((m) => m.busy)).toEqual([true, true]);
+    expect(delays).toEqual([BUSY_BEAT_MS, BUSY_BEAT_MS]);
+    app.pendingInspect = true;
+    app.timerBusy = false; // o espaço segurado ainda a ocupa: nada muda
+    expect(seen.map((m) => m.busy)).toEqual([true, true]);
+    app.pendingInspect = false; // livre: avisa uma vez, e a repetição para
+    expect(seen.map((m) => m.busy)).toEqual([true, true, false]);
+    expect(manual.pending()).toBe(0);
+    app.trainerRunning = true;
+    app.account!.stop(); // a aba fecha no meio do treino: avisa que ficou livre
+    expect(seen.map((m) => m.busy)).toEqual([true, true, false, true, false]);
+    expect(manual.pending()).toBe(0);
+    expect(new Set(seen.map((m) => m.tab)).size).toBe(1); // sempre a mesma aba
+  });
+
+  it('a líder não começa uma rodada enquanto outra aba está ocupada, e começa quando ela fica livre', async () => {
+    const make = bus();
+    const locks = firstWins();
+    const net = fakeApi(new FakeServer());
+    const env = manualEnv();
+    const first = await appWithAccount(net.api, { signedIn: true, locks, channel: make(), env: env.env });
+    const second = await appWithAccount(net.api, { signedIn: true, locks, channel: make(), repo: first.repo });
+    expect([first.app.account!.leader, second.app.account!.leader]).toEqual([true, false]);
+    await vi.waitFor(() => expect(first.app.account!.status.phase).toBe('idle'));
+    const syncs = vi.spyOn(net.api, 'sync');
+    second.app.timerBusy = true; // um solve na outra aba
+    const round = first.app.account!.syncNow();
+    await sleep(10);
+    expect(syncs).not.toHaveBeenCalled();
+    env.fireDelayed(); // a espera do motor confere de novo: a outra aba segue ocupada
+    await sleep(10);
+    expect(syncs).not.toHaveBeenCalled();
+    expect(first.app.account!.status.phase).toBe('idle'); // a rodada nem começou
+    second.app.timerBusy = false;
+    env.fireDelayed();
+    await round;
+    expect(syncs).toHaveBeenCalled();
+  });
+
+  it('uma aba ocupada que some sem avisar deixa de segurar o sync depois de 15 s', async () => {
+    let t = Date.now();
+    const make = bus();
+    const locks = firstWins();
+    const net = fakeApi(new FakeServer());
+    const env = manualEnv();
+    const first = await appWithAccount(net.api, { signedIn: true, locks, channel: make(), env: env.env, now: () => t });
+    const busyChannel = make();
+    const second = await appWithAccount(net.api, { signedIn: true, locks, channel: busyChannel, repo: first.repo });
+    await vi.waitFor(() => expect(first.app.account!.status.phase).toBe('idle'));
+    second.app.timerBusy = true;
+    make.mute(busyChannel); // a aba do solve some sem avisar (o navegador a congelou, ou ela travou)
+    const syncs = vi.spyOn(net.api, 'sync');
+    const round = first.app.account!.syncNow();
+    t += BUSY_STALE_MS - 1;
+    env.fireDelayed();
+    await sleep(10);
+    expect(syncs).not.toHaveBeenCalled();
+    t += 1;
+    env.fireDelayed();
+    await round;
+    expect(syncs).toHaveBeenCalled();
+  });
+
+  it('a aba que assume quando a líder fecha também espera o solve de outra aba', async () => {
+    const make = bus();
+    const locks = queueLocks();
+    const net = fakeApi(new FakeServer());
+    const env = manualEnv();
+    const [a, b, c] = await tabRepos(3);
+    await a.saveSyncState({ accountId: 'conta-1', email: 'ranielli@exemplo.com', signedIn: true });
+    const first = await appWithAccount(net.api, { locks, channel: make(), repo: a });
+    const next = await appWithAccount(net.api, { locks, channel: make(), repo: b, env: env.env }); // a próxima da fila
+    const solving = await appWithAccount(net.api, { locks, channel: make(), repo: c });
+    await vi.waitFor(() => expect(first.app.account!.status.phase).toBe('idle'));
+    await vi.waitFor(() => expect(solving.app.account!.signedIn).toBe(true));
+    solving.app.timerBusy = true;
+    const syncs = vi.spyOn(net.api, 'sync');
+    first.app.account!.stop(); // a aba da líder fecha no meio do solve da outra
+    await vi.waitFor(() => expect(next.app.account!.leader).toBe(true));
+    await sleep(10);
+    expect(syncs).not.toHaveBeenCalled(); // a rodada de abrir da nova líder espera
+    solving.app.timerBusy = false;
+    env.fireDelayed();
+    await vi.waitFor(() => expect(syncs).toHaveBeenCalled());
+  });
+
+  it('a aba que abre durante o solve de outra fica sabendo dele: a aba ocupada responde ao pedido de estado', async () => {
+    const make = bus();
+    const net = fakeApi(new FakeServer());
+    const env = manualEnv();
+    const solving = await appWithAccount(net.api, { signedIn: true, locks: never, channel: make() });
+    solving.app.timerBusy = true; // ninguém ouviu ainda
+    const syncs = vi.spyOn(net.api, 'sync');
+    const opened = await appWithAccount(net.api, { signedIn: true, channel: make(), repo: solving.repo, env: env.env }); // lidera sozinha
+    expect(opened.app.account!.leader).toBe(true);
+    await sleep(10);
+    expect(syncs).not.toHaveBeenCalled(); // a rodada de abrir espera
+    solving.app.timerBusy = false;
+    env.fireDelayed();
+    await vi.waitFor(() => expect(syncs).toHaveBeenCalled());
+  });
+
+  it('sem conta, nenhuma mensagem busy sai', async () => {
+    const make = bus();
+    const env = manualEnv();
+    const { app } = await appWithAccount(fakeApi(new FakeServer()).api, { channel: make(), env: env.env });
+    const other = make();
+    const seen = busyLog(other);
+    app.timerBusy = true;
+    app.pendingInspect = true;
+    app.trainerRunning = true;
+    expect(env.pending()).toBe(0); // nenhuma repetição agendada
+    other.postMessage({ type: 'ask' }); // uma aba que abre pergunta o estado
+    app.timerBusy = false;
+    app.pendingInspect = false;
+    app.trainerRunning = false;
+    app.trainerRunning = true;
+    app.account!.stop();
+    expect(seen).toEqual([]);
   });
 });

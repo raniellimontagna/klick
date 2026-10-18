@@ -6,6 +6,7 @@ import { createRepository } from '../../src/data/repository';
 import { T } from '../../src/strings';
 import type { Captcha } from '../../src/sync/captcha';
 import SignInDialog from '../../src/ui/dialogs/SignInDialog.svelte';
+import type { AppState } from '../../src/ui/state/app.svelte';
 import { appWithAccount, bus, fakeApi, fakeAuth, manualEnv } from './sync-account';
 import { FakeServer } from './sync-fakes';
 
@@ -633,5 +634,113 @@ describe('o primeiro sync no diálogo segue o estado, não a promessa (Task 13)'
     await vi.waitFor(() => expect(screen.getByText('Pronto. Seus solves estão na conta.')).toBeInTheDocument());
     expect(account.sync.accountId).toBe('conta-2');
     expect(announce).not.toHaveBeenCalledWith(T.conta.syncFailedLive);
+  });
+});
+
+// A revisão final, 5.6: depois de chegar a "Pronto", o passo 4 fica nele até fechar, mesmo que outra rodada comece ou que outra aba pare o
+// sync. As linhas do resto que sobe amanhã e do limite seguem o estado da conta.
+describe('o "Pronto" do primeiro sync fica até fechar (revisão final 5.6)', () => {
+  const line = () => document.querySelector('[data-sync-line]');
+
+  // O diálogo numa aba com o canal do sync, já no "Pronto" do primeiro sync. A rodada seguinte fica "na rede" até o teste soltar `gate`.
+  async function atDone() {
+    const make = bus();
+    const net = fakeApi(new FakeServer());
+    const { app, repo } = await appWithAccount(net.api, { channel: make(), env: manualEnv().env });
+    await vi.waitFor(() => expect(app.account!.siteKey).not.toBeNull());
+    app.dialog = 'signin';
+    render(SignInDialog, { app, open: true });
+    await typeEmailAndCode();
+    await skipPasskey();
+    await vi.waitFor(() => expect(line()).toHaveTextContent(T.conta.done));
+    const real = net.api.sync;
+    const gate = deferred();
+    net.api.sync = async (req: SyncRequest): Promise<SyncResponse> => {
+      await gate.promise;
+      return real(req);
+    };
+    return { app, repo, otherTab: make(), gate };
+  }
+
+  it('depois de Pronto, outra rodada não tira o Pronto', async () => {
+    const { app, gate } = await atDone();
+    const round = app.account!.syncNow();
+    await vi.waitFor(() => expect(app.account!.status.phase).toBe('syncing'));
+    await sleep(10);
+    expect(line()).toHaveTextContent(T.conta.done);
+    expect(document.querySelector('[data-signin-step="sync"] [data-cube]')).toHaveAttribute('data-cube', 'solved');
+    expect(screen.queryByText(T.conta.keepsGoing)).toBeNull();
+    gate.resolve();
+    await round;
+    expect(line()).toHaveTextContent(T.conta.done);
+  });
+
+  it('depois de Pronto, sair noutra aba não tira o Pronto', async () => {
+    const { app, repo, otherTab, gate } = await atDone();
+    void app.account!.syncNow(); // uma rodada em andamento quando a outra aba sai
+    await vi.waitFor(() => expect(app.account!.status.phase).toBe('syncing'));
+    otherTab.postMessage({ type: 'stop', id: 'sair-na-outra-aba' }); // sair, noutra aba: o sync para em todas...
+    await repo.saveSyncState({ signedIn: false }); // ...e o aparelho sai da conta (o mesmo banco)
+    await vi.waitFor(() => expect(app.account!.signedIn).toBe(false));
+    await sleep(10);
+    expect(line()).toHaveTextContent(T.conta.done);
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByText(T.conta.keepsGoing)).toBeNull();
+    gate.resolve();
+  });
+});
+
+// A revisão final, 5.7: a rodada do diálogo é guardada antes de esperar a conferência do código. Fechado enquanto ela corre, o diálogo não
+// segue para o próximo passo; com dados de outra conta, a sessão nova sai, como no fechar da pergunta da outra conta.
+describe('fechar durante a conferência do código (revisão final 5.7)', () => {
+  // Segura a conferência "na rede" até o teste soltar.
+  function holdVerify(app: AppState) {
+    const account = app.account!;
+    const real = account.verifyCode.bind(account);
+    const gate = deferred();
+    vi.spyOn(account, 'verifyCode').mockImplementation(async (email, code) => {
+      await gate.promise;
+      return real(email, code);
+    });
+    return gate;
+  }
+
+  const closeDialog = () => (document.querySelector('dialog.signin') as HTMLDialogElement).close();
+
+  it('fechar durante a conferência de um primeiro login não continua a entrada', async () => {
+    const { app } = await openDialog();
+    const gate = holdVerify(app);
+    const continued = vi.spyOn(app.account!, 'continueSignIn');
+    await typeEmailAndCode();
+    expect(await screen.findByText('Conferindo o código…')).toBeInTheDocument();
+    closeDialog();
+    expect(app.dialog).toBeNull();
+    gate.resolve();
+    await sleep(400); // depois da cascata
+    expect(continued).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-signin-step]')).toHaveAttribute('data-signin-step', 'email');
+    expect(app.account!.signedIn).toBe(false);
+  });
+
+  it('fechar durante a conferência de outra conta sai da sessão nova', async () => {
+    const { auth, calls } = fakeAuth({ id: 'conta-2', email: 'outra@exemplo.com' });
+    const { app, repo } = await openDialog({ auth });
+    await repo.saveSyncState({ accountId: 'conta-1', signedIn: false });
+    document.documentElement.dataset.reducedMotion = 'true'; // o caminho sem a cascata (depois de abrir: o init do app escreve o atributo)
+    try {
+      const gate = holdVerify(app);
+      await typeEmailAndCode();
+      expect(await screen.findByText('Conferindo o código…')).toBeInTheDocument();
+      closeDialog();
+      expect(app.dialog).toBeNull();
+      gate.resolve();
+      await vi.waitFor(() => expect(calls).toContain('sign-out'));
+      await sleep(20);
+      expect(document.querySelector('[data-signin-step]')).toHaveAttribute('data-signin-step', 'email');
+      expect(screen.queryByRole('heading', { name: 'Este aparelho tem dados de outra conta' })).toBeNull();
+      expect(await repo.getSyncState()).toMatchObject({ accountId: 'conta-1', signedIn: false }); // nada muda aqui
+    } finally {
+      delete document.documentElement.dataset.reducedMotion;
+    }
   });
 });

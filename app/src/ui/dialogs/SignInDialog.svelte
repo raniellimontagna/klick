@@ -35,6 +35,9 @@
   let mode = $state<Mode>('join');
   let joining = $state(0); // solves deste aparelho que sobem (o aviso da spec 6.5)
   let requested = $state(false); // continueSignIn pediu o sync: daqui em diante, o passo 4 lê signInSync
+  // O passo 4 chegou a "Pronto" (revisão final 5.6): fica nele até fechar, mesmo que outra rodada comece ou que outra aba pare o sync. Só o
+  // "Pronto" fica: as linhas do resto que sobe amanhã e do limite seguem o estado da conta (doneLine, account.held).
+  let reachedDone = $state(false);
   let codeCube = $state<CubeState>('wave'); // o cubo do passo 2: a onda do código que acabou de sair, girando enquanto confere
   let codeOk = $state(false); // o código certo, durante a cascata verde
   // Cada abertura e cada fechamento começam uma vez nova: a resposta de continueSignIn que chega depois de fechar (ou de reabrir) não mexe
@@ -42,7 +45,8 @@
   let round = 0;
   const webauthn = typeof PublicKeyCredential !== 'undefined';
 
-  const progress = $derived(requested ? (account?.signInSync ?? null) : null);
+  const live = $derived(requested ? (account?.signInSync ?? null) : null);
+  const progress = $derived(reachedDone ? 'done' : live);
   // As peças do código: verdes no certo; vermelhas (e o tremor) só no código errado, enquanto o aviso dele está na tela, menos durante uma
   // nova conferência, para o tremor tocar de novo se ela também falhar; digitar limpa esse aviso (decisão 4). Vencido, tentativas demais e
   // falha de rede mostram o aviso de hoje, sem o vermelho: não é o código digitado que está errado.
@@ -51,6 +55,10 @@
   // Só a abertura zera o diálogo: o estado da conta muda no meio do fluxo (e o reset o lê), sem voltar ao passo 1.
   $effect(() => {
     if (open) untrack(reset);
+  });
+
+  $effect(() => {
+    if (live === 'done') reachedDone = true;
   });
 
   function reset(): void {
@@ -63,6 +71,7 @@
     mode = 'join';
     joining = 0;
     requested = false;
+    reachedDone = false;
     codeOk = false;
   }
 
@@ -146,6 +155,15 @@
     e.preventDefault();
     if (!account || busy || code.length !== 6) return;
     const ongoing = account;
+    // A vez desta conferência, guardada antes de esperar por ela (revisão final 5.7). Fechado (ou fechado e reaberto) durante a conferência
+    // ou a cascata, a vez nova não avança. Com dados de outra conta, desiste, como fechar na pergunta dela (spec 7.6): o aparelho não fica
+    // fora da conta de antes com a sessão nova aberta. No primeiro login e na volta, só para, como fechar no passo do código.
+    const mine = round;
+    const closed = (r: VerifyOutcome): boolean => {
+      if (mine === round) return false;
+      if (r.ok && r.next === 'other-account') void ongoing.cancelSignIn();
+      return true;
+    };
     busy = true;
     error = null; // o aviso da conferência anterior sai: não fica ao lado de "Conferindo…" nem da cascata verde, e uma falha igual volta anunciada
     codeCube = 'turn'; // e a linha "Conferindo o código…" ao lado dele
@@ -156,18 +174,12 @@
       result = { ok: false, reason: 'failed' }; // o banco falhou ao ler a conta deste aparelho
     }
     codeCube = 'idle';
+    if (closed(result)) return;
     // Os botões seguem desabilitados durante a cascata; com menos movimento, não há cascata nem espera.
     if (result.ok && !motionReduced()) {
       codeOk = true;
-      const mine = round;
       await new Promise((resolve) => setTimeout(resolve, CODE_OK_MS));
-      if (mine !== round) {
-        // Fechado (ou fechado e reaberto) durante a cascata: a vez nova não avança. Com dados de outra conta, desiste, como fechar na
-        // pergunta dela (spec 7.6): o aparelho não fica fora da conta de antes com a sessão nova aberta. No primeiro login e na volta, só
-        // para, como fechar no passo do código.
-        if (result.next === 'other-account') void ongoing.cancelSignIn();
-        return;
-      }
+      if (closed(result)) return;
     }
     busy = false;
     if (result.ok) await after(result.next);

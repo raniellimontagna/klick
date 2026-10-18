@@ -1,7 +1,8 @@
 // A conta e o sync na tela (spec 7 e 9): o estado que Ajustes, o diálogo de entrar e o indicador leem. O motor (sync/engine.ts) e os
 // gatilhos (sync/triggers.ts) ficam por trás. Só a aba líder (o lock 'klick-sync') sincroniza, e só ela escreve o cursor; as outras recebem
-// o estado pelo canal 'klick-sync' e pedem por ele "Sincronizar agora", o primeiro login, parar e voltar. Sem conta neste aparelho, ou com
-// a conta desligada no ambiente (spec 8.4), o motor não roda: nenhum pedido sai além de /api/health (spec 4.1).
+// o estado pelo canal 'klick-sync' e pedem por ele "Sincronizar agora", o primeiro login, parar e voltar. Pelo canal, cada aba também avisa
+// quando o timer dela fica ocupado ou livre: a líder espera o solve de qualquer aba. Sem conta neste aparelho, ou com a conta desligada no
+// ambiente (spec 8.4), o motor não roda: nenhum pedido sai além de /api/health (spec 4.1).
 import type { RestoreRefusal, SyncState } from '../../core/sync/types';
 import { newId } from '../../data/ids';
 import { defaultSyncState, LocalOnlyError, PendingChangesError, type ChangeKind, type ChangeOrigin, type ChannelLike, type Repository } from '../../data/repository';
@@ -17,6 +18,10 @@ const CHANNEL = 'klick-sync';
 // Quanto uma aba que não lidera espera a líder parar o motor (sair, apagar os dados). Sem resposta, segue: o repositório confere a conta
 // dentro da transação que junta um lote, e um banco apagado (ou de outra conta) não recebe nada.
 const STOP_WAIT_MS = 10_000;
+// Um solve, a inspeção ou o treino em qualquer aba segura o sync da líder (revisão final 5.5). A aba ocupada repete o aviso a cada
+// BUSY_BEAT_MS; a que fica BUSY_STALE_MS sem avisar (fechou ou travou no meio do solve) deixa de contar: a espera nunca vira bloqueio.
+export const BUSY_BEAT_MS = 5_000;
+export const BUSY_STALE_MS = 15_000;
 
 export interface AccountDeps {
   api: SyncApi;
@@ -59,7 +64,8 @@ type Message =
   // conta entrou de novo, e o erro de sessão sai também; sem ele (uma saída que falhou e desfez a parada), o erro fica (revisão final, C1).
   | { type: 'resume'; accountId?: string; signedIn?: boolean }
   | { type: 'resumed' } // ...a líder responde que voltou a aceitar rodadas
-  | { type: 'login'; account: Account }; // o primeiro login (ou a outra conta) pedido numa aba que não lidera (a resposta é o aviso 'sync')
+  | { type: 'login'; account: Account } // o primeiro login (ou a outra conta) pedido numa aba que não lidera (a resposta é o aviso 'sync')
+  | { type: 'busy'; tab: string; busy: boolean }; // a aba `tab` ficou ocupada (repetido enquanto está) ou livre; só numa conta
 
 // As mudanças que a fila de saída leva: uma gravação delas pede o sync 5 s depois da última ('meta' e 'sync' não sobem).
 const SYNCED_KINDS: readonly ChangeKind[] = ['solves', 'sessions', 'practice', 'profile', 'all'];
@@ -123,6 +129,13 @@ export class AccountState {
   // se uma parada o cancelou.
   private joining = $state<{ accountId: string; since: number; cancelled: boolean } | null>(null);
   private client: Promise<AuthClientLike> | null = null;
+  // O timer ocupado entre as abas (revisão final 5.5): o id desta aba nos avisos 'busy', o último aviso dela (ocupada) com a repetição
+  // agendada, e as outras abas ocupadas com a hora (host.now) do último aviso de cada uma. Todas guardam, não só a líder: qualquer uma pode
+  // liderar depois.
+  private readonly tab: string;
+  private told = false;
+  private beat: (() => void) | null = null;
+  private readonly busyTabs = new Map<string, number>();
 
   constructor(host: AccountHost, deps: AccountDeps) {
     this.host = host;
@@ -130,12 +143,13 @@ export class AccountState {
     this.env = deps.env ?? browserTriggerEnv();
     this.ownsChannel = deps.channel === undefined;
     this.channel = deps.channel === undefined ? defaultChannel() : deps.channel;
+    this.tab = newId(host.now());
     this.engine = createSyncEngine({
       repo: () => host.repo(),
       api: deps.api,
       now: () => host.now(),
       clock: deps.clock ?? createServerClock(),
-      busy: () => host.busy(),
+      busy: () => host.busy() || this.othersBusy(), // o motor espera o timer desta aba e o das outras
       backup: async () => {
         await createBackup(host.repo(), 'pre-sync', host.now());
       },
@@ -234,6 +248,7 @@ export class AccountState {
       if (!state.signedIn || state.accountId !== before.accountId) this.passkeys = null;
       // O primeiro login pedido à líder começou: a conta está gravada, dentro. Não precisa mais ser refeito.
       if (this.pendingLogin && state.signedIn && state.accountId === this.pendingLogin.accountId) this.pendingLogin = null;
+      this.busyChanged(); // entrou (noutra aba, no meio de um solve desta) ou saiu: o aviso de ocupada segue a conta
       this.held = state.signedIn ? await repo.heldCount() : 0; // fora da conta, Ajustes não mostra a linha: nada a ler
     } catch {
       // A conexão caiu (o AppState a reabre): o próximo aviso 'sync' relê.
@@ -251,6 +266,34 @@ export class AccountState {
     if (origin !== 'local' || !SYNCED_KINDS.includes(kind)) return;
     if (this.leader) this.triggers?.wrote();
     else this.post({ type: 'wrote' });
+  }
+
+  // Esta aba ficou ocupada ou livre (AppState avisa a cada mudança do timer, da inspeção e do treino). As outras ficam sabendo pelo canal, e a
+  // líder, qual for, não começa uma rodada enquanto alguma aba está ocupada (revisão final 5.5): o solve de uma não divide a máquina com o
+  // sync de outra. Ocupada, a aba repete o aviso a cada BUSY_BEAT_MS. Só numa conta: sem ela (ou sem canal), nenhum aviso sai.
+  busyChanged(): void {
+    if (this.closed || !this.channel) return;
+    const busy = this.signedIn && this.host.busy();
+    if (busy !== this.told) this.tellBusy(busy);
+  }
+
+  private tellBusy(busy: boolean): void {
+    this.told = busy;
+    this.beat?.();
+    this.beat = null;
+    this.post({ type: 'busy', tab: this.tab, busy });
+    if (!busy) return;
+    this.beat = this.env.schedule(() => {
+      this.beat = null;
+      this.tellBusy(this.signedIn && this.host.busy());
+    }, BUSY_BEAT_MS);
+  }
+
+  // Outra aba está ocupada? A que ficou BUSY_STALE_MS sem avisar sai do mapa; um relógio que voltou atrás também não segura mais que isso.
+  private othersBusy(): boolean {
+    const now = this.host.now();
+    for (const [tab, at] of this.busyTabs) if (Math.abs(now - at) >= BUSY_STALE_MS) this.busyTabs.delete(tab);
+    return this.busyTabs.size > 0;
   }
 
   // "Sincronizar agora" (spec 6.2): na aba líder, roda; nas outras, pede pelo canal.
@@ -629,6 +672,7 @@ export class AccountState {
   // A aba fecha (ou o AppState é trocado): solta o lock, para os gatilhos e o motor.
   stop(): void {
     this.closed = true;
+    if (this.told) this.tellBusy(false); // fechou no meio do solve: a líder não espera BUSY_STALE_MS por ela
     this.triggers?.stop();
     this.triggers = null;
     void this.engine.stop();
@@ -689,6 +733,12 @@ export class AccountState {
         break;
       case 'ask':
         if (this.leader) this.post({ type: 'status', status: this.engine.status() });
+        if (this.told) this.post({ type: 'busy', tab: this.tab, busy: true }); // a aba que abriu (e pode liderar) fica sabendo do solve daqui
+        break;
+      case 'busy':
+        if (typeof m.tab !== 'string') break;
+        if (m.busy === true) this.busyTabs.set(m.tab, this.host.now());
+        else this.busyTabs.delete(m.tab);
         break;
       case 'status':
         if (!this.leader && isStatus(m.status)) {
