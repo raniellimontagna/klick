@@ -262,6 +262,20 @@ describe('Ajustes: o que só está neste aparelho e as cópias pausadas', () => 
     await app.account!.syncNow();
     await vi.waitFor(() => expect(hint()).toHaveTextContent(T.conta.cloudHint));
   });
+
+  // Task 12: acima de SNAPSHOT_MAX_RECORDS registros (worker/limits.ts), a cópia do dia não sai e o sync diz 'size'.
+  it('Ajustes diz que a conta passou do tamanho', async () => {
+    const server = new FakeServer();
+    const { app } = await appWithAccount(fakeApi(server).api, { signedIn: true });
+    await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
+    render(AjustesScreen, { app });
+    const hint = () => screen.getByText(T.conta.cloud).closest('.setting')!.querySelector('small');
+    await vi.waitFor(() => expect(hint()).toHaveTextContent(T.conta.cloudHint));
+    server.copiesPaused = 'size';
+    await app.account!.syncNow();
+    await vi.waitFor(() => expect(hint()).toHaveTextContent('Cópias na nuvem pausadas: a conta passou do tamanho que o plano gratuito copia.'));
+    expect(T.conta.cloudPaused('size')).toBe('Cópias na nuvem pausadas: a conta passou do tamanho que o plano gratuito copia.');
+  });
 });
 
 // "Sincronizar agora" com o cubinho (spec visual 7 e decisão 9): o cubo gira enquanto sincroniza; a linha só fica verde depois do toque da pessoa.

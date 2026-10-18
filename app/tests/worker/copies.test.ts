@@ -4,14 +4,25 @@
 // stub.snapshot(T0), não pelo alarme: o mês das operações é o de T0, qualquer que seja o dia em que os testes rodam.
 import { runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
 import { env } from 'cloudflare:workers';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { restoreChanges } from '../../src/core/sync/restore';
 import { accountPrefsOf } from '../../src/core/sync/snapshot';
 import { ACCOUNT_HEADER, SYNC_PROTOCOL, type Change, type CloudCopies, type SyncResponse } from '../../src/core/sync/types';
 import type { KlickExport } from '../../src/core/types';
 import { storageUsed } from '../../worker/budget';
 import type { Env } from '../../worker/env';
-import { capsOf, COPIES_CACHE_MS, DAILY_WRITE_BUDGET, RESTORES_PER_DAY, STORAGE_HEADROOM, utcDay, utcMonth } from '../../worker/limits';
+import {
+  capsOf,
+  COPIES_CACHE_MS,
+  DAILY_WRITE_BUDGET,
+  REQUEST_ROWS,
+  RESTORES_PER_DAY,
+  rowsOf,
+  ROWS_PER_WRITE,
+  STORAGE_HEADROOM,
+  utcDay,
+  utcMonth,
+} from '../../worker/limits';
 import { dayOf, gunzipJson, preRestoreName, snapshotKey, snapshotPrefix } from '../../worker/snapshots';
 import { call, postJson, setState, stateOf, stubOf, T0, testDeps } from './helpers';
 
@@ -70,6 +81,32 @@ async function countR2(user: string): Promise<Record<string, number>> {
   });
   return calls;
 }
+
+// As vars dos tamanhos (Task 12) trocadas só no objeto da conta de `user` (o env que ele lê): undefined tira a var. A falha fechada e um
+// teto pequeno, sem mexer no wrangler.jsonc.
+type SizeVars = Partial<Record<'SNAPSHOT_MAX_RECORDS' | 'RESTORE_MAX_RECORDS', string | undefined>>;
+async function setVars(user: string, vars: SizeVars): Promise<void> {
+  await runInDurableObject(stubOf(user), (instance) => {
+    const o = instance as unknown as { env: Env };
+    o.env = { ...o.env, ...vars } as Env;
+  });
+}
+
+// N solves a mais na conta, direto no SQLite do objeto (uma conta grande sem milhares de pedidos), com as revisões depois das dela.
+async function seedSolves(user: string, n: number): Promise<void> {
+  await runInDurableObject(stubOf(user), (_o, state) => {
+    const sql = state.storage.sql;
+    const rev = Number(sql.exec<{ value: string }>("SELECT value FROM state WHERE key = 'rev'").toArray()[0]?.value ?? '0');
+    sql.exec(
+      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?)
+       INSERT INTO records (store, id, data, updated_at, deleted_at, deletion_stamp, rev, parent) SELECT 'solves', 'x' || i, ?, ?, NULL, ?, ? + i, 's1' FROM n`,
+      n, JSON.stringify(solve('x').data), T0, T0, rev,
+    );
+    sql.exec("UPDATE state SET value = ? WHERE key = 'rev'", String(rev + n));
+  });
+}
+const recordCount = (user: string): Promise<number> =>
+  runInDurableObject(stubOf(user), (_o, state) => state.storage.sql.exec<{ n: number }>('SELECT count(*) AS n FROM records').one().n);
 
 // O que uma restauração recusada não pode mudar: os registros e os contadores do objeto, e as cópias no R2.
 const accountOf = (user: string) =>
@@ -262,22 +299,19 @@ describe('restaurar dentro do grátis (decisões 1, 2 e 3)', () => {
     expect(await objectsOf(user)).toEqual([snapshotKey(user, dayOf(T0))]);
   });
 
-  it('acima de 20 mil gravações, 413 too-big; acima do que sobra hoje, 429 write-budget', async () => {
+  // O orçamento do dia conta linhas (Task 12): ROWS_PER_WRITE por gravação, mais as do estado (rowsOf).
+  it('acima das linhas de um dia, 413 too-big; acima do que sobra hoje, 429 write-budget', async () => {
     const big = 'restaura-grande';
     await sync(big, [session, solve('a')]);
     await stubOf(big).snapshot(T0);
-    // Depois da cópia, a conta ganhou 20 mil solves (direto no SQLite do objeto): restaurar o dia mandaria todos eles para a lixeira.
-    await runInDurableObject(stubOf(big), (_o, state) => {
-      const sql = state.storage.sql;
-      sql.exec(
-        `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ${DAILY_WRITE_BUDGET})
-         INSERT INTO records (store, id, data, updated_at, deleted_at, deletion_stamp, rev, parent) SELECT 'solves', 'x' || i, ?, ?, NULL, ?, 2 + i, 's1' FROM n`,
-        JSON.stringify(solve('x').data), T0, T0,
-      );
-      sql.exec("UPDATE state SET value = ? WHERE key = 'rev'", String(2 + DAILY_WRITE_BUDGET));
-    });
+    // Depois da cópia, a conta ganhou solves (direto no SQLite do objeto): restaurar o dia mandaria todos eles para a lixeira, e as gravações
+    // passam das linhas de um dia. O teto de registros sobe só neste objeto, para as linhas decidirem (e não o tamanho da conta).
+    await seedSolves(big, Math.floor((DAILY_WRITE_BUDGET - REQUEST_ROWS) / ROWS_PER_WRITE));
+    await setVars(big, { RESTORE_MAX_RECORDS: '1000000' });
     const account = await accountOf(big);
+    const r2 = await countR2(big);
     expect(await restore(big, dayOf(T0), T0 + 1000)).toEqual({ status: 413, body: { error: 'too-big' } });
+    expect(r2.get).toBe(1); // a cópia foi lida: decidiram as linhas
     expect(await accountOf(big)).toEqual(account);
     expect(await objectsOf(big)).toEqual([snapshotKey(big, dayOf(T0))]);
 
@@ -286,13 +320,84 @@ describe('restaurar dentro do grátis (decisões 1, 2 e 3)', () => {
     await stubOf(small).snapshot(T0);
     await sync(small, [solve('extra')]);
     const n = await restoreCount(small, dayOf(T0)); // a sessão e o solve a de novo, o extra para a lixeira e os ajustes da conta
-    await setState(small, 'writes', { day: utcDay(T0), n: DAILY_WRITE_BUDGET - n + 1 });
+    await setState(small, 'writes', { day: utcDay(T0), n: DAILY_WRITE_BUDGET - rowsOf(n) + 1 });
     const before = await accountOf(small);
     expect(await restore(small, dayOf(T0), T0 + 1000)).toEqual({ status: 429, body: { error: 'write-budget' } });
     expect(await accountOf(small)).toEqual(before);
-    await setState(small, 'writes', { day: utcDay(T0), n: DAILY_WRITE_BUDGET - n });
+    await setState(small, 'writes', { day: utcDay(T0), n: DAILY_WRITE_BUDGET - rowsOf(n) });
     expect((await restore(small, dayOf(T0), T0 + 2000)).status).toBe(204);
     expect(JSON.parse((await stateOf(small, 'writes'))!)).toEqual({ day: utcDay(T0), n: DAILY_WRITE_BUDGET }); // as gravações contam no dia
+  });
+});
+
+// Os tamanhos que cabem (Task 12, na leitura de 30 s do limite de CPU dos Durable Objects): acima de SNAPSHOT_MAX_RECORDS registros, a
+// cópia do dia não sai; acima de RESTORE_MAX_RECORDS, a restauração é recusada antes de ler o R2. As duas são vars do wrangler.jsonc, e
+// uma var ausente ou torta vale 0: nenhuma cópia, nenhuma restauração.
+describe('os tamanhos que cabem: a cópia e a restauração (Task 12)', () => {
+  it('acima de SNAPSHOT_MAX_RECORDS a cópia do dia não sai e o sync diz paused "size"', async () => {
+    const user = 'copia-tamanho';
+    await sync(user, [session, solve('a')]);
+    await seedSolves(user, caps.snapshotRecords - 1);
+    expect(await recordCount(user)).toBe(caps.snapshotRecords + 1);
+    expect(await stubOf(user).snapshot(T0)).toBe(false);
+    expect(await objectsOf(user)).toEqual([]);
+    expect(await stateOf(user, 'snapshotRev')).toBeNull(); // não marca: tenta de novo no dia seguinte
+    expect([await storageUsed(env.DB), await opsOf('A')]).toEqual([0, 0]); // nem o espaço nem a operação A foram reservados
+    expect((await sync(user, [])).copiesPaused).toBe('size');
+    expect(await list(user)).toEqual({ status: 200, body: { copies: [], paused: 'size' } });
+    // O alarme: não grava, continua pausado e marca o de amanhã.
+    expect(await runDurableObjectAlarm(stubOf(user))).toBe(true);
+    expect(await objectsOf(user)).toEqual([]);
+    expect(await runInDurableObject(stubOf(user), (_o, state) => state.storage.getAlarm())).toBeGreaterThan(Date.now());
+    expect((await sync(user, [])).copiesPaused).toBe('size');
+  });
+
+  it('acima de RESTORE_MAX_RECORDS, 413 too-big', async () => {
+    const user = 'restaura-tamanho';
+    await sync(user, [session, solve('a')]);
+    await stubOf(user).snapshot(T0);
+    await seedSolves(user, caps.restoreRecords - 1);
+    expect(await recordCount(user)).toBe(caps.restoreRecords + 1);
+    const account = await accountOf(user);
+    const opsB = await opsOf('B');
+    const r2 = await countR2(user);
+    expect(await restore(user, dayOf(T0), T0 + 1000)).toEqual({ status: 413, body: { error: 'too-big' } });
+    expect(r2).toEqual({}); // um COUNT só: nem o R2, nem a cópia aberta
+    expect(await opsOf('B')).toBe(opsB); // nem as operações B do mês
+    expect(await accountOf(user)).toEqual(account);
+    // No teto, a conta passa por essa conferência e a cópia é lida (aqui, as linhas de um dia é que recusam).
+    await runInDurableObject(stubOf(user), (_o, state) => state.storage.sql.exec("DELETE FROM records WHERE store = 'solves' AND id = 'x1'"));
+    expect(await recordCount(user)).toBe(caps.restoreRecords);
+    expect((await restore(user, dayOf(T0), T0 + 2000)).status).toBe(413);
+    expect(r2.get).toBe(1);
+  });
+
+  it('sem as vars (ausentes ou tortas), nenhuma cópia sai ("size") e toda restauração é 413 too-big, sem perguntar ao R2', async () => {
+    const user = 'tamanhos-sem-vars';
+    await sync(user, [session, solve('a')]);
+    expect(await stubOf(user).snapshot(T0)).toBe(true); // com as vars do wrangler.jsonc, a cópia sai
+    await sync(user, [solve('b')]);
+    const out = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      for (const bad of [undefined, '', '0', '55k']) {
+        await setVars(user, { SNAPSHOT_MAX_RECORDS: bad, RESTORE_MAX_RECORDS: bad });
+        const r2 = await countR2(user);
+        expect(await stubOf(user).snapshot(T0 + DAY), String(bad)).toBe(false);
+        expect(await restore(user, dayOf(T0), T0 + DAY), String(bad)).toEqual({ status: 413, body: { error: 'too-big' } });
+        expect(r2, String(bad)).toEqual({});
+        expect((await sync(user, [])).copiesPaused, String(bad)).toBe('size');
+      }
+      const logged = out.mock.calls.flat().map(String);
+      expect(logged).toContain(JSON.stringify({ evt: 'cap-missing', name: 'SNAPSHOT_MAX_RECORDS' }));
+      expect(logged).toContain(JSON.stringify({ evt: 'cap-missing', name: 'RESTORE_MAX_RECORDS' }));
+    } finally {
+      out.mockRestore();
+    }
+    // Com um teto em que a conta cabe (3 registros), a cópia volta, a pausa sai, e a restauração passa.
+    await setVars(user, { SNAPSHOT_MAX_RECORDS: '3', RESTORE_MAX_RECORDS: '3' });
+    expect(await stubOf(user).snapshot(T0 + DAY)).toBe(true);
+    expect((await sync(user, [])).copiesPaused).toBeNull();
+    expect((await restore(user, dayOf(T0), T0 + DAY + 1000)).status).toBe(204);
   });
 });
 

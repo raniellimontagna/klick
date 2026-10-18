@@ -19,6 +19,8 @@ export interface Env {
   R2_CLASS_B_MONTH: string; // ler no R2 por mês
   MAIL_PER_DAY: string; // códigos por e-mail enviados por dia UTC
   MAIL_PER_MONTH: string; // e por mês UTC
+  SNAPSHOT_MAX_RECORDS: string; // acima destes registros, a conta não tem cópia do dia (Task 12)
+  RESTORE_MAX_RECORDS: string; // acima destes registros, a restauração é recusada (Task 12)
   BETTER_AUTH_SECRET: string; // segredo
   TURNSTILE_SECRET: string; // segredo; sem ele, a Cloudflare recusa todo token e nenhum código é pedido
   RESEND_API_KEY?: string; // segredo; sem ele, nenhum e-mail sai

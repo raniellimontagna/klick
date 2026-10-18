@@ -9,7 +9,7 @@
 // fila, e nada sobe antes de `retryAt` (pushAfter, no estado do sync): a rodada só recebe.
 import { BUILD_ID } from '../build';
 import { QUOTA_REASON } from '../core/sync/limits';
-import { SYNC_BATCH, SYNC_PROTOCOL, syncKey, type Change, type CopiesPaused, type OutboxEntry } from '../core/sync/types';
+import { isCopiesPaused, SYNC_BATCH, SYNC_PROTOCOL, syncKey, type Change, type CopiesPaused, type OutboxEntry } from '../core/sync/types';
 import { AccountChangedError, type Repository } from '../data/repository';
 import { ApiError, type SyncApi } from './api';
 
@@ -131,7 +131,7 @@ const hasDeletion = (changes: readonly Change[]): boolean => changes.some((c) =>
 // tamanho do lote; `retryAt`, um inteiro seguro; `copiesPaused`, undefined quando não veio ou veio torto (o estado fica como está).
 const deferredOf = (v: unknown, sent: number): number => (Number.isSafeInteger(v) && (v as number) > 0 ? Math.min(v as number, sent) : 0);
 const retryAtOf = (v: unknown): number | null => (Number.isSafeInteger(v) ? (v as number) : null);
-const copiesPausedOf = (v: unknown): CopiesPaused | null | undefined => (v === null || v === 'space' || v === 'ops' ? v : undefined);
+const copiesPausedOf = (v: unknown): CopiesPaused | null | undefined => (v === null || isCopiesPaused(v) ? v : undefined);
 
 // Uma rodada que não pode continuar por algo do servidor que não é um código HTTP (o cursor parado, um laço sem fim): erro do servidor e
 // nova tentativa. A mensagem vai para o log: só contagens e cursores.
@@ -206,7 +206,9 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
   // adiado, a espera é a que o servidor pede pelo relógio dele (retryAt − serverTime; sem serverTime, retryAt − agora), de 0 a
   // MAX_BUDGET_WAIT_MS, e pushAfter = agora + espera, no relógio deste aparelho, gravado com o cursor: um aparelho com a data errada (dias
   // atrás ou à frente) espera o mesmo que os outros. `later`: o resto da fila fica para depois (pushAfter no futuro, ou um lote do qual o
-  // servidor não leu nada: mandá-lo de novo na mesma rodada só repetiria o pedido).
+  // servidor não leu nada: mandá-lo de novo na mesma rodada só repetiria o pedido). O corte de um pedido (o servidor lê no máximo
+  // MAX_WRITES_PER_REQUEST, worker/limits.ts) volta com retryAt = a hora do servidor: a espera é 0, ele leu alguma coisa, e o resto sobe na
+  // mesma rodada.
   async function exchange(
     wants: boolean,
     accountId: string,

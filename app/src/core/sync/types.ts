@@ -20,7 +20,9 @@ export interface Change {
 // orçamento do dia (endurecimento 4.1): um app de antes leria "cota" e o resto adiado como uma recusa comum e tiraria da fila o que só
 // existe nele.
 export const SYNC_PROTOCOL = 2;
-export const SYNC_BATCH = 500; // mudanças por pedido, nos dois sentidos
+// Mudanças por pedido que o app manda: o que o servidor lê de uma vez (MAX_WRITES_PER_REQUEST, worker/limits.ts, Task 12). A página de
+// volta é do servidor (PULL_PAGE), e `more` e o cursor cobrem qualquer tamanho dela.
+export const SYNC_BATCH = 250;
 // A maior data do sync: 2^32 ms (uns 50 dias) abaixo do maior inteiro seguro. O servidor recusa datas acima dela (shape.ts), e o relógio dos
 // aparelhos fica abaixo dela (data/repository.ts): toda data que um aparelho grava é aceita, e um registro nunca fica com uma data que
 // nenhum aparelho consegue passar (ele nunca mais seria editado nem apagado).
@@ -52,8 +54,10 @@ export interface SyncResponse {
   cursor: number;
   more: boolean;
   serverTime: number;
-  deferred?: number; // as últimas N mudanças do lote não foram lidas (o orçamento de gravações do dia acabou): continuam na fila
-  retryAt?: number; // quando mandar de novo o que foi adiado (a virada do dia do orçamento)
+  // As últimas N mudanças do lote não foram lidas (o orçamento de gravações do dia acabou, ou o pedido passou de MAX_WRITES_PER_REQUEST):
+  // continuam na fila.
+  deferred?: number;
+  retryAt?: number; // quando mandar de novo o que foi adiado: a virada do dia do orçamento, ou a hora do pedido (o corte do pedido: já)
   copiesPaused?: CopiesPaused | null; // as cópias na nuvem da conta estão pausadas, e por quê
 }
 
@@ -112,13 +116,17 @@ export interface CloudCopy {
   solves: number; // solves ativos na cópia
 }
 
-// Por que as cópias na nuvem estão pausadas (endurecimento 4.2 e decisão 1): o teto de espaço das cópias encheu ('space'), ou o de
-// operações do R2 no mês acabou ('ops'). Quem diz, e o que quer dizer:
+// Por que as cópias na nuvem estão pausadas (endurecimento 4.2 e decisões 1 e 2): o teto de espaço das cópias encheu ('space'), o de
+// operações do R2 no mês acabou ('ops'), ou a conta passou do tamanho que o plano gratuito copia ('size': mais registros que
+// SNAPSHOT_MAX_RECORDS, worker/limits.ts, Task 12; os registros nunca diminuem, então ela fica até o teto subir). Quem diz, e o que quer
+// dizer:
 // - `SyncResponse.copiesPaused` é o estado da cópia do dia: a última tentativa não gravou por isso, e a de amanhã tenta de novo (null: a
 //   última foi gravada, ou nenhuma foi recusada).
 // - `CloudCopies.paused` é esse mesmo estado; e, quando a lista vem guardada porque não houve operação para listar o R2 de novo, 'ops'
 //   também quer dizer "a lista não se renovou este mês" (ela pode estar velha), mesmo que a cópia do dia ainda não tenha sido recusada.
-export type CopiesPaused = 'space' | 'ops';
+export type CopiesPaused = 'space' | 'ops' | 'size';
+export const COPIES_PAUSED: readonly CopiesPaused[] = Object.freeze(['space', 'ops', 'size'] as const);
+export const isCopiesPaused = (v: unknown): v is CopiesPaused => COPIES_PAUSED.includes(v as CopiesPaused);
 
 // A lista de cópias na nuvem, com a pausa (null quando as cópias seguem).
 export interface CloudCopies {
@@ -127,6 +135,6 @@ export interface CloudCopies {
 }
 
 // Por que uma restauração foi recusada (decisões 1, 2, 3 e 6): sem espaço para a cópia de antes de restaurar (no-room), restaurações demais
-// no dia (restore-limit), sem operações do R2 no mês (r2-budget), mais mudanças que o orçamento de gravações de um dia inteiro (too-big) ou
-// que o que sobra dele hoje (write-budget).
+// no dia (restore-limit), sem operações do R2 no mês (r2-budget), uma conta maior que RESTORE_MAX_RECORDS ou mudanças que gravam mais linhas
+// que o orçamento de um dia inteiro (too-big), ou que o que sobra dele hoje (write-budget).
 export type RestoreRefusal = 'no-room' | 'restore-limit' | 'r2-budget' | 'too-big' | 'write-budget';

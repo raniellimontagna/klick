@@ -6,7 +6,7 @@ import { ACCOUNT_HEADER, SYNC_PROTOCOL, type Change, type CloudCopies, type Clou
 import type { KlickExport } from '../../src/core/types';
 import { emailKeyOf } from '../../worker/abuse';
 import type { Env } from '../../worker/env';
-import { COMPACT_PER_DAY, DAILY_WRITE_BUDGET, utcDay } from '../../worker/limits';
+import { COMPACT_PER_DAY, DAILY_WRITE_BUDGET, MAX_WRITES_PER_REQUEST, rowsOf, utcDay } from '../../worker/limits';
 import { COMPACTABLE } from '../../worker/records-sql';
 import { dayOf, gunzipJson, nextSnapshotAt, preRestoreName, snapshotKey, snapshotPrefix } from '../../worker/snapshots';
 import { authDeps, call, ORIGIN, postJson, setState, stateOf, stubOf, T0, testDeps, testEnv } from './helpers';
@@ -139,16 +139,16 @@ describe('a marca compactada no alarme (decisão 5)', () => {
     expect(after.get('vivo')).toEqual(before.get('vivo'));
     expect(Number(await stateOf(user, 'bytes'))).toBe(bytes - (before.get('velho')!.data.length - '{}'.length));
     expect(await stateOf(user, 'active')).toBe(active);
-    expect((JSON.parse((await stateOf(user, 'writes'))!) as { n: number }).n).toBe(1); // conta no orçamento do dia de hoje
+    expect((JSON.parse((await stateOf(user, 'writes'))!) as { n: number }).n).toBe(rowsOf(0, 1)); // conta no orçamento do dia de hoje, em linhas
   });
 
   it('no máximo COMPACT_PER_DAY por alarme', async () => {
     const user = 'conta-marcas';
     const old = Date.now() - TOMBSTONE_KEEP_MS - HOUR;
     const all = Array.from({ length: COMPACT_PER_DAY + 5 }, (_, i) => gone(`m${i}`, old));
-    for (let i = 0; i < all.length; i += 500) await sync(user, all.slice(i, i + 500));
-    // O orçamento de gravações do dia também segura a compactação: com 3 de folga, 3 marcas.
-    await setState(user, 'writes', { day: utcDay(Date.now()), n: DAILY_WRITE_BUDGET - 3 });
+    for (let i = 0; i < all.length; i += MAX_WRITES_PER_REQUEST) await sync(user, all.slice(i, i + MAX_WRITES_PER_REQUEST));
+    // O orçamento de gravações do dia também segura a compactação: com as linhas de 3 de folga, 3 marcas.
+    await setState(user, 'writes', { day: utcDay(Date.now()), n: DAILY_WRITE_BUDGET - rowsOf(0, 3) });
     expect(await runDurableObjectAlarm(stubOf(user))).toBe(true);
     expect(await marks(user)).toBe(3);
     await setState(user, 'writes', { day: utcDay(Date.now()), n: 0 });

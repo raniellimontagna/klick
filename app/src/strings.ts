@@ -723,7 +723,11 @@ export const T = Object.freeze({
     cloudGone: 'Esta cópia não existe mais. A lista foi atualizada.',
     // As cópias pausadas e as recusas da restauração (endurecimento 4.2 e decisões 1, 2, 3 e 6): cada uma diz por quê, e nada muda aqui.
     cloudPaused: (why: CopiesPaused): string =>
-      why === 'space' ? 'Cópias na nuvem pausadas: o espaço gratuito encheu.' : 'Cópias na nuvem pausadas até o mês que vem: o limite gratuito do mês acabou.',
+      ({
+        space: 'Cópias na nuvem pausadas: o espaço gratuito encheu.',
+        ops: 'Cópias na nuvem pausadas até o mês que vem: o limite gratuito do mês acabou.',
+        size: 'Cópias na nuvem pausadas: a conta passou do tamanho que o plano gratuito copia.', // SNAPSHOT_MAX_RECORDS (Task 12)
+      })[why],
     cloudNoRoom: 'Não há espaço para guardar o estado de agora antes de restaurar. Tudo continua como estava.',
     cloudRestoreLimit: 'Já foram restaurações demais hoje. Tente de novo amanhã.',
     cloudOpsLimit: 'As cópias na nuvem pararam até o mês que vem: o limite gratuito acabou. Tudo continua como estava.',

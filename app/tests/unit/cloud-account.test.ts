@@ -213,6 +213,10 @@ describe('cópias na nuvem: pausas e recusas', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Ver cópias na nuvem' }));
     expect(await screen.findByText('Cópias na nuvem pausadas: o espaço gratuito encheu.')).toBeInTheDocument();
     await fireEvent.click(screen.getByRole('button', { name: 'Fechar' }));
+    paused = 'size';
+    await fireEvent.click(screen.getByRole('button', { name: 'Ver cópias na nuvem' }));
+    expect(await screen.findByText('Cópias na nuvem pausadas: a conta passou do tamanho que o plano gratuito copia.')).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: 'Fechar' }));
     paused = null;
     await fireEvent.click(screen.getByRole('button', { name: 'Ver cópias na nuvem' }));
     await screen.findByText('3 solves');
@@ -471,6 +475,7 @@ describe('cliente HTTP das cópias e da conta (Task 17)', () => {
     const list = (paused: unknown) => createSyncApi(async () => Response.json({ copies, paused })).cloudCopies('conta-1');
     expect(await list('space')).toEqual({ copies, paused: 'space' });
     expect(await list('ops')).toEqual({ copies, paused: 'ops' });
+    expect(await list('size')).toEqual({ copies, paused: 'size' });
     expect(await list(null)).toEqual({ copies, paused: null });
     expect(await list('cheio')).toEqual({ copies, paused: null });
     expect(await list(undefined)).toEqual({ copies, paused: null });

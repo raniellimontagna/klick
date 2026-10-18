@@ -2,6 +2,7 @@
 // entendem; nada aqui guarda estado.
 import {
   ACCOUNT_HEADER,
+  isCopiesPaused,
   type CloudCopies,
   type CloudCopy,
   type CopiesPaused,
@@ -79,7 +80,7 @@ async function codeOf(res: Response): Promise<string | null> {
 }
 
 // A pausa das cópias que a lista traz; o que não for uma delas vale null (as cópias seguem).
-const pausedOf = (v: unknown): CopiesPaused | null => (v === 'space' || v === 'ops' ? v : null);
+const pausedOf = (v: unknown): CopiesPaused | null => (isCopiesPaused(v) ? v : null);
 
 // A resposta do sync tem a forma que o motor usa? Uma que não tem (um proxy no meio, um Worker de outra versão) não pode tirar nada da fila
 // nem mexer no cursor. O cursor é uma revisão: inteiro seguro >= 0. Sem `rejected`, a lista vem vazia.

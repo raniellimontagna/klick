@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { canonicalJson } from '../../src/core/sync/merge';
 import { MAX_DATA_CHARS } from '../../src/core/sync/shape';
 import { SYNC_PROTOCOL, type Change, type SyncResponse } from '../../src/core/sync/types';
+import { MAX_SYNC_REQUEST, MAX_WRITES_PER_REQUEST, PULL_PAGE } from '../../worker/limits';
 import { MAX_BODY } from '../../worker/router';
 import { call, ORIGIN, postJson, T0, testDeps, testEnv } from './helpers';
 
@@ -35,12 +36,12 @@ describe('POST /api/sync (spec 6.1 e 8.2)', () => {
     expect((await sync('conta-a', [], 2, 'd2')).changes).toEqual([]);
   });
 
-  it('lotes de 500: `more` diz que há mais, e o cursor avança', async () => {
-    const changes = Array.from({ length: 500 }, (_, i) => solve(`b${String(i).padStart(3, '0')}`));
-    await sync('conta-lotes', changes);
+  it('em páginas de PULL_PAGE para quem só recebe: `more` diz que há mais, e o cursor avança', async () => {
+    const changes = Array.from({ length: PULL_PAGE }, (_, i) => solve(`b${String(i).padStart(3, '0')}`));
+    for (let i = 0; i < changes.length; i += MAX_WRITES_PER_REQUEST) await sync('conta-lotes', changes.slice(i, i + MAX_WRITES_PER_REQUEST));
     await sync('conta-lotes', [solve('b500')]);
     const page = await sync('conta-lotes', [], 0, 'd2');
-    expect([page.changes.length, page.more, page.cursor]).toEqual([500, true, 500]);
+    expect([page.changes.length, page.more, page.cursor]).toEqual([PULL_PAGE, true, PULL_PAGE]);
     const rest = await sync('conta-lotes', [], page.cursor, 'd2');
     expect([rest.changes.length, rest.more]).toEqual([1, false]);
   });
@@ -82,8 +83,8 @@ describe('POST /api/sync (spec 6.1 e 8.2)', () => {
     expect((await call('/api/sync', postJson({ v: 1, deviceId: 'd', cursor: 0, clock: 0, changes: [] }), { deps })).status).toBe(426);
     expect((await call('/api/sync', { method: 'POST', body: '{}' }, { deps })).status).toBe(415);
     expect((await call('/api/sync', postJson({ v: SYNC_PROTOCOL }, { Origin: 'https://outro.site' }), { deps })).status).toBe(403);
-    const many = Array.from({ length: 501 }, (_, i) => solve(`m${i}`));
-    expect((await call('/api/sync', postJson({ v: SYNC_PROTOCOL, deviceId: 'd', cursor: 0, clock: 0, changes: many }), { deps })).status).toBe(400);
+    const many = Array.from({ length: MAX_SYNC_REQUEST + 1 }, (_, i) => solve(`m${i}`));
+    expect((await call('/api/sync', postJson({ v: SYNC_PROTOCOL, account: 'conta-x', deviceId: 'd', cursor: 0, clock: 0, changes: many }), { deps })).status).toBe(400);
     const busy = testEnv({ API_BURST: { limit: async () => ({ success: false }) } });
     expect((await call('/api/sync', postJson({ v: SYNC_PROTOCOL, deviceId: 'd', cursor: 0, clock: 0, changes: [] }), { deps, env: busy })).status).toBe(429);
   });
@@ -131,13 +132,15 @@ describe('POST /api/sync (spec 6.1 e 8.2)', () => {
     expect(res.changes.map((c) => [c.id, c.updatedAt, c.deletionStamp])).toEqual([['f', later, later]]);
   });
 
-  it('o limite do corpo: um lote cheio de verdade (500 mudanças no tamanho máximo) passa; acima de MAX_BODY, 413', async () => {
+  // O lote cheio de um app de antes da Task 12 (MAX_SYNC_REQUEST): o servidor aceita o pedido, lê MAX_WRITES_PER_REQUEST e adia o resto.
+  it('o limite do corpo: um lote cheio de verdade (MAX_SYNC_REQUEST mudanças no tamanho máximo) passa; acima de MAX_BODY, 413', async () => {
     const deps = testDeps({ user: 'conta-corpo' });
     const base = canonicalJson(solve('g').data).length;
-    const full = Array.from({ length: 500 }, (_, i) => solve(`g${i}-`.padEnd(96, 'g'), { note: 'n'.repeat(MAX_DATA_CHARS - base) }));
+    const full = Array.from({ length: MAX_SYNC_REQUEST }, (_, i) => solve(`g${i}-`.padEnd(96, 'g'), { note: 'n'.repeat(MAX_DATA_CHARS - base) }));
     const ok = await call('/api/sync', postJson({ v: SYNC_PROTOCOL, account: 'conta-corpo', deviceId: 'd'.repeat(64), cursor: 0, clock: T0, changes: full }), { deps });
     expect(ok.status).toBe(200);
-    expect(((await ok.json()) as SyncResponse).accepted).toBe(500);
+    const res = (await ok.json()) as SyncResponse;
+    expect([res.accepted, res.deferred, res.retryAt]).toEqual([MAX_WRITES_PER_REQUEST, MAX_SYNC_REQUEST - MAX_WRITES_PER_REQUEST, T0]);
     expect((await call('/api/sync', postJson('x'.repeat(MAX_BODY)), { deps })).status).toBe(413);
   });
 

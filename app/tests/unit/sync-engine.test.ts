@@ -1433,6 +1433,123 @@ describe('a cota e o orçamento do dia (endurecimento 4.1 e decisões 4 e 6)', (
     for (const x of round) expect(x.progress).toMatchObject({ sent: 0, total: 0 });
   });
 
+  // Task 12: o servidor lê no máximo MAX_WRITES_PER_REQUEST mudanças por pedido (o falso, `perRequest`) e devolve o resto com retryAt =
+  // agora: o motor não pausa (a espera é 0) nem acha que o servidor não leu nada (`stuck`), e manda o resto na mesma rodada.
+  it('um lote maior que MAX_WRITES_PER_REQUEST volta com deferred e retryAt = agora, e o motor manda o resto na mesma rodada', async () => {
+    const server = new FakeServer(500, { perRequest: 2 });
+    server.now = t;
+    const repo = await device();
+    const s = await repo.createSession({ event: '333' });
+    for (let i = 0; i < 4; i++) await repo.addSolve(ns(s.id, 1000 + i, t + i));
+    const net = network(server);
+    const answers: SyncResponse[] = [];
+    const real = net.api.sync;
+    net.api.sync = async (req) => {
+      const res = await real(req);
+      answers.push(res);
+      return res;
+    };
+    expect(await engineFor(repo, net).engine.run()).toMatchObject({ phase: 'idle', pending: 0, refused: 0, notice: null });
+    expect(net.calls.map((c) => c.changes.length)).toEqual([5, 3, 1]);
+    expect(answers.map((r) => [r.accepted, r.deferred, r.retryAt])).toEqual([[2, 3, t], [2, 1, t], [1, undefined, undefined]]);
+    expect(activeSolves(server)).toHaveLength(4);
+    expect((await repo.getSyncState()).pushAfter).toBeNull();
+  });
+
+  // Task 12 (a cascata): a exclusão de uma sessão conta, no orçamento do dia, os solves ativos que a cascata dela grava no servidor. A que
+  // não caberia nem num dia inteiro volta com o motivo da cota: fica guardada neste aparelho (nada se perde), a sessão continua apagada aqui
+  // (mesmo com outro aparelho mexendo nela), e Enviar de novo a leva quando a cascata cabe. O falso conta registros; o de verdade, linhas.
+  it('a exclusão de uma sessão grande demais para um dia fica só neste aparelho, continua apagada aqui, e Enviar de novo a leva quando cabe', async () => {
+    const server = new FakeServer();
+    server.now = t;
+    const phone = await device();
+    const desktop = await device();
+    const s = await phone.createSession({ event: '333' });
+    const mine = [];
+    for (let i = 0; i < 4; i++) mine.push(await phone.addSolve(ns(s.id, 1000 + i, t + i)));
+    const { engine } = engineFor(phone, network(server));
+    await engine.run();
+    const other = engineFor(desktop, network(server)).engine;
+    await other.run();
+    // Um dia com 4 registros de orçamento: a cascata da sessão grava ela e os 4 solves (5).
+    server.budget = 4;
+    server.newDay();
+    t += 10;
+    await phone.deleteSession(s.id);
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, refused: 0, notice: 'quota' });
+    expect(await phone.heldCount()).toBe(1);
+    expect(server.active().has(`sessions/${s.id}`)).toBe(true); // nada gravado para ela
+    expect(activeSolves(server)).toEqual([]); // os solves, que vieram no mesmo lote, cabem um a um
+    expect((await phone.listSessions()).map((x) => x.id)).not.toContain(s.id);
+    expect((await phone.listTrash()).sessions.map((x) => x.id)).toEqual([s.id]);
+    // No dia seguinte, outro aparelho mexe na sessão, que continua ativa no servidor: aqui ela continua apagada, e guardada.
+    t = (Math.floor(t / DAY) + 1) * DAY;
+    server.now = t;
+    server.newDay();
+    await desktop.renameSession(s.id, 'Outro nome');
+    await other.run();
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0 });
+    expect((await phone.listTrash()).sessions.map((x) => x.id)).toEqual([s.id]);
+    expect(await phone.heldCount()).toBe(1);
+    // Enviar de novo: sem solves ativos no servidor, a cascata cabe num dia, mas não no que sobra hoje: fica para amanhã, e então entra.
+    server.budget = 1; // o rename gastou o dia
+    expect(await phone.requeueHeld()).toBe(1);
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 1, notice: 'budget' });
+    expect(server.active().has(`sessions/${s.id}`)).toBe(true);
+    t = (Math.floor(t / DAY) + 1) * DAY;
+    server.now = t;
+    server.newDay();
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, notice: null });
+    expect(await phone.heldCount()).toBe(0);
+    expect(server.active().has(`sessions/${s.id}`)).toBe(false);
+    await other.run();
+    expect((await desktop.listSessions()).map((x) => x.id)).not.toContain(s.id);
+  });
+
+  // A mesma exclusão quando os solves da sessão vêm num pedido seguinte (o corte do pedido): a sessão já está guardada, e os solves dela
+  // esperam com ela na lista (Task 6). Nada se perde: no servidor eles continuam ativos, aqui continuam apagados, e Enviar de novo leva tudo.
+  it('os solves de uma sessão guardada que vêm depois esperam com ela, e Enviar de novo leva tudo quando a cascata cabe', async () => {
+    const server = new FakeServer(500, { perRequest: 2 });
+    server.now = t;
+    const phone = await device();
+    const s = await phone.createSession({ event: '333' });
+    for (let i = 0; i < 4; i++) await phone.addSolve(ns(s.id, 1000 + i, t + i));
+    const { engine } = engineFor(phone, network(server));
+    await engine.run();
+    expect(activeSolves(server)).toHaveLength(4);
+    server.budget = 4;
+    server.newDay();
+    t += 10;
+    server.now = t;
+    await phone.deleteSession(s.id);
+    // O primeiro pedido: a sessão (5 com a cascata, mais que o dia) volta com a cota, e o primeiro solve entra; o resto do lote volta para já,
+    // e os solves que sobraram, de uma sessão guardada, esperam com ela.
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, refused: 0, notice: 'quota' });
+    expect(await phone.heldCount()).toBe(4);
+    expect(server.active().has(`sessions/${s.id}`)).toBe(true);
+    expect(activeSolves(server)).toHaveLength(3);
+    expect(await phone.listSolves()).toEqual([]);
+    expect((await phone.listTrash()).solves).toHaveLength(4);
+    // Enviar de novo: a sessão e os 3 solves; a cascata (4) cabe num dia, mas não no que sobra (3): fica para amanhã.
+    expect(await phone.requeueHeld()).toBe(4);
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 4, notice: 'budget' });
+    expect(await phone.heldCount()).toBe(0);
+    // No dia seguinte a sessão entra com a cascata (4); as exclusões dos solves, que a cascata já fez lá, contam por cima e ficam para o
+    // outro dia.
+    t = (Math.floor(t / DAY) + 1) * DAY;
+    server.now = t;
+    server.newDay();
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 3, notice: 'budget' });
+    expect(server.active().has(`sessions/${s.id}`)).toBe(false);
+    expect(activeSolves(server)).toEqual([]);
+    t = (Math.floor(t / DAY) + 1) * DAY;
+    server.now = t;
+    server.newDay();
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, notice: null });
+    expect(await phone.heldCount()).toBe(0);
+    expect((await phone.listTrash()).solves).toHaveLength(4);
+  });
+
   it('a resposta grava copiesPaused no estado do sync', async () => {
     const server = new FakeServer();
     const repo = await device();
@@ -1444,6 +1561,9 @@ describe('a cota e o orçamento do dia (endurecimento 4.1 e decisões 4 e 6)', (
     server.copiesPaused = 'ops';
     await engine.run();
     expect((await repo.getSyncState()).copiesPaused).toBe('ops');
+    server.copiesPaused = 'size';
+    await engine.run();
+    expect((await repo.getSyncState()).copiesPaused).toBe('size');
     server.copiesPaused = null;
     await engine.run();
     expect((await repo.getSyncState()).copiesPaused).toBeNull();

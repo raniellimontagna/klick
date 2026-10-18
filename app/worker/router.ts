@@ -2,11 +2,12 @@
 // Sem um BETTER_AUTH_SECRET de verdade, as rotas da conta respondem 503. De /api/auth/*, só as rotas do Better Auth que o app usa; as outras
 // rotas da conta pedem sessão e a conta que o aparelho espera (a da sessão, senão 401), e falam com o Durable Object dela. O que não é /api
 // são os arquivos do app. Os logs levam só ids, contagens, durações e erros (spec 8.5).
-import { ACCOUNT_HEADER, SYNC_BATCH, SYNC_PROTOCOL, type RestoreRefusal, type SyncRequest, type SyncResponse } from '../src/core/sync/types';
+import { ACCOUNT_HEADER, SYNC_PROTOCOL, type RestoreRefusal, type SyncRequest, type SyncResponse } from '../src/core/sync/types';
 import { E2E_TOKEN, emailKeyOf, guardPasskeyOptions, guardSendCode, turnstileVerifier, type VerifyCaptcha } from './abuse';
 import { authSecretOk, createAuth, sessionUser, type User } from './auth';
 import { countOps } from './budget';
 import type { Env } from './env';
+import { MAX_SYNC_REQUEST } from './limits';
 import { e2eMailbox, e2eMailer, missingMailer, resendMailer, type Mailer } from './mail';
 import { SNAPSHOT_NAME, snapshotPrefix } from './snapshots';
 
@@ -17,8 +18,8 @@ export interface Deps {
   resolveUser: (request: Request, env: Env, ctx: ExecutionContext) => Promise<User | null>; // a sessão do pedido; os testes passam um falso
 }
 
-// Em caracteres do corpo. Um lote cheio de verdade, 500 mudanças de até 16 KB (a temporada, até 64 KB) mais o envelope de cada uma, dá
-// uns 8,4 MB: com a folga, ele nunca leva 413.
+// Em caracteres do corpo. Um lote cheio de verdade, MAX_SYNC_REQUEST (500) mudanças de até 16 KB (a temporada, até 64 KB) mais o
+// envelope de cada uma, dá uns 8,4 MB: com a folga, ele nunca leva 413.
 export const MAX_BODY = 10_000_000;
 export const MAX_AUTH_BODY = 65_536; // um pedido de login: e-mail e código, ou a resposta WebAuthn de uma passkey (poucos KB)
 
@@ -139,7 +140,8 @@ const isAccountId = (v: unknown): v is string => typeof v === 'string' && v !== 
 
 // O pedido de sync (spec 6.1). Uma versão de protocolo que o servidor não conhece pede um app mais novo (426); sem versão numérica, o
 // pedido é que está torto (400). `account` é obrigatório: nenhum app publicado sincroniza sem ele (a conta não estava ligada em nenhum
-// ambiente antes dele).
+// ambiente antes dele). Até MAX_SYNC_REQUEST mudanças, o lote de um app de antes da Task 12: o objeto da conta lê só as primeiras
+// MAX_WRITES_PER_REQUEST e devolve o resto para já.
 export function parseSyncRequest(body: unknown): SyncRequest | 'update' | null {
   if (!isRec(body) || typeof body.v !== 'number') return null;
   if (body.v !== SYNC_PROTOCOL) return 'update';
@@ -147,7 +149,7 @@ export function parseSyncRequest(body: unknown): SyncRequest | 'update' | null {
   if (!isAccountId(account)) return null;
   if (typeof deviceId !== 'string' || deviceId === '' || deviceId.length > 64) return null;
   if (!Number.isInteger(cursor) || (cursor as number) < 0 || typeof clock !== 'number' || !Number.isFinite(clock)) return null;
-  if (!Array.isArray(changes) || changes.length > SYNC_BATCH) return null;
+  if (!Array.isArray(changes) || changes.length > MAX_SYNC_REQUEST) return null;
   return { v: SYNC_PROTOCOL, account, deviceId, cursor: cursor as number, clock, changes };
 }
 

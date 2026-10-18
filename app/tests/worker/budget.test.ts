@@ -24,7 +24,7 @@ describe('os tetos do Worker (spec 4, 7.1, 7.6)', () => {
     expect(DAILY_WRITE_BUDGET).toBe(20_000);
     expect(RESTORES_PER_DAY).toBe(3);
     expect(COPIES_CACHE_MS).toBe(600_000);
-    expect(COMPACT_PER_DAY).toBe(2_000);
+    expect(COMPACT_PER_DAY).toBe(1_000);
     expect(STORAGE_HEADROOM).toBe(0.95);
     expect(ACCOUNT_BYTES_CAP).toBe(50_000_000);
     expect(SESSION_PREPAY).toBe(3 * MAX_DATA_CHARS); // o maior data de uma sessão em UTF-8
@@ -38,9 +38,25 @@ describe('os tetos do Worker (spec 4, 7.1, 7.6)', () => {
     expect([utcDay(at('2026-11-01T00:00:00.000Z')), utcMonth(at('2026-11-01T00:00:00.000Z'))]).toEqual(['2026-11-01', '2026-11']);
   });
 
-  it('capsOf lê as cinco vars como inteiros', () => {
-    const e = { SNAPSHOT_BYTES_CAP: '256000000', R2_CLASS_A_MONTH: '50000', R2_CLASS_B_MONTH: '500000', MAIL_PER_DAY: '10', MAIL_PER_MONTH: '250' } as unknown as Env;
-    expect(capsOf(e)).toEqual({ snapshotBytes: 256_000_000, classAMonth: 50_000, classBMonth: 500_000, mailDay: 10, mailMonth: 250 });
+  it('capsOf lê as sete vars como inteiros', () => {
+    const e = {
+      SNAPSHOT_BYTES_CAP: '256000000',
+      R2_CLASS_A_MONTH: '50000',
+      R2_CLASS_B_MONTH: '500000',
+      MAIL_PER_DAY: '10',
+      MAIL_PER_MONTH: '250',
+      SNAPSHOT_MAX_RECORDS: '55000',
+      RESTORE_MAX_RECORDS: '5000',
+    } as unknown as Env;
+    expect(capsOf(e)).toEqual({
+      snapshotBytes: 256_000_000,
+      classAMonth: 50_000,
+      classBMonth: 500_000,
+      mailDay: 10,
+      mailMonth: 250,
+      snapshotRecords: 55_000,
+      restoreRecords: 5_000,
+    });
   });
 
   it('uma var ausente, vazia ou torta ("1GB", "-5", "1.5") vale 0 e loga cap-missing', async () => {
@@ -51,8 +67,15 @@ describe('os tetos do Worker (spec 4, 7.1, 7.6)', () => {
       expect(logged, String(bad)).toEqual([JSON.stringify({ evt: 'cap-missing', name: 'MAIL_PER_DAY' })]);
     }
     const { result, logged } = await withLog(() => capsOf({ MAIL_PER_DAY: '10' } as unknown as Env));
-    expect(result).toEqual({ snapshotBytes: 0, classAMonth: 0, classBMonth: 0, mailDay: 10, mailMonth: 0 });
-    expect(logged.map((l) => (JSON.parse(l) as { name: string }).name).sort()).toEqual(['MAIL_PER_MONTH', 'R2_CLASS_A_MONTH', 'R2_CLASS_B_MONTH', 'SNAPSHOT_BYTES_CAP']);
+    expect(result).toEqual({ snapshotBytes: 0, classAMonth: 0, classBMonth: 0, mailDay: 10, mailMonth: 0, snapshotRecords: 0, restoreRecords: 0 });
+    expect(logged.map((l) => (JSON.parse(l) as { name: string }).name).sort()).toEqual([
+      'MAIL_PER_MONTH',
+      'R2_CLASS_A_MONTH',
+      'R2_CLASS_B_MONTH',
+      'RESTORE_MAX_RECORDS',
+      'SNAPSHOT_BYTES_CAP',
+      'SNAPSHOT_MAX_RECORDS',
+    ]);
     const ok = await withLog(() => capOf({ MAIL_PER_DAY: '10' } as unknown as Env, 'MAIL_PER_DAY'));
     expect(ok.logged).toEqual([]);
   });

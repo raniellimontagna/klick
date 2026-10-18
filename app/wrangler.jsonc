@@ -9,6 +9,10 @@
 // mês (R2_CLASS_A_MONTH: gravar e listar; R2_CLASS_B_MONTH: ler) e os códigos por e-mail (MAIL_PER_DAY, MAIL_PER_MONTH). O beta e a raiz
 // dividem o Resend e o R2 da conta, cada um com o próprio D1: os dois somados ficam abaixo do grátis (90 e-mails/dia de 100, 2.750/mês de
 // 3.000; 550 mil operações A de 1 milhão e 5,5 milhões B de 10 milhões; 1,256 GB de 10 GB, que a conta ainda divide com outros projetos).
+// Os tamanhos de conta (Task 12, em registros: sessões, solves, treino e ajustes): acima de SNAPSHOT_MAX_RECORDS a conta não tem cópia do
+// dia, e acima de RESTORE_MAX_RECORDS a restauração é recusada. Valem na leitura de 30 s do limite de CPU dos Durable Objects (decidem a
+// memória e as linhas do dia: docs/superpowers/measurements/2026-10-17-conta-100k.md); na leitura de 10 ms, os dois vão a "0" (nenhuma
+// cópia, nenhuma restauração), sem mudar código.
 // Para subir um teto, mude a var e publique. Uma var ausente, vazia ou que não seja um inteiro maior que 0 vale 0: nada passa.
 {
   "name": "klick-app-beta",
@@ -48,7 +52,9 @@
     "R2_CLASS_A_MONTH": "50000",
     "R2_CLASS_B_MONTH": "500000",
     "MAIL_PER_DAY": "10",
-    "MAIL_PER_MONTH": "250"
+    "MAIL_PER_MONTH": "250",
+    "SNAPSHOT_MAX_RECORDS": "55000",
+    "RESTORE_MAX_RECORDS": "5000"
   },
   "env": {
     "production": {
@@ -75,7 +81,9 @@
         "R2_CLASS_A_MONTH": "500000",
         "R2_CLASS_B_MONTH": "5000000",
         "MAIL_PER_DAY": "80",
-        "MAIL_PER_MONTH": "2500"
+        "MAIL_PER_MONTH": "2500",
+        "SNAPSHOT_MAX_RECORDS": "55000",
+        "RESTORE_MAX_RECORDS": "5000"
       }
     }
   }

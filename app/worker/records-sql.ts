@@ -46,6 +46,15 @@ export const UPSERT_RECORD = `INSERT INTO records (store, id, data, updated_at, 
 export const COUNT_ACTIVE = 'SELECT store, count(*) AS n FROM records WHERE deleted_at IS NULL GROUP BY store';
 export const STORED_BYTES = 'SELECT coalesce(sum(length(CAST(data AS BLOB))), 0) AS n FROM records';
 
+// O tamanho da conta em registros (sessões, solves, treino e ajustes; na lixeira e as marcas compactadas inclusive), contado pelo índice:
+// a cópia do dia (SNAPSHOT_MAX_RECORDS) e a restauração (RESTORE_MAX_RECORDS) o conferem antes de ler a conta inteira (Task 12).
+export const COUNT_RECORDS = 'SELECT count(*) AS n FROM records';
+
+// Os solves ativos da sessão ?1, que a cascata de apagá-la grava, contados pelo índice records_parent até ?2: o bastante para saber que ela
+// não cabe num dia, sem ler uma sessão enorme inteira (Task 12).
+export const ACTIVE_CHILDREN =
+  "SELECT count(*) AS n FROM (SELECT 1 FROM records WHERE store = 'solves' AND parent = ? AND deleted_at IS NULL LIMIT ?)";
+
 // A compactação (endurecimento, decisão 5): os solves apagados antes de ?1 que ainda têm conteúdo, os mais antigos primeiro, no máximo ?2,
 // com o tamanho do conteúdo de cada um; COMPACT_SOLVE deixa só a marca (data '{}'), sem revisão nova e com a coluna `parent`.
 export const COMPACTABLE = `SELECT id, length(CAST(data AS BLOB)) AS bytes FROM records

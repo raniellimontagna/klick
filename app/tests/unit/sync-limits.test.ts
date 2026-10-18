@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ACCOUNT_LIMITS, isCounted, QUOTA_REASON, TOMBSTONE_KEEP_MS, zeroCounts } from '../../src/core/sync/limits';
-import { SYNC_PROTOCOL, SYNC_STORES } from '../../src/core/sync/types';
+import { COPIES_PAUSED, isCopiesPaused, SYNC_BATCH, SYNC_PROTOCOL, SYNC_STORES } from '../../src/core/sync/types';
 import { TRASH_MS } from '../../src/data/safety';
 
 describe('a cota por conta e o protocolo (endurecimento 4.1)', () => {
@@ -20,6 +20,18 @@ describe('a cota por conta e o protocolo (endurecimento 4.1)', () => {
   it('a marca compactada: o servidor guarda o conteúdo de um solve apagado por 30 dias, o mesmo prazo da lixeira do aparelho', () => {
     expect(TOMBSTONE_KEEP_MS).toBe(30 * 86_400_000);
     expect(TOMBSTONE_KEEP_MS).toBe(TRASH_MS);
+  });
+
+  // Task 12: o servidor lê no máximo 250 mudanças por pedido (MAX_WRITES_PER_REQUEST, worker/limits.ts); o app manda o mesmo, e não 500
+  // para ter metade adiada.
+  it('o lote do app: 250 mudanças por pedido', () => {
+    expect(SYNC_BATCH).toBe(250);
+  });
+
+  it('as cópias pausadas: o espaço, as operações do mês e o tamanho da conta', () => {
+    expect(COPIES_PAUSED).toEqual(['space', 'ops', 'size']);
+    expect(Object.isFrozen(COPIES_PAUSED)).toBe(true);
+    expect(['space', 'ops', 'size', 'cheio', '', null, undefined, 1].map(isCopiesPaused)).toEqual([true, true, true, false, false, false, false, false]);
   });
 
   it('zeroCounts dá um contador novo a cada chamada', () => {
