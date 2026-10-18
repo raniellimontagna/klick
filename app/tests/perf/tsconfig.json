@@ -1,0 +1,16 @@
+{
+  // A medição (vitest.perf.config.ts) roda no Node e importa o objeto da conta: os tipos do Node (node:sqlite, process) e os do runtime da
+  // Cloudflare juntos, que o tsconfig.app.json não tem.
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["es2023"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "types": ["@cloudflare/workers-types", "node"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "isolatedModules": true
+  },
+  "include": ["./**/*.ts"]
+}

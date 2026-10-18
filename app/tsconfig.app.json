@@ -19,6 +19,7 @@
     "strict": true
   },
   "include": ["src/**/*.ts", "src/**/*.js", "src/**/*.svelte", "tests/**/*.ts"],
-  // Os testes do Worker rodam no workerd, com os tipos dele (tests/worker/tsconfig.json).
-  "exclude": ["tests/worker"]
+  // Os testes do Worker rodam no workerd, com os tipos dele (tests/worker/tsconfig.json); a medição, no Node com o objeto da conta
+  // (tests/perf/tsconfig.json).
+  "exclude": ["tests/worker", "tests/perf"]
 }
