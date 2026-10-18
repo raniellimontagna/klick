@@ -112,12 +112,14 @@ export interface Repository {
   // com ela (contado em `held`, avisa 'sync'), e volta com ela em requeueHeld.
   outboxBatch(limit: number): Promise<{ changes: Change[]; sent: OutboxEntry[]; refused: number; missing: number; held: number }>;
   // Numa transação (a fila e a lista dos recusados pela cota): tira da fila as entradas que não mudaram desde que saíram. As de `held` (as
-  // que a conta recusou pela cota) que saíram da fila entram na lista "só neste aparelho"; as outras saem dela (a conta tem uma versão delas).
-  // Uma entrada gravada de novo durante o pedido fica na fila, e sobe no próximo lote. Avisa 'sync' quando a lista muda.
-  confirmSent(sent: readonly OutboxEntry[], held?: readonly OutboxEntry[]): Promise<void>;
+  // que a conta recusou pela cota) que saíram da fila entram na lista "só neste aparelho". As de `refused` (recusadas por outro motivo) saem
+  // da fila como qualquer recusa, e uma chave da lista continua nela: a conta não tem a versão dela, e apagar os dados continua recusando. As
+  // outras (aceitas) saem da lista: a conta tem uma versão delas. Uma entrada gravada de novo durante o pedido fica na fila, e sobe no
+  // próximo lote. Avisa 'sync' quando a lista muda.
+  confirmSent(sent: readonly OutboxEntry[], held?: readonly OutboxEntry[], refused?: readonly OutboxEntry[]): Promise<void>;
   outboxCount(): Promise<number>;
-  // A lista "só neste aparelho" (endurecimento, decisão 4): quantas chaves a conta recusou pela cota (de qualquer store, uma exclusão
-  // também), fora da fila. Nenhuma volta sozinha.
+  // A lista "só neste aparelho" (endurecimento, decisão 4): quantos registros daqui a conta recusou pela cota (de qualquer store, uma
+  // exclusão também), fora da fila. Nenhum volta sozinho. Só conta as chaves que têm registro, como localOnlyCount.
   heldCount(): Promise<number>;
   // "Enviar de novo": numa transação, põe na fila o que da lista ainda existe aqui (a sessão antes dos solves dela) e esvazia a lista. Avisa
   // 'sync'. Devolve quantos voltaram para a fila; o servidor recusa de novo se a conta continuar cheia.
@@ -392,12 +394,14 @@ export class LocalOnlyError extends Error {
   }
 }
 
-// A lista "só neste aparelho" (meta 'held'): as chaves que a conta recusou pela cota. O que não for uma lista de textos vale vazia.
-const heldList = (stored: unknown): string[] => (Array.isArray(stored) ? stored.filter((k): k is string => typeof k === 'string') : []);
+// A lista "só neste aparelho" (meta 'held'): as chaves que a conta recusou pela cota, cada uma uma vez. O que não for uma lista de textos
+// vale vazia.
+const heldList = (stored: unknown): string[] =>
+  Array.isArray(stored) ? [...new Set(stored.filter((k): k is string => typeof k === 'string'))] : [];
 const heldOf = async (tx: SyncTx): Promise<string[]> => heldList(await tx.objectStore('meta').get('held'));
-// Grava a lista; vazia, a chave sai do meta.
+// Grava a lista, sem repetir chave (um guardado que voltou à fila por uma edição pode ser guardado de novo); vazia, a chave sai do meta.
 async function saveHeld(tx: WriteTx, keys: Iterable<string>): Promise<void> {
-  const list = [...keys];
+  const list = [...new Set(keys)];
   if (list.length > 0) await tx.objectStore('meta').put(list, 'held');
   else await tx.objectStore('meta').delete('held');
 }
@@ -1130,22 +1134,24 @@ export function createRepository(
       return { ...batch, refused, missing };
     },
 
-    async confirmSent(sent, held = []) {
+    async confirmSent(sent, held = [], refused = []) {
       const changed = await write(['outbox', 'meta'], async (tx) => {
         const outbox = tx.objectStore('outbox');
         const before = await heldOf(tx);
         const list = new Set(before);
         const quota = new Set(held.map((e) => syncKey(e.store, e.id)));
+        const other = new Set(refused.map((e) => syncKey(e.store, e.id)));
         const entries = new Map<string, OutboxEntry>();
-        for (const e of [...sent, ...held]) entries.set(syncKey(e.store, e.id), e);
+        for (const e of [...sent, ...held, ...refused]) entries.set(syncKey(e.store, e.id), e);
         for (const [key, e] of entries) {
           const queued = await outbox.get(key);
           // Gravado de novo durante o pedido (outra data na fila): o que subiu já é velho, e a entrada fica para o próximo lote (e não entra na
           // lista: a versão nova ainda vai subir).
           const same = queued !== undefined && queued.queuedAt === e.queuedAt;
           if (same) await outbox.delete(key);
-          if (!quota.has(key)) list.delete(key);
-          else if (same) list.add(key);
+          if (quota.has(key)) {
+            if (same) list.add(key);
+          } else if (!other.has(key)) list.delete(key); // aceito: a conta tem uma versão dele
         }
         if (list.size === before.length && before.every((k) => list.has(k))) return false;
         await saveHeld(tx, list);
@@ -1159,7 +1165,11 @@ export function createRepository(
     },
 
     async heldCount() {
-      return heldList(await db.get('meta', 'held')).length;
+      return read(['solves', 'sessions', 'practice', 'prefs', 'meta'], async (tx) => {
+        const parts = (await heldOf(tx)).flatMap((key) => keyParts(key) ?? []);
+        const found = await Promise.all(parts.map((p) => recordOf(tx, p.store, p.id)));
+        return found.filter((r) => r !== undefined).length;
+      });
     },
 
     async requeueHeld() {

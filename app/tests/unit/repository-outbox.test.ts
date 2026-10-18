@@ -464,4 +464,67 @@ describe('só neste aparelho: os recusados pela cota (endurecimento, decisão 4)
     expect(again.changes.map((c) => `${c.store}/${c.id}`)).toEqual([`sessions/${s.id}`, `solves/${x.id}`]);
     expect(again.held).toBe(0);
   });
+
+  // Fix round 1, item 1: o solve guardado de uma sessão guardada que é editado entra na fila (track) e o lote seguinte o guarda de novo.
+  it('a lista não guarda a mesma chave duas vezes: o solve guardado de uma sessão guardada, editado, volta para ela uma vez só', async () => {
+    const { db, repo } = await fresh();
+    const s = await repo.createSession({ event: '333' });
+    const first = await repo.outboxBatch(500);
+    await repo.confirmSent(first.sent, first.sent);
+    t += 10;
+    const x = await repo.addSolve(ns(s.id, 1000));
+    await repo.outboxBatch(500); // o solve vai para a lista com a sessão
+    t += 10;
+    await repo.updateSolve(x.id, { note: 'editado' });
+    expect(await repo.outboxBatch(500)).toMatchObject({ changes: [], held: 1 });
+    expect(await db.get('meta', 'held')).toEqual([`sessions/${s.id}`, `solves/${x.id}`]);
+    expect(await repo.heldCount()).toBe(2);
+    expect(await repo.localOnlyCount()).toBe(2);
+    expect(await repo.requeueHeld()).toBe(2);
+  });
+
+  // Fix round 1, item 3: o servidor recusa por outro motivo (a forma) uma chave que está na lista. Ela sai da fila como qualquer recusa, mas a
+  // conta não tem a versão dela: continua só neste aparelho, e apagar os dados continua recusando.
+  it('um guardado que volta recusado por outro motivo sai da fila e continua só neste aparelho: apagar os dados recusa', async () => {
+    const { db, repo, a, c, batch, only } = await sent();
+    await repo.confirmSent(batch.sent, only(c.id));
+    t += 10;
+    await repo.updateSolve(c.id, { note: 'de novo' });
+    const again = await repo.outboxBatch(500);
+    await repo.confirmSent(again.sent, [], again.sent);
+    expect(await keys(db)).toEqual([]);
+    expect(await repo.heldCount()).toBe(1);
+    expect(await repo.localOnlyCount()).toBe(1);
+    await expect(repo.wipeData()).rejects.toBeInstanceOf(LocalOnlyError);
+    // Um recusado por outro motivo que não estava na lista segue como antes: sai da fila, e a lista não muda.
+    t += 10;
+    await repo.updateSolve(a.id, { note: 'torta' });
+    const third = await repo.outboxBatch(500);
+    await repo.confirmSent(third.sent, [], third.sent);
+    expect(await keys(db)).toEqual([]);
+    expect(await db.get('meta', 'held')).toEqual([`solves/${c.id}`]);
+  });
+
+  // Fix round 1, item 4: os outros dois ramos da chave guardada em applyRemote.
+  it('a chave guardada sai da lista quando chega igual à daqui, ou quando não há registro daqui', async () => {
+    const { db, repo, b, c, batch, only } = await sent();
+    await repo.confirmSent(batch.sent, only(b.id, c.id));
+    await db.put('meta', [...((await db.get('meta', 'held')) as string[]), 'solves/sumiu'], 'held'); // uma chave sem registro
+    const same = toChange('solves', (await db.get('solves', b.id))!); // a conta já tem exatamente a daqui (ativa)
+    t += 100;
+    const tomb = { store: 'solves' as const, id: 'sumiu', data: {}, updatedAt: t, deletedAt: t, deletionStamp: t }; // a marca compactada não é gravada
+    expect(await repo.applyRemote([same, tomb], t)).toEqual({ applied: 0, rejected: 0 });
+    expect(await db.get('solves', 'sumiu')).toBeUndefined();
+    expect(await db.get('solves', b.id)).toMatchObject({ deletedAt: null });
+    expect(await db.get('meta', 'held')).toEqual([`solves/${c.id}`]);
+  });
+
+  // Fix round 1, item 5: os dois números aparecem em Ajustes e têm de bater.
+  it('heldCount e localOnlyCount contam só as chaves da lista que têm registro aqui', async () => {
+    const { db, repo, c, batch, only } = await sent();
+    await repo.confirmSent(batch.sent, only(c.id));
+    await db.put('meta', [`solves/${c.id}`, 'solves/sumiu', 'practice/nada', 'torta'], 'held');
+    expect(await repo.heldCount()).toBe(1);
+    expect(await repo.localOnlyCount()).toBe(1);
+  });
 });

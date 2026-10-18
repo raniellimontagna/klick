@@ -16,6 +16,9 @@ import { ApiError, type SyncApi } from './api';
 export const RETRY_MS: readonly number[] = Object.freeze([5_000, 30_000, 120_000, 300_000]); // spec 6.6: 5 s, 30 s, 2 min e então a cada 5 min
 export const MASS_DELETE = 50; // spec 6.6: um lote que apaga isso ou mais pede uma cópia local antes
 const BUSY_POLL_MS = 1000;
+// O teto da espera do orçamento do dia (pushAfter): o servidor pede até a virada do dia UTC, menos de um dia. Um retryAt absurdo (um servidor
+// torto) não prende a fila por mais que isso: no pior caso, o servidor adia de novo.
+export const MAX_BUDGET_WAIT_MS = 2 * 86_400_000;
 const MAX_EXCHANGES = 100_000; // trava de um laço que não termina (a fila que nunca esvazia, a conta que nunca acaba): 50 milhões de mudanças
 
 export type SyncPhase = 'off' | 'idle' | 'syncing' | 'offline' | 'error';
@@ -200,8 +203,10 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
   //
   // Nada sobe com pushAfter no futuro. Da resposta: as últimas `deferred` do lote o servidor não leu (o orçamento do dia acabou) e ficam na
   // fila, na mesma ordem; do que ele leu, o recusado pela cota vai para a lista "só neste aparelho" e não conta em `refused`. Com algo
-  // adiado e retryAt no futuro, pushAfter = retryAt, gravado com o cursor. `later`: o resto da fila fica para depois (pushAfter no futuro,
-  // ou um lote do qual o servidor não leu nada: mandá-lo de novo na mesma rodada só repetiria o pedido).
+  // adiado, a espera é a que o servidor pede pelo relógio dele (retryAt − serverTime; sem serverTime, retryAt − agora), de 0 a
+  // MAX_BUDGET_WAIT_MS, e pushAfter = agora + espera, no relógio deste aparelho, gravado com o cursor: um aparelho com a data errada (dias
+  // atrás ou à frente) espera o mesmo que os outros. `later`: o resto da fila fica para depois (pushAfter no futuro, ou um lote do qual o
+  // servidor não leu nada: mandá-lo de novo na mesma rodada só repetiria o pedido).
   async function exchange(
     wants: boolean,
     accountId: string,
@@ -216,24 +221,29 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
     missing += batch.missing;
     const answered = deps.clock?.send();
     const res = await deps.api.sync({ v: SYNC_PROTOCOL, account: accountId, deviceId: meta.deviceId, cursor: state.cursor, clock: state.clock, changes: batch.changes });
+    const at = now(); // a hora da resposta, no relógio daqui: a espera do orçamento conta a partir dela
     answered?.(res.serverTime);
     await sameAccount(accountId);
     if (res.more && res.cursor <= state.cursor) throw new RoundError(`o servidor mandou mais sem avançar o cursor (${res.cursor})`);
     const deferred = deferredOf(res.deferred, batch.sent.length);
     const taken = batch.sent.slice(0, batch.sent.length - deferred);
     const read = new Map(taken.map((e) => [syncKey(e.store, e.id), e]));
-    const held = res.rejected.flatMap((r): OutboxEntry[] => {
-      const entry = r.reason === QUOTA_REASON ? read.get(syncKey(r.store, r.id)) : undefined;
-      return entry ? [entry] : [];
-    });
-    await deps.repo().confirmSent(taken, held);
+    const held: OutboxEntry[] = [];
+    const other: OutboxEntry[] = []; // recusados por outro motivo: saem da fila, e o que estava só neste aparelho continua lá
+    for (const r of res.rejected) {
+      const entry = read.get(syncKey(r.store, r.id));
+      if (entry) (r.reason === QUOTA_REASON ? held : other).push(entry);
+    }
+    await deps.repo().confirmSent(taken, held, other);
     refused += res.rejected.length - held.length;
     for (const r of res.rejected) log(`sync: o servidor recusou ${r.store}/${r.id} (${r.reason})`);
     const retryAt = retryAtOf(res.retryAt);
-    const wait = deferred > 0 && retryAt !== null && retryAt > now();
+    const serverNow = Number.isSafeInteger(res.serverTime) && res.serverTime > 0 ? res.serverTime : at;
+    const delay = deferred > 0 && retryAt !== null ? Math.min(Math.max(retryAt - serverNow, 0), MAX_BUDGET_WAIT_MS) : 0;
+    const wait = delay > 0;
     const stuck = deferred > 0 && taken.length === 0;
     // Subiu sem pausa nova: um pushAfter que já passou sai. Sem subir (esperando), fica como está.
-    const pushAfter = !push ? undefined : wait ? retryAt : null;
+    const pushAfter = !push ? undefined : wait ? at + delay : null;
     // A resposta chegou durante um solve: junta depois dele. Parado sem solve, junta (o stop() espera o pedido em andamento voltar e ser
     // juntado). Parado com a volta esperando o solve, não espera mais: a volta não é juntada nem o cursor anda (a próxima rodada a recebe de
     // novo); o que subiu já saiu da fila, e o servidor o tem.

@@ -6,7 +6,7 @@ import { defaultSessionId } from '../../src/data/ids';
 import { createRepository, type Repository } from '../../src/data/repository';
 import { createBackup, decodeSnapshot } from '../../src/data/safety';
 import { ApiError, createSyncApi, type Fetcher, HEALTH_TIMEOUT_MS, SYNC_TIMEOUT_MS } from '../../src/sync/api';
-import { createServerClock, createSyncEngine, MASS_DELETE, RETRY_MS, type EngineDeps, type SyncStatus } from '../../src/sync/engine';
+import { createServerClock, createSyncEngine, MASS_DELETE, MAX_BUDGET_WAIT_MS, RETRY_MS, type EngineDeps, type SyncStatus } from '../../src/sync/engine';
 import { FakeServer } from './sync-fakes';
 
 let n = 0;
@@ -1313,8 +1313,10 @@ describe('a cota e o orçamento do dia (endurecimento 4.1 e decisões 4 e 6)', (
     expect(await repo.listSolves()).toHaveLength(4); // nada some do aparelho
   });
 
+  // A hora de retryAt é a do servidor: o dia que virou durante o pedido (retryAt já passou para ele) não pausa nada.
   it('com retryAt já passado não pausa: o resto sobe na mesma rodada; o lote que o servidor não leu não se repete na rodada', async () => {
-    const server = new FakeServer(500, { budget: 2 }); // a hora do servidor (0) já passou do dia do orçamento para este aparelho
+    const server = new FakeServer(500, { budget: 2 });
+    server.now = t;
     const repo = await device();
     const s = await repo.createSession({ event: '333' });
     for (let i = 0; i < 3; i++) await repo.addSolve(ns(s.id, 1000 + i, t + i));
@@ -1322,18 +1324,90 @@ describe('a cota e o orçamento do dia (endurecimento 4.1 e decisões 4 e 6)', (
     const real = net.api.sync;
     net.api.sync = async (req) => {
       const res = await real(req);
-      server.newDay(); // o dia virou durante o pedido
-      return res;
+      if (res.retryAt === undefined) return res;
+      server.newDay(); // o dia virou durante o pedido: a resposta sai depois de retryAt
+      return { ...res, serverTime: res.retryAt };
     };
     expect(await engineFor(repo, net).engine.run()).toMatchObject({ phase: 'idle', pending: 0, notice: null });
     expect(net.calls.map((c) => c.changes.length)).toEqual([4, 2]);
-    // Sem orçamento nenhum: um pedido, e a rodada para de mandar (a próxima tenta de novo), sem repetir o lote sem fim.
+    // O servidor que não lê nada e já passou de retryAt (o orçamento ficou no dia de antes): um pedido, e a rodada para de mandar (a próxima
+    // tenta de novo), sem repetir o lote sem fim.
     const stuck = new FakeServer(500, { budget: 0 });
     const other = await device();
     await other.createSession({ event: '333' });
     const net2 = network(stuck);
+    const real2 = net2.api.sync;
+    net2.api.sync = async (req) => {
+      const res = await real2(req);
+      return res.retryAt === undefined ? res : { ...res, serverTime: res.retryAt };
+    };
     expect(await engineFor(other, net2).engine.run()).toMatchObject({ phase: 'idle', pending: 1, notice: 'budget' });
     expect(net2.calls.map((c) => c.changes.length)).toEqual([1]);
+    expect((await other.getSyncState()).pushAfter).toBeNull();
+  });
+
+  // Fix round 1, item 2: pushAfter é a espera que o servidor pede (retryAt − serverTime), contada no relógio do aparelho e nunca acima de
+  // MAX_BUDGET_WAIT_MS. Um aparelho com a data dias atrás não espera os dias de diferença, e um retryAt absurdo não prende a fila.
+  it('a espera do orçamento é a do relógio do servidor: o aparelho dias atrasado sobe o resto quando ela passa no relógio dele, e nunca espera mais de 2 dias', async () => {
+    expect(MAX_BUDGET_WAIT_MS).toBe(2 * DAY);
+    const server = new FakeServer(500, { budget: 2 });
+    server.now = t + 5 * DAY; // o relógio do aparelho está cinco dias atrás
+    const repo = await device();
+    const s = await repo.createSession({ event: '333' });
+    for (let i = 0; i < 3; i++) await repo.addSolve(ns(s.id, 1000 + i, t + i));
+    const net = network(server);
+    const { engine } = engineFor(repo, net);
+    const wait = (Math.floor(server.now / DAY) + 1) * DAY - server.now;
+    expect(await engine.run()).toMatchObject({ pending: 2, notice: 'budget' });
+    expect((await repo.getSyncState()).pushAfter).toBe(t + wait);
+    t += wait - 1;
+    server.now += wait - 1;
+    await engine.run();
+    expect(ids(net.calls.at(-1))).toEqual([]); // ainda no dia do orçamento
+    t += 2;
+    server.now += 2;
+    server.newDay();
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, notice: null });
+    expect(activeSolves(server)).toHaveLength(3);
+    // Um retryAt absurdo (um ano depois): a espera fica em 2 dias.
+    const far = new FakeServer(500, { budget: 1 });
+    far.now = t;
+    const other = await device();
+    const o = await other.createSession({ event: '333' });
+    await other.addSolve(ns(o.id, 1000));
+    const net2 = network(far);
+    const real = net2.api.sync;
+    net2.api.sync = async (req) => {
+      const res = await real(req);
+      return res.retryAt === undefined ? res : { ...res, retryAt: res.serverTime + 365 * DAY };
+    };
+    await engineFor(other, net2).engine.run();
+    expect((await other.getSyncState()).pushAfter).toBe(t + MAX_BUDGET_WAIT_MS);
+    // Sem a hora do servidor na resposta, a espera sai do relógio daqui, com o mesmo teto.
+    const net3 = network(far);
+    const real3 = net3.api.sync;
+    net3.api.sync = async (req) => ({ ...(await real3(req)), serverTime: undefined as unknown as number, retryAt: t + 3 * DAY });
+    const third = await device();
+    const th = await third.createSession({ event: '333' });
+    await third.addSolve(ns(th.id, 1000));
+    far.newDay();
+    await engineFor(third, net3).engine.run();
+    expect((await third.getSyncState()).pushAfter).toBe(t + MAX_BUDGET_WAIT_MS);
+  });
+
+  // Fix round 1, item 3: o servidor recusa por outro motivo o que está só neste aparelho (editado e mandado de novo).
+  it('um guardado recusado por outro motivo sai da fila, conta como recusado e continua só neste aparelho', async () => {
+    const { repo, net, engine, c } = await fullAccount();
+    t += 10;
+    await repo.updateSolve(c.id, { note: 'boa' });
+    const real = net.api.sync;
+    net.api.sync = async (req) => {
+      const res = await real(req);
+      return { ...res, rejected: res.rejected.map((r) => ({ ...r, reason: 'solve inválido' })) };
+    };
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, refused: 1, notice: null });
+    expect(await repo.heldCount()).toBe(1);
+    expect(await repo.localOnlyCount()).toBe(1);
   });
 
   it('a resposta grava copiesPaused no estado do sync', async () => {
