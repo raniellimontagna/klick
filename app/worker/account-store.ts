@@ -33,11 +33,11 @@ import {
   nextUtcDay,
   PULL_PAGE,
   PULL_PAGE_WITH_PUSH,
+  RECORDS_PER_DAY,
   REQUEST_ROWS,
   RESTORES_PER_DAY,
   rowsOf,
   ROWS_PER_COMPACT,
-  ROWS_PER_WRITE,
   SESSION_PREPAY,
   utcDay,
 } from './limits';
@@ -292,22 +292,34 @@ export class AccountStore extends DurableObject<Env> {
 
   // O que um pedido do sync lê do lote (decisão 6 e Task 12): no máximo MAX_WRITES_PER_REQUEST mudanças, e só as que cabem, com a cascata,
   // nas linhas que sobram hoje (`room`), contadas por cima (rowsOf: cada mudança grava um registro). A exclusão de uma sessão grava também
-  // os solves ativos dela (a cascata, em applyChanges), contados antes pelo índice (ACTIVE_CHILDREN, até o bastante para saber que não
-  // cabem num dia): a que não cabe no que sobra hoje fica para amanhã, com o resto do lote; a que não caberia nem num dia inteiro volta com
-  // o motivo da cota (o aparelho a guarda, "só neste aparelho"), sem gravar nada dela, e o resto do lote segue. Assim nenhum pedido grava
-  // mais que o dia de uma conta. Apagar os solves antes passa pelo orçamento como sempre; a cascata em partes, pelo servidor, fica para uma
-  // spec própria.
+  // os solves ativos dela (a cascata, em applyChanges), contados antes pelo índice (ACTIVE_CHILDREN, até RECORDS_PER_DAY, o bastante para
+  // saber que não cabem; uma vez por sessão no lote): a que não cabe no que sobra hoje fica para amanhã, com o resto do lote; a que passa de
+  // RECORDS_PER_DAY registros (não caberia num dia com a compactação do alarme ao lado) volta com o motivo da cota (o aparelho a guarda,
+  // "só neste aparelho", e Enviar de novo manda os solves antes dela: repository.ts, requeueHeld), sem gravar nada dela, e o resto do lote
+  // segue. Assim nenhum pedido grava mais que o dia de uma conta. A cascata em partes, pelo servidor, fica para uma spec própria.
+  //
+  // O que cut() não prevê: a sessão apagada que a cascata devolve (um solve ativo do lote, mais novo que a exclusão dela, a traz de volta;
+  // apply.ts e merge.ts, cascade) grava uma sessão a mais por sessão apagada distinta no lote. É pouco e limitado (no máximo uma por
+  // mudança lida), e entra no orçamento pelo que commit() conta de verdade.
   private cut(changes: readonly unknown[], room: number): Cut {
     const read: unknown[] = [];
     const refused: Rejected[] = [];
-    const most = Math.floor(DAILY_WRITE_BUDGET / ROWS_PER_WRITE); // contar até aqui basta: com tantos solves, a cascata já não cabe num dia
+    const children = new Map<string, number>(); // os solves ativos de cada sessão apagada no lote, lidos uma vez
     let writes = 0; // registros que o que foi lido grava, a cascata inclusive
     let taken = 0;
     for (const raw of changes) {
       if (taken === MAX_WRITES_PER_REQUEST) return { read, refused, taken, now: true };
       const sid = this.deletedSession(raw);
-      const n = 1 + (sid === null ? 0 : this.sql.exec<{ n: number }>(ACTIVE_CHILDREN, sid, most).one().n);
-      if (sid !== null && rowsOf(n) > DAILY_WRITE_BUDGET) refused.push({ store: 'sessions', id: sid, reason: QUOTA_REASON });
+      let n = 1;
+      if (sid !== null) {
+        let count = children.get(sid);
+        if (count === undefined) {
+          count = this.sql.exec<{ n: number }>(ACTIVE_CHILDREN, sid, RECORDS_PER_DAY).one().n;
+          children.set(sid, count);
+        }
+        n += count;
+      }
+      if (sid !== null && n > RECORDS_PER_DAY) refused.push({ store: 'sessions', id: sid, reason: QUOTA_REASON });
       else if (rowsOf(writes + n) > room) break;
       else {
         writes += n;
@@ -509,12 +521,13 @@ export class AccountStore extends DurableObject<Env> {
   // Dentro do grátis (decisões 1, 2, 3 e 6, e Task 12), as conferências vêm nesta ordem, todas antes de qualquer gravação, e uma recusa não
   // muda nada na conta: a conta apagada; as restaurações do dia UTC (RESTORES_PER_DAY, restore-limit); um nome fora da lista guardada ainda
   // válida (not-found, sem perguntar ao R2: toda cópia passa por este objeto e renova a lista, então a lista válida tem tudo o que existe);
-  // o tamanho da conta, mais registros que RESTORE_MAX_RECORDS (too-big, num COUNT só: nem o D1, nem o R2, nem o gunzip); as duas leituras
-  // do R2, ler a cópia e conferir a de antes (operações B, r2-budget); a cópia (not-found; a lista só se renova quando o nome estava nela,
-  // ou quando ela já não valia); as linhas que as mudanças da restauração gravam (rowsOf) contra o orçamento de um dia inteiro (too-big) e
-  // contra o que sobra hoje (write-budget); o espaço da cópia de antes (no-room: nunca se restaura sem ela, decisão 3) e a operação A do
-  // put dela (r2-budget). Só a restauração que deu certo conta no dia. Sem o atalho da lista, alternar "restaurar um nome que não existe"
-  // com "abrir a lista" gastaria uma operação A por par.
+  // o tamanho da conta, mais registros que RESTORE_MAX_RECORDS ou que RECORDS_PER_DAY (too-big, num COUNT só: nem o D1, nem o R2, nem o
+  // gunzip; uma restauração regrava cada registro, e a conferência das linhas, depois, continua a autoridade); as duas leituras do R2, ler
+  // a cópia e conferir a de antes (operações B, r2-budget); a cópia (not-found; a lista só se renova quando o nome estava nela, ou quando
+  // ela já não valia); as linhas que as mudanças da restauração gravam (rowsOf) contra o orçamento de um dia inteiro (too-big) e contra o
+  // que sobra hoje (write-budget); o espaço da cópia de antes (no-room: nunca se restaura sem ela, decisão 3) e a operação A do put dela
+  // (r2-budget). Só a restauração que deu certo conta no dia. Sem o atalho da lista, alternar "restaurar um nome que não existe" com "abrir
+  // a lista" gastaria uma operação A por par.
   async restoreSnapshot(name: string, now: number): Promise<'ok' | 'not-found' | 'deleted' | RestoreRefusal> {
     return this.exclusive(async (): Promise<'ok' | 'not-found' | 'deleted' | RestoreRefusal> => {
       if (this.deleted()) return 'deleted';
@@ -525,7 +538,7 @@ export class AccountStore extends DurableObject<Env> {
       const { list, at } = this.copies();
       if (list !== null && now - at < COPIES_CACHE_MS && !list.some((c) => c.name === name)) return 'not-found';
       const caps = capsOf(this.env);
-      if (caps.restoreRecords === 0 || this.recordCount() > caps.restoreRecords) return 'too-big';
+      if (caps.restoreRecords === 0 || this.recordCount() > Math.min(caps.restoreRecords, RECORDS_PER_DAY)) return 'too-big';
       if (!(await takeOps(this.env.DB, 'B', 2, now, caps.classBMonth))) return 'r2-budget';
       const object = await this.env.SNAPSHOTS.get(snapshotKey(userId, name));
       if (!object) {

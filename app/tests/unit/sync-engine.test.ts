@@ -1506,48 +1506,55 @@ describe('a cota e o orçamento do dia (endurecimento 4.1 e decisões 4 e 6)', (
     expect((await desktop.listSessions()).map((x) => x.id)).not.toContain(s.id);
   });
 
-  // A mesma exclusão quando os solves da sessão vêm num pedido seguinte (o corte do pedido): a sessão já está guardada, e os solves dela
-  // esperam com ela na lista (Task 6). Nada se perde: no servidor eles continuam ativos, aqui continuam apagados, e Enviar de novo leva tudo.
-  it('os solves de uma sessão guardada que vêm depois esperam com ela, e Enviar de novo leva tudo quando a cascata cabe', async () => {
-    const server = new FakeServer(500, { perRequest: 2 });
+  // Task 12, fix round 1 (c): a sessão cuja cascata nunca caberia num dia. Ela volta com a cota; os solves dela que ficaram para depois
+  // esperam com ela na lista (Task 6). Um toque em Enviar de novo põe a exclusão dos solves antes da sessão: eles sobem pelo orçamento de
+  // cada dia (pushAfter os leva de um dia para o outro), e a sessão, sem solves ativos lá, cabe no fim. Nada se perde no aparelho.
+  it('apagar uma sessão grande demais para um dia: um toque em Enviar de novo leva os solves pelo orçamento e a sessão por último', async () => {
+    const server = new FakeServer();
     server.now = t;
     const phone = await device();
     const s = await phone.createSession({ event: '333' });
-    for (let i = 0; i < 4; i++) await phone.addSolve(ns(s.id, 1000 + i, t + i));
-    const { engine } = engineFor(phone, network(server));
+    for (let i = 0; i < 7; i++) await phone.addSolve(ns(s.id, 1000 + i, t + i));
+    const net = network(server);
+    const { engine } = engineFor(phone, net);
     await engine.run();
-    expect(activeSolves(server)).toHaveLength(4);
-    server.budget = 4;
+    expect(activeSolves(server)).toHaveLength(7);
+    const nextDay = () => {
+      t = (Math.floor(t / DAY) + 1) * DAY;
+      server.now = t;
+      server.newDay();
+    };
+    // Um dia de 3 registros: a sessão e a cascata dela (8) nunca caberiam.
+    server.budget = 3;
     server.newDay();
     t += 10;
     server.now = t;
     await phone.deleteSession(s.id);
-    // O primeiro pedido: a sessão (5 com a cascata, mais que o dia) volta com a cota, e o primeiro solve entra; o resto do lote volta para já,
-    // e os solves que sobraram, de uma sessão guardada, esperam com ela.
-    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, refused: 0, notice: 'quota' });
-    expect(await phone.heldCount()).toBe(4);
-    expect(server.active().has(`sessions/${s.id}`)).toBe(true);
-    expect(activeSolves(server)).toHaveLength(3);
-    expect(await phone.listSolves()).toEqual([]);
-    expect((await phone.listTrash()).solves).toHaveLength(4);
-    // Enviar de novo: a sessão e os 3 solves; a cascata (4) cabe num dia, mas não no que sobra (3): fica para amanhã.
-    expect(await phone.requeueHeld()).toBe(4);
+    // A sessão volta com a cota; 3 solves do mesmo lote entram, e os outros 4 ficam para amanhã.
     expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 4, notice: 'budget' });
-    expect(await phone.heldCount()).toBe(0);
-    // No dia seguinte a sessão entra com a cascata (4); as exclusões dos solves, que a cascata já fez lá, contam por cima e ficam para o
-    // outro dia.
-    t = (Math.floor(t / DAY) + 1) * DAY;
-    server.now = t;
-    server.newDay();
-    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 3, notice: 'budget' });
-    expect(server.active().has(`sessions/${s.id}`)).toBe(false);
-    expect(activeSolves(server)).toEqual([]);
-    t = (Math.floor(t / DAY) + 1) * DAY;
-    server.now = t;
-    server.newDay();
+    expect(await phone.heldCount()).toBe(1);
+    // No dia seguinte, os 4 são de uma sessão guardada: esperam com ela.
+    nextDay();
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, notice: 'quota' });
+    expect(await phone.heldCount()).toBe(5);
+    expect(activeSolves(server)).toHaveLength(4);
+    // Um toque: os solves antes, a sessão por último.
+    expect(await phone.requeueHeld()).toBe(5);
+    const first = net.calls.length;
+    for (let day = 0; day < 5 && (await phone.outboxCount()) > 0; day++) {
+      await engine.run();
+      nextDay();
+    }
+    // Em cada pedido, a sessão (quando vai) é a última do lote.
+    const where = net.calls.slice(first).map((c) => [c.changes.findIndex((x) => x.store === 'sessions'), c.changes.length]);
+    expect(where.some(([i]) => i !== -1)).toBe(true);
+    for (const [i, length] of where) if (i !== -1) expect(i).toBe(length - 1);
     expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, notice: null });
     expect(await phone.heldCount()).toBe(0);
-    expect((await phone.listTrash()).solves).toHaveLength(4);
+    expect(server.active().has(`sessions/${s.id}`)).toBe(false);
+    expect(activeSolves(server)).toEqual([]);
+    const trash = await phone.listTrash();
+    expect([trash.sessions.map((x) => x.id), trash.solves.length]).toEqual([[s.id], 7]);
   });
 
   it('a resposta grava copiesPaused no estado do sync', async () => {

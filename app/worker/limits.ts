@@ -4,9 +4,11 @@
 // passa) e vai para o log, nunca "sem teto".
 //
 // Os tamanhos vêm da medição de uma conta de 100 mil solves (docs/superpowers/measurements/2026-10-17-conta-100k.md, Task 11) e das
-// decisões da Task 12. A cópia do dia e a restauração seguem a leitura de 30 s do limite de CPU de um Durable Object (a tabela dos objetos
-// com SQLite, os únicos do grátis, diz 30 s por pedido): decidem a memória e as linhas do dia. Se valer a leitura de 10 ms, as duas vars vão
-// a 0 (nenhuma cópia, toda restauração recusada), só na configuração.
+// decisões da Task 12. A cópia do dia, a restauração e a cascata de apagar uma sessão seguem a leitura de 30 s do limite de CPU de um
+// Durable Object (a tabela dos objetos com SQLite, os únicos do grátis, diz 30 s por pedido): decidem a memória e as linhas do dia. Se
+// valer a leitura de 10 ms, a cópia e a restauração param só na configuração (as duas vars a 0: nenhuma cópia, toda restauração recusada);
+// a cascata não: uma de 5 mil solves custou 36 ms na medição (seção 9 (e)), e nos 10 ms só cabem umas 250, então ela pediria um teto no
+// código (RECORDS_PER_DAY ou a cascata em partes).
 import { MAX_DATA_CHARS } from '../src/core/sync/shape';
 import type { Env } from './env';
 
@@ -60,6 +62,12 @@ export function rowsOf(writes: number, compacted = 0): number {
   const rows = writes * ROWS_PER_WRITE + compacted * ROWS_PER_COMPACT;
   return rows > 0 ? rows + REQUEST_ROWS : 0;
 }
+
+// O máximo de registros que um pedido grava num dia: a exclusão de uma sessão com a cascata dela (acima disto, ela volta com a cota) e a
+// restauração (acima disto, ela é recusada antes de ler o R2). Deixa no dia a compactação do alarme: rowsOf(RECORDS_PER_DAY) mais
+// rowsOf(0, COMPACT_PER_DAY) cabem em DAILY_WRITE_BUDGET. Sem essa folga, uma cascata perto do máximo perderia o dia para a compactação das
+// 03:05 (ou qualquer gravação antes dela) e escorregaria de um dia para o outro.
+export const RECORDS_PER_DAY = Math.floor((DAILY_WRITE_BUDGET - rowsOf(0, COMPACT_PER_DAY) - REQUEST_ROWS) / ROWS_PER_WRITE);
 // O conteúdo gravado de uma conta, em bytes (a soma dos `data`). A cota conta registros, não tamanho: 16 KB de nota em cada solve levariam
 // uma conta só a ~1,6 GB dos 5 GB de Durable Objects que todas dividem no grátis. Folgado: 100 mil solves comuns ficam em ~25 MB.
 export const ACCOUNT_BYTES_CAP = 50_000_000;

@@ -15,10 +15,9 @@ import {
   capsOf,
   COPIES_CACHE_MS,
   DAILY_WRITE_BUDGET,
-  REQUEST_ROWS,
+  RECORDS_PER_DAY,
   RESTORES_PER_DAY,
   rowsOf,
-  ROWS_PER_WRITE,
   STORAGE_HEADROOM,
   utcDay,
   utcMonth,
@@ -92,19 +91,25 @@ async function setVars(user: string, vars: SizeVars): Promise<void> {
   });
 }
 
-// N solves a mais na conta, direto no SQLite do objeto (uma conta grande sem milhares de pedidos), com as revisões depois das dela.
-async function seedSolves(user: string, n: number): Promise<void> {
+// N solves a mais na conta (ids `prefix`1 a `prefix`N), direto no SQLite do objeto (uma conta grande sem milhares de pedidos), com as
+// revisões depois das dela.
+async function seedSolves(user: string, n: number, prefix = 'x'): Promise<void> {
   await runInDurableObject(stubOf(user), (_o, state) => {
     const sql = state.storage.sql;
     const rev = Number(sql.exec<{ value: string }>("SELECT value FROM state WHERE key = 'rev'").toArray()[0]?.value ?? '0');
     sql.exec(
       `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?)
-       INSERT INTO records (store, id, data, updated_at, deleted_at, deletion_stamp, rev, parent) SELECT 'solves', 'x' || i, ?, ?, NULL, ?, ? + i, 's1' FROM n`,
-      n, JSON.stringify(solve('x').data), T0, T0, rev,
+       INSERT INTO records (store, id, data, updated_at, deleted_at, deletion_stamp, rev, parent) SELECT 'solves', ? || i, ?, ?, NULL, ?, ? + i, 's1' FROM n`,
+      n, prefix, JSON.stringify(solve('x').data), T0, T0, rev,
     );
     sql.exec("UPDATE state SET value = ? WHERE key = 'rev'", String(rev + n));
   });
 }
+// Tira da conta, direto no SQLite, os solves semeados com `prefix` além dos primeiros `keep`.
+const dropSolves = (user: string, prefix: string, keep = 0) =>
+  runInDurableObject(stubOf(user), (_o, state) => {
+    state.storage.sql.exec("DELETE FROM records WHERE store = 'solves' AND id LIKE ? AND CAST(substr(id, ?) AS INTEGER) > ?", `${prefix}%`, prefix.length + 1, keep);
+  });
 const recordCount = (user: string): Promise<number> =>
   runInDurableObject(stubOf(user), (_o, state) => state.storage.sql.exec<{ n: number }>('SELECT count(*) AS n FROM records').one().n);
 
@@ -303,11 +308,14 @@ describe('restaurar dentro do grátis (decisões 1, 2 e 3)', () => {
   it('acima das linhas de um dia, 413 too-big; acima do que sobra hoje, 429 write-budget', async () => {
     const big = 'restaura-grande';
     await sync(big, [session, solve('a')]);
+    // A cópia leva 2.600 solves que a conta depois perde (tirados direto do SQLite) e troca por outros 2.600: a conta fica abaixo de
+    // RECORDS_PER_DAY registros, e restaurar o dia volta os da cópia e manda os de agora para a lixeira, mais linhas que as de um dia. É
+    // a conferência das linhas que recusa, depois de ler a cópia.
+    await seedSolves(big, 2_600, 'y');
     await stubOf(big).snapshot(T0);
-    // Depois da cópia, a conta ganhou solves (direto no SQLite do objeto): restaurar o dia mandaria todos eles para a lixeira, e as gravações
-    // passam das linhas de um dia. O teto de registros sobe só neste objeto, para as linhas decidirem (e não o tamanho da conta).
-    await seedSolves(big, Math.floor((DAILY_WRITE_BUDGET - REQUEST_ROWS) / ROWS_PER_WRITE));
-    await setVars(big, { RESTORE_MAX_RECORDS: '1000000' });
+    await dropSolves(big, 'y');
+    await seedSolves(big, 2_600);
+    expect(await recordCount(big)).toBeLessThanOrEqual(RECORDS_PER_DAY);
     const account = await accountOf(big);
     const r2 = await countR2(big);
     expect(await restore(big, dayOf(T0), T0 + 1000)).toEqual({ status: 413, body: { error: 'too-big' } });
@@ -365,10 +373,16 @@ describe('os tamanhos que cabem: a cópia e a restauração (Task 12)', () => {
     expect(r2).toEqual({}); // um COUNT só: nem o R2, nem a cópia aberta
     expect(await opsOf('B')).toBe(opsB); // nem as operações B do mês
     expect(await accountOf(user)).toEqual(account);
-    // No teto, a conta passa por essa conferência e a cópia é lida (aqui, as linhas de um dia é que recusam).
-    await runInDurableObject(stubOf(user), (_o, state) => state.storage.sql.exec("DELETE FROM records WHERE store = 'solves' AND id = 'x1'"));
+    // O COUNT confere o menor entre a var e RECORDS_PER_DAY (o que um pedido grava num dia com a compactação do alarme ao lado): no teto da
+    // var, a conta também volta sem ler o R2.
+    await dropSolves(user, 'x', caps.restoreRecords - 2);
     expect(await recordCount(user)).toBe(caps.restoreRecords);
-    expect((await restore(user, dayOf(T0), T0 + 2000)).status).toBe(413);
+    expect(await restore(user, dayOf(T0), T0 + 2000)).toEqual({ status: 413, body: { error: 'too-big' } });
+    expect(r2).toEqual({});
+    // Em RECORDS_PER_DAY registros, a conferência passa: a cópia é lida, e a restauração cabe no dia.
+    await dropSolves(user, 'x', RECORDS_PER_DAY - 2);
+    expect(await recordCount(user)).toBe(RECORDS_PER_DAY);
+    expect((await restore(user, dayOf(T0), T0 + 3000)).status).toBe(204);
     expect(r2.get).toBe(1);
   });
 

@@ -1179,8 +1179,19 @@ export function createRepository(
         const parts = keys.flatMap((key) => keyParts(key) ?? []);
         const found = await Promise.all(parts.map((p) => recordOf(tx, p.store, p.id)));
         const existing = parts.filter((_, i) => found[i] !== undefined);
-        // A mesma data na fila para todos: o índice byQueued desempata pela chave, e cada sessão sobe antes dos solves dela.
-        await each(existing, (p) => ctx.track(p.store, p.id));
+        // A mesma data na fila para todos: o índice byQueued desempata pela chave, e cada sessão sobe antes dos solves dela. A sessão apagada
+        // aqui vai depois de tudo, com a data seguinte do relógio (endurecimento, Task 12): a exclusão de uma sessão cuja cascata não cabe
+        // num dia volta com a cota, então a dos solves dela sobe antes, pelo orçamento de cada dia (pushAfter a leva de um dia para o outro),
+        // e a sessão chega por último, sem solves ativos no servidor. Um toque basta.
+        const later = parts.filter((p, i) => p.store === 'sessions' && found[i] !== undefined && found[i].deletedAt !== null);
+        await each(
+          existing.filter((p) => !later.includes(p)),
+          (p) => ctx.track(p.store, p.id),
+        );
+        if (later.length > 0) {
+          ctx.raise(ctx.stamp() + 1); // o relógio passa desta escrita: o track seguinte tem uma data depois
+          await each(later, (p) => ctx.track(p.store, p.id));
+        }
         await saveHeld(tx, []);
         return existing.length;
       });

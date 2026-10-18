@@ -19,7 +19,7 @@ const BUSY_POLL_MS = 1000;
 // O teto da espera do orçamento do dia (pushAfter): o servidor pede até a virada do dia UTC, menos de um dia. Um retryAt absurdo (um servidor
 // torto) não prende a fila por mais que isso: no pior caso, o servidor adia de novo.
 export const MAX_BUDGET_WAIT_MS = 2 * 86_400_000;
-const MAX_EXCHANGES = 100_000; // trava de um laço que não termina (a fila que nunca esvazia, a conta que nunca acaba): 50 milhões de mudanças
+const MAX_EXCHANGES = 100_000; // trava de um laço que não termina (a fila que nunca esvazia, a conta que nunca acaba): 25 milhões de mudanças
 
 export type SyncPhase = 'off' | 'idle' | 'syncing' | 'offline' | 'error';
 // O aviso da última rodada: 'quota', algo dela ficou só neste aparelho (a conta recusou pela cota); 'budget', o orçamento de gravações do

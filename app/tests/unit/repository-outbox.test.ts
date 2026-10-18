@@ -380,6 +380,35 @@ describe('só neste aparelho: os recusados pela cota (endurecimento, decisão 4)
     expect(await repo.requeueHeld()).toBe(0); // a lista vazia: nada muda
   });
 
+  // Task 12, fix round 1: a exclusão de uma sessão cuja cascata não cabe num dia volta com a cota. Enviar de novo põe a exclusão dos solves
+  // dela na fila antes dela: eles sobem pelo orçamento do dia, e ela por último, sem cascata no servidor. A sessão viva guardada continua
+  // antes dos solves dela.
+  it('requeueHeld põe a sessão apagada depois dos solves dela; a viva continua antes', async () => {
+    const { db, repo } = await fresh();
+    const gone = await repo.createSession({ event: '333' });
+    const a = await repo.addSolve(ns(gone.id, 1000));
+    const b = await repo.addSolve(ns(gone.id, 1001));
+    const live = await repo.createSession({ event: '333' });
+    const x = await repo.addSolve(ns(live.id, 1002));
+    const first = await repo.outboxBatch(500);
+    await repo.confirmSent(first.sent);
+    t += 10;
+    await repo.deleteSession(gone.id);
+    await repo.renameSession(live.id, 'Outra');
+    await repo.updateSolve(x.id, { note: 'boa' });
+    const batch = await repo.outboxBatch(500);
+    await repo.confirmSent(batch.sent, batch.sent); // tudo volta com a cota
+    expect(await repo.heldCount()).toBe(5);
+    t += 10;
+    expect(await repo.requeueHeld()).toBe(5);
+    const order = (await db.getAllFromIndex('outbox', 'byQueued')).map((e) => `${e.store}/${e.id}`);
+    expect(order[0]).toBe(`sessions/${live.id}`);
+    expect(order.at(-1)).toBe(`sessions/${gone.id}`);
+    expect(order.slice(1, -1).sort()).toEqual([`solves/${a.id}`, `solves/${b.id}`, `solves/${x.id}`].sort());
+    const sessions = (await repo.listSessions()).map((s) => s.id);
+    expect([sessions.includes(live.id), sessions.includes(gone.id)]).toEqual([true, false]); // a apagada continua apagada
+  });
+
   it('beginFirstSync e forgetAccount esvaziam a lista', async () => {
     const { db, repo, c, batch, only } = await sent();
     await repo.confirmSent(batch.sent, only(c.id));

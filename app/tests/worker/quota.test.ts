@@ -7,6 +7,7 @@ import { defaultSeason } from '../../src/core/season';
 import { QUOTA_REASON, type ActiveCounts } from '../../src/core/sync/limits';
 import { ACCOUNT_HEADER, SYNC_BATCH, SYNC_PROTOCOL, type Change, type SyncResponse } from '../../src/core/sync/types';
 import type { Env } from '../../worker/env';
+import { ACTIVE_CHILDREN } from '../../worker/records-sql';
 import {
   ACCOUNT_BYTES_CAP,
   capsOf,
@@ -17,6 +18,7 @@ import {
   nextUtcDay,
   PULL_PAGE,
   PULL_PAGE_WITH_PUSH,
+  RECORDS_PER_DAY,
   REQUEST_ROWS,
   rowsOf,
   ROWS_PER_COMPACT,
@@ -370,6 +372,10 @@ describe('os tamanhos que cabem (Task 12)', () => {
     expect([PULL_PAGE, PULL_PAGE_WITH_PUSH]).toEqual([500, 250]);
     expect([DAILY_WRITE_BUDGET, COMPACT_PER_DAY]).toEqual([20_000, 1_000]);
     expect([ROWS_PER_WRITE, ROWS_PER_COMPACT, REQUEST_ROWS]).toEqual([4, 1, 5]);
+    // O máximo de registros que um pedido grava num dia (a sessão e a cascata dela; a restauração), com a compactação do alarme ao lado.
+    expect(RECORDS_PER_DAY).toBe(4_747);
+    expect(rowsOf(RECORDS_PER_DAY) + rowsOf(0, COMPACT_PER_DAY)).toBeLessThanOrEqual(DAILY_WRITE_BUDGET);
+    expect(rowsOf(RECORDS_PER_DAY + 1) + rowsOf(0, COMPACT_PER_DAY)).toBeGreaterThan(DAILY_WRITE_BUDGET);
     // As vars do beta (wrangler.jsonc); a raiz tem as mesmas (tests/unit/wrangler-config.test.ts).
     const caps = capsOf(env as unknown as Env);
     expect([caps.snapshotRecords, caps.restoreRecords]).toEqual([55_000, 5_000]);
@@ -446,11 +452,11 @@ describe('os tamanhos que cabem (Task 12)', () => {
     expect(await json(user, 'writes')).toEqual({ day: utcDay(tomorrow), n: rowsOf(5) }); // a sessão, os 3 solves e a tentativa
   });
 
-  // Nenhum pedido grava mais que o dia de uma conta: a cascata que não caberia nem num dia inteiro (a sessão e os solves ativos dela, mais
-  // o estado do pedido) volta com o motivo da cota, e o aparelho a guarda ("só neste aparelho"). Uma a menos cabe, num dia novo.
-  it('a cascata que não caberia nem num dia inteiro volta com "cota", nada dela é gravado, e o resto do lote segue', async () => {
-    const most = Math.floor((DAILY_WRITE_BUDGET - REQUEST_ROWS) / ROWS_PER_WRITE) - 1; // a maior cascata que cabe num dia
-    expect([rowsOf(1 + most) <= DAILY_WRITE_BUDGET, rowsOf(2 + most) > DAILY_WRITE_BUDGET]).toEqual([true, true]);
+  // Nenhum pedido grava mais que o dia de uma conta, e a compactação do alarme sempre cabe ao lado: a exclusão de uma sessão cuja cascata
+  // passa de RECORDS_PER_DAY registros (a sessão e os solves ativos dela) volta com o motivo da cota, e o aparelho a guarda ("só neste
+  // aparelho"). Com um solve a menos, cabe num dia novo.
+  it('a cascata que não caberia num dia volta com "cota", nada dela é gravado, e o resto do lote segue', async () => {
+    const most = RECORDS_PER_DAY - 1; // os solves da maior cascata que cabe num dia
     const user = 'cascata-grande';
     await sync(user, [session()]);
     await seedSolves(user, 's1', most + 1);
@@ -469,7 +475,35 @@ describe('os tamanhos que cabem (Task 12)', () => {
     await seedSolves(edge, 's1', most);
     const day = await sync(edge, [session('s1', gone(T0 + 10))], { now: nextUtcDay(T0) });
     expect([day.accepted, day.rejected, day.deferred]).toEqual([1, [], undefined]);
-    expect(await json(edge, 'writes')).toEqual({ day: utcDay(nextUtcDay(T0)), n: rowsOf(1 + most) });
+    expect(await json(edge, 'writes')).toEqual({ day: utcDay(nextUtcDay(T0)), n: rowsOf(RECORDS_PER_DAY) });
     expect((await json<ActiveCounts>(edge, 'active')).solves).toBe(0);
+  });
+
+  // As exclusões repetidas da mesma sessão no lote (um app torto, ou de outra versão) leem os solves dela no índice uma vez só.
+  it('250 exclusões da mesma sessão enorme leem os solves dela no índice uma vez só', async () => {
+    const user = 'cascata-memo';
+    await sync(user, [session()]);
+    await seedSolves(user, 's1', RECORDS_PER_DAY);
+    const reads = { n: 0 };
+    await runInDurableObject(stubOf(user), (instance) => {
+      const o = instance as unknown as { sql: SqlStorage };
+      const real = o.sql;
+      o.sql = new Proxy(real, {
+        get(target, key) {
+          if (key !== 'exec') {
+            const value = Reflect.get(target, key) as unknown;
+            return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+          }
+          return (query: string, ...bindings: unknown[]) => {
+            if (query === ACTIVE_CHILDREN) reads.n++;
+            return target.exec(query, ...(bindings as SqlStorageValue[]));
+          };
+        },
+      });
+    });
+    const res = await sync(user, Array.from({ length: MAX_WRITES_PER_REQUEST }, () => session('s1', gone(T0 + 10))), { now: nextUtcDay(T0) });
+    expect([res.accepted, res.rejected.length, res.deferred]).toEqual([0, MAX_WRITES_PER_REQUEST, undefined]);
+    expect(res.rejected.every((r) => r.id === 's1' && r.reason === QUOTA_REASON)).toBe(true);
+    expect(reads.n).toBe(1);
   });
 });
