@@ -127,7 +127,7 @@ const MEM_LIMIT_MB = 64; // metade dos 128 MB
 const SIZES = [1_000, 5_000, 10_000, 25_000, 50_000, 100_000] as const;
 const BIGGEST = SIZES[SIZES.length - 1];
 const PAGES = [500, 250, 100, 50] as const; // o maior que cabe, para o envio e o recebimento
-const COMPACTS = [2_000, 1_000, 500, 250, 100] as const; // a compactação por alarme, a 100 mil
+const COMPACTS = [2_000, 1_000, 500, 250, 100] as const; // os limites da compactação por alarme, medidos em toda conta
 const REPS = 3; // as operações pesadas (cópia, restauração, alarme): três vezes, fica a mediana
 const LIGHT_REPS = 15; // as leves (mediana abaixo de LIGHT_MS nas três primeiras): quinze vezes, porque a linha dos 5 ms é estreita
 const LIGHT_MS = 20;
@@ -407,6 +407,7 @@ interface Account {
   sample: Change[]; // os primeiros 500 solves ativos, para editar e apagar
   doomed: Change; // a sessão que a cascata apaga (a segunda)
   cascaded: number; // os solves ativos dela, que a cascata apaga junto
+  doomedTotal: number; // todos os solves dela, ativos ou na lixeira
   state: Map<string, string>; // o estado de quando a conta ficou pronta
   due: number; // os solves que a compactação de hoje pode tirar
   close(): void;
@@ -448,10 +449,13 @@ function buildAccount(n: number): Account {
   const cascaded = Number(
     (db.prepare("SELECT count(*) AS n FROM records WHERE store = 'solves' AND parent = ? AND deleted_at IS NULL").get(doomed.id) as { n: number }).n,
   );
+  const doomedTotal = Number(
+    (db.prepare("SELECT count(*) AS n FROM records WHERE store = 'solves' AND parent = ?").get(doomed.id) as { n: number }).n,
+  );
   const due = Number(
     (db.prepare("SELECT count(*) AS n FROM records WHERE store = 'solves' AND deleted_at IS NOT NULL AND data <> '{}' AND deleted_at < ?").get(T0 - TOMBSTONE_KEEP_MS) as { n: number }).n,
   );
-  return { n, rows: records.length, rev, sql, ctx, env, r2, alarm, store, session: sessions[0].id, sample, doomed, cascaded, state, due, close: () => db.close() };
+  return { n, rows: records.length, rev, sql, ctx, env, r2, alarm, store, session: sessions[0].id, sample, doomed, cascaded, doomedTotal, state, due, close: () => db.close() };
 }
 
 // Volta a conta ao estado de quando ficou pronta (não é medido): tira o que foi gravado depois (toda gravação ganha revisão nova), devolve
@@ -564,6 +568,7 @@ interface Op<A> {
   setup(): A | Promise<A>;
   run(a: A): Promise<unknown>;
   check?(out: unknown, a: A): void;
+  checkRows?(rows: number, a: A): void; // as linhas gravadas da rodada instrumentada
   teardown?(a: A): void;
   gzip?(a: A): number;
   count?(out: unknown, a: A): number;
@@ -639,6 +644,7 @@ async function measure<A>(op: Op<A>, fixed?: number): Promise<Result> {
   const rows = counting.n;
   counting = null;
   op.check?.(out, a);
+  op.checkRows?.(rows, a);
   const gzip = op.gzip ? op.gzip(a) : null;
   const count = op.count ? op.count(out, a) : null;
   op.teardown?.(a);
@@ -714,6 +720,9 @@ const syncOp = (a: Account, o: { changes: number; page: number; cursor: 'zero' |
       expect(res.rejected).toEqual([]);
       expect(res.accepted).toBe(kind === 'sessão' ? 1 : o.changes);
       if (o.cursor === 'zero') expect(res.changes.length).toBe(o.page);
+    },
+    checkRows: (rows) => {
+      if (kind === 'sessão') expect(rows).toBeGreaterThanOrEqual(a.cascaded); // a cascata gravou cada solve ativo da sessão
     },
     teardown: () => {
       knobs.page = null;
@@ -934,6 +943,19 @@ const RESTORE_PHASES: Record<string, string> = {
   fim: 'write() e os contadores, e o COMMIT',
 };
 
+// A compactação por limite (colunas) em cada conta (linhas): a CPU mediana, o mínimo e o máximo, e se cabe.
+function gridTable(grid: Map<number, Map<number, Result>>, dues: Map<number, number>): string {
+  const out = [`| Solves | Vencidos | ${COMPACTS.map((c) => `Limite ${nf(c)}`).join(' | ')} |`, `| --- | ---: | ${COMPACTS.map(() => '---').join(' | ')} |`];
+  for (const [n, byLimit] of grid) {
+    const cells = COMPACTS.map((c) => {
+      const r = byLimit.get(c)!;
+      return `${ms(r.cpu)} (${ms(r.cpuMin)}–${ms(r.cpuMax)}) ${mark(r)}`;
+    });
+    out.push(`| ${nf(n)} | ${nf(dues.get(n) ?? 0)} | ${cells.join(' | ')} |`);
+  }
+  return out.join('\n');
+}
+
 // As etapas da menor e da maior conta, lado a lado (a mesma sequência de funções nas duas).
 function phaseTable(lines: Line[], names: Record<string, string>): string {
   const small = lines[0];
@@ -1011,7 +1033,10 @@ it(
     // valores quando eles saem diferentes.
     const envioPages = new Map<number, Result>();
     const recebimentoPages = new Map<number, Result>();
-    const compacts = new Map<number, Result>();
+    // A compactação por limite em cada conta: a do limite de verdade é a da tabela; uma conta com menos vencidos que um limite compacta
+    // só os dela, e o resultado é o mesmo de qualquer limite acima (mede-se uma vez).
+    const compactGrid = new Map<number, Map<number, Result>>();
+    const doomedTotals = new Map<number, number>();
     const combined = new Map<number, Result>();
     let writesPer: number | null = null;
     let pullPer: number | null = null;
@@ -1033,12 +1058,20 @@ it(
       ops.despertarRecebimento.push(line(await measure(syncOp(a, { changes: 0, page: WAKE_PAGE, cursor: 'zero', wake: true }))));
       ops.cascata.push(line(await measure(syncOp(a, { changes: 1, page: 500, cursor: 'head', kind: 'sessão' }))));
       ops.compactacao.push(line(await measure(compactOp(a))));
+      doomedTotals.set(n, a.doomedTotal);
+      const byLimit = new Map<number, Result>();
+      const byWork = new Map<number, Result>([[Math.min(COMPACT_PER_DAY, a.due), ops.compactacao.at(-1)!.r]]);
+      for (const c of COMPACTS) {
+        const work = Math.min(c, a.due);
+        if (!byWork.has(work)) byWork.set(work, await measure(compactOp(a, c)));
+        byLimit.set(c, byWork.get(work)!);
+      }
+      compactGrid.set(n, byLimit);
       if (n === BIGGEST) {
         for (const p of PAGES) {
           envioPages.set(p, p === 500 ? ops.envio.at(-1)!.r : await measure(syncOp(a, { changes: p, page: p, cursor: 'zero' })));
           recebimentoPages.set(p, p === 500 ? ops.recebimento.at(-1)!.r : await measure(syncOp(a, { changes: 0, page: p, cursor: 'zero' })));
         }
-        for (const c of COMPACTS) compacts.set(c, c === COMPACT_PER_DAY ? ops.compactacao.at(-1)!.r : await measure(compactOp(a, c)));
         writesPer = pick(envioPages);
         pullPer = pick(recebimentoPages);
         pullPage = pullPer;
@@ -1094,7 +1127,12 @@ it(
     const wakePullBest = largest(ops.despertarRecebimento);
     const cascadeBest = largest(ops.cascata);
     const alarmBest = largest(ops.alarme);
-    const compactBest = pick(compacts);
+    // O limite da compactação: o maior que cabe em toda conta (a pior decide), e a conta em que ele fica mais caro.
+    const compactFitsAll = (c: number): boolean => SIZES.every((n) => fits(compactGrid.get(n)!.get(c)!));
+    const compactBest = COMPACTS.find(compactFitsAll) ?? null;
+    const compactWorst = (c: number): { n: number; r: Result } =>
+      SIZES.map((n) => ({ n, r: compactGrid.get(n)!.get(c)! })).reduce((w, x) => (x.r.cpu > w.r.cpu ? x : w));
+    const compactMem = COMPACTS.find((c) => SIZES.every((n) => compactGrid.get(n)!.get(c)!.live <= MEM_LIMIT_MB)) ?? null;
     const all100 = (lines: Line[]) => fits(lines.at(-1)!.r) && largest(lines)?.n === BIGGEST;
     const upTo = (l: Line | null): string => (l ? `cabe até ${nf(l.n)} solves` : 'nenhuma conta medida cabe');
     const memText = (l: Line | null): string => (l ? `${nf(l.n)} solves` : 'nenhuma conta medida');
@@ -1113,8 +1151,16 @@ it(
     const perRecord = (lines: Line[]): string =>
       `Nenhuma conta medida cabe: a menor, de ${nf(lines[0].n)} solves, gasta ${ms(lines[0].r.cpu)} ms. Pela CPU por registro dela, caberiam uns ${nf(Math.floor((CPU_LIMIT_MS * lines[0].rows) / lines[0].r.cpu))} registros (uma estimativa linear, não medida).`;
     // O valor escolhido perto da linha: a regra o aceita, mas a margem é pequena.
-    const close = (r: Result | undefined): string =>
-      r && r.cpu > CPU_LIMIT_MS * 0.8 ? ` Na linha: mediana de ${ms(r.cpu)} ms (${ms(r.cpuMin)}–${ms(r.cpuMax)} em ${r.reps} rodadas) nesse tamanho.` : '';
+    // O valor escolhido perto da linha (a mediana acima de 80% do limite, ou alguma rodada acima dele): a regra o aceita, mas a margem é
+    // pequena. Sai em todo valor escolhido, mesmo o que fica como está.
+    const near = (r: Result | undefined): boolean => !!r && (r.cpu > CPU_LIMIT_MS * 0.8 || r.cpuMax > CPU_LIMIT_MS);
+    const close = (r: Result | undefined, where = ''): string =>
+      r && near(r) ? ` **Na linha**: mediana de ${ms(r.cpu)} ms, de ${ms(r.cpuMin)} a ${ms(r.cpuMax)} ms em ${r.reps} rodadas${where}.` : '';
+    // O primeiro sync com o envio escolhido e uma página: a medida combinada, ou a do envio quando os dois são do mesmo tamanho.
+    const firstSync = (p: number): Result | undefined => (p === writesPer ? envioPages.get(p) : combined.get(p));
+    const pullResult = pullPage === null ? undefined : (firstSync(pullPage) ?? recebimentoPages.get(pullPage));
+    // A página cautelosa: a maior abaixo da escolhida em que todas as rodadas do primeiro sync ficaram abaixo do limite.
+    const cautiousPage = pullPage === null ? null : (PAGES.find((p) => p < pullPage! && (firstSync(p)?.cpuMax ?? Infinity) <= CPU_LIMIT_MS) ?? null);
     const cascadeVerdict = (best: Line | null): string =>
       best ? `cabe até a conta de ${nf(best.n)} solves (${nf(doomedSolves.get(best.n) ?? 0)} solves ativos na sessão)` : `nenhuma conta medida cabe (a menor apaga ${nf(doomedSolves.get(SIZES[0]) ?? 0)} solves numa sessão)`;
 
@@ -1165,7 +1211,7 @@ it(
       x && x.n === lines.at(-1)!.n
         ? `sem teto (a conta de ${nf(x.n)} solves, ${mb(x.r.live)} MB vivos)`
         : x
-          ? `${code(x.rows)} (a conta de ${nf(x.n)} solves, ${mb(x.r.live)} MB vivos)`
+          ? `${nf(x.rows)} (a conta de ${nf(x.n)} solves, ${mb(x.r.live)} MB vivos)`
           : '0';
 
     // O gzip: o CompressionStream do Node contra o zlib cru, no mesmo arquivo.
@@ -1209,7 +1255,7 @@ A regra (Task 11): o grátis dá 10 ms de CPU por pedido e 128 MB; a medição n
 | (b) Primeiro despertar de uma conta do beta, sozinho | \`${v.despertar}\` |
 | (b) O despertar com o primeiro sync (${WAKE_PAGE} subindo, página de ${WAKE_PAGE}) | \`${v.despertarEnvio}\` |
 | (b) O despertar com um recebimento (página de ${WAKE_PAGE}) | \`${v.despertarRecebimento}\` |
-| (d) Compactação de um alarme (${nf(COMPACT_PER_DAY)} solves) | \`${v.compactacao}\` |
+| (d) Compactação de um alarme (${nf(COMPACT_PER_DAY)} solves; decide a pior conta, seção 9 (d)) | \`${v.compactacao}\` |
 | (d) O alarme inteiro (compactação, cópia e o próximo alarme) | \`${v.alarme}\` |
 
 ${everythingFits ? '**Tudo cabe a 100 mil: a Task 12 não roda.**' : '**Alguma operação não cabe: a Task 12 roda, com os valores da seção 10.**'}
@@ -1380,9 +1426,9 @@ ${
 
 ${table(ops.compactacao, { count: 'Compactados' })}
 
-A ${nf(BIGGEST)}, por limite de um alarme:
+Por limite de um alarme, em cada conta: a CPU mediana (o mínimo e o máximo das rodadas). Uma conta com menos vencidos que o limite compacta só os dela (a mesma medida em todo limite acima). Toda conta com ${nf(COMPACT_PER_DAY)} vencidos ou mais compacta exatamente ${nf(COMPACT_PER_DAY)} por alarme, então o limite vale se couber em **todas** as contas, e decide a pior: ${compactFitsAll(COMPACT_PER_DAY) ? `${nf(COMPACT_PER_DAY)} cabe em todas` : `${nf(COMPACT_PER_DAY)} não cabe a ${nf(compactWorst(COMPACT_PER_DAY).n)} solves (${ms(compactWorst(COMPACT_PER_DAY).r.cpu)} ms), e o maior limite que cabe em todas é ${compactBest === null ? 'nenhum dos medidos' : nf(compactBest)}`}.
 
-${table(COMPACTS.map((c) => ({ n: BIGGEST, rows: ops.compactacao.at(-1)!.rows, r: compacts.get(c)! })), { count: 'Compactados' })}
+${gridTable(compactGrid, dues)}
 
 O alarme inteiro (\`alarm()\`: a compactação, a cópia do dia e o \`setAlarm\` do próximo, numa invocação só, com os limites de um pedido):
 
@@ -1390,11 +1436,11 @@ ${table(ops.alarme, { gzip: true })}
 
 ### (e) Apagar uma sessão: a cascata
 
-Um pedido do sync com uma mudança só: uma sessão apagada. O servidor regrava, no mesmo pedido, todos os solves ativos dela (\`applyChanges\`, a cascata em \`apply.ts\`: \`view.solvesOf\` lê os solves da sessão e \`cascade\` apaga os mais antigos que a exclusão). Nas contas medidas, cada sessão tem N/20 solves, 90% ativos. \`syncBatch\` de verdade, com a RPC, o cursor na revisão da conta (a resposta leva de volta a página do que a cascata gravou). "Solves na cascata" é quantos solves ativos a sessão tinha.
+Um pedido do sync com uma mudança só: uma sessão apagada. O servidor regrava, no mesmo pedido, todos os solves ativos dela (\`applyChanges\`, a cascata em \`apply.ts\`: \`view.solvesOf\` lê os solves da sessão e \`cascade\` apaga os mais antigos que a exclusão). Nas contas medidas, cada sessão tem N/20 solves; a apagada (a segunda) tem ${nf(doomedTotals.get(BIGGEST) ?? 0)} a ${nf(BIGGEST)}, ${nf((100 * (doomedSolves.get(BIGGEST) ?? 0)) / (doomedTotals.get(BIGGEST) || 1))}% ativos (a lixeira da conta, um solve em cada dez, cai em outras sessões). \`syncBatch\` de verdade, com a RPC, o cursor na revisão da conta (a resposta leva de volta a página do que a cascata gravou). "Solves na cascata" é quantos solves ativos a sessão tinha.
 
 ${table(ops.cascata, { count: 'Solves na cascata' })}
 
-Hoje nada limita esse pedido: o orçamento do dia corta \`req.changes\` (aqui, uma mudança) antes de \`applyChanges\`, e a cascata grava depois, sem conta; um \`MAX_WRITES_PER_REQUEST\` que corte o lote do mesmo jeito também não a alcança (seção 12).
+Hoje nada limita esse pedido: o orçamento do dia corta \`req.changes\` (aqui, uma mudança) antes de \`applyChanges\`, e a cascata grava depois. As gravações dela entram no contador do dia (\`commit\` conta tudo o que \`applyChanges\` devolve), mas sem limite: o pedido passa inteiro, mesmo com o orçamento no fim. Um \`MAX_WRITES_PER_REQUEST\` que corte o lote do mesmo jeito também não a alcança (seção 12).
 
 ## 10. O que a Task 12 recebe
 
@@ -1406,14 +1452,14 @@ ${
           ? `- **Antes de tudo: 0 desliga ${zeroWhat} para toda conta**, até uma de ${nf(SIZES[0])} solves. É mais do que a spec 7.2 previa ("contas grandes passam a ter cópia com menos frequência, ou nenhuma acima de um tamanho", "a restauração de uma conta grande que não couber é recusada"): a Task 12 não deve aplicar 0 sem a decisão do Ranielli. Na leitura de 30 s do limite de CPU (seção 12), os valores são outros.`
           : '',
         !all100(ops.copia)
-          ? `- \`SNAPSHOT_MAX_RECORDS = ${copyBest ? code(copyBest.rows) : 0}\`. ${copyBest ? `É a conta de ${nf(copyBest.n)} solves.` : `${perRecord(ops.copia)} Com 0, nenhuma conta tem cópia do dia.`} Na menor conta, só a linha do JS gasta ${ms(ops.copia[0].r.jsCpu)} ms; o resto é, quase todo, o \`CompressionStream\` do Node, que aqui custa ${nf(gzRatio(gzips[0]), 1)}× o zlib cru no mesmo arquivo (seção 4). No workerd ele é nativo e roda na linha do pedido: conta na CPU do pedido, mas deve custar menos que aqui. Com o zlib cru no lugar, a cópia da menor conta ficaria em uns ${ms(copyRaw(0))} ms (estimativa, não medida). O alarme soma a compactação à cópia; sem a cópia, ele só compacta (${ms(ops.compactacao.at(-1)!.r.cpu)} ms a ${nf(BIGGEST)}).`
+          ? `- \`SNAPSHOT_MAX_RECORDS = ${copyBest ? code(copyBest.rows) : 0}\`. ${copyBest ? `É a conta de ${nf(copyBest.n)} solves.` : `${perRecord(ops.copia)} Com 0, nenhuma conta tem cópia do dia.`} Na menor conta, só a linha do JS gasta ${ms(ops.copia[0].r.jsCpu)} ms; o resto é, quase todo, o \`CompressionStream\` do Node, que aqui custa ${nf(gzRatio(gzips[0]), 1)}× o zlib cru no mesmo arquivo (seção 4). No workerd ele é nativo e roda na linha do pedido: conta inteiro na CPU do pedido. Com o zlib cru no lugar, a cópia da menor conta ficaria em uns ${ms(copyRaw(0))} ms (estimativa, não medida). O alarme soma a compactação à cópia; sem a cópia, ele só compacta (${ms(ops.compactacao.at(-1)!.r.cpu)} ms a ${nf(BIGGEST)}).`
           : '',
         !all100(ops.restauracao)
           ? `- \`RESTORE_MAX_RECORDS = ${restoreBest ? code(restoreBest.rows) : 0}\`. ${restoreBest ? `É a conta de ${nf(restoreBest.n)} solves; acima dele, a restauração é \`too-big\`.` : `${perRecord(ops.restauracao)} Com 0, toda restauração é \`too-big\`.`} A alternativa da seção 9 (c) ${altBest && (!restoreBest || altBest.n > restoreBest.n) ? `deixaria ${code(altBest.rows)}` : 'não muda o valor'}. Com o orçamento em linhas, o teto das linhas também vale (seção 9 (a)).`
           : '',
-        writesPer !== 500 ? `- \`MAX_WRITES_PER_REQUEST = ${writesPer ?? 50}\`${writesPer === null ? `, e \`ACCOUNT_LIMITS.solves = ${code(largest(envio50!)?.n ?? 0)}\`` : ''}.${close(writesPer === null ? undefined : envioPages.get(writesPer))}` : '',
-        pullPage !== 500 ? `- \`PULL_PAGE = ${pullPage ?? 50}\`${pullPer === null ? `, e \`ACCOUNT_LIMITS.solves = ${code(largest(recebimento50!)?.n ?? 0)}\`` : pullPage !== pullPer ? ` (sozinha, a página de ${pullPer} cabe; junto com o envio de ${writesPer} no mesmo pedido, só a de ${pullPage}: seção 7)` : ''}.${close(pullPage === null ? undefined : (combined.get(pullPage) ?? recebimentoPages.get(pullPage)))}` : '',
-        compactBest !== COMPACT_PER_DAY ? `- \`COMPACT_PER_DAY = ${code(compactBest ?? 0)}\` (o maior limite medido que cabe a ${nf(BIGGEST)}).${close(compactBest === null ? undefined : compacts.get(compactBest))}` : '',
+        `- \`MAX_WRITES_PER_REQUEST = ${writesPer ?? 50}\`${writesPer === 500 ? ' (fica como está)' : ''}${writesPer === null ? `, e \`ACCOUNT_LIMITS.solves = ${code(largest(envio50!)?.n ?? 0)}\`` : ''}: o primeiro sync com ${writesPer ?? 50} subindo e a página de ${writesPer ?? 50} dá ${writesPer === null ? '—' : `${ms(envioPages.get(writesPer)!.cpu)} ms (de ${ms(envioPages.get(writesPer)!.cpuMin)} a ${ms(envioPages.get(writesPer)!.cpuMax)})`} a ${nf(BIGGEST)}.${close(writesPer === null ? undefined : envioPages.get(writesPer))}`,
+        `- \`PULL_PAGE = ${pullPage ?? 50}\`${pullPage === 500 ? ' (fica como está)' : ''}${pullPer === null ? `, e \`ACCOUNT_LIMITS.solves = ${code(largest(recebimento50!)?.n ?? 0)}\`` : pullPage !== pullPer ? ` (sozinha, a página de ${pullPer} cabe; junto com o envio de ${writesPer} no mesmo pedido, só a de ${pullPage}: seção 7)` : ''}: ${pullResult ? `o primeiro sync com ${writesPer ?? 50} subindo e essa página dá ${ms(pullResult.cpu)} ms (de ${ms(pullResult.cpuMin)} a ${ms(pullResult.cpuMax)}) a ${nf(BIGGEST)}` : 'sem medida'}.${close(pullResult)}${near(pullResult) && cautiousPage !== null ? ` O valor cauteloso é ${cautiousPage}: o primeiro sync com ${writesPer} subindo e a página de ${cautiousPage} deu mediana de ${ms(firstSync(cautiousPage)!.cpu)} ms, e todas as rodadas ficaram em ${ms(firstSync(cautiousPage)!.cpuMax)} ms ou menos.` : ''}`,
+        `- \`COMPACT_PER_DAY = ${code(compactBest ?? 0)}\`${compactBest === COMPACT_PER_DAY ? ' (fica como está)' : ''}: o maior limite que cabe em todas as contas medidas (seção 9 (d)); na pior delas, a ${compactBest === null ? '—' : `${nf(compactWorst(compactBest).n)} solves, ${ms(compactWorst(compactBest).r.cpu)} ms (de ${ms(compactWorst(compactBest).r.cpuMin)} a ${ms(compactWorst(compactBest).r.cpuMax)})`}.${compactBest === null ? '' : close(compactWorst(compactBest).r, `, a ${nf(compactWorst(compactBest).n)} solves`)}`,
         !all100(ops.cascata)
           ? `- Sem constante na Task 12: apagar uma sessão ${cascadeVerdict(cascadeBest)}. Nem \`MAX_WRITES_PER_REQUEST\` nem o orçamento do dia limitam a cascata (seção 9 (e)); limitá-la pede uma decisão própria (por exemplo, a cascata em partes, ou um teto de solves por sessão apagada no servidor).`
           : '',
@@ -1444,16 +1490,16 @@ ${
 
 | Constante | Leitura de 10 ms (a regra) | Leitura de 30 s (memória e linhas) |
 | --- | ---: | ---: |
-| \`SNAPSHOT_MAX_RECORDS\` | ${copyBest ? (all100(ops.copia) ? 'sem teto' : code(copyBest.rows)) : '0'} | ${reading(copyMem, ops.copia)} |
-| \`RESTORE_MAX_RECORDS\` | ${restoreBest ? (all100(ops.restauracao) ? 'sem teto' : code(restoreBest.rows)) : '0'} | ${code(restore30)} (o menor entre a memória, ${restoreMem ? `${nf(restoreMem.rows)} registros da conta de ${nf(restoreMem.n)} solves` : 'nenhuma conta medida'}, e as linhas, ${nf(restoreRows)} registros) |
-| \`MAX_WRITES_PER_REQUEST\` | ${writesPer ?? 50} | ${memPick(envioPages) ?? 50} |
-| \`PULL_PAGE\` | ${pullPage ?? 50} | ${memPick(recebimentoPages) ?? 50} |
-| \`COMPACT_PER_DAY\` | ${compactBest === null ? '0' : code(compactBest)} | ${code(memPick(compacts) ?? 0)} |
+| \`SNAPSHOT_MAX_RECORDS\` | ${copyBest ? (all100(ops.copia) ? 'sem teto' : nf(copyBest.rows)) : '0'} | ${reading(copyMem, ops.copia)} |
+| \`RESTORE_MAX_RECORDS\` | ${restoreBest ? (all100(ops.restauracao) ? 'sem teto' : nf(restoreBest.rows)) : '0'} | ${nf(restore30)} (o menor entre a memória, ${restoreMem ? `${nf(restoreMem.rows)} registros da conta de ${nf(restoreMem.n)} solves` : 'nenhuma conta medida'}, e as linhas, ${nf(restoreRows)} registros) |
+| \`MAX_WRITES_PER_REQUEST\` | ${nf(writesPer ?? 50)} | ${nf(memPick(envioPages) ?? 50)} |
+| \`PULL_PAGE\` | ${nf(pullPage ?? 50)} | ${nf(memPick(recebimentoPages) ?? 50)} |
+| \`COMPACT_PER_DAY\` | ${nf(compactBest ?? 0)} | ${nf(compactMem ?? 0)} |
 | Apagar uma sessão | ${cascadeBest ? `até a conta de ${nf(cascadeBest.n)} solves` : 'nenhuma conta medida'} | ${cascadeMem ? `até a conta de ${nf(cascadeMem.n)} solves pela memória` : 'nenhuma conta medida'}; pelas linhas, ${nf(cascadeRows100)} num pedido a ${nf(BIGGEST)} |
 | \`DAILY_WRITE_BUDGET\` | ${nf(rowsBudget)} linhas por conta | ${nf(rowsBudget)} linhas por conta |
 
 - **O isolate de 128 MB pode ser dividido.** Vários objetos (de contas diferentes) podem rodar no mesmo isolate e dividir os 128 MB dele; a margem de ${MEM_LIMIT_MB} MB é para um objeto sozinho.
-- **A cascata de apagar uma sessão** não é limitada hoje nem por \`MAX_WRITES_PER_REQUEST\` (se a Task 12 o puser como um corte de \`req.changes\`, como o orçamento) nem pelo orçamento do dia: os dois cortam as mudanças que chegam, e a cascata grava os solves da sessão depois delas, dentro de \`applyChanges\`.
+- **A cascata de apagar uma sessão** não é limitada hoje nem por \`MAX_WRITES_PER_REQUEST\` (se a Task 12 o puser como um corte de \`req.changes\`, como o orçamento) nem pelo orçamento do dia: os dois cortam as mudanças que chegam, e a cascata grava os solves da sessão depois delas, dentro de \`applyChanges\`. As gravações dela entram no contador do dia, mas sem limite.
 - Se o tempo do SQLite conta como CPU do objeto: a Cloudflare diz que a espera de armazenamento não conta; o SQLite do objeto roda na mesma linha do código. Aqui ele conta inteiro.
 - O pico entre duas sondas, e a memória do SQLite do objeto (seção 2).
 - Contas de verdade: a distribuição dos solves (sessões, notas, embaralhamentos de outros eventos) é a de uma conta inventada, parecida com a do app.
