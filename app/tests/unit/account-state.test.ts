@@ -754,6 +754,24 @@ describe('a aba ocupada segura o sync de todas (revisão final 5.5)', () => {
     expect(new Set(seen.map((m) => m.tab)).size).toBe(1); // sempre a mesma aba
   });
 
+  it('a aba ocupada que sai da conta avisa uma vez que ficou livre e para de repetir o aviso', async () => {
+    const make = bus();
+    const manual = manualEnv();
+    const { app, repo } = await appWithAccount(fakeApi(new FakeServer()).api, { signedIn: true, locks: never, channel: make(), env: manual.env });
+    const seen = busyLog(make());
+    app.timerBusy = true;
+    expect(seen.map((m) => m.busy)).toEqual([true]);
+    expect(manual.pending()).toBe(1); // a repetição
+    await repo.saveSyncState({ signedIn: false }); // saiu da conta (nesta aba ou noutra) no meio do solve
+    await vi.waitFor(() => expect(app.account!.signedIn).toBe(false));
+    expect(seen.map((m) => m.busy)).toEqual([true, false]);
+    expect(manual.pending()).toBe(0);
+    app.timerBusy = false; // fora da conta: nada mais sai
+    app.timerBusy = true;
+    expect(seen.map((m) => m.busy)).toEqual([true, false]);
+    expect(manual.pending()).toBe(0);
+  });
+
   it('a líder não começa uma rodada enquanto outra aba está ocupada, e começa quando ela fica livre', async () => {
     const make = bus();
     const locks = firstWins();

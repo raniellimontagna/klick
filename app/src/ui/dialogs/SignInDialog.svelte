@@ -173,8 +173,8 @@
     } catch {
       result = { ok: false, reason: 'failed' }; // o banco falhou ao ler a conta deste aparelho
     }
+    if (closed(result)) return; // antes do cubo: a conferência velha não mexe no diálogo reaberto (o envio do código já põe a onda)
     codeCube = 'idle';
-    if (closed(result)) return;
     // Os botões seguem desabilitados durante a cascata; com menos movimento, não há cascata nem espera.
     if (result.ok && !motionReduced()) {
       codeOk = true;

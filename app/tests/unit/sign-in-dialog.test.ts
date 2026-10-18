@@ -693,29 +693,31 @@ describe('o "Pronto" do primeiro sync fica até fechar (revisão final 5.6)', ()
 // A revisão final, 5.7: a rodada do diálogo é guardada antes de esperar a conferência do código. Fechado enquanto ela corre, o diálogo não
 // segue para o próximo passo; com dados de outra conta, a sessão nova sai, como no fechar da pergunta da outra conta.
 describe('fechar durante a conferência do código (revisão final 5.7)', () => {
-  // Segura a conferência "na rede" até o teste soltar.
+  // Segura cada conferência "na rede" até o teste soltar a dela: gates[0] é a primeira, gates[1] a segunda.
   function holdVerify(app: AppState) {
     const account = app.account!;
     const real = account.verifyCode.bind(account);
-    const gate = deferred();
+    const gates: ReturnType<typeof deferred>[] = [];
     vi.spyOn(account, 'verifyCode').mockImplementation(async (email, code) => {
+      const gate = deferred();
+      gates.push(gate);
       await gate.promise;
       return real(email, code);
     });
-    return gate;
+    return gates;
   }
 
   const closeDialog = () => (document.querySelector('dialog.signin') as HTMLDialogElement).close();
 
   it('fechar durante a conferência de um primeiro login não continua a entrada', async () => {
     const { app } = await openDialog();
-    const gate = holdVerify(app);
+    const gates = holdVerify(app);
     const continued = vi.spyOn(app.account!, 'continueSignIn');
     await typeEmailAndCode();
     expect(await screen.findByText('Conferindo o código…')).toBeInTheDocument();
     closeDialog();
     expect(app.dialog).toBeNull();
-    gate.resolve();
+    gates[0].resolve();
     await sleep(400); // depois da cascata
     expect(continued).not.toHaveBeenCalled();
     expect(document.querySelector('[data-signin-step]')).toHaveAttribute('data-signin-step', 'email');
@@ -728,12 +730,12 @@ describe('fechar durante a conferência do código (revisão final 5.7)', () => 
     await repo.saveSyncState({ accountId: 'conta-1', signedIn: false });
     document.documentElement.dataset.reducedMotion = 'true'; // o caminho sem a cascata (depois de abrir: o init do app escreve o atributo)
     try {
-      const gate = holdVerify(app);
+      const gates = holdVerify(app);
       await typeEmailAndCode();
       expect(await screen.findByText('Conferindo o código…')).toBeInTheDocument();
       closeDialog();
       expect(app.dialog).toBeNull();
-      gate.resolve();
+      gates[0].resolve();
       await vi.waitFor(() => expect(calls).toContain('sign-out'));
       await sleep(20);
       expect(document.querySelector('[data-signin-step]')).toHaveAttribute('data-signin-step', 'email');
@@ -742,5 +744,41 @@ describe('fechar durante a conferência do código (revisão final 5.7)', () => 
     } finally {
       delete document.documentElement.dataset.reducedMotion;
     }
+  });
+
+  it('fechar durante a conferência de outra conta, com o aparelho dentro da conta de antes, a devolve como estava', async () => {
+    const { auth, calls } = fakeAuth({ id: 'conta-2', email: 'outra@exemplo.com' });
+    const { app, repo } = await openDialog({ auth, signedIn: true }); // dentro da conta 1
+    const gates = holdVerify(app);
+    await typeEmailAndCode();
+    expect(await screen.findByText('Conferindo o código…')).toBeInTheDocument();
+    closeDialog();
+    expect(app.dialog).toBeNull();
+    gates[0].resolve(); // a conferência tira o aparelho da conta 1 antes da escolha (adopt); fechado, a escolha não vem
+    await vi.waitFor(() => expect(calls).toContain('sign-out'));
+    await vi.waitFor(async () => expect(await repo.getSyncState()).toMatchObject({ accountId: 'conta-1', signedIn: true }));
+    expect(document.querySelector('[data-signin-step]')).toHaveAttribute('data-signin-step', 'email');
+    expect(screen.queryByRole('heading', { name: 'Este aparelho tem dados de outra conta' })).toBeNull();
+  });
+
+  it('a conferência velha, depois de fechar e reabrir, não mexe no cubo do diálogo reaberto', async () => {
+    const { app, rerender } = await openDialog();
+    const gates = holdVerify(app);
+    await typeEmailAndCode();
+    expect(await screen.findByText('Conferindo o código…')).toBeInTheDocument();
+    closeDialog();
+    await rerender({ open: false });
+    app.dialog = 'signin';
+    await rerender({ open: true });
+    await typeEmailAndCode(); // no diálogo reaberto, outra conferência
+    await vi.waitFor(() => expect(gates).toHaveLength(2));
+    const cube = () => document.querySelector('[data-signin-step="code"] [data-cube]');
+    expect(cube()).toHaveAttribute('data-cube', 'turn');
+    gates[0].resolve(); // a conferência de antes de fechar volta
+    await sleep(20);
+    expect(cube()).toHaveAttribute('data-cube', 'turn');
+    expect(screen.getByText('Conferindo o código…')).toBeInTheDocument();
+    gates[1].resolve();
+    await vi.waitFor(() => expect(document.querySelector('[data-code-pieces]')).toHaveAttribute('data-code-state', 'ok'));
   });
 });
