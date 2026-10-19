@@ -395,7 +395,7 @@ describe('diálogo de entrar (spec 7.2 e 9.2)', () => {
   });
 
   it('primeiro sync com a conta cheia: Pronto, e abaixo o limite da conta', async () => {
-    const server = new FakeServer(500, { limits: { solves: 1, sessions: 10, practice: 10 } });
+    const server = new FakeServer(500, { limits: { solves: 1, sessions: 10, practice: 10, duels: 10 } });
     const { app } = await openDialog({}, server);
     for (let i = 0; i < 3; i++) await app.addSolve({ ms: 9000 + i, penalty: null, at: Date.now() + i });
     await typeEmailAndCode();
@@ -406,7 +406,7 @@ describe('diálogo de entrar (spec 7.2 e 9.2)', () => {
 
   // "Pronto" fica depois de outra rodada; a linha do limite segue os registros guardados, não o aviso da última rodada.
   it('a linha do limite fica depois de outra rodada sem recusa nova, enquanto houver registros só neste aparelho', async () => {
-    const server = new FakeServer(500, { limits: { solves: 1, sessions: 10, practice: 10 } });
+    const server = new FakeServer(500, { limits: { solves: 1, sessions: 10, practice: 10, duels: 10 } });
     const { app } = await openDialog({}, server);
     for (let i = 0; i < 3; i++) await app.addSolve({ ms: 9000 + i, penalty: null, at: Date.now() + i });
     await typeEmailAndCode();

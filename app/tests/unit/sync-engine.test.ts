@@ -1170,7 +1170,7 @@ describe('primeiro login (spec 6.5)', () => {
 });
 
 describe('a cota e o orçamento do dia (endurecimento 4.1 e decisões 4 e 6)', () => {
-  const LIMITS = { solves: 2, sessions: 10, practice: 10 };
+  const LIMITS = { solves: 2, sessions: 10, practice: 10, duels: 10 };
   const DAY = 86_400_000;
   const ids = (req: SyncRequest | undefined) => (req?.changes ?? []).map((c) => c.id);
 
@@ -1278,7 +1278,7 @@ describe('a cota e o orçamento do dia (endurecimento 4.1 e decisões 4 e 6)', (
   // Decisão (b): uma sessão guardada pela cota, e depois um solve gravado nela. Com vaga de sessão aberta noutro aparelho, o servidor aceitaria
   // o solve sozinho e ele ficaria sem sessão nos outros aparelhos: o solve vai para a lista com ela e só sobe com "Enviar de novo".
   it('o solve gravado numa sessão guardada não sobe sem ela: o servidor nunca recebe um solve sem a sessão', async () => {
-    const server = new FakeServer(500, { limits: { solves: 10, sessions: 1, practice: 10 } });
+    const server = new FakeServer(500, { limits: { solves: 10, sessions: 1, practice: 10, duels: 10 } });
     const phone = await device();
     const desktop = await device();
     const s1 = await phone.createSession({ event: '333' });
@@ -1380,7 +1380,7 @@ describe('a cota e o orçamento do dia (endurecimento 4.1 e decisões 4 e 6)', (
   });
 
   it('cota e orçamento no mesmo lote', async () => {
-    const server = new FakeServer(500, { limits: { solves: 1, sessions: 10, practice: 10 }, budget: 3 });
+    const server = new FakeServer(500, { limits: { solves: 1, sessions: 10, practice: 10, duels: 10 }, budget: 3 });
     server.now = t;
     const repo = await device();
     const s = await repo.createSession({ event: '333' });
@@ -1653,7 +1653,7 @@ describe('a cota e o orçamento do dia (endurecimento 4.1 e decisões 4 e 6)', (
   // dividir. Apagá-la manda a sessão antes dos solves, como antes: na ordem nova, os solves dela iriam antes, a regra (b) os guardaria de novo
   // (a sessão ainda não estaria no lote), e o aviso da conta cheia voltaria.
   it('apagar uma sessão que a cota guarda: ela vai antes dos solves, nada fica guardado, e sem o aviso da conta cheia', async () => {
-    const server = new FakeServer(500, { limits: { solves: 100, sessions: 1, practice: 10 } });
+    const server = new FakeServer(500, { limits: { solves: 100, sessions: 1, practice: 10, duels: 10 } });
     server.now = t;
     const phone = await device();
     await phone.createSession({ event: '333', name: 'Na conta' });
@@ -1951,5 +1951,57 @@ describe('cliente HTTP (spec 6.1)', () => {
     expect(seen[0].url).toBe('/api/sync');
     expect(seen[0].init?.signal).toBeInstanceOf(AbortSignal); // com prazo
     expect(seen[0].init).toMatchObject({ method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' } });
+  });
+});
+
+// Os desafios (spec do desafio, seção 7) sobem com o protocolo 3: o servidor responde 426 ao app de antes, que mostra "Atualize o Klick" e
+// guarda a fila. Um app do protocolo 2 nunca recebe um desafio que não entenderia.
+describe('os desafios no sync (protocolo 3)', () => {
+  const duel = (linkId: string) => ({
+    id: `${linkId}-a`, linkId, side: 'a' as const, event: '333' as const, scrambles: Array.from({ length: 7 }, (_, i) => `R U F${i}`),
+    mine: [{ ms: 9_000, penalty: null }], theirs: null, myName: 'Ana', theirName: '', status: 'playing' as const,
+  });
+
+  it('o FakeServer com o protocolo 3 aceita desafios; o app de antes recebe 426', async () => {
+    expect(SYNC_PROTOCOL).toBe(3);
+    const server = new FakeServer();
+    const phone = await device();
+    const saved = await phone.saveDuel(duel('abcdefgh12345678'));
+    expect(await engineFor(phone, network(server)).engine.run()).toMatchObject({ phase: 'idle', pending: 0, error: null, refused: 0 });
+    expect([...server.active().keys()]).toEqual([`duels/${saved.id}`]);
+    const desktop = await device();
+    await engineFor(desktop, network(server)).engine.run();
+    expect(await desktop.getDuel(saved.id)).toEqual(saved);
+
+    // O app de antes (protocolo 2) fala com o servidor novo: 426, a fila fica inteira e nada do lote entra.
+    const old = await device();
+    await old.createSession({ event: '333' });
+    const net = network(server);
+    const real = net.api.sync;
+    net.api.sync = (req) => real({ ...req, v: 2 });
+    const before = server.rev;
+    expect(await engineFor(old, net).engine.run()).toMatchObject({ phase: 'error', error: 'update', pending: 1 });
+    expect(await old.outboxCount()).toBe(1);
+    expect(server.rev).toBe(before);
+    expect(() => server.sync({ v: 2, account: 'conta-1', deviceId: 'b', cursor: 0, clock: 0, changes: [] })).toThrow(ApiError);
+  });
+
+  it('um desafio além da cota fica só neste aparelho e volta com "Enviar de novo"', async () => {
+    const server = new FakeServer(500, { limits: { solves: 10, sessions: 10, practice: 10, duels: 1 } });
+    const repo = await device();
+    const a = await repo.saveDuel(duel('abcdefgh00000001'));
+    t += 1;
+    const b = await repo.saveDuel(duel('abcdefgh00000002'));
+    const { engine } = engineFor(repo, network(server));
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, refused: 0, notice: 'quota' });
+    expect([...server.active().keys()]).toEqual([`duels/${a.id}`]);
+    expect([await repo.heldCount(), await repo.localOnlyCount()]).toEqual([1, 1]);
+    t += 10;
+    await repo.deleteDuel(a.id); // abre a vaga
+    await engine.run();
+    expect(await repo.requeueHeld()).toBe(1);
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, refused: 0, notice: null });
+    expect([...server.active().keys()]).toEqual([`duels/${b.id}`]);
+    expect([await repo.heldCount(), await repo.localOnlyCount()]).toEqual([0, 0]);
   });
 });

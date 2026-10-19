@@ -154,6 +154,23 @@ describe('a conta no app (spec 6.2 e 8.4)', () => {
     expect(env.pending()).toBe(1);
   });
 
+  // Os desafios sobem como os solves (spec do desafio, seção 7): uma gravação deles agenda o sync 5 s depois da última.
+  it('um desafio salvo neste aparelho sobe 5 s depois, como um solve', async () => {
+    const server = new FakeServer();
+    const env = manualEnv();
+    const { app, repo } = await appWithAccount(fakeApi(server).api, { signedIn: true, env: env.env });
+    await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
+    expect(env.pending()).toBe(0);
+    const scrambles = Array.from({ length: 7 }, (_, i) => `R U F${i}`);
+    await repo.saveDuel({
+      id: 'abcdefgh12345678-a', linkId: 'abcdefgh12345678', side: 'a', event: '333', scrambles, mine: [], theirs: null, myName: '', theirName: '',
+      status: 'playing',
+    });
+    expect(env.pending()).toBe(1);
+    env.fireDelayed();
+    await vi.waitFor(() => expect(server.records.has('duels/abcdefgh12345678-a')).toBe(true));
+  });
+
   it('a região aria-live fala só quando o sync falha e quando volta (spec 9.6)', async () => {
     const server = new FakeServer();
     const net = fakeApi(server);

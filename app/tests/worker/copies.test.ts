@@ -6,7 +6,7 @@ import { runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
 import { env } from 'cloudflare:workers';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { restoreChanges } from '../../src/core/sync/restore';
-import { accountPrefsOf } from '../../src/core/sync/snapshot';
+import { accountPrefsOf, exportFromRecords } from '../../src/core/sync/snapshot';
 import { ACCOUNT_HEADER, SYNC_PROTOCOL, type Change, type CloudCopies, type SyncResponse } from '../../src/core/sync/types';
 import type { KlickExport } from '../../src/core/types';
 import { storageUsed } from '../../worker/budget';
@@ -26,7 +26,7 @@ import {
   utcMonth,
 } from '../../worker/limits';
 import { COMPACTABLE, rowToChange, type Row } from '../../worker/records-sql';
-import { dayOf, gunzipJson, preRestoreName, snapshotKey, snapshotPrefix } from '../../worker/snapshots';
+import { dayOf, gunzipJson, gzipJson, preRestoreName, snapshotKey, snapshotPrefix } from '../../worker/snapshots';
 import { call, postJson, setState, stateOf, stubOf, T0, testDeps } from './helpers';
 
 const DAY = 86_400_000;
@@ -130,7 +130,8 @@ async function restoreCount(user: string, name: string): Promise<number> {
   const copy = (await gunzipJson(await object!.arrayBuffer())) as KlickExport;
   const current = await runInDurableObject(stubOf(user), (_o, state) => state.storage.sql.exec<Row>('SELECT * FROM records').toArray().map(rowToChange));
   const practice = Array.isArray(copy.practice) ? copy.practice : null;
-  return restoreChanges(current, { sessions: copy.sessions, solves: copy.solves, practice }, accountPrefsOf(copy.profile), T0 + DAY).length;
+  const duels = Array.isArray(copy.duels) ? copy.duels : null;
+  return restoreChanges(current, { sessions: copy.sessions, solves: copy.solves, practice, duels }, accountPrefsOf(copy.profile), T0 + DAY).length;
 }
 const objectsOf = async (user: string): Promise<string[]> => (await env.SNAPSHOTS.list({ prefix: snapshotPrefix(user) })).objects.map((o) => o.key);
 
@@ -632,5 +633,53 @@ describe('a contagem limitada do tamanho da conta', () => {
     const res = await sync(user, []);
     expect(res.readsDeferred).toBeUndefined();
     expect(res.changes.length).toBeGreaterThan(0);
+  });
+});
+
+// Os desafios (spec do desafio, seção 7): a cópia do dia os leva, e restaurá-la os troca pela regra de restoreChanges, como o treino; uma cópia
+// de antes deles (sem `duels`) não mexe nos de agora.
+describe('os desafios nas cópias na nuvem', () => {
+  const duel = (linkId: string, o: Partial<Change> & { status?: string } = {}): Change => ({
+    store: 'duels',
+    id: `${linkId}-a`,
+    data: {
+      linkId, side: 'a', event: '333', scrambles: Array.from({ length: 7 }, () => 'R U'), mine: [{ ms: 9000, penalty: null }], theirs: null,
+      myName: 'Ana', theirName: '', status: o.status ?? 'playing', createdAt: T0,
+    },
+    updatedAt: o.updatedAt ?? T0,
+    deletedAt: o.deletedAt ?? null,
+    deletionStamp: o.deletionStamp ?? T0,
+  });
+  const duelsOf = (user: string): Promise<Change[]> =>
+    runInDurableObject(stubOf(user), (_o, state) => state.storage.sql.exec<Row>("SELECT * FROM records WHERE store = 'duels' ORDER BY id").toArray().map(rowToChange));
+
+  it('restaurar um dia devolve os desafios daquele dia; uma cópia sem duels não mexe nos de agora', async () => {
+    const user = 'restaura-desafios';
+    await sync(user, [session, solve('a'), duel('abcdefgh00000001'), duel('abcdefgh00000002')]);
+    expect(await stubOf(user).snapshot(T0)).toBe(true);
+    const day = (await gunzipJson(await (await env.SNAPSHOTS.get(snapshotKey(user, dayOf(T0))))!.arrayBuffer())) as KlickExport;
+    expect(day.duels?.map((d) => d.id)).toEqual(['abcdefgh00000001-a', 'abcdefgh00000002-a']);
+
+    // Depois da cópia: um desafio respondido, um apagado e um novo.
+    const later = T0 + 1000;
+    const gone = { updatedAt: later, deletedAt: later, deletionStamp: later };
+    await sync(user, [duel('abcdefgh00000001', { status: 'done', updatedAt: later }), duel('abcdefgh00000002', gone), duel('abcdefgh00000003', { updatedAt: later })], later);
+    const at = T0 + 2000;
+    expect((await restore(user, dayOf(T0), at)).status).toBe(204);
+    expect((await duelsOf(user)).map((c) => [c.id, c.deletedAt, (c.data as { status: string }).status, c.updatedAt])).toEqual([
+      ['abcdefgh00000001-a', null, 'playing', at],
+      ['abcdefgh00000002-a', null, 'playing', at],
+      ['abcdefgh00000003-a', at, 'playing', at], // não está na cópia: vai para a lixeira
+    ]);
+    expect(JSON.parse((await stateOf(user, 'active'))!)).toMatchObject({ duels: 2 });
+
+    // Uma cópia de antes dos desafios: os solves trocam, e os desafios ficam como estão.
+    const { duels: _d, ...older } = exportFromRecords([session, solve('b')], T0 - DAY);
+    await env.SNAPSHOTS.put(snapshotKey(user, dayOf(T0 - DAY)), await gzipJson(older));
+    const before = await duelsOf(user);
+    expect((await restore(user, dayOf(T0 - DAY), T0 + 3000)).status).toBe(204);
+    expect(await duelsOf(user)).toEqual(before);
+    const solves = (await sync(user, [])).changes.filter((c) => c.store === 'solves').sort((x, y) => (x.id < y.id ? -1 : 1));
+    expect(solves.map((c) => [c.id, c.deletedAt])).toEqual([['a', T0 + 3000], ['b', null]]);
   });
 });

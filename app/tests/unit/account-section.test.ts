@@ -159,7 +159,7 @@ describe('Ajustes: o que só está neste aparelho e as cópias pausadas', () => 
   const activeSolves = (server: FakeServer) => [...server.active().values()].filter((c) => c.store === 'solves');
 
   it('com registros só neste aparelho, Ajustes mostra quantos e "Enviar de novo" os põe na fila', async () => {
-    const limits = { solves: 1, sessions: 10, practice: 10 };
+    const limits = { solves: 1, sessions: 10, practice: 10, duels: 10 };
     const server = new FakeServer(500, { limits });
     const { app, repo } = await appWithAccount(fakeApi(server).api, { signedIn: true });
     await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
@@ -197,7 +197,7 @@ describe('Ajustes: o que só está neste aparelho e as cópias pausadas', () => 
   // linha do sync (focável só pelo script, tabindex -1), que diz o que aconteceu. Não para o primeiro botão da seção: com o sync rodando,
   // "Sincronizar agora" está desligado, e ele seria "Criar passkey", onde um Enter abriria o pedido do WebAuthn (revisão final, Minor 3).
   it('depois de "Enviar de novo", a linha some e o foco fica na linha do sync, não no <body> nem num botão (spec 9.6)', async () => {
-    const limits = { solves: 1, sessions: 10, practice: 10 };
+    const limits = { solves: 1, sessions: 10, practice: 10, duels: 10 };
     const server = new FakeServer(500, { limits });
     const { app } = await appWithAccount(fakeApi(server).api, { signedIn: true });
     await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
@@ -221,7 +221,7 @@ describe('Ajustes: o que só está neste aparelho e as cópias pausadas', () => 
 
   // Cota e orçamento na mesma rodada: o aviso é o do orçamento (o resto da fila só é explicado ali), e a cota aparece pela linha dos guardados.
   it('cota e orçamento na mesma rodada: a linha do sync diz que o resto sobe amanhã, e os guardados aparecem mesmo assim', async () => {
-    const server = new FakeServer(500, { limits: { solves: 1, sessions: 10, practice: 10 }, budget: 3 });
+    const server = new FakeServer(500, { limits: { solves: 1, sessions: 10, practice: 10, duels: 10 }, budget: 3 });
     server.now = Date.now();
     const { app, repo } = await appWithAccount(fakeApi(server).api, { signedIn: true });
     await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));

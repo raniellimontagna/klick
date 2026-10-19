@@ -266,7 +266,10 @@ export class AccountStore extends DurableObject<Env> {
       this.countReads(scans * stored.rows, now);
     }
     const writes = this.dayCount('writes', now);
-    return { active: JSON.parse(active) as ActiveCounts, bytes: Number(bytes), day: writes.day, writes: writes.n };
+    // Uma conta de antes dos desafios tem o contador gravado sem a chave deles: nenhum desafio existia nela (o protocolo 3 os trouxe), então
+    // ela começa do zero, e não de undefined (que viraria NaN na primeira soma e tiraria os desafios da cota).
+    const counted: ActiveCounts = { ...zeroCounts(), ...(JSON.parse(active) as Partial<ActiveCounts>) };
+    return { active: counted, bytes: Number(bytes), day: writes.day, writes: writes.n };
   }
 
   // A contagem do dia UTC de `now` (num dia novo, 0), sem gravar nada. O dia nunca volta atrás (usage, acima).
@@ -811,8 +814,10 @@ export class AccountStore extends DurableObject<Env> {
       const copy = (await gunzipJson(await object.arrayBuffer())) as KlickExport;
       const current = this.all(now);
       const stamp = current.reduce((max, c) => Math.max(max, c.updatedAt + 1, c.deletionStamp + 1), now); // vence tudo o que existe
+      // Uma cópia de antes do treino ou dos desafios (sem a lista) não mexe neles.
       const practice = Array.isArray(copy.practice) ? copy.practice : null;
-      const changes = restoreChanges(current, { sessions: copy.sessions, solves: copy.solves, practice }, accountPrefsOf(copy.profile), stamp);
+      const duels = Array.isArray(copy.duels) ? copy.duels : null;
+      const changes = restoreChanges(current, { sessions: copy.sessions, solves: copy.solves, practice, duels }, accountPrefsOf(copy.profile), stamp);
       if (changes.length > day) return 'too-big';
       const rows = rowsOf(changes.length);
       if (rows > DAILY_WRITE_BUDGET - this.dayCount('writes', now).n || !(await this.dayRoom(rows, now, 'restore'))) return 'write-budget';

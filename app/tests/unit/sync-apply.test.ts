@@ -134,7 +134,7 @@ describe('a marca compactada', () => {
       expect(out.writes, mode).toEqual([]);
       expect(out.rejected, mode).toEqual([]);
       expect(out.derived, mode).toEqual([]);
-      expect(out.activeDelta, mode).toEqual({ solves: 0, sessions: 0, practice: 0 });
+      expect(out.activeDelta, mode).toEqual({ solves: 0, sessions: 0, practice: 0, duels: 0 });
     }
   });
 
@@ -220,7 +220,7 @@ describe('applyChanges: só lê os solves de uma sessão excluída (o 1º sync d
 
 describe('a cota (endurecimento 4.1)', () => {
   // A conta cheia de solves: dois ativos (a e b) e um na lixeira (velho), no teto de 2.
-  const quota = { active: { solves: 2, sessions: 1, practice: 0 }, limits: { solves: 2, sessions: 5, practice: 5 } };
+  const quota = { active: { solves: 2, sessions: 1, practice: 0, duels: 0 }, limits: { solves: 2, sessions: 5, practice: 5, duels: 5 } };
   const full = (): MapView => viewOf(session('s1'), solve('a'), solve('b'), solve('velho', { deletedAt: 5, deletionStamp: 5 }));
   const gone = { updatedAt: 20, deletedAt: 20, deletionStamp: 20 };
   const practice = (id: string): Change => ({
@@ -231,7 +231,7 @@ describe('a cota (endurecimento 4.1)', () => {
     const out = applyChanges(full(), [solve('novo')], { mode: 'server', quota });
     expect(out.rejected).toEqual([{ store: 'solves', id: 'novo', reason: QUOTA_REASON }]);
     expect(out.writes).toEqual([]);
-    expect(out.activeDelta).toEqual({ solves: 0, sessions: 0, practice: 0 });
+    expect(out.activeDelta).toEqual({ solves: 0, sessions: 0, practice: 0, duels: 0 });
   });
 
   it('editar e apagar um solve ativo passam com a conta cheia', () => {
@@ -284,7 +284,7 @@ describe('a cota (endurecimento 4.1)', () => {
     for (const opts of [{ mode: 'server', quota }, { mode: 'server' }, { mode: 'client' }] as const) {
       const out = applyChanges(view, batch, opts);
       expect(out.rejected).toEqual([]);
-      expect(out.activeDelta).toEqual({ solves: -3, sessions: -1, practice: 0 });
+      expect(out.activeDelta).toEqual({ solves: -3, sessions: -1, practice: 0, duels: 0 });
       expect(out.deletedSolves).toBe(3);
     }
   });
@@ -293,7 +293,7 @@ describe('a cota (endurecimento 4.1)', () => {
     const view = viewOf(session('s1', { updatedAt: 50, deletedAt: 50, deletionStamp: 50 }));
     const out = applyChanges(view, [solve('n', { updatedAt: 80, deletionStamp: 80 })], { mode: 'server', quota: { ...quota, active: { ...quota.active, solves: 0 } } });
     expect(out.rejected).toEqual([]);
-    expect(out.activeDelta).toEqual({ solves: 1, sessions: 1, practice: 0 });
+    expect(out.activeDelta).toEqual({ solves: 1, sessions: 1, practice: 0, duels: 0 });
   });
 
   it('um solve recusado pela cota não mexe na sessão dele: a cascata não a devolve', () => {
@@ -305,7 +305,7 @@ describe('a cota (endurecimento 4.1)', () => {
   });
 
   it('sessões e tentativas do treino também têm teto; os ajustes não', () => {
-    const atLimit = { active: { solves: 0, sessions: 5, practice: 5 }, limits: quota.limits };
+    const atLimit = { active: { solves: 0, sessions: 5, practice: 5, duels: 0 }, limits: quota.limits };
     const view = viewOf(session('s1'));
     const out = applyChanges(view, [session('nova'), practice('p1'), seasonPref(season([]), 5), session('s1', { updatedAt: 20 })], { mode: 'server', quota: atLimit });
     expect(out.rejected).toEqual([
@@ -313,11 +313,11 @@ describe('a cota (endurecimento 4.1)', () => {
       { store: 'practice', id: 'p1', reason: QUOTA_REASON },
     ]);
     expect(keys(out.writes)).toEqual(['prefs/season', 'sessions/s1']);
-    expect(out.activeDelta).toEqual({ solves: 0, sessions: 0, practice: 0 });
+    expect(out.activeDelta).toEqual({ solves: 0, sessions: 0, practice: 0, duels: 0 });
   });
 
   it('sem limits, o teto é ACCOUNT_LIMITS', () => {
-    const out = applyChanges(viewOf(session('s1')), [solve('n1'), solve('n2')], { mode: 'server', quota: { active: { solves: 99_999, sessions: 1, practice: 0 } } });
+    const out = applyChanges(viewOf(session('s1')), [solve('n1'), solve('n2')], { mode: 'server', quota: { active: { solves: 99_999, sessions: 1, practice: 0, duels: 0 } } });
     expect(out.rejected).toEqual([{ store: 'solves', id: 'n2', reason: QUOTA_REASON }]);
     expect(keys(out.writes)).toEqual(['solves/n1']);
     expect(out.activeDelta.solves).toBe(1);
@@ -328,7 +328,7 @@ describe('a cota (endurecimento 4.1)', () => {
       const out = applyChanges(full(), [solve('novo'), solve('velho', { deletionStamp: 20 }), session('nova'), practice('p1')], { mode });
       expect(out.rejected).toEqual([]);
       expect(keys(out.writes)).toEqual(['practice/p1', 'sessions/nova', 'solves/novo', 'solves/velho']);
-      expect(out.activeDelta).toEqual({ solves: 2, sessions: 1, practice: 1 });
+      expect(out.activeDelta).toEqual({ solves: 2, sessions: 1, practice: 1, duels: 0 });
     }
   });
 });
@@ -337,7 +337,7 @@ describe('a cota (endurecimento 4.1)', () => {
 // com uma exclusão anterior à dele, que a cascata devolveria) ocupa a vaga dela; sem vaga, ele também volta com o motivo da cota. Nada
 // recusado é gravado, e nenhum solve ativo gravado fica sem a sessão ativa.
 describe('a cota: a sessão que um solve pede', () => {
-  const sessionsFull = { active: { solves: 0, sessions: 1, practice: 0 }, limits: { solves: 10, sessions: 1, practice: 10 } };
+  const sessionsFull = { active: { solves: 0, sessions: 1, practice: 0, duels: 0 }, limits: { solves: 10, sessions: 1, practice: 10, duels: 10 } };
   const cota = (store: string, id: string) => ({ store, id, reason: QUOTA_REASON });
 
   it('com as sessões cheias, a sessão nova e os solves dela são recusados, nas duas ordens, e nada é gravado', () => {
@@ -345,7 +345,7 @@ describe('a cota: a sessão que um solve pede', () => {
     const first = applyChanges(view, [session('N'), solve('n', { sessionId: 'N' })], { mode: 'server', quota: sessionsFull });
     expect(first.rejected).toEqual([cota('sessions', 'N'), cota('solves', 'n')]);
     expect(first.writes).toEqual([]);
-    expect(first.activeDelta).toEqual({ solves: 0, sessions: 0, practice: 0 });
+    expect(first.activeDelta).toEqual({ solves: 0, sessions: 0, practice: 0, duels: 0 });
     const after = applyChanges(view, [solve('n', { sessionId: 'N' }), session('N')], { mode: 'server', quota: sessionsFull });
     expect(after.rejected).toEqual([cota('solves', 'n'), cota('sessions', 'N')]);
     expect(after.writes).toEqual([]);
@@ -358,26 +358,26 @@ describe('a cota: a sessão que um solve pede', () => {
     expect(out.rejected).toEqual([cota('sessions', 'X'), cota('solves', 'a')]);
     expect(out.writes).toEqual([]);
     expect(out.derived).toEqual([]);
-    expect(out.activeDelta).toEqual({ solves: 0, sessions: 0, practice: 0 });
+    expect(out.activeDelta).toEqual({ solves: 0, sessions: 0, practice: 0, duels: 0 });
   });
 
   it('a sessão que um solve devolve ocupa a última vaga: a sessão nova que vem depois no lote é recusada', () => {
     const view = viewOf(session('X', { deletedAt: 5, deletionStamp: 5 }));
-    const quota = { active: { solves: 0, sessions: 0, practice: 0 }, limits: { solves: 10, sessions: 1, practice: 10 } };
+    const quota = { active: { solves: 0, sessions: 0, practice: 0, duels: 0 }, limits: { solves: 10, sessions: 1, practice: 10, duels: 10 } };
     const out = applyChanges(view, [solve('a', { sessionId: 'X', updatedAt: 20, deletionStamp: 20 }), session('N')], { mode: 'server', quota });
     expect(out.rejected).toEqual([cota('sessions', 'N')]);
     expect(keys(out.writes)).toEqual(['sessions/X', 'solves/a']);
-    expect(out.activeDelta).toEqual({ solves: 1, sessions: 1, practice: 0 });
+    expect(out.activeDelta).toEqual({ solves: 1, sessions: 1, practice: 0, duels: 0 });
   });
 
   it('a vaga da sessão é pedida uma vez por lote: a restauração dela depois do solve não conta de novo', () => {
     const view = viewOf(session('X', { deletedAt: 5, deletionStamp: 5 }));
-    const quota = { active: { solves: 0, sessions: 0, practice: 0 }, limits: { solves: 10, sessions: 1, practice: 10 } };
+    const quota = { active: { solves: 0, sessions: 0, practice: 0, duels: 0 }, limits: { solves: 10, sessions: 1, practice: 10, duels: 10 } };
     const back = { updatedAt: 20, deletionStamp: 20 };
     const out = applyChanges(view, [solve('a', { sessionId: 'X', ...back }), session('X', back), solve('b', { sessionId: 'X', ...back })], { mode: 'server', quota });
     expect(out.rejected).toEqual([]);
     expect(keys(out.writes)).toEqual(['sessions/X', 'solves/a', 'solves/b']);
-    expect(out.activeDelta).toEqual({ solves: 2, sessions: 1, practice: 0 });
+    expect(out.activeDelta).toEqual({ solves: 2, sessions: 1, practice: 0, duels: 0 });
   });
 
   it('um solve que a cascata vai apagar (mais velho que a exclusão da sessão) não pede vaga', () => {
@@ -385,7 +385,7 @@ describe('a cota: a sessão que um solve pede', () => {
     const out = applyChanges(view, [solve('a', { sessionId: 'X', updatedAt: 20, deletionStamp: 20 })], { mode: 'server', quota: sessionsFull });
     expect(out.rejected).toEqual([]);
     expect(out.writes.map((c) => [c.store, c.id, c.deletedAt])).toEqual([['solves', 'a', 50]]);
-    expect(out.activeDelta).toEqual({ solves: 0, sessions: 0, practice: 0 });
+    expect(out.activeDelta).toEqual({ solves: 0, sessions: 0, practice: 0, duels: 0 });
   });
 
   it('uma sessão apagada no lote não abre vaga antes do fim do lote: a cascata ainda pode devolvê-la', () => {
@@ -393,7 +393,7 @@ describe('a cota: a sessão que um solve pede', () => {
     const view = viewOf(session('X'), solve('a', { sessionId: 'X', updatedAt: 80, deletionStamp: 80 }));
     const out = applyChanges(view, [session('X', { updatedAt: 50, deletedAt: 50, deletionStamp: 50 }), session('N')], { mode: 'server', quota: sessionsFull });
     expect(out.rejected).toEqual([cota('sessions', 'N')]);
-    expect(out.activeDelta).toEqual({ solves: 0, sessions: 0, practice: 0 });
+    expect(out.activeDelta).toEqual({ solves: 0, sessions: 0, practice: 0, duels: 0 });
   });
 
   it('com as sessões cheias, editar um solve ativo passa; levá-lo para uma sessão que não está ativa pede vaga', () => {
@@ -412,7 +412,7 @@ describe('applyChanges: admit, a recusa a mais do servidor', () => {
   const note = (id: string, text: string, o: Partial<Change> = {}): Change => solve(id, { updatedAt: 20, ...o, data: { ...(solve(id).data as object), note: text } });
 
   it('false recusa com o motivo da cota e não grava nada; a vaga da cota que ele não usou fica para o próximo', () => {
-    const quota = { active: { solves: 1, sessions: 1, practice: 0 }, limits: { solves: 2, sessions: 5, practice: 5 } };
+    const quota = { active: { solves: 1, sessions: 1, practice: 0, duels: 0 }, limits: { solves: 2, sessions: 5, practice: 5, duels: 5 } };
     const out = applyChanges(viewOf(session('s1'), solve('a')), [note('grande', 'x'.repeat(100)), solve('n')], {
       mode: 'server',
       quota,
@@ -420,13 +420,13 @@ describe('applyChanges: admit, a recusa a mais do servidor', () => {
     });
     expect(out.rejected).toEqual([{ store: 'solves', id: 'grande', reason: QUOTA_REASON }]);
     expect(keys(out.writes)).toEqual(['solves/n']);
-    expect(out.activeDelta).toEqual({ solves: 1, sessions: 0, practice: 0 });
+    expect(out.activeDelta).toEqual({ solves: 1, sessions: 0, practice: 0, duels: 0 });
   });
 
   it('vê o resultado do merge e o que estava antes, a versão do lote se o mesmo registro veio antes; o que a cota recusa nem chega a ele', () => {
     const seen: [string | null, string | null][] = [];
     const text = (c: Change | undefined): string | null => (c ? (c.data as { note: string }).note : null);
-    const quota = { active: { solves: 2, sessions: 1, practice: 0 }, limits: { solves: 2, sessions: 5, practice: 5 } };
+    const quota = { active: { solves: 2, sessions: 1, practice: 0, duels: 0 }, limits: { solves: 2, sessions: 5, practice: 5, duels: 5 } };
     const view = viewOf(session('s1'), note('a', 'gravada', { updatedAt: 30 }), solve('b'));
     const batch = [note('a', 'velha'), note('b', 'primeira'), note('b', 'segunda', { updatedAt: 40 }), solve('novo'), compacted(solve('sumido', { deletedAt: 5, deletionStamp: 5 }))];
     const out = applyChanges(view, batch, {
@@ -476,7 +476,7 @@ describe('applyChanges: admit parcial, como o teto de bytes', () => {
       return true;
     };
   };
-  const quota = { active: { solves: 10, sessions: 1, practice: 0 } };
+  const quota = { active: { solves: 10, sessions: 1, practice: 0, duels: 0 } };
   const big = (id: string, o: Partial<Change> = {}): Change => session(id, { ...o, data: { name: 'N'.repeat(400), event: '333', order: 0, createdAt: 1 } });
   const cota = (store: string, id: string) => ({ store, id, reason: QUOTA_REASON });
 
@@ -485,7 +485,7 @@ describe('applyChanges: admit parcial, como o teto de bytes', () => {
       const out = applyChanges(viewOf(session('s1')), [big('X'), solve('n', { sessionId: 'X' })], { mode: 'server', ...opts, admit: byteCap(300) });
       expect(out.rejected).toEqual([cota('sessions', 'X'), cota('solves', 'n')]);
       expect(out.writes).toEqual([]);
-      expect(out.activeDelta).toEqual({ solves: 0, sessions: 0, practice: 0 });
+      expect(out.activeDelta).toEqual({ solves: 0, sessions: 0, practice: 0, duels: 0 });
     }
   });
 
@@ -494,7 +494,7 @@ describe('applyChanges: admit parcial, como o teto de bytes', () => {
     const out = applyChanges(viewOf(session('s1')), [solve('n', { sessionId: 'X' }), big('X')], { mode: 'server', quota, admit: byteCap(300, calls) });
     expect(out.rejected).toEqual([]);
     expect(keys(out.writes)).toEqual(['sessions/X', 'solves/n']);
-    expect(out.activeDelta).toEqual({ solves: 1, sessions: 1, practice: 0 });
+    expect(out.activeDelta).toEqual({ solves: 1, sessions: 1, practice: 0, duels: 0 });
     expect(calls).toEqual([['solves/n', false], ['sessions/X', true]]); // o teto vê o que passou, para a conta dele continuar certa
   });
 
@@ -539,7 +539,7 @@ describe('applyChanges: admit parcial, como o teto de bytes', () => {
 describe('a cota: propriedades sobre lotes sorteados', () => {
   const STORES = ['solves', 'sessions', 'practice'] as const;
   const activeIn = (records: Iterable<Change>): ActiveCounts => {
-    const n = { solves: 0, sessions: 0, practice: 0 };
+    const n = { solves: 0, sessions: 0, practice: 0, duels: 0 };
     for (const c of records) if (c.store !== 'prefs' && c.deletedAt === null) n[c.store]++;
     return n;
   };
@@ -594,7 +594,7 @@ describe('a cota: propriedades sobre lotes sorteados', () => {
     for (let round = 0; round < 3000; round++) {
       const { view, batch } = draw(rnd);
       const start = activeIn(view.records.values());
-      const limits = { solves: Math.floor(rnd() * 10), sessions: Math.floor(rnd() * 5), practice: 5 };
+      const limits = { solves: Math.floor(rnd() * 10), sessions: Math.floor(rnd() * 5), practice: 5, duels: 5 };
       const out = applyChanges(view, batch, { mode: 'server', quota: { active: start, limits } });
       const at = `rodada ${round}`;
       cascaded += check(view, batch, start, limits, out, at);
@@ -656,4 +656,46 @@ describe('a cota: propriedades sobre lotes sorteados', () => {
     }
     return cascaded;
   }
+});
+
+// Os desafios (spec do desafio, seção 7): uma store do sync como as outras. A forma é a do arquivo do Klick (core/duel/validate.ts), e o id
+// do registro é `${linkId}-${side}`.
+describe('os desafios no sync', () => {
+  const SCRAMBLES = Array.from({ length: 7 }, (_, i) => `R U F${i}`);
+  const duel = (linkId: string, side: string, data: Record<string, unknown> = {}): Change => ({
+    store: 'duels',
+    id: `${linkId}-${side}`,
+    data: {
+      linkId, side, event: '333', scrambles: SCRAMBLES, mine: [{ ms: 9000, penalty: null }], theirs: null, myName: 'Ana', theirName: '',
+      status: 'playing', createdAt: 1, ...data,
+    },
+    updatedAt: 10,
+    deletedAt: null,
+    deletionStamp: 10,
+  });
+
+  it('um desafio válido entra; um com side ou tempos tortos é recusado', () => {
+    const mine = duel('abcdefgh12345678', 'a');
+    // O outro lado da mesma partida, com a resposta e um campo que esta versão não conhece (passa intacto).
+    const theirs = duel('abcdefgh12345678', 'b', { theirs: [{ ms: 8000, penalty: '+2' }, { ms: 0, penalty: 'DNF' }], status: 'done', extra: 'passa' });
+    const bad = [
+      duel('abcdefgh00000001', 'c'), // um lado que não existe
+      { ...duel('abcdefgh00000002', 'a'), id: 'abcdefgh00000002-b' }, // o id não bate com o lado
+      duel('ABC', 'a'), // o id do link fora do formato
+      duel('abcdefgh00000003', 'a', { mine: [{ ms: -1, penalty: null }] }), // um tempo negativo
+      duel('abcdefgh00000004', 'a', { mine: Array.from({ length: 8 }, () => ({ ms: 1000, penalty: null })) }), // mais de sete tempos
+      duel('abcdefgh00000005', 'b', { theirs: [{ ms: 1000, penalty: '+3' }] }), // uma penalidade que não existe
+      duel('abcdefgh00000006', 'a', { scrambles: SCRAMBLES.slice(0, 6) }),
+      duel('abcdefgh00000007', 'a', { event: 'xadrez' }),
+      duel('abcdefgh00000008', 'a', { myName: 'x'.repeat(21) }),
+      duel('abcdefgh00000009', 'a', { status: 'perdido' }),
+      duel('abcdefgh00000010', 'a', { createdAt: 'ontem' }),
+    ];
+    expect(checkChange(mine)).toEqual({ ok: true, change: mine });
+    const out = applyChanges(viewOf(), [mine, theirs, ...bad], { mode: 'server' });
+    expect(keys(out.writes)).toEqual(['duels/abcdefgh12345678-a', 'duels/abcdefgh12345678-b']);
+    expect(out.writes[1].data).toMatchObject({ extra: 'passa' });
+    expect(out.rejected).toEqual(bad.map((c) => ({ store: 'duels', id: c.id, reason: 'desafio inválido' })));
+    expect(out.activeDelta.duels).toBe(2);
+  });
 });

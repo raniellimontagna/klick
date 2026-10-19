@@ -3,9 +3,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { seasonOne } from '../../src/core/season';
 import { TOMBSTONE_KEEP_MS } from '../../src/core/sync/limits';
 import { compacted, toChange } from '../../src/core/sync/records';
-import { checkChange } from '../../src/core/sync/shape';
+import { checkChange, MAX_DATA_CHARS } from '../../src/core/sync/shape';
 import { MAX_STAMP, SYNC_BATCH, SYNC_PROTOCOL, syncKey, type Change } from '../../src/core/sync/types';
-import type { SeasonProgress } from '../../src/core/types';
+import type { Duel, SeasonProgress } from '../../src/core/types';
 import { openKlickDb, type KlickDB } from '../../src/data/db';
 import { AccountChangedError, createRepository, createSyncClock, LocalOnlyError, PendingChangesError, type ChangeKind, type ChangeOrigin, type Repository } from '../../src/data/repository';
 import { createScrambleQueue } from '../../src/scramble/queue';
@@ -42,6 +42,22 @@ const remoteSession = (id: string, o: Partial<Change> & { name?: string } = {}):
   updatedAt: o.updatedAt ?? t,
   deletedAt: o.deletedAt ?? null,
   deletionStamp: o.deletionStamp ?? t,
+});
+
+// Um lado de um desafio como a tela o grava (sem as datas, que o repositório põe). O id é `${linkId}-${side}`.
+type NewDuel = Omit<Duel, 'createdAt' | 'updatedAt' | 'deletedAt'>;
+const newDuel = (linkId: string, o: Partial<NewDuel> = {}): NewDuel => ({
+  id: `${linkId}-${o.side ?? 'a'}`,
+  linkId,
+  side: 'a',
+  event: '333',
+  scrambles: Array.from({ length: 7 }, (_, i) => `R U F${i}`),
+  mine: [{ ms: 9_000, penalty: null }],
+  theirs: null,
+  myName: 'Ana',
+  theirName: '',
+  status: 'playing',
+  ...o,
 });
 
 // Uma rodada do motor, à mão (como o da Task 12): sobe a fila (no primeiro login, nada), confirma o que subiu antes de juntar a volta, junta
@@ -668,6 +684,90 @@ describe('primeiro login num aparelho com dados (spec 6.5)', () => {
   });
 });
 
+// Os desafios (spec do desafio, seção 7): uma store do sync como as outras.
+describe('os desafios no sync', () => {
+  it('salvar um desafio põe na fila; o sync sobe e o outro aparelho recebe', async () => {
+    const server = new FakeServer();
+    server.now = t;
+    const phone = await fresh();
+    const saved = await phone.repo.saveDuel(newDuel('abcdefgh12345678'));
+    expect(await keys(phone.db)).toEqual([`duels/${saved.id}`]);
+    await syncRound(phone.repo, server);
+    expect(await keys(phone.db)).toEqual([]);
+    expect(server.active().get(`duels/${saved.id}`)).toEqual(toChange('duels', (await phone.db.get('duels', saved.id))!));
+
+    const desktop = await fresh();
+    const heard: [ChangeKind, ChangeOrigin][] = [];
+    desktop.repo.onChange((k, o) => heard.push([k, o]));
+    await syncRound(desktop.repo, server);
+    expect(await desktop.repo.getDuel(saved.id)).toEqual(saved);
+    expect(await desktop.db.count('practice')).toBe(0); // o desafio vai para a store dele, e não para o treino
+    expect(heard).toContainEqual(['duels', 'remote']);
+    expect(await keys(desktop.db)).toEqual([]); // o que veio do servidor não volta para lá
+
+    // Apagar num aparelho e responder no outro, sem rede: as duas mudanças viajam, e a exclusão vence a edição feita depois (D5).
+    t += 1_000;
+    await phone.repo.deleteDuel(saved.id);
+    const deletedAt = t;
+    expect(await keys(phone.db)).toEqual([`duels/${saved.id}`]);
+    t += 1_000;
+    await desktop.repo.saveDuel({ ...newDuel('abcdefgh12345678'), theirs: [{ ms: 8_000, penalty: null }], status: 'done' });
+    await syncRound(phone.repo, server);
+    await syncRound(desktop.repo, server);
+    await syncRound(phone.repo, server);
+    for (const repo of [phone.repo, desktop.repo]) {
+      expect(await repo.getDuel(saved.id)).toMatchObject({ status: 'done', updatedAt: t, deletedAt });
+    }
+  });
+
+  it('o primeiro sync leva os desafios do aparelho', async () => {
+    const server = new FakeServer();
+    server.now = t;
+    const { db, repo, lines } = await fresh(null);
+    const mine = await repo.saveDuel(newDuel('abcdefgh12345678'));
+    const trashed = await repo.saveDuel(newDuel('abcdefgh12345678', { side: 'b', myName: 'Bia' }));
+    await repo.deleteDuel(trashed.id);
+    // Um desafio torto de antes (gravado à mão: um nome comprido demais) fica fora da fila, contado e no log local.
+    await db.put('duels', { ...(await db.get('duels', mine.id))!, id: 'abcdefgh87654321-a', linkId: 'abcdefgh87654321', myName: 'x'.repeat(21) });
+    expect(await keys(db)).toEqual([]); // sem conta, nada na fila
+    expect(await repo.beginFirstSync({ accountId: 'conta-1', email: 'a@b.c' })).toBe(1);
+    expect(await keys(db)).toEqual([`duels/${mine.id}`, `duels/${trashed.id}`]);
+    expect(lines).toEqual(['sync: fora da fila, o servidor recusaria duels/abcdefgh87654321-a (desafio inválido)']);
+    await syncRound(repo, server, false);
+    await repo.dedupeFirstLogin();
+    await syncRound(repo, server);
+    expect([...server.records.keys()].sort()).toEqual([`duels/${mine.id}`, `duels/${trashed.id}`]);
+    expect(server.counts().duels).toBe(1);
+    expect(await repo.localOnlyCount()).toBe(1); // o torto só existe aqui
+  });
+
+  it('restaurar e importar põem os desafios na fila, menos o que o servidor recusaria', async () => {
+    const { db, repo } = await fresh();
+    const here = await repo.saveDuel(newDuel('abcdefgh12345678'));
+    const s = await repo.createSession({ event: '333' });
+    await repo.confirmSent((await repo.outboxBatch(SYNC_BATCH)).sent); // tudo já está na conta
+    const file = await repo.exportAll();
+    t += 1_000;
+    // Um desafio da cópia com um campo a mais grande demais para o sync: volta à tela, mas não sobe.
+    const back: Duel = { ...newDuel('abcdefgh87654321'), createdAt: t - 5_000, updatedAt: t - 5_000, deletedAt: null };
+    const big = { ...newDuel('abcdefgh00000001'), createdAt: t - 5_000, updatedAt: t - 5_000, deletedAt: null, extra: 'x'.repeat(MAX_DATA_CHARS) };
+    await repo.replaceAll({ ...file, duels: [back, big] });
+    expect((await keys(db)).filter((k) => !k.startsWith('prefs/'))).toEqual([`duels/${here.id}`, `duels/${back.id}`, `sessions/${s.id}`].sort());
+    expect(await repo.getDuel(here.id)).toMatchObject({ deletedAt: t, updatedAt: t }); // não está na cópia: vai para a lixeira
+    expect(await repo.getDuel(back.id)).toMatchObject({ deletedAt: null, updatedAt: t });
+    expect(await repo.getDuel(big.id)).toMatchObject({ deletedAt: null, updatedAt: t });
+    expect((await db.get('sessions', s.id))?.updatedAt).toBe(t); // a mesma data da restauração para tudo
+
+    // Importar: o desafio novo entra na fila; o grande demais para o sync fica de fora, contado em refused.
+    const other = await fresh();
+    expect(await other.repo.importAll({ ...file, sessions: [], solves: [], duels: [back, big] })).toEqual({
+      sessionsAdded: 0, solvesAdded: 0, solvesUpdated: 0, skipped: 0, refused: 1,
+    });
+    expect(await keys(other.db)).toEqual([`duels/${back.id}`]);
+    expect(await other.repo.getDuel(big.id)).toBeNull();
+  });
+});
+
 describe('apagar os dados deste aparelho (spec 7.6 e 7.7)', () => {
   it('recusa enquanto há mudanças esperando para subir (decisão 12), e nada sai', async () => {
     const { repo } = await fresh();
@@ -721,5 +821,23 @@ describe('apagar os dados deste aparelho (spec 7.6 e 7.7)', () => {
     expect([p.settings.theme, p.trail[0], p.currentSessionId]).toEqual(['dark', false, null]);
     expect(await repo.getSyncState()).toMatchObject({ accountId: null, signedIn: false, cursor: 0, clock });
     expect(heard).toEqual(['all', 'sync']);
+  });
+
+  // Os desafios entram na conta dos dados do aparelho (Task 2): na fila, a pessoa espera subir; um que o servidor recusaria só existe aqui e
+  // recusa como os outros; depois, apagar os leva junto.
+  it('os desafios: os da fila e os que só existem aqui recusam; depois, apagar os leva junto', async () => {
+    const { db, repo } = await fresh();
+    const d = await repo.saveDuel(newDuel('abcdefgh12345678'));
+    await expect(repo.wipeData()).rejects.toBeInstanceOf(PendingChangesError);
+    await repo.confirmSent((await repo.outboxBatch(SYNC_BATCH)).sent);
+    await db.put('duels', { ...(await db.get('duels', d.id))!, id: 'abcdefgh87654321-b', linkId: 'abcdefgh87654321', side: 'b', status: 'perdido' as never });
+    expect(await repo.localOnlyCount()).toBe(1);
+    const refused = await repo.wipeData().catch((err: unknown) => err);
+    expect(refused).toBeInstanceOf(LocalOnlyError);
+    expect((refused as LocalOnlyError).count).toBe(1);
+    expect(await repo.listDuels()).toHaveLength(2);
+    await db.delete('duels', 'abcdefgh87654321-b');
+    await repo.wipeData();
+    expect(await repo.listDuels({ includeDeleted: true })).toEqual([]);
   });
 });

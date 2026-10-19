@@ -69,7 +69,7 @@ type Message =
   | { type: 'busy'; tab: string; busy: boolean }; // a aba `tab` ficou ocupada (repetido enquanto está) ou livre; só numa conta
 
 // As mudanças que a fila de saída leva: uma gravação delas pede o sync 5 s depois da última ('meta' e 'sync' não sobem).
-const SYNCED_KINDS: readonly ChangeKind[] = ['solves', 'sessions', 'practice', 'profile', 'all'];
+const SYNCED_KINDS: readonly ChangeKind[] = ['solves', 'sessions', 'practice', 'duels', 'profile', 'all'];
 
 function defaultChannel(): ChannelLike | null {
   if (typeof BroadcastChannel === 'undefined') return null;

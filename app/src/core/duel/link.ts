@@ -63,7 +63,9 @@ function fromBase64Url(text: string): Bytes | null {
 }
 
 export async function encodeDuelLink(link: DuelLink): Promise<string> {
-  const packed = await pipeThrough(new CompressionStream('deflate-raw'), new TextEncoder().encode(JSON.stringify(link)));
+  // O encode sempre devolve um ArrayBuffer novo (nunca compartilhado), mas os tipos do Worker, que confere este arquivo pelo sync, não dizem.
+  const json = new TextEncoder().encode(JSON.stringify(link)) as Bytes;
+  const packed = await pipeThrough(new CompressionStream('deflate-raw'), json);
   return toBase64Url(packed);
 }
 
@@ -119,7 +121,8 @@ export async function decodeDuelLink(text: string): Promise<DuelLink | null> {
   try {
     const packed = fromBase64Url(text);
     if (!packed) return null;
-    const json = new TextDecoder('utf-8', { fatal: true }).decode(await pipeThrough(new DecompressionStream('deflate-raw'), packed, MAX_JSON_BYTES));
+    const bytes = await pipeThrough(new DecompressionStream('deflate-raw'), packed, MAX_JSON_BYTES);
+    const json = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes); // ignoreBOM: o padrão, que os tipos do Worker pedem
     return cleanLink(JSON.parse(json));
   } catch {
     return null;

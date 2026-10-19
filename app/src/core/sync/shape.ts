@@ -1,5 +1,6 @@
 // A forma de uma mudança (spec 6.1, passo 1): store conhecida, id, datas, tamanho e os campos que o Klick usa de cada registro. Campos
 // a mais em `data` passam intactos. O servidor recusa o que não bate, com o motivo; o app ignora o que vier torto do servidor.
+import { isDuel } from '../duel/validate';
 import { EVENT_IDS } from '../events';
 import { canonicalJson } from './merge';
 import { isPrefValue } from './prefs';
@@ -56,6 +57,9 @@ function dataProblem(store: SyncStore, id: string, d: unknown, change: Record<st
         typeof d.helped === 'boolean' && isNum(d.at)
         ? null
         : 'tentativa inválida';
+    case 'duels':
+      // A mesma forma do arquivo do Klick (core/duel/validate.ts), com o id e as datas do envelope: o id é `${linkId}-${side}`.
+      return isDuel({ ...d, id, updatedAt: change.updatedAt, deletedAt: change.deletedAt }) ? null : 'desafio inválido';
   }
 }
 

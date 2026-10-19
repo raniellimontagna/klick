@@ -165,13 +165,14 @@ export interface Repository {
   // mesma transação: quem chama não grava firstSync: false à parte (o app fechado entre as duas gravações rodaria a deduplicação de novo).
   // Sem firstSync, não faz nada.
   dedupeFirstLogin(): Promise<{ solves: number; sessions: number }>;
-  // Apaga os dados deste aparelho (spec 7.6 e 7.7): solves, sessões, treino, conta, fila e cópias. Ficam os ajustes do aparelho; o estado
-  // do sync volta ao padrão, com o relógio. Com mudanças esperando para subir, recusa (PendingChangesError) e não apaga nada (decisão 12):
-  // apagar perderia o que ainda não está na conta. Pelo mesmo motivo recusa (LocalOnlyError) com registros que o servidor recusaria, ativos
-  // ou na lixeira, ou que a conta recusou pela cota: ficaram fora da fila e só existem aqui (a revisão final, I4, e a decisão 32 do 5a).
+  // Apaga os dados deste aparelho (spec 7.6 e 7.7): solves, sessões, treino, desafios, conta, fila e cópias. Ficam os ajustes do aparelho;
+  // o estado do sync volta ao padrão, com o relógio. Com mudanças esperando para subir, recusa (PendingChangesError) e não apaga nada
+  // (decisão 12): apagar perderia o que ainda não está na conta. Pelo mesmo motivo recusa (LocalOnlyError) com registros que o servidor
+  // recusaria, ativos ou na lixeira, ou que a conta recusou pela cota: ficaram fora da fila e só existem aqui (a revisão final, I4, e a
+  // decisão 32 do 5a).
   wipeData(): Promise<void>;
-  // Quantos registros daqui (solves, sessões, treino e ajustes da conta, ativos ou na lixeira) só existem neste aparelho: os que o servidor
-  // recusaria e os da lista dos recusados pela cota.
+  // Quantos registros daqui (solves, sessões, treino, desafios e ajustes da conta, ativos ou na lixeira) só existem neste aparelho: os que
+  // o servidor recusaria e os da lista dos recusados pela cota.
   localOnlyCount(): Promise<number>;
   // A conta foi apagada no servidor (spec 7.7): numa transação, o estado do sync volta ao padrão, com o relógio (nenhuma data volta para
   // trás), e a lista "só neste aparelho" se esvazia. Os dados deste aparelho e a fila ficam, fora de qualquer conta. Avisa 'sync': as outras
@@ -424,22 +425,44 @@ function keyParts(key: string): { store: SyncStore; id: string } | null {
   return { store: store as SyncStore, id: key.slice(at + 1) };
 }
 
-// Os registros daqui que só existem neste aparelho, numa transação que lê as quatro stores do sync e o meta: os que o servidor recusaria
-// (spec 6.6) e os da lista dos recusados pela cota (uma chave da lista sem registro não conta).
-async function countLocalOnly(tx: SyncTx): Promise<number> {
-  const [solves, sessions, practice, prefs, held] = await Promise.all([
+// Todos os registros daqui das stores do sync (os ativos e os da lixeira), como mudanças (spec 6.1).
+async function syncedRecords(tx: SyncTx): Promise<Change[]> {
+  const [solves, sessions, practice, duels, prefs] = await Promise.all([
     tx.objectStore('solves').getAll(),
     tx.objectStore('sessions').getAll(),
     tx.objectStore('practice').getAll(),
+    tx.objectStore('duels').getAll(),
     tx.objectStore('prefs').getAll(),
-    heldOf(tx),
   ]);
-  const changes = [
+  return [
     ...solves.map((r) => toChange('solves', r)),
     ...sessions.map((r) => toChange('sessions', r)),
     ...practice.map((r) => toChange('practice', r)),
+    ...duels.map((r) => toChange('duels', r)),
     ...prefs.map(prefToChange),
   ];
+}
+
+// Grava uma mudança do sync no registro daqui, na store dela (juntar um lote, restaurar uma cópia).
+function putChange(tx: WriteTx, c: Change): Promise<unknown> {
+  switch (c.store) {
+    case 'prefs':
+      return tx.objectStore('prefs').put(changeToPref(c));
+    case 'solves':
+      return tx.objectStore('solves').put(fromChange<StoredSolve>(c));
+    case 'sessions':
+      return tx.objectStore('sessions').put(fromChange<StoredSession>(c));
+    case 'practice':
+      return tx.objectStore('practice').put(fromChange<StoredPractice>(c));
+    case 'duels':
+      return tx.objectStore('duels').put(fromChange<StoredDuel>(c));
+  }
+}
+
+// Os registros daqui que só existem neste aparelho, numa transação que lê as stores do sync e o meta: os que o servidor recusaria (spec 6.6)
+// e os da lista dos recusados pela cota (uma chave da lista sem registro não conta).
+async function countLocalOnly(tx: SyncTx): Promise<number> {
+  const [changes, held] = await Promise.all([syncedRecords(tx), heldOf(tx)]);
   const only = new Set(changes.filter((c) => !checkChange(c).ok).map((c) => syncKey(c.store, c.id)));
   const present = new Set(changes.map((c) => syncKey(c.store, c.id)));
   for (const key of held) if (present.has(key)) only.add(key);
@@ -681,7 +704,7 @@ export function createRepository(
   }
 
   // O aviso do que o sync gravou (um lote do servidor, a deduplicação): chega às telas desta aba como mudança de fora ('remote'), porque a
-  // memória delas não sabe dele, e vai às outras abas pelo canal. Solves primeiro, com os ids, e depois sessões, treino e perfil.
+  // memória delas não sabe dele, e vai às outras abas pelo canal. Solves primeiro, com os ids, e depois sessões, treino, desafios e perfil.
   function announceSynced(writes: readonly { store: SyncStore; id: string }[]): void {
     const solveIds = writes.filter((c) => c.store === 'solves').map((c) => c.id);
     if (solveIds.length > 0) {
@@ -693,6 +716,7 @@ export function createRepository(
     const kinds: ChangeKind[] = [];
     if (stores.has('sessions')) kinds.push('sessions');
     if (stores.has('practice')) kinds.push('practice');
+    if (stores.has('duels')) kinds.push('duels');
     if (stores.has('prefs')) kinds.push('profile');
     for (const kind of kinds) {
       if (!closed) emit(kind, 'remote');
@@ -819,6 +843,7 @@ export function createRepository(
       if ((duel.deletedAt !== null) === toTrash) return false;
       const at = ctx.stamp();
       await store.put({ ...duel, deletedAt: toTrash ? at : null, updatedAt: at, deletionStamp: at });
+      await ctx.track('duels', id);
       return true;
     });
     if (changed) announce('duels');
@@ -1048,7 +1073,7 @@ export function createRepository(
         const duels = tx.objectStore('duels');
         // A exclusão que a conta recusou (o teto de bytes) também espera: ela só existe aqui, e o servidor ainda não a tem.
         const waiting = new Set<string>([...(await tx.objectStore('outbox').getAllKeys()), ...(await heldOf(tx))]);
-        const gone = (store: SyncStore | 'duels') => (r: { id: string; deletedAt: number | null }) =>
+        const gone = (store: SyncStore) => (r: { id: string; deletedAt: number | null }) =>
           expired(r) && !waiting.has(syncKey(store, r.id));
         const allSolves = await solves.getAll();
         const oldSolves = allSolves.filter(gone('solves'));
@@ -1133,7 +1158,7 @@ export function createRepository(
       const lines: string[] = [];
       let refused = 0;
       let missing = 0;
-      const batch = await write(['outbox', 'solves', 'sessions', 'practice', 'prefs', 'meta'], async (tx) => {
+      const batch = await write(['outbox', 'solves', 'sessions', 'practice', 'duels', 'prefs', 'meta'], async (tx) => {
         const outbox = tx.objectStore('outbox');
         const entries = await outbox.index('byQueued').getAll(undefined, limit);
         const current = await Promise.all(entries.map((e) => recordOf(tx, e.store, e.id)));
@@ -1206,7 +1231,7 @@ export function createRepository(
     },
 
     async heldCount() {
-      return read(['solves', 'sessions', 'practice', 'prefs', 'meta'], async (tx) => {
+      return read(['solves', 'sessions', 'practice', 'duels', 'prefs', 'meta'], async (tx) => {
         const parts = (await heldOf(tx)).flatMap((key) => keyParts(key) ?? []);
         const found = await Promise.all(parts.map((p) => recordOf(tx, p.store, p.id)));
         return found.filter((r) => r !== undefined).length;
@@ -1214,7 +1239,7 @@ export function createRepository(
     },
 
     async requeueHeld() {
-      const back = await syncWrite(['solves', 'sessions', 'practice', 'prefs'], async (tx, ctx) => {
+      const back = await syncWrite(['solves', 'sessions', 'practice', 'duels', 'prefs'], async (tx, ctx) => {
         const keys = await heldOf(tx);
         if (keys.length === 0) return null;
         const parts = keys.flatMap((key) => keyParts(key) ?? []);
@@ -1242,14 +1267,14 @@ export function createRepository(
     },
 
     async countRemoteDeletions(changes) {
-      return read(['solves', 'sessions', 'practice', 'prefs', 'outbox'], async (tx) => {
+      return read(['solves', 'sessions', 'practice', 'duels', 'prefs', 'outbox'], async (tx) => {
         const waiting = new Set(await tx.objectStore('outbox').getAllKeys());
         return (await joinIn(tx, changes, { mode: 'client', pending: (s, id) => waiting.has(syncKey(s, id)) })).deletedSolves;
       });
     },
 
     async applyRemote(changes, serverTime, accountId, after) {
-      const joined = await syncWrite(['solves', 'sessions', 'practice', 'prefs'], async (tx, ctx) => {
+      const joined = await syncWrite(['solves', 'sessions', 'practice', 'duels', 'prefs'], async (tx, ctx) => {
         // Na mesma transação que grava: um wipeData ou uma troca de conta de outra aba entre a conferência do motor e aqui não recebe o lote.
         if (accountId !== undefined && ctx.state().accountId !== accountId) throw new AccountChangedError();
         const waiting = new Set(await tx.objectStore('outbox').getAllKeys());
@@ -1261,12 +1286,7 @@ export function createRepository(
         // O relógio sobe até a hora do servidor e as datas que chegaram (spec 5.4): só as de mudanças que passam por checkChange.
         ctx.raise(serverTime);
         for (const c of valid) ctx.raise(Math.max(c.updatedAt, c.deletionStamp));
-        await each(result.writes, (c) => {
-          if (c.store === 'prefs') return tx.objectStore('prefs').put(changeToPref(c));
-          if (c.store === 'solves') return tx.objectStore('solves').put(fromChange<StoredSolve>(c));
-          if (c.store === 'sessions') return tx.objectStore('sessions').put(fromChange<StoredSession>(c));
-          return tx.objectStore('practice').put(fromChange<StoredPractice>(c));
-        });
+        await each(result.writes, (c) => putChange(tx, c));
         // O que a cascata mudou aqui sobe (decisão 5); o que veio do lote o servidor já tem.
         const derived = new Set(result.derived);
         await each(
@@ -1322,7 +1342,7 @@ export function createRepository(
 
     async beginFirstSync({ accountId, email }) {
       const refusals: string[] = [];
-      const began = await syncWrite(['solves', 'sessions', 'practice', 'prefs'], async (tx, ctx) => {
+      const began = await syncWrite(['solves', 'sessions', 'practice', 'duels', 'prefs'], async (tx, ctx) => {
         // A mesma conta já começou (ou terminou) o primeiro login: zerar o cursor e pôr na fila o que já veio dela faria os registros da
         // conta passarem por daqui, e os gêmeos subiriam repetidos. Nada muda.
         if (ctx.state().accountId === accountId) return false;
@@ -1331,18 +1351,7 @@ export function createRepository(
         ctx.setState({ pushAfter: null, copiesPaused: null }); // o orçamento e a pausa das cópias eram da conta de antes
         // A lista "só neste aparelho" era da conta de antes: o que estava nela entra na fila com o resto, logo abaixo.
         await saveHeld(tx, []);
-        const [solves, sessions, practice, prefs] = await Promise.all([
-          tx.objectStore('solves').getAll(),
-          tx.objectStore('sessions').getAll(),
-          tx.objectStore('practice').getAll(),
-          tx.objectStore('prefs').getAll(),
-        ]);
-        const all: Change[] = [
-          ...solves.map((s) => toChange('solves', s)),
-          ...sessions.map((s) => toChange('sessions', s)),
-          ...practice.map((p) => toChange('practice', p)),
-          ...prefs.map(prefToChange),
-        ];
+        const all = await syncedRecords(tx);
         const queued: Change[] = [];
         const left: Change[] = [];
         for (const c of all) {
@@ -1465,7 +1474,7 @@ export function createRepository(
     },
 
     async wipeData() {
-      await write(['solves', 'sessions', 'practice', 'prefs', 'outbox', 'backups', 'profile', 'meta'], async (tx) => {
+      await write(['solves', 'sessions', 'practice', 'duels', 'prefs', 'outbox', 'backups', 'profile', 'meta'], async (tx) => {
         // Na mesma transação que apaga: uma gravação entre a conferência de quem chama e aqui não se perde.
         if ((await tx.objectStore('outbox').count()) > 0) throw new PendingChangesError();
         const localOnly = await countLocalOnly(tx);
@@ -1474,6 +1483,7 @@ export function createRepository(
           tx.objectStore('solves').clear(),
           tx.objectStore('sessions').clear(),
           tx.objectStore('practice').clear(),
+          tx.objectStore('duels').clear(),
           tx.objectStore('prefs').clear(),
           tx.objectStore('backups').clear(),
         ]);
@@ -1488,7 +1498,7 @@ export function createRepository(
     },
 
     async localOnlyCount() {
-      return read(['solves', 'sessions', 'practice', 'prefs', 'meta'], (tx) => countLocalOnly(tx));
+      return read(['solves', 'sessions', 'practice', 'duels', 'prefs', 'meta'], (tx) => countLocalOnly(tx));
     },
 
     async forgetAccount() {
@@ -1715,20 +1725,22 @@ export function createRepository(
         await each(newPractice, (p) => ctx.track('practice', p.id));
 
         // Os desafios juntam pelo id, como os solves (fora do relatório, como o treino): entra o que não existe, substitui o de updatedAt
-        // menor, e o resto fica como está. Um com uma data que não serve fica de fora, contado em refused.
+        // menor, e o resto fica como está. Um com uma data que não serve, ou que o sync recusaria, fica de fora, contado em refused.
         const knownDuels = new Map<string, StoredDuel>();
         for (const d of await duels.getAll()) knownDuels.set(d.id, d);
         const duelWrites: StoredDuel[] = [];
         for (const d of duelsFrom(data.duels)) {
-          if (!fileDatesOk(d, limit)) {
+          const have = knownDuels.get(d.id);
+          const stored: StoredDuel = { ...d, deletionStamp: importedStamp(have, d) };
+          if (!fileDatesOk(d, limit) || !syncable('duels', stored)) {
             refused++;
             continue;
           }
-          const have = knownDuels.get(d.id);
           if (have !== undefined && d.updatedAt <= have.updatedAt) continue;
-          duelWrites.push({ ...d, deletionStamp: importedStamp(have, d) });
+          duelWrites.push(stored);
         }
         await each(duelWrites, (d) => duels.put(d));
+        await each(duelWrites, (d) => ctx.track('duels', d.id));
         return {
           profileSaved,
           sessionBack,
@@ -1780,39 +1792,20 @@ export function createRepository(
           ...sessions.map((s) => toChange('sessions', s)),
           ...solves.map((s) => toChange('solves', s)),
           ...practices.map((p) => toChange('practice', p)),
+          ...duels.map((d) => toChange('duels', d)),
           ...items.map(prefToChange),
         ];
-        const copy = { sessions: data.sessions, solves: data.solves, practice };
+        const copy = { sessions: data.sessions, solves: data.solves, practice, duels: copyDuels };
         const split = splitProfile(target);
         const changes = restoreChanges(current, copy, prefsFromProfile(split.account, { withDefaults: true }), ctx.stamp());
-        await each(changes, (c) => {
-          if (c.store === 'prefs') return tx.objectStore('prefs').put(changeToPref(c));
-          if (c.store === 'solves') return tx.objectStore('solves').put(fromChange<StoredSolve>(c));
-          if (c.store === 'sessions') return tx.objectStore('sessions').put(fromChange<StoredSession>(c));
-          return tx.objectStore('practice').put(fromChange<StoredPractice>(c));
-        });
+        await each(changes, (c) => putChange(tx, c));
         // Tudo o que a restauração grava entra na fila (spec 5.5), menos o que o servidor recusaria (spec 6.6): um registro da cópia que já
-        // estava torto aqui (um id que não serve de chave, um solve sem sessão) volta à tela como antes, mas não sobe.
+        // estava torto aqui (um id que não serve de chave, um solve sem sessão, um desafio grande demais) volta à tela como antes, mas não
+        // sobe.
         await each(
           changes.filter((c) => checkChange(c).ok),
           (c) => ctx.track(c.store, c.id),
         );
-        // Os desafios trocam pela regra de restoreChanges: cada um da cópia é gravado de novo com a data da restauração (a marca de exclusão
-        // dela nunca depois disso), e o ativo daqui que não está nela vai para a lixeira. Nada é apagado.
-        if (copyDuels) {
-          const at = ctx.stamp();
-          const inCopy = new Set(copyDuels.map((d) => d.id));
-          const restored: StoredDuel[] = copyDuels.map((d) => ({
-            ...d,
-            updatedAt: at,
-            deletedAt: d.deletedAt === null ? null : Math.min(stampOf(d.deletedAt), at),
-            deletionStamp: at,
-          }));
-          const left = duels
-            .filter((d) => d.deletedAt === null && !inCopy.has(d.id))
-            .map((d) => ({ ...d, updatedAt: at, deletedAt: at, deletionStamp: at }));
-          await each([...restored, ...left], (d) => tx.objectStore('duels').put(d));
-        }
         if (keepsProfile) await tx.objectStore('profile').put(split.device, 'current');
         else await tx.objectStore('profile').delete('current');
       });
@@ -1893,6 +1886,7 @@ export function createRepository(
           deletionStamp: current && current.deletedAt === null ? current.deletionStamp : at,
         };
         await store.put(record);
+        await ctx.track('duels', d.id);
         return record;
       });
       announce('duels');

@@ -9,6 +9,7 @@ export interface RestoreCopy {
   sessions: readonly object[]; // os registros do arquivo do Klick (sem deletionStamp)
   solves: readonly object[];
   practice: readonly object[] | null; // null: uma cópia de antes do treino, e o treino daqui fica como está
+  duels: readonly object[] | null; // null: uma cópia de antes dos desafios, e os daqui ficam como estão
 }
 
 // `prefs`: as chaves da conta restaurada, todas (prefsFromProfile com withDefaults), ou null para não mexer nos itens da conta. Uma chave
@@ -31,8 +32,9 @@ export function restoreChanges(current: readonly Change[], copy: RestoreCopy, pr
   put('sessions', copy.sessions);
   put('solves', copy.solves);
   if (copy.practice) put('practice', copy.practice);
+  if (copy.duels) put('duels', copy.duels);
   for (const c of current) {
-    if (c.store === 'prefs' || (c.store === 'practice' && copy.practice === null)) continue;
+    if (c.store === 'prefs' || (c.store === 'practice' && copy.practice === null) || (c.store === 'duels' && copy.duels === null)) continue;
     if (c.deletedAt !== null || inCopy.has(syncKey(c.store, c.id))) continue;
     out.push({ ...c, updatedAt: stamp, deletedAt: stamp, deletionStamp: stamp });
   }

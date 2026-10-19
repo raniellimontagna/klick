@@ -68,7 +68,7 @@ const json = async <T>(user: string, key: string): Promise<T> => JSON.parse((awa
 const counters = async (user: string) => ({ active: await json<ActiveCounts>(user, 'active'), bytes: await json<number>(user, 'bytes') });
 const truth = (user: string) =>
   runInDurableObject(stubOf(user), (_o, state) => {
-    const active: ActiveCounts = { solves: 0, sessions: 0, practice: 0 };
+    const active: ActiveCounts = { solves: 0, sessions: 0, practice: 0, duels: 0 };
     let bytes = 0;
     for (const r of state.storage.sql.exec<{ store: string; data: string; deleted_at: number | null }>('SELECT store, data, deleted_at FROM records')) {
       if (r.deleted_at === null && r.store in active) active[r.store as keyof ActiveCounts]++;
@@ -90,9 +90,9 @@ describe('a cota no objeto da conta (endurecimento 4.1)', () => {
     expect(all.get('a')!.data).toMatchObject({ note: 'editado' });
     expect(all.get('b')!.deletedAt).toBe(T0 + 10);
     // A exclusão abriu uma vaga, e o contador gravado desceu: o novo entra no lote seguinte.
-    expect(await json(user, 'active')).toEqual({ solves: 99_999, sessions: 1, practice: 0 });
+    expect(await json(user, 'active')).toEqual({ solves: 99_999, sessions: 1, practice: 0, duels: 0 });
     expect((await sync(user, [solve('novo')])).rejected).toEqual([]);
-    expect(await json(user, 'active')).toEqual({ solves: 100_000, sessions: 1, practice: 0 });
+    expect(await json(user, 'active')).toEqual({ solves: 100_000, sessions: 1, practice: 0, duels: 0 });
   });
 
   it('numa conta de antes da cota, o contador nasce da contagem do banco', async () => {
@@ -113,10 +113,10 @@ describe('a cota no objeto da conta (endurecimento 4.1)', () => {
     expect(await stateOf(user, 'active')).toBeNull();
     expect((await sync(user, [solve('novo')])).rejected).toEqual([cota('novo')]);
     const size = (s: string) => new TextEncoder().encode(s).byteLength;
-    expect(await counters(user)).toEqual({ active: { solves: 100_000, sessions: 1, practice: 0 }, bytes: 100_000 * size(data) + size(sessionData) });
+    expect(await counters(user)).toEqual({ active: { solves: 100_000, sessions: 1, practice: 0, duels: 0 }, bytes: 100_000 * size(data) + size(sessionData) });
     expect((await sync(user, [solve('x1', gone(T0 + 10))])).rejected).toEqual([]);
     expect((await sync(user, [solve('novo')])).rejected).toEqual([]);
-    expect(await json(user, 'active')).toEqual({ solves: 100_000, sessions: 1, practice: 0 });
+    expect(await json(user, 'active')).toEqual({ solves: 100_000, sessions: 1, practice: 0, duels: 0 });
   });
 
   it('os contadores acompanham o banco: criar, editar, apagar, a cascata e a restauração', async () => {
@@ -130,11 +130,11 @@ describe('a cota no objeto da conta (endurecimento 4.1)', () => {
       session('s2', gone(T0 + 10)), // a cascata leva o c junto
       solve('d'),
     ]);
-    expect((await truth(user)).active).toEqual({ solves: 2, sessions: 1, practice: 1 });
+    expect((await truth(user)).active).toEqual({ solves: 2, sessions: 1, practice: 1, duels: 0 });
     expect(await counters(user)).toEqual(await truth(user));
     const restored = await call(`/api/snapshots/${dayOf(T0)}/restore`, postJson({}, { [ACCOUNT_HEADER]: user }), { deps: testDeps({ user, now: () => T0 + 1000 }) });
     expect(restored.status).toBe(204);
-    expect((await truth(user)).active).toEqual({ solves: 3, sessions: 2, practice: 1 }); // a cópia volta, e o d vai para a lixeira
+    expect((await truth(user)).active).toEqual({ solves: 3, sessions: 2, practice: 1, duels: 0 }); // a cópia volta, e o d vai para a lixeira
     expect(await counters(user)).toEqual(await truth(user));
   });
 });
@@ -761,7 +761,7 @@ describe('a mesma chave duas vezes no lote (pino)', () => {
     // A vaga que sobra vai para o novo; a segunda versão dele é uma edição de um ativo, e passa. Outro novo, não.
     const quota = await sync(user, [solve('n', { note: 'um' }), solve('n', { note: 'dois', updatedAt: T0 + 10 }), solve('m')]);
     expect(quota.rejected).toEqual([cota('m')]);
-    expect(await json(user, 'active')).toEqual({ solves: 100_000, sessions: 1, practice: 0 });
+    expect(await json(user, 'active')).toEqual({ solves: 100_000, sessions: 1, practice: 0, duels: 0 });
     // Com folga de 25 bytes: a segunda versão cresce 10 sobre a primeira (não 20 sobre a gravada), e as duas passam.
     const note = (n: number) => 'x'.repeat(n);
     await setState(user, 'bytes', ACCOUNT_BYTES_CAP - 25);

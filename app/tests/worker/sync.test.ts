@@ -4,7 +4,7 @@ import { MAX_DATA_CHARS } from '../../src/core/sync/shape';
 import { SYNC_PROTOCOL, type Change, type SyncResponse } from '../../src/core/sync/types';
 import { MAX_SYNC_REQUEST, MAX_WRITES_PER_REQUEST, PULL_PAGE } from '../../worker/limits';
 import { MAX_BODY } from '../../worker/router';
-import { call, ORIGIN, postJson, T0, testDeps, testEnv } from './helpers';
+import { call, ORIGIN, postJson, setState, stateOf, T0, testDeps, testEnv } from './helpers';
 
 const solve = (id: string, o: Partial<Change> & { note?: string; sessionId?: string } = {}): Change => ({
   store: 'solves',
@@ -189,5 +189,39 @@ describe('POST /api/sync (spec 6.1 e 8.2)', () => {
     const body = (): RequestInit => postJson({ v: SYNC_PROTOCOL, account: 'conta-chave', deviceId: 'd', cursor: 0, clock: T0, changes: [] });
     expect((await call('/api/sync', body(), { deps, env: testEnv({ ACCOUNTS_ENABLED: 'true' }) })).status).toBe(200);
     expect((await call('/api/sync', body(), { deps, env: testEnv({ ACCOUNTS_ENABLED: 'false' }) })).status).toBe(404);
+  });
+
+  // Os desafios (spec do desafio, seção 7): uma store do sync como as outras, contada na cota. Vieram com o protocolo 3: o app de antes
+  // recebe 426 e nunca vê um desafio que não entenderia.
+  it('desafios sobem e voltam pelo objeto da conta', async () => {
+    const user = 'conta-desafio';
+    const duel = (linkId: string, o: Partial<Change> & { side?: string; status?: string } = {}): Change => ({
+      store: 'duels',
+      id: `${linkId}-a`,
+      data: {
+        linkId, side: o.side ?? 'a', event: '333', scrambles: Array.from({ length: 7 }, () => "R U R'"), mine: [{ ms: 9000, penalty: null }],
+        theirs: null, myName: 'Ana', theirName: '', status: o.status ?? 'playing', createdAt: T0,
+      },
+      updatedAt: o.updatedAt ?? T0,
+      deletedAt: o.deletedAt ?? null,
+      deletionStamp: o.deletionStamp ?? T0,
+    });
+    // Uma conta de antes dos desafios: o contador da cota gravado sem a chave deles.
+    await sync(user, [session]);
+    await setState(user, 'active', { solves: 0, sessions: 1, practice: 0 });
+    const first = await sync(user, [duel('abcdefgh12345678'), duel('abcdefgh87654321', { side: 'c' })]);
+    expect(first).toMatchObject({ accepted: 1, rejected: [{ store: 'duels', id: 'abcdefgh87654321-a', reason: 'desafio inválido' }] });
+    expect(JSON.parse((await stateOf(user, 'active'))!)).toEqual({ solves: 0, sessions: 1, practice: 0, duels: 1 });
+    const other = await sync(user, [], 0, 'd2');
+    expect(other.changes.filter((c) => c.store === 'duels')).toEqual([duel('abcdefgh12345678')]);
+    // A resposta e a exclusão viajam como as de um solve.
+    await sync(user, [duel('abcdefgh12345678', { status: 'done', updatedAt: T0 + 10 })]);
+    await sync(user, [duel('abcdefgh12345678', { updatedAt: T0 + 20, deletedAt: T0 + 20, deletionStamp: T0 + 20 })], 0, 'd3');
+    const back = await sync(user, [], other.cursor, 'd2');
+    expect(back.changes.map((c) => [c.id, c.deletedAt, (c.data as { status: string }).status])).toEqual([['abcdefgh12345678-a', T0 + 20, 'playing']]);
+    expect(JSON.parse((await stateOf(user, 'active'))!)).toMatchObject({ duels: 0 });
+    // O app de antes (protocolo 2): 426.
+    const old = await call('/api/sync', postJson({ v: 2, account: user, deviceId: 'd9', cursor: 0, clock: T0, changes: [] }), { deps: testDeps({ user }) });
+    expect(old.status).toBe(426);
   });
 });

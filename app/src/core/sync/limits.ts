@@ -3,21 +3,21 @@
 // app e o Worker dividem estes valores (src/core/sync é dos dois): o aparelho mostra o mesmo teto que o servidor aplica.
 import type { SyncStore } from './types';
 
-export type CountedStore = 'solves' | 'sessions' | 'practice';
+export type CountedStore = 'solves' | 'sessions' | 'practice' | 'duels';
 export type ActiveCounts = Record<CountedStore, number>;
 
 // Folgados para uso real (100 mil solves são anos de treino diário; uma sessão por dia leva uns 27 anos até as 10 mil, bem depois dos 100
-// mil solves) e apertados para lixo. Os ajustes (prefs) não têm teto: isPrefValue só aceita as chaves do catálogo (trilha, lições, casos),
-// então o número deles já é limitado.
-export const ACCOUNT_LIMITS: Readonly<ActiveCounts> = Object.freeze({ solves: 100_000, sessions: 10_000, practice: 100_000 });
+// mil solves; um desafio por dia também) e apertados para lixo. Os ajustes (prefs) não têm teto: isPrefValue só aceita as chaves do catálogo
+// (trilha, lições, casos), então o número deles já é limitado.
+export const ACCOUNT_LIMITS: Readonly<ActiveCounts> = Object.freeze({ solves: 100_000, sessions: 10_000, practice: 100_000, duels: 10_000 });
 
 // O motivo, em `rejected`, de um registro recusado pela cota: o aparelho o guarda fora da fila ("só neste aparelho"), em vez de tratá-lo
 // como uma recusa comum.
 export const QUOTA_REASON = 'cota';
 
-const COUNTED: readonly SyncStore[] = Object.freeze(['solves', 'sessions', 'practice'] as const);
+const COUNTED: readonly SyncStore[] = Object.freeze(['solves', 'sessions', 'practice', 'duels'] as const);
 export const isCounted = (store: SyncStore): store is CountedStore => COUNTED.includes(store);
-export const zeroCounts = (): ActiveCounts => ({ solves: 0, sessions: 0, practice: 0 });
+export const zeroCounts = (): ActiveCounts => ({ solves: 0, sessions: 0, practice: 0, duels: 0 });
 
 // A marca compactada (endurecimento, decisão 5): de um solve apagado há mais que isto, o servidor guarda só a marca de exclusão (o id e as
 // datas, com `data: {}`; records.ts), e o objeto da conta não cresce sem fim com criar e apagar. É o mesmo prazo da lixeira do aparelho
