@@ -45,6 +45,7 @@ import { downloadText } from '../download';
 import { isIOS, isStandalone } from '../platform';
 import { type ShareFile, shareFile } from '../share';
 import { type AccountDeps, AccountState } from './account.svelte';
+import { type DuelDeps, DuelState } from './duel.svelte';
 
 export type Tab = 'timer' | 'evolucao' | 'trilha' | 'companion' | 'ajustes';
 // Onde a aba Trilha está (spec do sub-projeto 4, seção 8.2): o começo, a aula de uma etapa, um conjunto do treino ou a rodada dele.
@@ -65,6 +66,7 @@ export interface AppDeps {
   reopen?: () => Promise<Repository>; // abre uma conexão nova com o banco; sem ela, uma conexão morta não é trocada
   share?: ShareFile | null; // exportar pela folha de compartilhar (padrão: a do sistema no iPhone e no iPad; nos outros, o download)
   account?: AccountDeps | null; // a conta e o sync (sub-projeto 5a); sem eles (os testes de antes), nada de conta existe
+  duel?: DuelDeps; // o desafio por link: o gerador dos sete embaralhamentos (padrão: o cubing.js)
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -258,10 +260,12 @@ export class AppState {
   importDraft = $state<CsTimerSession[] | null>(null); // sessões de um csTimer à espera de o evento ser escolhido
   importSummary = $state<string[] | null>(null); // linhas do resumo da última importação
   importBusy = $state(false); // uma importação (arquivo ou versão anterior) está gravando
-  // timerBusy, pendingInspect e trainerRunning (os getters e setters, depois do construtor): seguram o sync desta aba e o das outras.
+  // timerBusy, pendingInspect, trainerRunning e duelRunning (os getters e setters, depois do construtor): seguram o sync desta aba e o das
+  // outras.
   private busyTimer = $state(false);
   private busyInspect = $state(false);
   private busyTrainer = $state(false);
+  private busyDuel = $state(false);
   folderNeedsPermission = $state(false); // a pasta de cópias perdeu a permissão de gravar: Ajustes pede de novo, num clique
   private folderCheck = 0; // geração da última conferência da pasta: uma resposta velha não apaga a de uma tentativa mais nova
   solvesInFlight = $state(0); // addSolve ainda não voltou (o solve não está gravado nem na fila): o unsaved espera por ele
@@ -271,6 +275,7 @@ export class AppState {
   trailFlashes = $state(0); // soma 1 a cada vez que uma etapa nova fica marcada: o Centro da Trilha pisca a face lateral
 
   readonly account: AccountState | null; // a conta e o sync; null sem os deps (AppDeps.account)
+  readonly duel: DuelState; // o desafio por link (spec do desafio): um modo do Timer; parado ('idle'), nada muda
   private repo: Repository; // troca quando a conexão é reaberta (useRepo)
   private readonly queue: ScrambleQueue;
   private readonly now: () => number;
@@ -317,7 +322,7 @@ export class AppState {
       ? new AccountState(
           {
             repo: () => this.repo,
-            busy: () => this.timerBusy || this.pendingInspect || this.trainerRunning,
+            busy: () => this.timerBusy || this.pendingInspect || this.trainerRunning || this.duelRunning,
             now: () => this.now(),
             announce: (text) => this.announce(text),
             afterWipe: () => this.afterWipe(),
@@ -325,6 +330,21 @@ export class AppState {
           deps.account,
         )
       : null;
+    // As arrow functions, como na conta: o desafio grava pelo repositório atual e lê o perfil de agora.
+    this.duel = new DuelState(
+      {
+        repo: () => this.repo,
+        event: () => this.event,
+        duelName: () => this.profile.duelName,
+        setDuelName: (name) => this.setDuelName(name),
+        running: (busy) => {
+          this.duelRunning = busy;
+        },
+        showToast: (text) => this.showToast(text),
+        now: () => this.now(),
+      },
+      deps.duel,
+    );
     // A arrow function: a fila grava pelo repositório atual, não pelo que existia quando ela foi criada.
     this.saves = createSaveQueue((s) => this.saveWatched(s), {
       // A fila só avisa numa falha (n > 0) e quando esvazia depois dela (0). Nos dois casos o número é o que ela tem agora.
@@ -372,9 +392,17 @@ export class AppState {
     this.setBusy('busyTrainer', busy);
   }
 
-  // Os três seguram o sync de todas as abas (revisão final 5.5): só uma mudança de verdade avisa a conta, que conta às outras abas. Sem
+  // O desafio corre (o embaralhamento da vez, a confirmação e a revelação de B): segura o sync como o timer. Quem muda é o DuelState.
+  get duelRunning(): boolean {
+    return this.busyDuel;
+  }
+  set duelRunning(busy: boolean) {
+    this.setBusy('busyDuel', busy);
+  }
+
+  // Os quatro seguram o sync de todas as abas (revisão final 5.5): só uma mudança de verdade avisa a conta, que conta às outras abas. Sem
   // rastrear o que lê: quem escreve de dentro de um efeito não passa a depender destes campos (como na escrita de um $state comum).
-  private setBusy(key: 'busyTimer' | 'busyInspect' | 'busyTrainer', busy: boolean): void {
+  private setBusy(key: 'busyTimer' | 'busyInspect' | 'busyTrainer' | 'busyDuel', busy: boolean): void {
     untrack(() => {
       if (this[key] === busy) return;
       this[key] = busy;

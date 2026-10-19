@@ -200,6 +200,9 @@ export interface Duel {
   myName: string;
   theirName: string;
   status: DuelStatus;
+  // Só do lado B: quantos tempos de A já apareceram (o ponto revelado, depois do solve e da penalidade de B). Um solve gravado além desse
+  // número espera a confirmação: fechar e abrir de novo volta a ela. Sem o campo, todos os gravados contam como revelados.
+  revealed?: number;
   createdAt: number;
   updatedAt: number;
   deletedAt: number | null; // marca de exclusão (lixeira), como nos solves
