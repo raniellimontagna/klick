@@ -97,12 +97,14 @@ Antes do beta:
 2. **As migrações 0003 e 0004 nos dois D1 remotos** (`klick-auth-beta` e `klick-auth`), antes de qualquer deploy deste código:
    `npx wrangler d1 migrations apply DB --remote` (e `--env production`). Sem a 0003, pedir o código por e-mail falha no beta (o teto de
    e-mails lê a tabela nova), e o Cron da raiz loga `recount-failed` todo dia. Sem a 0004 (`rows_day`, o teto de linhas gravadas por dia
-   somado entre as contas), todo sync que grava falha com 500 (só receber continua), e a restauração e o alarme de uma conta com o que
-   compactar também.
+   somado entre as contas), toda reserva falha e nada que grava passa: o sync devolve a página e adia as gravações de 5 em 5 minutos
+   (`{evt:'rows-cap-error'}` nos logs), a compactação não roda e a restauração volta `write-budget`.
 3. **A maior conta do beta:** conferir o tamanho dela. Até 10 mil solves cabe mesmo na leitura de 10 ms do limite de CPU (o primeiro
    despertar de cada conta do beta, uma vez, depois do deploy).
-4. **Publicar o beta** (`pnpm run deploy:beta`) e conferir as vars novas na saída do deploy (`SNAPSHOT_MAX_RECORDS` em `4747`,
-   `RESTORE_MAX_RECORDS` em `5000`, `ROWS_WRITTEN_DAY_CAP` em `10000`).
+4. **Publicar o beta** (`pnpm run deploy:beta`) e conferir as vars novas na saída do deploy (`SNAPSHOT_MAX_RECORDS` em `2247` no beta;
+   na raiz, `4747`; `RESTORE_MAX_RECORDS` em `5000`, `ROWS_WRITTEN_DAY_CAP` em `10000`).
+   A conta de teste das sondas (4.006 registros) passou do dia útil do beta: não tem mais cópia do dia ('size') nem restauração
+   ('too-big') lá, e não serve para o teste de fumaça do passo 6.
 5. **Quem usa o beta vê "Atualize o Klick"** até recarregar (o protocolo do sync subiu); a fila de cada aparelho fica guardada.
 6. **Teste de fumaça:** o código por e-mail, o sync e a lista das cópias na nuvem. No dia seguinte, a cópia do alarme e a linha
    `{evt:'cleanup', storage:N}` nos logs.

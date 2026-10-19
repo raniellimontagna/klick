@@ -14,6 +14,7 @@ import type { Env } from '../../worker/env';
 import { QUOTA_REASON } from '../../src/core/sync/limits';
 import {
   COMPACT_PER_DAY,
+  COMPACT_ROWS_SHARE,
   DAILY_WRITE_BUDGET,
   MAX_WRITES_PER_REQUEST,
   nextUtcDay,
@@ -22,6 +23,7 @@ import {
   REQUEST_ROWS,
   rowsOf,
   ROWS_PER_WRITE,
+  ROWS_RETRY_MS,
   utcDay,
   utcMonth,
 } from '../../worker/limits';
@@ -94,6 +96,32 @@ async function countDay(user: string): Promise<{ n: number }> {
   });
   return seen;
 }
+
+// O D1 do objeto de `user` passa a falhar nas instruções do dia do teto (rows_day), como um D1 fora do ar; as outras seguem. Cada tentativa
+// é contada.
+async function failDay(user: string): Promise<{ n: number }> {
+  const tried = { n: 0 };
+  await runInDurableObject(stubOf(user), (instance) => {
+    const o = instance as unknown as { env: Env };
+    const failing = new Proxy(o.env.DB, {
+      get(target, key) {
+        const value = Reflect.get(target, key) as unknown;
+        if (key !== 'prepare') return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+        return (query: string) => {
+          if (!query.includes('rows_day')) return target.prepare(query);
+          tried.n++;
+          throw new Error('D1_ERROR: Network connection lost.');
+        };
+      },
+    });
+    o.env = { ...o.env, DB: failing };
+  });
+  return tried;
+}
+
+// O conteúdo gravado de um registro do objeto de `user`.
+const dataOf = (user: string, id: string): Promise<string> =>
+  runInDurableObject(stubOf(user), (_o, state) => state.storage.sql.exec<{ data: string }>('SELECT data FROM records WHERE id = ?', id).one().data);
 
 // As chamadas ao R2 do objeto da conta, contadas por método (list, get, head, put).
 async function countR2(user: string): Promise<Record<string, number>> {
@@ -406,5 +434,111 @@ describe('o dia útil: o menor dos dois tetos', () => {
     expect(await restore(user, dayOf(now - DAY), now)).toEqual({ status: 413, body: { error: 'too-big' } });
     expect(r2).toEqual({});
     expect(await dayRow(now)).toBe(0);
+  });
+});
+
+// A revisão do teto: o que não pode gastar o dia à toa, e o que não pode parar por ele.
+describe('o teto do ambiente: a revisão', () => {
+  it('as constantes', () => {
+    expect([ROWS_RETRY_MS, COMPACT_ROWS_SHARE]).toEqual([300_000, 0.5]);
+  });
+
+  // A restauração só reserva as linhas dela logo antes de gravar, depois da cópia "antes de restaurar": a cópia recusada (ou um R2 que
+  // falha nela) não gasta o dia do ambiente, que no beta caberia quase inteiro numa restauração grande.
+  it('a cópia de antes recusada (no-room) ou um put que falha não gastam linhas do teto', async () => {
+    const now = at(36);
+    const user = 'teto-restaura-no-fim';
+    await sync(user, [session(), solve('a'), solve('b')], { now: now - DAY });
+    const name = dayOf(now - DAY);
+    await env.SNAPSHOTS.put(snapshotKey(user, name), await gzipJson(exportFromRecords([session(), ...many('c', 5)], now - DAY)));
+    await runInDurableObject(stubOf(user), (instance) => {
+      const o = instance as unknown as { env: Env };
+      o.env = { ...o.env, SNAPSHOT_BYTES_CAP: '1' } as Env; // o espaço das cópias acabou: a cópia de antes é recusada
+    });
+    const before = await recordsOf(user);
+    expect(await restore(user, name, now)).toEqual({ status: 409, body: { error: 'no-room' } });
+    expect(await dayRow(now)).toBe(0);
+    expect(await recordsOf(user)).toEqual(before);
+
+    const other = 'teto-restaura-put-falha';
+    await sync(other, [session(), solve('a')], { now: now - DAY });
+    await env.SNAPSHOTS.put(snapshotKey(other, name), await gzipJson(exportFromRecords([session()], now - DAY)));
+    await runInDurableObject(stubOf(other), (instance) => {
+      const o = instance as unknown as { env: Env };
+      const bucket = o.env.SNAPSHOTS;
+      const broken = new Proxy(bucket, {
+        get(target, key) {
+          if (key === 'put') return async () => Promise.reject(new Error('R2: falha de rede'));
+          const value = Reflect.get(target, key) as unknown;
+          return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+        },
+      });
+      o.env = { ...o.env, SNAPSHOTS: broken };
+    });
+    await expect(restore(other, name, now)).rejects.toThrow();
+    expect(await dayRow(now)).toBe(0);
+  });
+
+  it('o D1 que falha na reserva não para o sync: a página volta, as gravações esperam minutos, e nada é gravado sem pagar', async () => {
+    const now = at(38);
+    const user = 'teto-d1-sync';
+    await sync(user, [session(), solve('a')], { now: now - DAY });
+    const before = await recordsOf(user);
+    const writes = await stateOf(user, 'writes');
+    const tried = await failDay(user);
+    const { result: res, logged } = await logsOf(() => sync(user, [solve('b')], { now }));
+    expect([res.accepted, res.rejected, res.deferred, res.retryAt]).toEqual([0, [], 1, now + ROWS_RETRY_MS]);
+    expect(res.changes.map((c) => c.id)).toEqual(['s1', 'a']);
+    expect(tried.n).toBeGreaterThan(0);
+    expect(logged).toContainEqual({ evt: 'rows-cap-error', user, op: 'sync' });
+    expect(await recordsOf(user)).toEqual(before);
+    expect(await stateOf(user, 'writes')).toBe(writes);
+  });
+
+  it('o D1 que falha na reserva: a compactação fica para outro dia, e a cópia do dia sai', async () => {
+    const user = 'teto-d1-compacta';
+    const old = Date.now() - TOMBSTONE_KEEP_MS - HOUR;
+    await sync(user, [session(), solve('velho', gone(old))], { now: Date.now() - 2 * DAY });
+    await failDay(user);
+    const { result, logged } = await logsOf(() => runDurableObjectAlarm(stubOf(user)));
+    expect(result).toBe(true);
+    expect(await dataOf(user, 'velho')).not.toBe('{}');
+    expect(logged).toContainEqual({ evt: 'rows-cap-error', user, op: 'compact' });
+    expect(await env.SNAPSHOTS.head(snapshotKey(user, dayOf(Date.now())))).not.toBeNull();
+  });
+
+  it('o D1 que falha na reserva: a restauração volta write-budget, sem ir ao R2', async () => {
+    const now = at(42);
+    const user = 'teto-d1-restaura';
+    await sync(user, [session(), solve('a')], { now: now - DAY });
+    await env.SNAPSHOTS.put(snapshotKey(user, dayOf(now - DAY)), await gzipJson(exportFromRecords([session()], now - DAY)));
+    await failDay(user);
+    const r2 = await countR2(user);
+    expect(await restore(user, dayOf(now - DAY), now)).toEqual({ status: 429, body: { error: 'write-budget' } });
+    expect(r2).toEqual({});
+  });
+
+  // As compactações das 03:05 (uma por conta) não podem comer o dia de todos: a compactação só reserva enquanto a reserva dela cabe na
+  // metade de baixo do teto do ambiente, e a metade de cima fica para os syncs.
+  it('a compactação só reserva na metade de baixo do dia do ambiente; o sync do mesmo dia passa', async () => {
+    const cap = 10_000;
+    const half = cap * COMPACT_ROWS_SHARE;
+    const old = Date.now() - TOMBSTONE_KEEP_MS - HOUR;
+    const [early, late] = ['teto-metade-a', 'teto-metade-b'];
+    for (const user of [early, late]) {
+      await sync(user, [session(), solve('velho', gone(old))], { now: Date.now() - 2 * DAY });
+      await setCap(user, String(cap));
+    }
+    const today = Date.now(); // o alarme segue a hora de verdade
+    await seedDay(today, half - rowsOf(0, 1) + 1); // a compactação de um solve passaria da metade
+    expect(await runDurableObjectAlarm(stubOf(early))).toBe(true);
+    expect(await dataOf(early, 'velho')).not.toBe('{}');
+    const res = await sync(early, [solve('novo')], { now: today }); // o sync tem a metade de cima
+    expect([res.accepted, res.deferred]).toEqual([1, undefined]);
+    expect(await dayRow(today)).toBe(half - rowsOf(0, 1) + 1 + rowsOf(1));
+    await seedDay(today, half - rowsOf(0, 1)); // cabe até a metade
+    expect(await runDurableObjectAlarm(stubOf(late))).toBe(true);
+    expect(await dataOf(late, 'velho')).toBe('{}');
+    expect(await dayRow(today)).toBe(half);
   });
 });

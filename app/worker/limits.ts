@@ -10,7 +10,6 @@
 // a cascata não: a de 5 mil solves passou muito dos 10 ms na medição (a tabela da seção 9 (e)), e nos 10 ms só cabem umas centenas, então
 // ela pediria um teto no código (RECORDS_PER_DAY ou a cascata em partes).
 import { MAX_DATA_CHARS } from '../src/core/sync/shape';
-import type { Env } from './env';
 
 export interface Caps {
   snapshotBytes: number;
@@ -32,6 +31,9 @@ export type CapName =
   | 'SNAPSHOT_MAX_RECORDS'
   | 'RESTORE_MAX_RECORDS'
   | 'ROWS_WRITTEN_DAY_CAP';
+// As vars dos tetos, como o env do Worker as tem (worker/env.ts). Sem o tipo dele, limits.ts não puxa os tipos da Cloudflare, e os testes
+// de unidade também o leem (tests/unit/wrangler-config.test.ts, o dia útil de cada ambiente).
+export type CapVars = Partial<Record<CapName, unknown>>;
 
 // O orçamento do dia (decisão 6) conta linhas gravadas no SQLite do objeto, o que o grátis conta (100 mil por dia, somadas entre todas as
 // contas): 20 mil por conta por dia UTC, 20% do dia de todas. A chave do estado continua 'writes' ({ day, n }), agora em linhas (rowsOf).
@@ -39,6 +41,10 @@ export const DAILY_WRITE_BUDGET = 20_000;
 // O teto do dia somado entre todas as contas do ambiente é a var ROWS_WRITTEN_DAY_CAP (a tabela rows_day do D1): cada pedido que grava
 // reserva nele, antes, exatamente as linhas que conta aqui (rowsOf), numa instrução do D1 (account-store.ts, reserveDay). Nada fica na
 // memória do objeto, e sair dela não perde nada.
+// A compactação do alarme só reserva na metade de baixo desse dia (COMPACT_ROWS_SHARE do teto): as compactações das 03:05, uma por conta,
+// nunca tiram o dia dos syncs. Um D1 que falha na reserva não para o sync: as gravações esperam ROWS_RETRY_MS (retryAt), e a página volta.
+export const COMPACT_ROWS_SHARE = 0.5;
+export const ROWS_RETRY_MS = 300_000;
 // O orçamento de leituras do dia (revisão final, I2 c): as linhas que os pedidos de uma conta leem no SQLite do objeto por dia UTC (a página do
 // sync, as mudanças do lote, a cascata, a cópia do dia e a restauração). O grátis tem 5 milhões por dia somadas entre todas as contas; pedir
 // sempre do cursor 0 lê uma página inteira por pedido, e na rajada uma conta só as esvaziaria em horas. Folgado: o primeiro sync inteiro de
@@ -90,6 +96,9 @@ export function rowsOf(writes: number, compacted = 0): number {
 // rowsOf(0, COMPACT_PER_DAY) cabem no dia. Sem essa folga, uma cascata perto do máximo perderia o dia para a compactação das 03:05 (ou
 // qualquer gravação antes dela) e escorregaria de um dia para o outro. Com o teto do ambiente em 0 (a var torta), nada cabe de qualquer
 // jeito e tudo fica para depois: vale só o orçamento da conta, e um erro de configuração não devolve exclusões com a cota.
+// O "nunca fica para amanhã todo dia" supõe o dia do ambiente vazio, sem as outras contas: num dia em que elas gastaram o teto, o pedido
+// que cabe espera. Na prática cabe: o aparelho adiado tenta de novo logo depois da virada (00:00 UTC, o retryAt), com o dia ainda vazio,
+// e as compactações das 03:05 só usam a metade de baixo do dia (COMPACT_ROWS_SHARE).
 export function recordsPerDay(rowsDay: number): number {
   const day = rowsDay > 0 ? Math.min(DAILY_WRITE_BUDGET, rowsDay) : DAILY_WRITE_BUDGET;
   return Math.max(0, Math.floor((day - rowsOf(0, COMPACT_PER_DAY) - REQUEST_ROWS) / ROWS_PER_WRITE));
@@ -110,7 +119,7 @@ export const utcMonth = (t: number): string => new Date(t).toISOString().slice(0
 export const nextUtcDay = (t: number): number => (Math.floor(t / DAY_MS) + 1) * DAY_MS;
 
 // Só dígitos, sem zero à frente, e dentro dos inteiros seguros: "1GB", "-5", "1.5", "1e3", "0" e " 10" não valem.
-export function capOf(env: Env, name: CapName): number {
+export function capOf(env: CapVars, name: CapName): number {
   const raw: unknown = env[name];
   const n = typeof raw === 'string' && /^[1-9]\d*$/.test(raw) ? Number(raw) : 0;
   if (!Number.isSafeInteger(n) || n <= 0) {
@@ -120,7 +129,7 @@ export function capOf(env: Env, name: CapName): number {
   return n;
 }
 
-export function capsOf(env: Env): Caps {
+export function capsOf(env: CapVars): Caps {
   return {
     snapshotBytes: capOf(env, 'SNAPSHOT_BYTES_CAP'),
     classAMonth: capOf(env, 'R2_CLASS_A_MONTH'),
