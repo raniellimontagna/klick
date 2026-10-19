@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { duelPayloadOf } from '../../src/core/duel/link';
 import { openKlickDb } from '../../src/data/db';
 import { createRepository } from '../../src/data/repository';
 import { createScrambleQueue } from '../../src/scramble/queue';
@@ -54,6 +55,64 @@ describe('Aviso de nova versão', () => {
     await vi.waitFor(() => expect(screen.queryByRole('button', { name: 'Recarregar' })).toBeNull());
     a.solvesInFlight = 0;
     await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Recarregar' })).toBeInTheDocument());
+  });
+
+  // A revisão final: recarregar entre o solve do desafio parar e a gravação dele voltar perderia o solve; com B conferindo a penalidade, a
+  // escolha dele (+2, DNF) ainda está só na memória. As duas coisas contam em app.unsaved, como um solve em voo.
+  it('some enquanto uma gravação do desafio está em voo e enquanto B confere a penalidade', async () => {
+    const repo = createRepository(await openKlickDb(`up-${++n}`), { channel: null });
+    const a = new AppState({
+      repo,
+      queue: createScrambleQueue({ generate: async () => 'R U' }),
+      storage: null,
+      storageManager: null,
+      duel: { generate: async (ev) => `${ev} R U` },
+    });
+    await a.init();
+    offerUpdate(async () => {});
+    render(UpdatePrompt, { app: a });
+    await a.duel.start('333');
+    expect(screen.getByRole('button', { name: 'Recarregar' })).toBeInTheDocument();
+    // A gravação do solve presa: da hora em que o timer para até ela voltar.
+    const saveDuel = repo.saveDuel.bind(repo);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    repo.saveDuel = async (...args) => {
+      await gate;
+      return saveDuel(...args);
+    };
+    const recording = a.duel.record({ ms: 10_000, penalty: null });
+    expect(a.unsaved).toBe(true); // na hora do pedido, antes de a fila chegar à gravação
+    await vi.waitFor(() => expect(screen.queryByRole('button', { name: 'Recarregar' })).toBeNull());
+    release();
+    await recording;
+    expect(a.unsaved).toBe(false);
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Recarregar' })).toBeInTheDocument());
+    repo.saveDuel = saveDuel;
+
+    // B, com o solve gravado e o ponto ainda por ver: a penalidade dele está só na memória até "Ver o ponto".
+    for (let i = 1; i < 7; i++) await a.duel.record({ ms: 10_000, penalty: null });
+    const url = (await a.duel.challengeUrl('https://klick.test'))!;
+    a.duel.exit();
+    await a.duel.openLink(duelPayloadOf(new URL(url).hash)!); // o próprio link: own, nada a conferir
+    expect(a.unsaved).toBe(false);
+    const b = new AppState({
+      repo: createRepository(await openKlickDb(`up-${++n}`), { channel: null }),
+      queue: createScrambleQueue({ generate: async () => 'R U' }),
+      storage: null,
+      storageManager: null,
+    });
+    await b.init();
+    await b.duel.openLink(duelPayloadOf(new URL(url).hash)!);
+    await b.duel.accept();
+    await b.duel.record({ ms: 9_000, penalty: null });
+    expect(b.duel.phase).toBe('confirm');
+    expect(b.unsaved).toBe(true);
+    await b.duel.setPenalty('+2');
+    expect(b.unsaved).toBe(true);
+    await b.duel.reveal();
+    expect(b.duel.phase).toBe('reveal');
+    expect(b.unsaved).toBe(false);
   });
 
   it('a região de status existe sempre, e o texto entra só quando há versão nova', async () => {

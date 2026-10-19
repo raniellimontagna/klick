@@ -421,10 +421,11 @@ export class AppState {
     });
   }
 
-  // Há solve que ainda não foi gravado (em voo, na fila) ou uma gravação presa: fechar a aba perderia o que está só na memória.
-  // Os três campos são $state, então quem lê o getter (o aviso de nova versão) acompanha as mudanças.
+  // Há solve que ainda não foi gravado (em voo, na fila) ou uma gravação presa, ou o desafio tem o que gravar (uma ação em voo, B conferindo
+  // a penalidade): fechar a aba perderia o que está só na memória. Os campos são $state, então quem lê o getter (o aviso de nova versão)
+  // acompanha as mudanças.
   get unsaved(): boolean {
-    return this.solvesInFlight > 0 || this.savePending > 0 || this.saveStalled;
+    return this.solvesInFlight > 0 || this.savePending > 0 || this.saveStalled || this.duel.unsaved;
   }
 
   // Uma restauração em curso, ou com o portão ainda fechado (passou do prazo e a troca segue): não se começa outra.

@@ -143,6 +143,7 @@ export class DuelState {
   });
   private failedScrambles = $state(false);
   private opening = $state(0); // links sendo lidos: a apresentação espera também por eles
+  private pending = $state(0); // ações que podem gravar, na fila ou em voo: app.unsaved espera por elas
   private epoch = 0;
   private chain: Promise<unknown> = Promise.resolve();
   private readonly host: DuelHost;
@@ -195,6 +196,14 @@ export class DuelState {
   // O placar do que já foi revelado; null enquanto A não tem com quem comparar.
   get score(): DuelScore | null {
     return this.#duel ? scoreOf(this.#duel) : null;
+  }
+
+  // O que recarregar a página agora perderia (app.unsaved: o aviso de nova versão e a recarga sozinha esperam): uma ação do desafio na fila
+  // ou em voo (o solve que parou e ainda não gravou, por exemplo), ou B na confirmação, com o solve gravado e a penalidade dele só na
+  // memória até "Ver o ponto".
+  get unsaved(): boolean {
+    const d = this.#duel;
+    return this.pending > 0 || (this.stage === 'confirm' && d !== null && d.side === 'b' && revealedOf(d) < d.mine.length);
   }
 
   // Um link aberto (ou um desafio em jogo) vem antes da apresentação: a primeira visita por um link vai direto ao desafio.
@@ -348,7 +357,7 @@ export class DuelState {
       if (!found || epoch !== this.epoch) return false;
       this.enter(found);
       return true;
-    });
+    }, false);
   }
 
   // "Descartar o desafio" (só A): para a lixeira, e de volta ao Timer. B não descarta um desafio aceito (spec §3). Só o registro que a
@@ -472,7 +481,7 @@ export class DuelState {
       const found = alive(d);
       if (!found || found.side !== 'a' || found.status !== 'waiting') return null;
       return duelUrl(origin, await encodeDuelLink(linkOf(found)));
-    });
+    }, false);
   }
 
   // "Mandar a resposta" (B, a partida acabou): o link com os dois lados. `name`, como em challengeUrl: o nome novo grava antes de o link
@@ -555,7 +564,7 @@ export class DuelState {
       const found = alive(stored);
       if (!found || kind === 'all') this.exit();
       else if (d.side === 'a' && d.status !== 'done' && found.status === 'done') this.enter(found);
-    });
+    }, false);
   }
 
   // `again`: uma resposta cujo desafio mudou entre ler e gravar (outra aba abriu a mesma resposta) é decidida de novo, uma vez, pelo que
@@ -678,8 +687,21 @@ export class DuelState {
     }
   }
 
-  private serial<R>(job: () => Promise<R>): Promise<R> {
-    const run = this.chain.then(job);
+  // A fila das ações. As que podem gravar (`writes`, o padrão) contam em `pending` do pedido até terminar, e saem da conta antes de quem as
+  // espera continuar, sem atrasar a volta dela (a tela que espera a ação, como a penalidade pelo teclado, segue no mesmo passo de antes);
+  // as que só leem (continuar, mandar de novo, o aviso de mudança) não seguram a recarga.
+  private serial<R>(job: () => Promise<R>, writes = true): Promise<R> {
+    if (writes) this.pending++;
+    const run = this.chain.then(() => {
+      const done = job();
+      if (writes) {
+        const settle = (): void => {
+          this.pending--;
+        };
+        done.then(settle, settle);
+      }
+      return done;
+    });
     this.chain = run.then(
       () => undefined,
       () => undefined,
