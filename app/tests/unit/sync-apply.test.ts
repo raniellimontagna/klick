@@ -714,9 +714,10 @@ describe('os desafios no sync', () => {
     const one = duel('abcdefgh00000012', 'a', { scrambles: [...SCRAMBLES.slice(0, 6), 'R U\u0000 F'] });
     const lone = duel('abcdefgh00000013', 'a', { scrambles: [...SCRAMBLES.slice(0, 6), 'R U \ud800'] });
     const named = duel('abcdefgh00000014', 'b', { theirName: 'Bia\u0007' });
-    for (const c of [control, one, lone, named]) expect(isDuel(asRecord(c)), c.id).toBe(false);
+    const twoLines = duel('abcdefgh00000017', 'a', { myName: 'Ana\nBia' });
+    for (const c of [control, one, lone, named, twoLines]) expect(isDuel(asRecord(c)), c.id).toBe(false);
     expect(checkChange(control)).toEqual({ ok: false, reason: 'grande demais' }); // o caso da revisão: o tamanho já o recusava no sync
-    for (const c of [one, lone, named]) expect(checkChange(c), c.id).toEqual({ ok: false, reason: 'desafio inválido' });
+    for (const c of [one, lone, named, twoLines]) expect(checkChange(c), c.id).toEqual({ ok: false, reason: 'desafio inválido' });
 
     // Um 7×7 de verdade: 100 giros, com camadas largas (3Rw', Lw2).
     const rnd = seeded(77);

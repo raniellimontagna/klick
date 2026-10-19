@@ -1,6 +1,6 @@
 import { deflateRawSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
-import { MAX_DUEL_MS, MAX_DUEL_NAME, MAX_DUEL_PAYLOAD, decodeDuelLink, duelPayloadOf, duelUrl, encodeDuelLink, newLinkId } from '../../src/core/duel/link';
+import { MAX_DUEL_MS, MAX_DUEL_NAME, MAX_DUEL_PAYLOAD, cleanDuelName, decodeDuelLink, duelPayloadOf, duelUrl, encodeDuelLink, isDuelName, newLinkId } from '../../src/core/duel/link';
 import type { DuelLink, DuelTime } from '../../src/core/types';
 
 const times = (n = 7): DuelTime[] => Array.from({ length: n }, (_, i) => ({ ms: 9_000 + i * 837 + 13, penalty: i === 2 ? '+2' : i === 5 ? 'DNF' : null }));
@@ -191,6 +191,26 @@ describe('o link do desafio (spec 4)', () => {
     const named = await decodeDuelLink(payloadOf(link({ a: { name: 'Ana\u0000', times: times() }, b: { name: 'B\u0007ia', times: times(1) } })));
     expect([named?.a.name, named?.b?.name]).toEqual(['', '']);
     expect((await decodeDuelLink(payloadOf(link({ a: { name: 'Ana 🧊', times: times() } }))))?.a.name).toBe('Ana 🧊');
+  });
+
+  // O nome é de uma linha só (revisão da Task 3): a quebra de linha só vale no embaralhamento, que a usa no megaminx.
+  it('quebra de linha no nome vira nome vazio; no embaralhamento continua valendo', async () => {
+    const named = await decodeDuelLink(payloadOf(link({ a: { name: 'Ana\nBia', times: times() }, b: { name: 'B\r\nia', times: times(1) } })));
+    expect([named?.a.name, named?.b?.name]).toEqual(['', '']);
+    // O que sobra do aparo não é quebra no meio: "Ana\n" aparado é "Ana".
+    expect((await decodeDuelLink(payloadOf(link({ a: { name: '\nAna\n', times: times() } }))))?.a.name).toBe('Ana');
+    expect((await decodeDuelLink(payloadOf(link({ scrambles: [...link().scrambles.slice(0, 6), 'R++ D--\nU'] }))))?.scrambles[6]).toBe('R++ D--\nU');
+  });
+
+  it('cleanDuelName apara, corta em 20 sem partir um par UTF-16 e sempre devolve um nome que vale', () => {
+    expect(cleanDuelName('  Ana  ')).toBe('Ana');
+    expect(cleanDuelName('Ana\nBia')).toBe('Ana Bia');
+    expect(cleanDuelName('A\u0000na\ud800')).toBe('A na');
+    expect(cleanDuelName('x'.repeat(30))).toBe('x'.repeat(MAX_DUEL_NAME));
+    const cut = `${'x'.repeat(19)}🧊`; // o corte em 20 cairia no meio do emoji
+    expect(cleanDuelName(cut)).toBe('x'.repeat(19));
+    expect(cleanDuelName(`${'x'.repeat(18)}🧊`)).toBe(`${'x'.repeat(18)}🧊`);
+    for (const raw of ['', ' \n ', cut, 'Ana\r\nBia\t', '\udc00z']) expect(isDuelName(cleanDuelName(raw)), JSON.stringify(raw)).toBe(true);
   });
 
   it('duelPayloadOf lê #desafio= e ignora outros fragmentos', () => {

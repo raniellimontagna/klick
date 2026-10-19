@@ -264,6 +264,7 @@ function defaultProfile(): Profile {
     lessonAt: {},
     algChoice: {},
     trainOff: [],
+    duelName: '',
   };
 }
 
@@ -1687,11 +1688,14 @@ export function createRepository(
           const accountSetting = <K extends 'inspection' | 'dailyGoal'>(key: K) =>
             isPrefValue(`settings.${key}`, theirs.settings?.[key]) ? theirs.settings?.[key] : undefined;
           const settings = theirs.settings && { ...theirs.settings, inspection: accountSetting('inspection'), dailyGoal: accountSetting('dailyGoal') };
+          // O nome dos desafios do arquivo vale por cima, se o sync o aceitaria; um arquivo sem nome (ou com um torto) deixa o daqui.
+          const duelName = isPrefValue('duelName', theirs.duelName) ? theirs.duelName : undefined;
           const merged = mergeProfile(base, {
             ...theirs,
             settings,
             season,
             finish,
+            duelName,
             trail: theirs.trail ? base.trail.map((done, i) => done || theirs.trail?.[i] === true) : base.trail,
             onboarded: base.onboarded || theirs.onboarded === true,
             currentSessionId,

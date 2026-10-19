@@ -1359,6 +1359,30 @@ describe('estado do app: outra aba grava solves', () => {
 });
 
 // Arquivo do Klick num aparelho novo: os ajustes, o progresso e a sessão de lá vêm junto (decisão de 10/10).
+describe('estado do app: o nome nos desafios', () => {
+  beforeEach(() => { t = 1_791_500_000_000; });
+
+  it('setDuelName grava aparado e sobe no sync', async () => {
+    const server = new FakeServer();
+    const { app, repo } = await appWithAccount(fakeApi(server).api, { signedIn: true });
+    await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
+    expect(app.profile.duelName).toBe('');
+    await app.setDuelName('  Ana  ');
+    expect(app.profile.duelName).toBe('Ana');
+    expect((await repo.getProfile()).duelName).toBe('Ana');
+    await app.account!.syncNow();
+    await vi.waitFor(() => expect(server.records.get('prefs/duelName')?.data).toBe('Ana'));
+    // Até 20 caracteres depois de aparar: o resto é cortado, e uma quebra de linha vira espaço (o nome é de uma linha só).
+    await app.setDuelName(`  ${'y'.repeat(25)}`);
+    expect(app.profile.duelName).toBe('y'.repeat(20));
+    await app.setDuelName('Ana\nBia\u0000');
+    expect(app.profile.duelName).toBe('Ana Bia');
+    await app.setDuelName('   ');
+    expect(app.profile.duelName).toBe('');
+    expect((await repo.getProfile()).duelName).toBe('');
+  });
+});
+
 describe('estado do app: importar o Klick traz os ajustes', () => {
   beforeEach(() => { t = 1_791_500_000_000; });
 

@@ -10,7 +10,8 @@ import type { CsTimerSession, CsTimerSolve } from '../../src/data/transfer';
 import { EVENT_IDS, eventInfo } from '../../src/core/events';
 import { defaultSettings } from '../../src/core/types';
 import type { Duel, DuelTime, EventId, Session, Solve } from '../../src/core/types';
-import type { KlickExport } from '../../src/data/repository';
+import { createRepository, type KlickExport } from '../../src/data/repository';
+import { openKlickDb } from '../../src/data/db';
 
 // Caminho relativo a este arquivo. Não usa `new URL(\`../fixtures/${name}\`, import.meta.url)`: no ambiente jsdom o Vite o
 // reescreve para resolver contra self.location e o fs recusa a URL (mesmo motivo do contrast.test.ts).
@@ -91,6 +92,29 @@ describe('formato Klick', () => {
   });
   it('o arquivo do csTimer não passa por arquivo do Klick (a tela tenta um e depois o outro)', () => {
     expect(() => parseKlickJson(fixture('cstimer-export.txt'))).toThrow(KLICK_INVALID);
+  });
+
+  it('o arquivo do Klick leva e traz o nome', async () => {
+    // O nome sai no perfil do export, volta pelo arquivo e vai para a conta de quem importa.
+    const from = createRepository(await openKlickDb('transfer-nome-a'), { now: () => NOW, channel: null });
+    await from.saveProfile({ duelName: 'Ana' });
+    const file = parseKlickJson(toKlickJson(await from.exportAll()));
+    expect(file.profile?.duelName).toBe('Ana');
+    const to = createRepository(await openKlickDb('transfer-nome-b'), { now: () => NOW, channel: null });
+    expect((await to.getProfile()).duelName).toBe('');
+    await to.importAll(file);
+    expect((await to.getProfile()).duelName).toBe('Ana');
+    // Um arquivo sem nome (de antes dos desafios) não apaga o daqui; o nome fora do formato fica de fora na leitura e na importação.
+    await to.importAll({ ...file, profile: { ...file.profile, duelName: undefined } });
+    expect((await to.getProfile()).duelName).toBe('Ana');
+    const withName = (duelName: unknown): string => JSON.stringify({ ...fullExport(), profile: { duelName } });
+    expect(parseKlickJson(withName('x'.repeat(21))).profile).toEqual({});
+    expect(parseKlickJson(withName(' Ana ')).profile).toEqual({});
+    expect(parseKlickJson(withName('Ana\nBia')).profile).toEqual({});
+    expect(parseKlickJson(withName(7)).profile).toEqual({});
+    expect(parseKlickJson(withName('')).profile).toEqual({ duelName: '' });
+    await to.importAll({ ...file, profile: { duelName: 'x'.repeat(21) } });
+    expect((await to.getProfile()).duelName).toBe('Ana');
   });
 
   it('arquivo com desafios entra; desafio inválido fica de fora; arquivo sem duels continua valendo', () => {

@@ -1,5 +1,6 @@
 // Os ajustes da conta (store prefs) e os do aparelho (store profile), spec 5.2. O app monta o mesmo Profile de sempre a partir das
 // duas partes (joinProfile), e as telas não percebem a divisão. Cada chave da conta segue "o mais recente vence", com a temporada à parte.
+import { isDuelName } from '../duel/link';
 import { defaultSeason, seasonFrom } from '../season';
 import { caseById } from '../trail/cases';
 import { defaultSettings, type FinishId, type Profile, type SeasonProgress, type Settings } from '../types';
@@ -9,7 +10,7 @@ import type { DeviceProfile, DeviceSettings, PrefItem } from './types';
 export const TRAIL_STEPS = 9;
 const FINISHES: readonly FinishId[] = ['fosco', 'brilho', 'gelo', 'carbono'];
 
-// O que do perfil é da conta: trilha, aulas, treino, acabamento, tour, inspeção, meta diária e temporada.
+// O que do perfil é da conta: trilha, aulas, treino, acabamento, tour, inspeção, meta diária, temporada e o nome dos desafios.
 export interface AccountProfile {
   trail: boolean[];
   lessonAt: Profile['lessonAt'];
@@ -18,6 +19,7 @@ export interface AccountProfile {
   finish: FinishId;
   onboarded: boolean;
   season: SeasonProgress;
+  duelName: string;
   settings: Pick<Settings, 'inspection' | 'dailyGoal'>;
 }
 
@@ -38,6 +40,8 @@ export function defaultPrefValue(key: string): unknown {
       return 'fosco';
     case 'onboarded':
       return false;
+    case 'duelName':
+      return '';
     case 'settings.inspection':
       return true;
     case 'settings.dailyGoal':
@@ -68,6 +72,8 @@ export function isPrefValue(key: string, value: unknown): boolean {
       return isWhole(value, 1);
     case 'season':
       return seasonFrom(value) !== null;
+    case 'duelName': // aparado: é como o app grava (cleanDuelName), e o servidor não guarda um nome com espaço nas pontas
+      return isDuelName(value) && value === value.trim();
     default:
       return false;
   }
@@ -86,6 +92,7 @@ export function prefsFromProfile(p: AccountProfile, { withDefaults = false }: { 
   out.set('settings.inspection', p.settings.inspection);
   out.set('settings.dailyGoal', p.settings.dailyGoal);
   out.set('season', p.season);
+  out.set('duelName', p.duelName);
   // O que o app grava o servidor aceita (spec 6.6). Um valor fora do tipo da chave (uma escolha além dos algoritmos do caso) vale o padrão,
   // que é como a tela já o lia; uma chave que esta versão não conhece (um caso que saiu do catálogo) não vira item. Todo caminho que grava
   // a conta passa por aqui (a migração e writeProfile), e todos filtram igual.
@@ -111,6 +118,7 @@ export function profileFromPrefs(items: Iterable<PrefItem>): AccountProfile {
     finish: 'fosco',
     onboarded: false,
     season: defaultSeason(),
+    duelName: '',
     settings: { inspection: true, dailyGoal: 20 },
   };
   const off: PrefItem[] = [];
@@ -129,6 +137,7 @@ export function profileFromPrefs(items: Iterable<PrefItem>): AccountProfile {
     else if (key === 'settings.inspection') p.settings.inspection = value as boolean;
     else if (key === 'settings.dailyGoal') p.settings.dailyGoal = value as number;
     else if (key === 'season') p.season = seasonFrom(value)!;
+    else if (key === 'duelName') p.duelName = value as string;
   }
   p.trainOff = off
     .sort((a, b) => a.updatedAt - b.updatedAt || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
@@ -154,6 +163,7 @@ export function splitProfile(p: Profile): { device: DeviceProfile; account: Acco
       finish: p.finish,
       onboarded: p.onboarded,
       season: p.season,
+      duelName: p.duelName,
       settings: { inspection, dailyGoal },
     },
   };
@@ -170,6 +180,7 @@ export function joinProfile(device: DeviceProfile | undefined, account: AccountP
     onboarded: account.onboarded,
     currentSessionId: d.currentSessionId ?? null,
     season: account.season,
+    duelName: account.duelName,
     lessonAt: account.lessonAt,
     algChoice: account.algChoice,
     trainOff: account.trainOff,

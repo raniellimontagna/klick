@@ -53,6 +53,7 @@ describe('os formatos de id do app passam na regra do servidor (spec 6.6)', () =
       lessonAt: Object.fromEntries(Array.from({ length: 9 }, (_, i) => [i, 1])),
       algChoice: Object.fromEntries(CASES.filter((c) => c.algs.length > 1).map((c) => [c.id, c.algs.length - 1])),
       trainOff: CASES.map((c) => c.id),
+      duelName: 'x'.repeat(20),
     };
     const items = prefsFromProfile(splitProfile(profile).account, { withDefaults: true });
     expect(items.size).toBeGreaterThan(CASES.length);

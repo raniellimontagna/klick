@@ -13,6 +13,18 @@ export const DUEL_LINK_ID = /^[a-z0-9]{8,32}$/; // o id do link (newLinkId dá 1
 // sete embaralhamentos assim passariam do tamanho que o sync aceita. O desafio ficaria só neste aparelho (revisão da Task 3).
 const UNPRINTABLE = /[\u0000-\u0009\u000b-\u001f\u007f]|\p{Cs}/u;
 export const isDuelText = (text: string): boolean => !UNPRINTABLE.test(text);
+// O nome é de uma linha só: sem nenhum caractere de controle, a quebra de linha inclusive (ela só vale no embaralhamento).
+const UNPRINTABLE_NAME = /[\u0000-\u001f\u007f]|\p{Cs}/u;
+export const isDuelName = (value: unknown): value is string =>
+  typeof value === 'string' && value.length <= MAX_DUEL_NAME && !UNPRINTABLE_NAME.test(value);
+// O que a pessoa digitou como nome: controles e metades soltas viram espaço ou somem, aparado, cortado em MAX_DUEL_NAME sem partir um par
+// UTF-16 ao meio. O resultado sempre passa em isDuelName.
+export function cleanDuelName(text: string): string {
+  const flat = text.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\p{Cs}/gu, '').trim();
+  let name = flat.slice(0, MAX_DUEL_NAME);
+  if (/[\ud800-\udbff]$/.test(name)) name = name.slice(0, -1); // o corte caiu no meio de um par
+  return name.trim();
+}
 // Um embaralhamento do desafio: texto de 1 a MAX_DUEL_SCRAMBLE caracteres, sem caracteres de controle.
 export const isDuelScramble = (value: unknown): value is string =>
   typeof value === 'string' && value.length > 0 && value.length <= MAX_DUEL_SCRAMBLE && isDuelText(value);
@@ -90,11 +102,11 @@ export function isDuelTime(value: unknown): value is DuelTime {
   return isRecord(value) && typeof value.ms === 'number' && Number.isInteger(value.ms) && value.ms >= 0 && value.ms <= MAX_DUEL_MS && isPenalty(value.penalty);
 }
 
-// Nome fora do formato (não string, comprido demais, com caracteres de controle) vira vazio: o link continua valendo.
+// Nome fora do formato (não string, comprido demais, com caracteres de controle ou quebra de linha) vira vazio: o link continua valendo.
 function cleanName(value: unknown): string {
   if (typeof value !== 'string') return '';
   const name = value.trim();
-  return name.length > MAX_DUEL_NAME || !isDuelText(name) ? '' : name;
+  return isDuelName(name) ? name : '';
 }
 
 // Os tempos de um lado: de `min` a sete, todos válidos; senão null.

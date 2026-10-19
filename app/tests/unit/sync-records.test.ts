@@ -16,6 +16,7 @@ const profile = (o: Partial<Profile> = {}): Profile => ({
   lessonAt: {},
   algChoice: {},
   trainOff: [],
+  duelName: '',
   ...o,
 });
 
@@ -53,7 +54,7 @@ describe('perfil da conta e do aparelho (spec 5.2)', () => {
   it('sem withDefaults, só as chaves fora do padrão; com ele, todas', () => {
     const { account } = splitProfile(profile({ trail: [false, true, false, false, false, false, false, false, false] }));
     expect([...prefsFromProfile(account).keys()]).toEqual(['trail.1']);
-    expect(prefsFromProfile(account, { withDefaults: true }).size).toBe(9 + 5);
+    expect(prefsFromProfile(account, { withDefaults: true }).size).toBe(9 + 6);
   });
 
   it('um item inválido ou de chave desconhecida fica de fora; null em lessonAt e 0 em algChoice são "sem valor"', () => {
@@ -76,6 +77,30 @@ describe('perfil da conta e do aparelho (spec 5.2)', () => {
       { key: 'trainOff.oll2-l', value: false, updatedAt: 7 },
     ]);
     expect(p.trainOff).toEqual(['pll2-t', 'oll2-h']);
+  });
+
+  it('duelName é uma preferência da conta: aceita até 20 caracteres, recusa o resto', () => {
+    expect(defaultPrefValue('duelName')).toBe('');
+    for (const ok of ['', 'Ana', 'x'.repeat(20), 'Ana 🧊', 'Ana Maria']) expect(isPrefValue('duelName', ok), ok).toBe(true);
+    // Texto simples, de uma linha só, já aparado: o servidor recusa o resto (o app grava aparado, setDuelName).
+    for (const bad of ['x'.repeat(21), ' Ana', 'Ana ', 'Ana\u0000', 'Ana\nBia', 'Ana\t', 'Ana\ud800', 42, null, undefined, ['Ana']]) {
+      expect(isPrefValue('duelName', bad), String(bad)).toBe(false);
+    }
+    // Vale para o servidor: o item passa pela mesma checagem de forma que o sync usa.
+    const item = (data: unknown): Change => ({ store: 'prefs', id: 'duelName', data, updatedAt: 3, deletedAt: null, deletionStamp: 3 });
+    expect(checkChange(item('Ana')).ok).toBe(true);
+    expect(checkChange(item('x'.repeat(21))).ok).toBe(false);
+    expect(checkChange(item('Ana\nBia')).ok).toBe(false);
+    // Ida e volta: fora do padrão vira item, no padrão não; um item inválido lê o padrão.
+    const { account } = splitProfile(profile({ duelName: 'Ana' }));
+    expect(prefsFromProfile(account).get('duelName')).toBe('Ana');
+    expect(prefsFromProfile(splitProfile(profile()).account).has('duelName')).toBe(false);
+    expect(prefsFromProfile(splitProfile(profile()).account, { withDefaults: true }).get('duelName')).toBe('');
+    expect(profileFromPrefs([{ key: 'duelName', value: 'Ana', updatedAt: 1 }]).duelName).toBe('Ana');
+    expect(profileFromPrefs([{ key: 'duelName', value: 'x'.repeat(21), updatedAt: 1 }]).duelName).toBe('');
+    expect(profileFromPrefs([]).duelName).toBe('');
+    // Um nome fora do formato no perfil (que não passaria no sync) vira o padrão, como as outras chaves.
+    expect(prefsFromProfile(splitProfile(profile({ duelName: 'x'.repeat(21) })).account, { withDefaults: true }).get('duelName')).toBe('');
   });
 
   it('o valor padrão de cada família de chaves', () => {

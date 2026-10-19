@@ -403,7 +403,7 @@ describe('restaurar com conta põe na fila tudo o que grava, e só o que o servi
       for (const r of await db.getAll(store)) if (r.updatedAt === stamp) written.push(`${store}/${r.id}`);
     }
     for (const item of await db.getAll('prefs')) if (item.updatedAt === stamp) written.push(`prefs/${item.key}`);
-    expect(written).toHaveLength(6 + 14); // 2 sessões, 2 solves, 2 tentativas; as 14 chaves da conta (trilha, acabamento, tour, inspeção, meta, temporada)
+    expect(written).toHaveLength(6 + 15); // 2 sessões, 2 solves, 2 tentativas; as 15 chaves da conta (trilha, acabamento, tour, inspeção, meta, temporada, nome dos desafios)
     expect(((await db.getAllKeys('outbox')) as string[]).sort()).toEqual(written.sort());
     expect(refusedBy(await pendingChanges(db))).toEqual([]);
   });

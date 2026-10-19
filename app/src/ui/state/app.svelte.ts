@@ -4,6 +4,7 @@
 // Duas coisas andam numa fila única, na ordem em que foram pedidas: as leituras do banco (reload) e as contas depois de cada
 // solve gravado (afterSave). Assim, uma leitura que começou antes de um solve gravado não volta a esconder esse solve.
 import { untrack } from 'svelte';
+import { cleanDuelName } from '../../core/duel/link';
 import { eventInfo } from '../../core/events';
 import { createSeasonTracker, defaultSeason, type MarkStatus, planAdvance, seasonKey } from '../../core/season';
 import { dayKey } from '../../core/stats';
@@ -216,6 +217,7 @@ const placeholderProfile = (): Profile => ({
   lessonAt: {},
   algChoice: {},
   trainOff: [],
+  duelName: '',
 });
 
 // Quem tem dados da v1 para oferecer: os que batem, ou só registros que não batem (a oferta mostra quantos ficaram de fora). Uma
@@ -1094,6 +1096,14 @@ export class AppState {
       this.profile = await this.repo.saveProfile({ settings: patch });
     }, T.data.settingFailed);
     if (ok) this.applyPrefs();
+    await this.refreshKinds(['profile']);
+  }
+
+  // O nome que vai nos links de desafio (spec do desafio, seção 5): aparado, de uma linha, até 20 caracteres. Vazio tira o nome.
+  async setDuelName(name: string): Promise<void> {
+    await this.write(async () => {
+      this.profile = await this.repo.saveProfile({ duelName: cleanDuelName(name) });
+    }, T.data.settingFailed);
     await this.refreshKinds(['profile']);
   }
 

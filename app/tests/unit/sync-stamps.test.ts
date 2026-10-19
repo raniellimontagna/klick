@@ -183,8 +183,8 @@ describe('as datas que a migração grava são inteiros seguros >= 0 (shape.ts),
   it('só itens da conta que o servidor aceita: um caso que não existe mais ou uma escolha fora dos algoritmos fica só na cópia "antes da v3"', async () => {
     const name = `stamps-${++n}`;
     const v2 = await openKlickDb(name, {}, 2);
-    const profile: Profile = {
-      settings: defaultSettings(),
+    const profile: Omit<Profile, 'duelName'> = {
+      settings: defaultSettings(), // como a versão 2 gravava, antes do nome dos desafios
       trail: Array<boolean>(9).fill(false),
       finish: 'fosco',
       onboarded: false,
@@ -208,8 +208,8 @@ describe('as datas que a migração grava são inteiros seguros >= 0 (shape.ts),
   it('restaurar a cópia "antes da v3" (que guarda os valores de antes como vieram) não grava item da conta que o servidor recusa', async () => {
     const name = `stamps-${++n}`;
     const v2 = await openKlickDb(name, {}, 2);
-    const profile: Profile = {
-      settings: defaultSettings(),
+    const profile: Omit<Profile, 'duelName'> = {
+      settings: defaultSettings(), // como a versão 2 gravava, antes do nome dos desafios
       trail: [true, false, false, false, false, false, false, false, false],
       finish: 'fosco',
       onboarded: true,

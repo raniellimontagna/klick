@@ -2,12 +2,12 @@
 // desafio que não bate fica de fora e o resto entra, porque os solves valem mais que uma partida estranha.
 import { EVENT_IDS } from '../events';
 import type { Duel, DuelStatus, EventId } from '../types';
-import { DUEL_LINK_ID, isDuelScramble, isDuelText, isDuelTime, MAX_DUEL_NAME } from './link';
+import { DUEL_LINK_ID, isDuelName, isDuelScramble, isDuelTime } from './link';
 import { DUEL_SCRAMBLES } from './score';
 
 const isRec = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
-const isName = (v: unknown): v is string => typeof v === 'string' && v.length <= MAX_DUEL_NAME && isDuelText(v);
+const isName = isDuelName;
 const STATUSES: readonly DuelStatus[] = ['playing', 'waiting', 'done'];
 // Os tempos de um lado: até sete, cada um no formato do link.
 const isTimes = (v: unknown): boolean => Array.isArray(v) && v.length <= DUEL_SCRAMBLES && v.every(isDuelTime);

@@ -32,7 +32,8 @@ function fixture() {
     solve('d', 'gone', 5, at(50)), // saiu junto com a sessão
   ];
   const practice: Practice[] = [{ id: 'p1', caseId: 'oll2-sune', ms: 2500, ok: true, helped: false, at: at(10) }];
-  const profile: Profile = {
+  // Como a versão 2 o gravava, antes do nome dos desafios: ao ler, ele ganha o padrão ('').
+  const profile: Omit<Profile, 'duelName'> = {
     settings: { ...defaultSettings(), inspection: false, dailyGoal: 30, theme: 'dark', holdMs: 550, sound: { klick: false, insp: true, pb: true } },
     trail: [true, true, true, false, false, false, false, false, false],
     finish: 'gelo',
@@ -50,7 +51,8 @@ function fixture() {
     trainOff: ['pll2-t'],
   };
   const meta = { schemaVersion: 1, deviceId: 'dev', solvesSinceBackup: 3, trailPromptDismissed: true } as Partial<Meta>;
-  return { sessions, solves, practice, profile, meta };
+  const migrated: Profile = { ...profile, duelName: '' };
+  return { sessions, solves, practice, profile, migrated, meta };
 }
 
 // Grava a fixture direto na versão 2, como o app daquela versão gravava.
@@ -76,7 +78,7 @@ describe('migração para a versão 3 (spec 5.6)', () => {
     expect(await repo.listSolves({ includeDeleted: true })).toEqual(data.solves);
     expect(await repo.listTrash()).toEqual({ sessions: [data.sessions[1]], solves: [data.solves[3], data.solves[2]], duels: [] });
     expect(await repo.listPractice()).toEqual(data.practice);
-    expect(await repo.getProfile()).toEqual(data.profile);
+    expect(await repo.getProfile()).toEqual(data.migrated);
     expect(await repo.getMeta()).toMatchObject(data.meta);
   });
 
@@ -131,7 +133,7 @@ describe('migração para a versão 3 (spec 5.6)', () => {
     await app.init();
     expect(app.sessions).toEqual([data.sessions[0]]);
     expect(app.solves).toEqual(data.solves.slice(0, 2));
-    expect(app.profile).toEqual(data.profile);
+    expect(app.profile).toEqual(data.migrated);
     expect(app.practice).toEqual(data.practice);
     expect(app.profile.season.past).toHaveLength(2);
   });
@@ -145,7 +147,7 @@ describe('migração para a versão 3 (spec 5.6)', () => {
       exportedAt: MIGRATED_AT,
       sessions: data.sessions,
       solves: [...data.solves].sort((a, b) => a.at - b.at),
-      profile: data.profile,
+      profile: data.migrated,
       practice: data.practice,
     });
     // Reaberto na versão 2 (sem pedir a 3), o banco continua como estava: a versão, as stores e os registros.
@@ -183,7 +185,7 @@ describe('migração para a versão 3 (spec 5.6)', () => {
     const file = await exportStuckDb(name, MIGRATED_AT);
     expect(file.sessions).toEqual(data.sessions);
     expect(file.solves).toHaveLength(4);
-    expect(file.profile).toEqual(data.profile);
+    expect(file.profile).toEqual(data.migrated);
     expect(file.practice).toEqual([]);
     const db = await openKlickDb(name, {}, 1);
     try {

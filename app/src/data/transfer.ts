@@ -7,6 +7,7 @@
 import { duelsFrom } from '../core/duel/validate';
 import { EVENT_IDS, eventFromCsTimer, eventInfo } from '../core/events';
 import { seasonFrom } from '../core/season';
+import { isPrefValue } from '../core/sync/prefs';
 import { stampOf } from '../core/sync/records';
 import { algChoiceFrom, lessonAtFrom, practiceFrom, trainOffFrom } from '../core/trail/validate';
 import type { EventId, FinishId, Penalty, Session, Settings, Solve } from '../core/types';
@@ -113,6 +114,7 @@ function profileOf(v: Record<string, unknown>): ProfilePatch {
   if (Array.isArray(v.trail) && v.trail.every(isBool)) profile.trail = v.trail.slice(0, TRAIL.length);
   if (isFinish(v.finish)) profile.finish = v.finish;
   if (isBool(v.onboarded)) profile.onboarded = v.onboarded;
+  if (isPrefValue('duelName', v.duelName)) profile.duelName = v.duelName as string;
   if (v.currentSessionId === null || typeof v.currentSessionId === 'string') profile.currentSessionId = v.currentSessionId;
   const season = seasonFrom(v.season);
   if (season) profile.season = season;

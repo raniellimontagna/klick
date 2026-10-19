@@ -107,6 +107,9 @@ export interface Profile {
   lessonAt: Partial<Record<TrailStep, number>>; // o passo em que cada aula parou (some ao concluir)
   algChoice: Record<string, number>; // id do caso → índice em algs (sem a chave: o padrão, 0)
   trainOff: string[]; // ids dos casos fora do sorteio
+  // O nome que a pessoa mostra nos links de desafio (spec do desafio, seção 5): texto simples de uma linha, aparado, até 20 caracteres. É da
+  // conta (vai no sync, como o acabamento e o tour), não do aparelho. Um perfil de antes dos desafios, sem ele, lê ''.
+  duelName: string;
 }
 
 // Estado local deste aparelho: versão do esquema, contadores e marcas das cópias de segurança, e sinalizadores de avisos já tratados.
