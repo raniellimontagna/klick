@@ -3,7 +3,8 @@
   // ponto a ponto, e "Excluir", que manda para a lixeira com o segundo toque, como as outras ações sem volta do app (o aviso de desfazer vem
   // depois, na lista). O desafio de A que espera a resposta mostra os sete tempos e "Mandar de novo": o mesmo link, preparado antes do toque
   // (a folha do sistema só abre dentro dele), como na tela de mandar. A partida terminada de B oferece "Mandar a resposta", que volta à tela
-  // do fim (7), onde o envio de sempre corre dentro do toque; o registro de B não sabe se a resposta já saiu, então ela vale sempre.
+  // do fim (7), onde o envio de sempre corre dentro do toque; o registro de B não sabe se a resposta já saiu, então ela vale sempre. O de A
+  // que espera também oferece "Colar a resposta", para a resposta que abriu fora do app (PasteReply).
   import { onDestroy, untrack } from 'svelte';
   import { eventInfo } from '../../core/events';
   import type { Duel } from '../../core/types';
@@ -12,6 +13,7 @@
   import { bestOf, duelTime, matchLabelOf, outcomeOf } from '../duel/duel-view';
   import { focusTimerIfLost } from '../duel/focus';
   import MatchCards from '../duel/MatchCards.svelte';
+  import PasteReply from '../duel/PasteReply.svelte';
   import { canShare, copyLink, shareLink } from '../duel/send';
   import type { AppState } from '../state/app.svelte';
   import { scoreOf } from '../state/duel.svelte';
@@ -136,6 +138,7 @@
       {#if copyOffer}
         <button type="button" class="btn" onclick={() => copyOffer && copyNow(copyOffer)}>{T.duel.copyLink}</button>
       {/if}
+      <PasteReply {app} />
     {/if}
     {#if replyable}
       <button type="button" class="btn primary" onclick={keepGoing}>{T.duel.sendReply}</button>

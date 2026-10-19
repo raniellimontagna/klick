@@ -132,6 +132,9 @@ export class DuelState {
   // O link de A que saiu nesta tela (o toque em Mandar): os tempos não mudam mais, mesmo que a marca de mandado não grave. `revert`: o toque
   // é que deu o desafio por mandado (ele jogava), então fechar a folha sem mandar o volta a jogar. Sai com o desafio (sair, abrir outro).
   #out = $state.raw<{ id: string; revert: boolean } | null>(null);
+  // A resposta aberta só para ver porque este aparelho não tem nenhum lado dela (nem o desafio de A, nem o registro de B): o payload, que
+  // "Copiar o link" leva ao lugar que tem o desafio (no iPhone, o Klick da tela de início guarda à parte do Safari). Sai com a visualização.
+  #stray = $state.raw<string | null>(null);
   // O desafio que a tela vê: para B, `theirs` cortado nos revelados. Derivado, é a mesma referência enquanto o desafio não muda.
   #shown = $derived.by((): Duel | null => {
     const d = this.#duel;
@@ -440,6 +443,11 @@ export class DuelState {
     });
   }
 
+  // O payload da resposta vista sem nenhum lado dela neste aparelho (a tela explica e oferece copiar o link); null em qualquer outra fase.
+  get strayReply(): string | null {
+    return this.stage === 'view' ? this.#stray : null;
+  }
+
   // O link de A saiu nesta tela: a penalidade não muda mais (a tela de mandar tira +2 e DNF).
   get linkOut(): boolean {
     const d = this.#duel;
@@ -486,7 +494,7 @@ export class DuelState {
 
   // Abre um `#desafio=` e decide pelo conteúdo e pelo que existe neste aparelho (Review Focus 1, 3 e 4). Sem a resposta: o desafio que
   // este aparelho aceitou continua (resume); o que ele mandou aparece (own); senão, o convite (receive), sem gravar nada. Com a resposta:
-  // ela fecha o desafio daqui que espera por ela (reply); qualquer outra só aparece (view). Torto: invalid, nada muda. Um desafio em
+  // ela fecha o desafio daqui que ainda não tem resposta (reply); qualquer outra só aparece (view). Torto: invalid, nada muda. Um desafio em
   // jogo fica como foi gravado. Nunca rejeita.
   async openLink(payload: string): Promise<DuelOpened> {
     this.leave('idle');
@@ -494,7 +502,7 @@ export class DuelState {
     this.opening++;
     try {
       const link = await decodeDuelLink(payload);
-      return await this.serial(() => this.opened(link, epoch));
+      return await this.serial(() => this.opened(link, payload, epoch));
     } finally {
       this.opening--;
     }
@@ -552,7 +560,7 @@ export class DuelState {
 
   // `again`: uma resposta cujo desafio mudou entre ler e gravar (outra aba abriu a mesma resposta) é decidida de novo, uma vez, pelo que
   // ficou gravado.
-  private async opened(link: DuelLink | null, epoch: number, again = true): Promise<DuelOpened> {
+  private async opened(link: DuelLink | null, payload: string, epoch: number, again = true): Promise<DuelOpened> {
     const live = (): boolean => epoch === this.epoch; // outro link (ou sair) passou na frente: a tela fica com ele
     if (!link) {
       if (live()) this.go('invalid');
@@ -587,19 +595,23 @@ export class DuelState {
       return 'receive';
     }
     const reply = link.b;
-    // A resposta só fecha o desafio daqui que é o mesmo do link, esperando por ela, com a partida acabada. A mesma resposta de novo mostra
-    // a partida sem gravar. Qualquer outra (a de outro amigo, a de um desafio descartado, uma montada à mão) só aparece: nunca apaga uma
-    // partida nem traz um desafio da lixeira.
+    // A resposta só fecha o desafio daqui que é o mesmo do link, ainda sem resposta, com os sete e a partida acabada. A marca de mandado é
+    // melhor esforço (ela pode não ter gravado, ou um AbortError a desfez depois de o link sair): um desafio que ficou jogando também fecha,
+    // porque a resposta traz os sete tempos exatos dele, a prova de que o link saiu. A mesma resposta de novo mostra a partida sem gravar.
+    // Qualquer outra (a de outro amigo, a de um desafio descartado, uma montada à mão) só aparece: nunca apaga uma partida nem traz um
+    // desafio da lixeira.
     if (a && sameChallenge(a, link)) {
       if (a.status === 'done' && a.theirName === reply.name && sameTimes(a.theirs, reply.times)) return this.show('reply', live, a, 'reply');
-      if (a.status === 'waiting' && scoreDuel(a.mine, reply.times).over) {
+      if (a.status !== 'done' && a.deletedAt === null && a.mine.length === DUEL_SCRAMBLES && scoreDuel(a.mine, reply.times).over) {
         const done: Duel = { ...a, theirs: reply.times, theirName: reply.name, status: 'done' };
         const saved = await this.save(done, a.updatedAt, epoch, () => undefined);
         if (saved !== 'conflict') return this.show('reply', live, saved === 'failed' ? done : saved, 'reply'); // a falha mostra, com o aviso
-        if (again) return this.opened(link, epoch, false);
+        if (again) return this.opened(link, payload, epoch, false);
       }
     }
-    return this.show('view', live, viewOf(link, reply, b ? 'b' : 'a', this.host.now()), 'view');
+    const view = this.show('view', live, viewOf(link, reply, b ? 'b' : 'a', this.host.now()), 'view');
+    if (a === null && b === null && live()) this.#stray = payload; // nenhum lado aqui: a tela explica onde colar
+    return view;
   }
 
   // Uma visualização não é de ninguém: nada grava a partir dela.
@@ -615,6 +627,7 @@ export class DuelState {
   private enter(d: Duel, phase: DuelPhase = phaseOf(d)): void {
     this.#duel = d;
     this.#offer = null;
+    this.#stray = null;
     this.pickEvent = d.event;
     this.go(phase);
   }
@@ -633,6 +646,7 @@ export class DuelState {
     this.#duel = null;
     this.#offer = null;
     this.#out = null;
+    this.#stray = null;
     this.go(phase);
   }
 

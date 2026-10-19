@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { decodeDuelLink, duelPayloadOf, encodeDuelLink } from '../../src/core/duel/link';
@@ -750,7 +750,7 @@ describe('a barra do topo e a pílula do modo', () => {
     expect(document.querySelector('[data-screen="timer"]')).not.toHaveAttribute('hidden');
   });
 
-  it('uma partida só para ver (a resposta sem o desafio daqui, o desafio da lixeira) mostra o que tem e só oferece Fechar', async () => {
+  it('uma partida só para ver (a resposta sem o desafio daqui, o desafio da lixeira) mostra o que tem, sem mandar nem desafiar de volta', async () => {
     const A = await device({ name: 'Ranielli' });
     await A.a.duel.start('333');
     for (const t of A_TIMES) await A.a.duel.record(t);
@@ -890,5 +890,103 @@ describe('a resposta em Desafios', () => {
     const item = await screen.findByRole('button', { name: /^Bia · 3×3/ });
     expect(item).toHaveTextContent(T.duel.tagDone);
     expect(item).toHaveTextContent('Bia venceu 3 × 0');
+  });
+});
+
+// A revisão final: no iPhone, o Klick da tela de início guarda à parte do Safari, e a resposta tocada no WhatsApp abre no Safari, sem o
+// desafio (só para ver). "Colar a resposta" leva o link para o app; a visualização sem o desafio explica e oferece copiar o link.
+describe('colar a resposta (o Klick da tela de início)', () => {
+  function stubClipboard(clipboard: Partial<Clipboard> | undefined): void {
+    Object.defineProperty(navigator, 'clipboard', { value: clipboard, configurable: true, writable: true });
+  }
+
+  it('na tela de mandar, o toque lê o link copiado (mesmo com o texto da conversa em volta) e fecha a partida', async () => {
+    const A = await device({ name: 'Ranielli' });
+    await mount(A.a);
+    const reply = await answered(A.a);
+    const id = A.a.duel.current!.id;
+    const readText = vi.fn(async () => `${T.duel.replyText('Bia', '3×3')} ${reply}`);
+    stubClipboard({ readText });
+    const paste = await screen.findByRole('button', { name: T.duel.paste });
+    paste.click();
+    expect(readText).toHaveBeenCalledTimes(1); // na hora do toque, sem esperar nada antes
+    expect(await screen.findByRole('heading', { name: 'Bia venceu 3 × 0' })).toBeInTheDocument();
+    expect(A.a.duel.phase).toBe('reply');
+    expect(await A.repo.getDuel(id)).toMatchObject({ status: 'done', theirName: 'Bia' });
+  });
+
+  it('o que não é link de desafio avisa e não muda nada', async () => {
+    const A = await device({ name: 'Ranielli' });
+    await mount(A.a);
+    await answered(A.a);
+    const waiting = A.a.duel.current!;
+    stubClipboard({ readText: async () => 'https://klick.test/#outra-coisa' });
+    await fireEvent.click(await screen.findByRole('button', { name: T.duel.paste }));
+    await waitFor(() => expect(A.a.toast?.text).toBe(T.duel.pasteNotDuel));
+    expect(A.a.duel.phase).toBe('finished');
+    expect(await A.repo.getDuel(waiting.id)).toEqual(waiting);
+  });
+
+  it('sem ler a área de transferência (recusada ou sem a API), o campo para colar à mão, com Abrir', async () => {
+    const A = await device({ name: 'Ranielli' });
+    await mount(A.a);
+    const reply = await answered(A.a);
+    stubClipboard({ readText: () => Promise.reject(new DOMException('negado', 'NotAllowedError')) });
+    await fireEvent.click(await screen.findByRole('button', { name: T.duel.paste }));
+    const field = await screen.findByRole('textbox', { name: T.duel.pasteLabel });
+    await waitFor(() => expect(document.activeElement).toBe(field));
+    await fireEvent.input(field, { target: { value: 'lixo' } });
+    await fireEvent.click(screen.getByRole('button', { name: T.duel.pasteOpen }));
+    await waitFor(() => expect(A.a.toast?.text).toBe(T.duel.pasteNotDuel));
+    expect(A.a.duel.phase).toBe('finished');
+    await fireEvent.input(field, { target: { value: reply } });
+    await fireEvent.click(screen.getByRole('button', { name: T.duel.pasteOpen }));
+    expect(await screen.findByRole('heading', { name: 'Bia venceu 3 × 0' })).toBeInTheDocument();
+    expect(A.a.duel.phase).toBe('reply');
+
+    // Sem a API (o navegador não a tem): o campo também.
+    const C = await device({ name: 'Rani' });
+    cleanup();
+    await mount(C.a);
+    await answered(C.a);
+    stubClipboard(undefined);
+    await fireEvent.click(await screen.findByRole('button', { name: T.duel.paste }));
+    expect(await screen.findByRole('textbox', { name: T.duel.pasteLabel })).toBeInTheDocument();
+  });
+
+  it('só o desafio que espera a resposta oferece colar', async () => {
+    const A = await device({ name: 'Ranielli' });
+    await mount(A.a);
+    await A.a.duel.start('333');
+    for (const t of A_TIMES) await A.a.duel.record(t);
+    await readyButton(T.duel.send);
+    expect(screen.queryByRole('button', { name: T.duel.paste })).toBeNull(); // ainda não mandou
+  });
+
+  it('a resposta aberta num aparelho sem o desafio explica e copia o link no toque', async () => {
+    const A = await device({ name: 'Ranielli' });
+    const reply = await answered(A.a);
+    const C = await device();
+    await mount(C.a);
+    const writeText = vi.fn(async (_text: string) => {});
+    stubClipboard({ writeText });
+    await C.a.duel.openLink(duelPayloadOf(new URL(reply).hash)!);
+    await screen.findByRole('heading', { name: 'Bia venceu 3 × 0' });
+    expect(screen.getByText(T.duel.strayText)).toBeInTheDocument();
+    screen.getByRole('button', { name: T.duel.copyLink }).click();
+    expect(writeText).toHaveBeenCalledTimes(1); // na hora do toque
+    expect(writeText.mock.calls[0]![0]).toBe(`${location.origin}/#desafio=${duelPayloadOf(new URL(reply).hash)}`);
+    await waitFor(() => expect(C.a.toast?.text).toBe(T.duel.copied));
+    expect(await C.repo.listDuels({ includeDeleted: true })).toEqual([]);
+
+    // Com o desafio aqui (na lixeira), a visualização não diz que ele falta.
+    expect(await A.a.duel.discard()).toBe(true); // A, na tela de mandar do desafio que espera
+    cleanup();
+    await mount(A.a);
+    await A.a.duel.openLink(duelPayloadOf(new URL(reply).hash)!);
+    await screen.findByRole('heading', { name: 'Bia venceu 3 × 0' });
+    expect(A.a.duel.phase).toBe('view');
+    expect(screen.queryByText(T.duel.strayText)).toBeNull();
+    expect(screen.queryByRole('button', { name: T.duel.copyLink })).toBeNull();
   });
 });

@@ -962,6 +962,53 @@ describe('o estado do desafio (spec do desafio, seções 3 a 6)', () => {
     expect(B.app.duel.linkOut).toBe(false); // B não tem penalidade a travar: a partida acabou
   });
 
+  // A revisão final (emenda da I2): a marca de mandado é melhor esforço. Com ela sem gravar (ou desfeita por um AbortError depois de o link
+  // sair), o desafio de A fica 'playing' com os sete; a resposta de verdade traz os sete tempos exatos dele, a prova de que o link saiu, e
+  // fecha a partida. O resto da I2 continua: nada grava por cima de uma partida acabada nem traz um desafio da lixeira.
+  it('a resposta fecha o desafio que ficou jogando com os sete (a marca de mandado não gravou); o resto das proteções fica', async () => {
+    const A = await device();
+    await A.app.duel.start('333');
+    const aId = A.app.duel.current!.id;
+    for (const x of A_TIMES) await A.app.duel.record(x);
+    const url = await A.app.duel.challengeLink(ORIGIN, 'Ranielli'); // o link saiu pela folha; a marca de mandado não gravou
+    expect(await A.repo.getDuel(aId)).toMatchObject({ status: 'playing', mine: A_TIMES });
+    const B = await accepted(url!);
+    await play(B.app, B_TIMES);
+    const reply = await B.app.duel.replyUrl(ORIGIN, 'Bia');
+    A.app.duel.exit();
+    expect(await A.app.duel.openLink(payloadOf(reply))).toBe('reply');
+    const done = (await A.repo.getDuel(aId))!;
+    expect(done).toMatchObject({ status: 'done', theirs: B_TIMES, theirName: 'Bia' });
+    expect(A.app.duel.phase).toBe('reply');
+    // A mesma resposta de novo: a partida, sem gravar; a de outro amigo, só para ver.
+    expect(await A.app.duel.openLink(payloadOf(reply))).toBe('reply');
+    const leo = await accepted(url!);
+    await play(leo.app, [tm(20_000), tm(20_000), tm(20_000)]);
+    expect(await A.app.duel.openLink(payloadOf(await leo.app.duel.replyUrl(ORIGIN, 'Léo')))).toBe('view');
+    expect(await A.repo.getDuel(aId)).toEqual(done);
+
+    // Um desafio jogando cujos tempos mudaram depois do link (a penalidade do sétimo) não é o da resposta: só para ver.
+    const C = await device();
+    await C.app.duel.start('333');
+    const cId = C.app.duel.current!.id;
+    for (const x of A_TIMES) await C.app.duel.record(x);
+    const cUrl = await C.app.duel.challengeLink(ORIGIN);
+    await C.app.duel.setPenalty('+2');
+    const changed = (await C.repo.getDuel(cId))!;
+    const cB = await accepted(cUrl!);
+    await play(cB.app, B_TIMES);
+    const cReply = await cB.app.duel.replyUrl(ORIGIN);
+    expect(await C.app.duel.openLink(payloadOf(cReply))).toBe('view');
+    expect(await C.repo.getDuel(cId)).toEqual(changed);
+    // E um jogando que foi para a lixeira continua lá.
+    await C.app.duel.resume(cId);
+    await C.app.duel.setPenalty(null);
+    expect(await C.app.duel.discard()).toBe(true);
+    const trashed = (await C.repo.getDuel(cId))!;
+    expect(await C.app.duel.openLink(payloadOf(cReply))).toBe('view');
+    expect(await C.repo.getDuel(cId)).toEqual(trashed);
+  });
+
   it('o current de B é o mesmo objeto enquanto o desafio não muda', async () => {
     const A = await device();
     const B = await accepted(await challenge(A.app));

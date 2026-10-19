@@ -429,6 +429,25 @@
   gap: 8px;
 }
 
+/* "Colar a resposta" sem a leitura da área de transferência: o campo e "Abrir" numa linha, abaixo dos botões (na partida aberta, a linha
+   inteira da fileira de botões). */
+.dz-paste {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-basis: 100%;
+}
+
+.dz-paste .field.dz-field {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+.dz-paste .btn {
+  min-height: 44px;
+}
+
 /* As folhas do desafio */
 .dz-sheet p + p,
 .dz-sheet .chips + p {

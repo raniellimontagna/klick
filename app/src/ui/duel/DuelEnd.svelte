@@ -9,8 +9,11 @@
   // dá o link por saído (app.duel.send: os tempos de A travam e a marca de mandado entra na fila, sem esperar) e abre a folha na hora; a
   // folha recusada oferece "Copiar o link", num toque novo, e a folha fechada sem mandar volta o desafio a jogar (app.duel.unsend), como a
   // cópia que falha quando ela era o único caminho (sem a folha do sistema, nada saiu do aparelho).
+  //
+  // A resposta que abriu fora do app (no iPhone, o Klick da tela de início guarda à parte do Safari): o desafio que espera a resposta oferece
+  // "Colar a resposta" (4), e a resposta vista num aparelho sem nenhum lado dela explica onde colar e copia o próprio link (8).
   import { onDestroy, tick, untrack } from 'svelte';
-  import { MAX_DUEL_NAME } from '../../core/duel/link';
+  import { duelUrl, MAX_DUEL_NAME } from '../../core/duel/link';
   import { eventInfo } from '../../core/events';
   import { T } from '../../strings';
   import type { AppState } from '../state/app.svelte';
@@ -18,6 +21,7 @@
   import { bestOf, duelTime, outcomeOf, rowName } from './duel-view';
   import { focusTimerIfLost } from './focus';
   import MatchCards from './MatchCards.svelte';
+  import PasteReply from './PasteReply.svelte';
   import { canShare, copyLink, shareLink } from './send';
   import ResultActions from '../timer/ResultActions.svelte';
 
@@ -50,6 +54,8 @@
   const last = $derived(duel?.mine.at(-1) ?? null);
   // +2 e DNF do sétimo, na tela de mandar, até o link sair (mesmo que a marca de mandado não tenha gravado).
   const penaltyOpen = $derived(duel !== null && duel.side === 'a' && phase === 'finished' && duel.status === 'playing' && !app.duel.linkOut);
+  // A resposta vista sem nenhum lado dela aqui: o payload que "Copiar o link" copia.
+  const stray = $derived(app.duel.strayReply);
   // O que muda o link: o desafio e as penalidades (o nome entra pelo campo).
   const content = $derived(duel ? `${duel.id}|${duel.mine.map((t) => t.penalty ?? '').join(',')}` : '');
 
@@ -244,6 +250,9 @@
         {@render nameField(T.duel.nameHint)}
         {@render sendButton(T.duel.send)}
         <p class="dz-note dz-center">{T.duel.sendNote}</p>
+        {#if duel.status === 'waiting'}
+          <PasteReply {app} wide />
+        {/if}
       {:else}
         <div class="row"><button type="button" class="btn" onclick={close}>{T.duel.close}</button></div>
       {/if}
@@ -274,11 +283,18 @@
         {/if}
       </div>
       {#if score}<MatchCards {duel} {score} />{/if}
+      {#if stray}
+        <p class="dz-note">{T.duel.strayText}</p>
+      {/if}
       <div class="row">
+        {#if stray}
+          <!-- A cópia na hora do toque, como a de mandar. -->
+          <button type="button" class="btn primary" onclick={() => copyNow(duelUrl(location.origin, stray))}>{T.duel.copyLink}</button>
+        {/if}
         {#if phase === 'reply'}
           <button type="button" class="btn primary" onclick={seeAll}>{T.duel.seeAll}</button>
         {/if}
-        <button type="button" class="btn" class:primary={phase !== 'reply'} onclick={close}>{T.duel.close}</button>
+        <button type="button" class="btn" class:primary={phase !== 'reply' && !stray} onclick={close}>{T.duel.close}</button>
         {#if phase === 'reply'}
           <button type="button" class="btn" onclick={() => app.duel.rematch()}>{T.duel.rematch}</button>
         {/if}

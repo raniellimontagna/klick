@@ -1,6 +1,6 @@
 import { deflateRawSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
-import { MAX_DUEL_MS, MAX_DUEL_NAME, MAX_DUEL_PAYLOAD, cleanDuelName, decodeDuelLink, duelPayloadOf, duelUrl, encodeDuelLink, isDuelName, newLinkId } from '../../src/core/duel/link';
+import { MAX_DUEL_MS, MAX_DUEL_NAME, MAX_DUEL_PAYLOAD, cleanDuelName, decodeDuelLink, duelPayloadIn, duelPayloadOf, duelUrl, encodeDuelLink, isDuelName, newLinkId } from '../../src/core/duel/link';
 import type { DuelLink, DuelTime } from '../../src/core/types';
 
 const times = (n = 7): DuelTime[] => Array.from({ length: n }, (_, i) => ({ ms: 9_000 + i * 837 + 13, penalty: i === 2 ? '+2' : i === 5 ? 'DNF' : null }));
@@ -237,6 +237,16 @@ describe('o link do desafio (spec 4)', () => {
     expect(duelPayloadOf('#desafio=')).toBeNull();
     expect(duelPayloadOf('#x=1&desafio=abc')).toBeNull();
     expect(duelUrl('https://klick.ranimontagna.com', 'abc')).toBe('https://klick.ranimontagna.com/#desafio=abc');
+  });
+
+  // "Colar a resposta" (a revisão final): o link copiado sozinho, ou a mensagem inteira da conversa, com o texto antes dele.
+  it('duelPayloadIn acha o link de desafio no que foi colado', () => {
+    expect(duelPayloadIn('https://klick.ranimontagna.com/#desafio=abc')).toBe('abc');
+    expect(duelPayloadIn('  https://klick.ranimontagna.com/#desafio=abc\n')).toBe('abc');
+    expect(duelPayloadIn('Bia respondeu ao seu desafio no Klick: 3×3. https://klick.ranimontagna.com/#desafio=abc')).toBe('abc');
+    for (const text of ['', 'abc', '#desafio=abc', 'desafio=abc', 'https://klick.ranimontagna.com/#outra=abc', 'https://klick.ranimontagna.com/']) {
+      expect(duelPayloadIn(text), text).toBeNull();
+    }
   });
 
   it('newLinkId: 16 caracteres [a-z0-9], com sorteio injetado ou criptográfico', () => {

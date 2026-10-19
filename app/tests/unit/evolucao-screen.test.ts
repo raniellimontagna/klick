@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { decodeDuelLink, duelPayloadOf } from '../../src/core/duel/link';
+import { decodeDuelLink, duelPayloadOf, encodeDuelLink } from '../../src/core/duel/link';
 import type { DuelTime, Penalty } from '../../src/core/types';
 import { openKlickDb } from '../../src/data/db';
 import { createRepository, type Repository } from '../../src/data/repository';
@@ -220,6 +220,7 @@ describe('Evolução: Desafios', () => {
 
   afterEach(() => {
     delete (navigator as unknown as Record<string, unknown>).share;
+    delete (navigator as unknown as Record<string, unknown>).clipboard;
   });
 
   it('sem desafios, a Evolução é a de sempre: sem o cartão', async () => {
@@ -372,5 +373,28 @@ describe('Evolução: Desafios', () => {
     expect(link).toMatchObject({ id: SENT.linkId, event: '222', a: { name: 'Ranielli', times: SENT.mine } });
     expect(link!.b).toBeUndefined();
     expect(a.duel.phase).toBe('idle'); // mandar de novo não abre o desafio
+  });
+
+  // A revisão final: a resposta que abriu fora do app (no iPhone, o Safari do WhatsApp) entra pela área de transferência.
+  it('"Esperando resposta" oferece "Colar a resposta": o link copiado fecha a partida no Timer', async () => {
+    const { a, repo } = await withDuels(SENT);
+    a.openDuels({ kind: 'duel', id: SENT.id });
+    render(EvolucaoScreen, { app: a });
+    expect(await screen.findByRole('heading', { name: T.duel.waitingTitle })).toBeInTheDocument();
+    const reply = await encodeDuelLink({
+      v: 1,
+      id: SENT.linkId,
+      event: '222',
+      scrambles: SCR,
+      a: { name: 'Ranielli', times: SENT.mine },
+      b: { name: 'Bia', times: [tm(10_000), tm(10_000), tm(10_000)] },
+    });
+    const readText = vi.fn(async () => `https://klick.test/#desafio=${reply}`);
+    Object.defineProperty(navigator, 'clipboard', { value: { readText }, configurable: true, writable: true });
+    screen.getByRole('button', { name: T.duel.paste }).click();
+    expect(readText).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(a.duel.phase).toBe('reply'));
+    expect(a.tab).toBe('timer');
+    expect(await repo.getDuel(SENT.id)).toMatchObject({ status: 'done', theirName: 'Bia' });
   });
 });

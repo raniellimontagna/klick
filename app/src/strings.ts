@@ -710,6 +710,14 @@ export const T = Object.freeze({
     replyArrived: (title: string, closed: string): string => `${title}. ${closed}`, // o anúncio da resposta que chegou com a tela aberta
     seeAll: 'Ver em Desafios',
     close: 'Fechar',
+    // A resposta que abriu fora do app (no iPhone, o Klick da tela de início guarda à parte do Safari): colar o link, e a visualização sem o
+    // desafio explica onde colar.
+    paste: 'Colar a resposta',
+    pasteLabel: 'Cole o link da resposta',
+    pasteOpen: 'Abrir',
+    pasteNotDuel: 'Isso não é um link de desafio do Klick. Copie o link da resposta e tente de novo.',
+    strayText:
+      'Este aparelho não tem o seu desafio. Se você o mandou de outro lugar (como o app instalado), copie este link e cole a resposta por lá.',
     // Link inválido (10)
     invalidTitle: 'Este desafio não abre nesta versão do Klick',
     invalidText: 'O link pode ter sido cortado no caminho ou vir de uma versão mais nova do Klick. Peça o link de novo a quem mandou.',

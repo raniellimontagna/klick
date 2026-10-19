@@ -1,6 +1,7 @@
 // Mandar o link do desafio (spec do desafio, seção 4): pela folha de compartilhar do sistema (Web Share, com o texto e a URL); sem ela, a
 // área de transferência. As duas só valem dentro do gesto da pessoa (no iPhone, um await antes as recusa): cada função chama a API do
-// navegador na hora, sem esperar nada antes, e devolve depois como foi. O link já vem pronto (DuelEnd o prepara antes do toque).
+// navegador na hora, sem esperar nada antes, e devolve depois como foi. O link já vem pronto (DuelEnd o prepara antes do toque). Ler a área
+// de transferência ("Colar a resposta") segue a mesma regra.
 type SendNav = Partial<Pick<Navigator, 'share' | 'clipboard'>>;
 
 // A folha do sistema existe? Sem ela, o toque copia.
@@ -33,5 +34,21 @@ export function copyLink(url: string, nav: SendNav = navigator): Promise<'copied
   return started.then(
     () => 'copied' as const,
     () => 'failed' as const,
+  );
+}
+
+// O texto da área de transferência, ou null (sem a leitura, ou recusada: no iPhone, a pessoa não tocou em "Colar"). Aí, o campo para colar.
+export function readLink(nav: SendNav = navigator): Promise<string | null> {
+  const clipboard = nav.clipboard;
+  if (!clipboard || typeof clipboard.readText !== 'function') return Promise.resolve(null);
+  let started: Promise<string>;
+  try {
+    started = clipboard.readText();
+  } catch {
+    return Promise.resolve(null);
+  }
+  return started.then(
+    (text) => text,
+    () => null,
   );
 }

@@ -161,6 +161,22 @@ export function duelPayloadOf(hash: string): string | null {
   return fragment.slice(PARAM.length) || null;
 }
 
+// O payload do link de desafio que a pessoa colou: o texto todo como URL, ou a primeira palavra dele que seja uma URL com `#desafio=` (a
+// mensagem inteira copiada da conversa traz o texto da resposta antes do link). null se não houver nenhum.
+export function duelPayloadIn(text: string): string | null {
+  for (const part of [text.trim(), ...text.split(/\s+/)]) {
+    let hash: string;
+    try {
+      hash = new URL(part).hash;
+    } catch {
+      continue;
+    }
+    const payload = duelPayloadOf(hash);
+    if (payload !== null) return payload;
+  }
+  return null;
+}
+
 // 16 caracteres [a-z0-9]. Sem `rand`, vem do crypto, descartando os bytes que enviesariam o resto da divisão por 36.
 export function newLinkId(rand?: () => number): string {
   const n = ID_ALPHABET.length;
