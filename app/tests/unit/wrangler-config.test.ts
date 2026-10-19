@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { recordsPerDay } from '../../worker/limits';
 
 // O wrangler.jsonc vai para o repositório público: nenhum segredo nele, e a conta desligada na raiz até o ok do Ranielli (spec 8.4).
 const text = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../wrangler.jsonc'), 'utf8');
@@ -112,13 +111,12 @@ describe('wrangler.jsonc', () => {
   });
 
   // Task 12 (a leitura de 30 s do limite de CPU dos Durable Objects): os tamanhos que a cópia do dia e a restauração aceitam, em registros
-  // da conta. Na leitura de 10 ms, as duas vão a 0 (nenhuma cópia, toda restauração recusada), só na configuração. A cópia do dia de cada
-  // ambiente vai só até o que o app consegue restaurar nele, o dia útil (recordsPerDay, worker/limits.ts: o menor do orçamento da conta e
-  // do teto de linhas do ambiente; 2.247 registros no beta, 4.747 na raiz): uma cópia maior ocuparia o espaço gratuito das cópias de todas
-  // as contas sem nunca poder voltar (revisão final, I5).
+  // da conta. Na leitura de 10 ms, as duas vão a 0 (nenhuma cópia, toda restauração recusada), só na configuração. A cópia do dia não pára
+  // mais no que o app restaura num dia (o dia útil, recordsPerDay): uma conta grande sai em partes, a cada BIG_COPY_EVERY_DAYS dias, e a
+  // restauração que não cabe no dia vira um download (spec das cópias grandes). O teto sobe para 250 mil registros, nos dois ambientes.
   it('os tamanhos da cópia do dia e da restauração ficam na configuração, nos dois ambientes', () => {
     for (const vars of [config.vars, config.env.production.vars]) {
-      expect(Number(vars.SNAPSHOT_MAX_RECORDS)).toBe(recordsPerDay(Number(vars.ROWS_WRITTEN_DAY_CAP)));
+      expect(vars.SNAPSHOT_MAX_RECORDS).toBe('250000');
       expect(vars.RESTORE_MAX_RECORDS).toBe('5000');
     }
   });

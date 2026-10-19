@@ -5,6 +5,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { applyChanges, type ApplyResult, type RecordView } from '../src/core/sync/apply';
 import { isCounted, QUOTA_REASON, TOMBSTONE_KEEP_MS, zeroCounts, type ActiveCounts, type CountedStore } from '../src/core/sync/limits';
 import { sessionOfChange } from '../src/core/sync/records';
+import { MAX_PARTS, type CopyKey, type CopyManifest, type CopyPart } from '../src/core/sync/copy-parts';
 import { restoreChanges } from '../src/core/sync/restore';
 import { checkChange } from '../src/core/sync/shape';
 import { accountPrefsOf, exportFromRecords } from '../src/core/sync/snapshot';
@@ -21,14 +22,17 @@ import {
   type SyncStore,
 } from '../src/core/sync/types';
 import type { KlickExport } from '../src/core/types';
-import { copyRoom, countRows, reserveCopy, reserveRows, rowsRoom, takeOps } from './budget';
+import { copyRoom, countRows, releaseStorage, reserveCopy, reserveRows, rowsRoom, takeOps } from './budget';
 import type { Env } from './env';
 import {
   ACCOUNT_BYTES_CAP,
+  BIG_COPY_EVERY_DAYS,
   capsOf,
+  type Caps,
   COMPACT_PER_DAY,
   COMPACT_ROWS_SHARE,
   COPIES_CACHE_MS,
+  COPY_PART_RECORDS,
   DAILY_READ_BUDGET,
   DAILY_WRITE_BUDGET,
   DEVICE_TOUCH_MS,
@@ -55,6 +59,8 @@ import {
   COMPACTED_BYTES,
   COUNT_ACTIVE,
   COUNT_RECORDS,
+  PAGE_AFTER,
+  PREFS_ROWS,
   RECORDS_SCHEMA,
   rowToChange,
   STORED_BYTES,
@@ -62,7 +68,7 @@ import {
   utf8Bytes,
   type Row,
 } from './records-sql';
-import { dayOf, gunzipJson, gzipJson, listCopiesIn, nextSnapshotAt, preRestoreName, snapshotKey } from './snapshots';
+import { dayOf, gunzipJson, gzipJson, listCopiesIn, nextSnapshotAt, partKey, preRestoreName, snapshotKey } from './snapshots';
 
 const activeSolves = (data: KlickExport): number => data.solves.filter((s) => s.deletedAt === null).length;
 
@@ -699,31 +705,134 @@ export class AccountStore extends DurableObject<Env> {
     return done;
   }
 
-  // A cópia do dia, dentro do grátis (endurecimento 4.2 e Task 12): uma conta com mais registros que SNAPSHOT_MAX_RECORDS não tem cópia
-  // (a cópia não cabe num pedido do objeto; 'size'), conferido por um COUNT antes de ler a conta; com o tamanho da última cópia (`gz`), o
-  // espaço e a operação A também são conferidos antes de ler (copyRoom): uma conta pausada por eles não lê nem comprime a conta inteira todo
-  // dia para descobrir de novo que não cabe (a primeira cópia lê, como antes). Depois de comprimir, o espaço dela e a operação A do put são
-  // reservados (reserveCopy, a autoridade). Recusada, ela não é gravada nem marca snapshotRev (o alarme de amanhã tenta de novo), e a pausa
-  // fica no estado, com o motivo; gravada, a pausa sai e a lista guardada se renova.
+  // A cópia do dia, dentro do grátis (endurecimento 4.2, Task 12 e as cópias grandes): uma conta com mais registros que SNAPSHOT_MAX_RECORDS
+  // não tem cópia (o teto da memória do objeto em partes; 'size'), conferido por um COUNT antes de ler a conta. Uma conta grande, com mais
+  // registros que o dia útil (recordsPerDay), copia só quando passaram BIG_COPY_EVERY_DAYS dias ou mais desde a última (lastSnapshotDay, o dia
+  // de Brasília de uma cópia gravada) ou quando nunca copiou; fora do prazo volta sem pausa e sem marcar snapshotRev, e o alarme de amanhã
+  // pergunta de novo. Com o tamanho da última cópia (`gz`), o espaço e a operação A também são conferidos antes de ler (copyRoom): uma conta
+  // pausada por eles não lê nem comprime a conta todo dia para descobrir de novo que não cabe (a primeira cópia lê, como antes). A gravação
+  // é de writeCopy (um arquivo ou as partes, e a reserva de cada uma). Recusada, ela não é gravada nem marca snapshotRev (o alarme de amanhã
+  // tenta de novo), e a pausa fica no estado, com o motivo; gravada, a pausa sai e a lista guardada se renova.
   private async takeSnapshot(now: number): Promise<boolean> {
     const userId = this.getState('userId');
     const rev = this.getState('rev') ?? '0';
     if (this.deleted() || userId === null || this.getState('snapshotRev') === rev) return false;
     const caps = capsOf(this.env);
-    if (caps.snapshotRecords === 0 || this.recordCount(caps.snapshotRecords, now) > caps.snapshotRecords) return this.pauseCopies(userId, 'size');
+    if (caps.snapshotRecords === 0) return this.pauseCopies(userId, 'size');
+    const records = this.recordCount(caps.snapshotRecords, now);
+    if (records > caps.snapshotRecords) return this.pauseCopies(userId, 'size');
+    if (records > recordsPerDay(caps.rowsDay) && !this.bigCopyDue(now)) return false;
     const estimate = this.copies().gz;
     const short = estimate === null ? null : await copyRoom(this.env.DB, estimate, now, caps);
     if (short !== null) return this.pauseCopies(userId, short);
-    const data = exportFromRecords(this.all(now), now);
     const day = dayOf(now);
-    const gz = await gzipJson(data);
-    const paused = await reserveCopy(this.env.DB, gz.byteLength, now, caps);
-    if (paused !== null) return this.pauseCopies(userId, paused, gz.byteLength);
-    await this.env.SNAPSHOTS.put(snapshotKey(userId, day), gz, { customMetadata: { kind: 'daily', day, solves: String(activeSolves(data)) } });
+    const done = await this.writeCopy(userId, day, { kind: 'daily', day }, now, caps);
+    if (typeof done === 'string') return this.pauseCopies(userId, done);
     this.setState('snapshotRev', rev);
     this.setState('lastSnapshotDay', day);
-    this.setCopies({ ...this.copies(), at: 0, paused: null, gz: gz.byteLength });
+    this.setCopies({ ...this.copies(), at: 0, paused: null, gz: done.gz });
     return true;
+  }
+
+  // Já é a vez da cópia de uma conta grande? Sim quando nenhuma foi gravada (lastSnapshotDay falta) ou quando o dia de Brasília de agora está
+  // BIG_COPY_EVERY_DAYS dias inteiros ou mais depois dele. Os dois são AAAA-MM-DD, então a diferença é de dias inteiros; um valor que não
+  // lê como data (nunca grava assim) vale como ausente, e um dia no futuro (o relógio voltou) espera.
+  private bigCopyDue(now: number): boolean {
+    const last = this.getState('lastSnapshotDay');
+    if (last === null) return true;
+    const gone = (Date.parse(dayOf(now)) - Date.parse(last)) / 86_400_000;
+    return Number.isNaN(gone) || gone >= BIG_COPY_EVERY_DAYS;
+  }
+
+  // Grava uma cópia da conta com o nome `name` (a do dia, e depois a de antes de restaurar) e volta o tamanho comprimido dela, ou o motivo
+  // de a reserva do espaço ou da operação A ter sido recusada (nada fica gravado nem reservado). Até COPY_PART_RECORDS registros, o arquivo
+  // só de sempre, com a conta inteira lida de uma vez (`all`). Acima, a cópia em partes (writeParts): o objeto nunca tem a conta inteira na
+  // memória, só uma página. A contagem é limitada a COPY_PART_RECORDS + 1 linhas, e entra no orçamento de leituras como as outras.
+  // Uma recusa deixa a estimativa (`gz`) com o tamanho do que chegou a ser comprimido, para o copyRoom do dia seguinte.
+  private async writeCopy(
+    userId: string,
+    name: string,
+    meta: { kind: 'daily' | 'pre-restore'; day: string },
+    now: number,
+    caps: Caps,
+  ): Promise<{ gz: number } | CopiesPaused> {
+    if (this.recordCount(COPY_PART_RECORDS, now) > COPY_PART_RECORDS) return this.writeParts(userId, name, meta, now, caps);
+    const data = exportFromRecords(this.all(now), now);
+    const gz = await gzipJson(data);
+    const paused = await reserveCopy(this.env.DB, gz.byteLength, now, caps);
+    if (paused !== null) {
+      this.setCopies({ ...this.copies(), gz: gz.byteLength });
+      return paused;
+    }
+    await this.env.SNAPSHOTS.put(snapshotKey(userId, name), gz, { customMetadata: { ...meta, solves: String(activeSolves(data)) } });
+    return { gz: gz.byteLength };
+  }
+
+  // A cópia em partes (spec das cópias grandes, seção 4). A conta é lida por páginas de COPY_PART_RECORDS registros na ordem da chave
+  // (PAGE_AFTER), cada uma vira uma parte (snap/<conta>/<nome>/001.json.gz, ...: os registros que a cópia leva, as listas de CopyPart), e a
+  // memória fica em torno de uma página. As páginas particionam as chaves: a primeira começa depois de ('', ''), e cada uma depois da última
+  // linha do SQL da anterior, mesmo a que a cópia não leva (marca compactada, treino apagado); `last` do manifesto é essa chave, e
+  // `records`, as linhas da página, para a faixa de cada parte (sliceOf) ser a página dela na restauração. Os ajustes (`prefs`) ficam fora
+  // das páginas e vão no perfil do manifesto. Cada parte reserva o espaço e a operação A dela antes do put, e o manifesto, gravado por
+  // último, também: uma cópia é o manifesto mais todas as partes, ou nada (o manifesto é o que a lista mostra, e o que faltar não aparece).
+  // Uma reserva recusada no meio apaga as partes já gravadas (apagar no R2 não custa operação) e devolve o espaço delas; um erro do R2 (ou
+  // do SQLite) faz o mesmo e segue para quem chamou. Sem uma parte depois de MAX_PARTS, a conta passa do que a cópia aguenta ('size').
+  private async writeParts(
+    userId: string,
+    name: string,
+    meta: { kind: 'daily' | 'pre-restore'; day: string },
+    now: number,
+    caps: Caps,
+  ): Promise<{ gz: number } | CopiesPaused> {
+    const bucket = this.env.SNAPSHOTS;
+    const keys: string[] = [];
+    let bytes = 0; // o espaço reservado até aqui, as partes gravadas
+    const discard = async (): Promise<void> => {
+      if (keys.length > 0) await bucket.delete(keys);
+      await releaseStorage(this.env.DB, bytes);
+    };
+    const refuse = async (why: CopiesPaused, pending: number): Promise<CopiesPaused> => {
+      await discard();
+      this.setCopies({ ...this.copies(), gz: Math.max(this.copies().gz ?? 0, bytes + pending) });
+      return why;
+    };
+    try {
+      const parts: CopyManifest['parts'] = [];
+      let solves = 0;
+      let after: CopyKey = ['', ''];
+      for (;;) {
+        const rows = this.sql.exec<Row>(PAGE_AFTER, after[0], after[1], COPY_PART_RECORDS).toArray();
+        this.countReads(rows.length, now);
+        if (rows.length === 0) break;
+        if (parts.length === MAX_PARTS) return await refuse('size', 0);
+        const end = rows[rows.length - 1];
+        after = [end.store, end.id];
+        const data = exportFromRecords(rows.map(rowToChange), now);
+        const part: CopyPart = { sessions: data.sessions, solves: data.solves, practice: data.practice ?? [], duels: data.duels ?? [] };
+        const gz = await gzipJson(part);
+        const refused = await reserveCopy(this.env.DB, gz.byteLength, now, caps);
+        if (refused !== null) return await refuse(refused, gz.byteLength);
+        const key = partKey(userId, name, parts.length + 1);
+        keys.push(key);
+        bytes += gz.byteLength; // reservado: se o put falhar, o catch o devolve
+        await bucket.put(key, gz);
+        solves += part.solves.filter((s) => s.deletedAt === null).length;
+        parts.push({ last: after, records: rows.length });
+        if (rows.length < COPY_PART_RECORDS) break; // a última página: não pergunta de novo ao SQLite
+      }
+      const prefs = this.sql.exec<Row>(PREFS_ROWS).toArray();
+      this.countReads(prefs.length, now);
+      const manifest: CopyManifest = { format: 'klick-parts', version: 1, exportedAt: now, day: meta.day, profile: exportFromRecords(prefs.map(rowToChange), now).profile, solves, parts };
+      const gz = await gzipJson(manifest);
+      const refused = await reserveCopy(this.env.DB, gz.byteLength, now, caps);
+      if (refused !== null) return await refuse(refused, gz.byteLength);
+      bytes += gz.byteLength;
+      await bucket.put(snapshotKey(userId, name), gz, { customMetadata: { ...meta, solves: String(solves), parts: String(parts.length) } });
+      return { gz: bytes };
+    } catch (error) {
+      await discard().catch(() => undefined); // o erro que importa é o primeiro
+      throw error;
+    }
   }
 
   // A cópia do dia não saiu: a pausa fica no estado, com o motivo (e o tamanho dela, quando chegou a ser comprimida), e vai no log.

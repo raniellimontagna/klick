@@ -21,8 +21,9 @@ export default defineConfig(async () => {
             // aqui ele nunca enche. Os testes do teto trocam o do objeto de cada conta (tests/worker/rows-cap.test.ts); o wrangler.jsonc tem
             // os de verdade (tests/unit/wrangler-config.test.ts).
             ROWS_WRITTEN_DAY_CAP: '1000000000',
-            // Com o teto acima, o dia útil é o da conta (RECORDS_PER_DAY), e a cópia do dia o acompanha como na raiz (no beta, 2247).
-            SNAPSHOT_MAX_RECORDS: '4747',
+            // Com o teto acima, o dia útil é o da conta (RECORDS_PER_DAY): acima dele a conta é grande (cópia semanal). O teto da cópia é o
+            // do wrangler.jsonc, dos dois ambientes; os testes que precisam passar dele trocam o do objeto (setVars, tests/worker/copies.test.ts).
+            SNAPSHOT_MAX_RECORDS: '250000',
           },
         },
       }),

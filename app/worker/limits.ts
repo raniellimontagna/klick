@@ -17,8 +17,8 @@ export interface Caps {
   classBMonth: number;
   mailDay: number;
   mailMonth: number;
-  snapshotRecords: number; // acima disto (registros da conta), a cópia do dia não sai: CopiesPaused 'size'
-  restoreRecords: number; // acima disto, a restauração é 'too-big', antes de ler o R2
+  snapshotRecords: number; // acima disto (registros da conta), nenhuma cópia sai: CopiesPaused 'size'. Até aí, sai em partes (COPY_PART_RECORDS)
+  restoreRecords: number; // acima disto, a restauração no servidor é 'too-big', antes de ler o R2 (o que não cabe no dia, o aparelho restaura)
   rowsDay: number; // as linhas gravadas nos objetos das contas por dia UTC, somadas entre todas as contas do ambiente
 }
 
@@ -62,6 +62,14 @@ export const RESTORES_PER_DAY = 3; // restaurações por conta por dia UTC (spec
 // de ler a cópia (o nome que sumiu, too-big, write-budget, no-room) também gasta as B do mês, que todas as contas dividem.
 export const RESTORE_ATTEMPTS_PER_DAY = 10;
 export const COPIES_CACHE_MS = 600_000; // a lista de cópias guardada (spec 7.1)
+// A cópia de uma conta grande (spec das cópias grandes, seção 4): uma conta com mais registros que COPY_PART_RECORDS sai em partes dessa
+// medida, lidas do banco uma página por vez (a memória do objeto fica em torno de uma página, e não da conta), mais um manifesto gravado por
+// último; até ela, o arquivo só de sempre. Uma conta acima do dia útil (recordsPerDay) copia só a cada BIG_COPY_EVERY_DAYS dias: com a regra
+// de 30 dias do bucket, ficam umas 4 cópias por conta grande, e não 30 de 74 MB. COPY_PART_READS_PER_DAY são as partes que se leem por conta
+// por dia (as operações B do R2 que a cópia grande gasta ao voltar).
+export const COPY_PART_RECORDS = 5_000;
+export const BIG_COPY_EVERY_DAYS = 7;
+export const COPY_PART_READS_PER_DAY = 200;
 // Solves compactados por alarme. A medição (seção 9 (d)): 2.000 ficam na linha dos 5 ms de CPU e mudam de lado entre as rodadas; 1.000
 // chegam no máximo a 2,9 ms.
 export const COMPACT_PER_DAY = 1_000;

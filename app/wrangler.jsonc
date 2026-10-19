@@ -10,21 +10,23 @@
 // dividem o Resend e o R2 da conta, cada um com o próprio D1: os dois somados ficam abaixo do grátis (90 e-mails/dia de 100, 2.750/mês de
 // 3.000; 550 mil operações A de 1 milhão e 5,5 milhões B de 10 milhões; 1,256 GB de 10 GB, que a conta ainda divide com outros projetos).
 // Os tamanhos de conta (Task 12, em registros: sessões, solves, treino, desafios e ajustes): acima de SNAPSHOT_MAX_RECORDS a conta não tem
-// cópia do dia, e acima de RESTORE_MAX_RECORDS a restauração é recusada. Valem na leitura de 30 s do limite de CPU dos Durable Objects
-// (decidem a memória e as linhas do dia: docs/superpowers/measurements/2026-10-17-conta-100k.md). Na leitura de 10 ms, os dois vão a "0"
-// (nenhuma cópia, nenhuma restauração), sem mudar código; a cascata de apagar uma sessão grande (uns milhares de solves) não tem var e
-// pediria um teto no código (worker/limits.ts). SNAPSHOT_MAX_RECORDS fica em 4747, o que o app consegue restaurar (RECORDS_PER_DAY,
-// worker/limits.ts): a memória deixaria copiar até ~55 mil, mas uma cópia que nunca pode voltar só ocuparia o espaço gratuito das cópias de
-// todas as contas (uma de 50 mil solves grava ~74 MB em 30 dias). Subir esta var espera uma restauração em partes, e é decisão do Ranielli.
-// No beta ela fica em 2247: o teto global de 10 mil linhas do beta (ROWS_WRITTEN_DAY_CAP) restaura no máximo isso num dia.
+// cópia, e acima de RESTORE_MAX_RECORDS a restauração no servidor é recusada (o aparelho restaura o que não cabe no dia). Valem na leitura
+// de 30 s do limite de CPU dos Durable Objects (decidem a memória e as linhas do dia: docs/superpowers/measurements/2026-10-17-conta-100k.md).
+// Na leitura de 10 ms, os dois vão a "0" (nenhuma cópia, nenhuma restauração), sem mudar código; a cascata de apagar uma sessão grande (uns
+// milhares de solves) não tem var e pediria um teto no código (worker/limits.ts).
+// SNAPSHOT_MAX_RECORDS fica em 250000, nos dois ambientes: uma conta com mais de COPY_PART_RECORDS registros sai em partes (um manifesto e as
+// partes de 5.000 registros, lidas uma página por vez: a memória do objeto é a de uma parte, e não a da conta), e uma conta acima do dia
+// útil (RECORDS_PER_DAY, worker/limits.ts) copia só a cada BIG_COPY_EVERY_DAYS dias (7), para as cópias de contas grandes (uma de 50 mil
+// solves grava ~74 MB) não ocuparem o espaço gratuito de todas as contas todo dia. A cópia grande não precisa caber num dia de gravações:
+// o aparelho a baixa e restaura o que o servidor não restaura (o que cabe no dia, no servidor, como antes).
 // O teto de linhas gravadas por dia (ROWS_WRITTEN_DAY_CAP; decisão 6 e o portão 11 do README): as 100 mil linhas que os Durable Objects
 // do grátis gravam por dia são da conta inteira (o beta, a raiz e os outros projetos), e passadas elas toda gravação de todo objeto falha
 // até a virada do dia UTC. Cada ambiente soma as linhas de todas as contas dele no próprio D1 e para no teto: 10 mil no beta e 60 mil na
 // raiz, 70% do dia juntos; o resto do lote sobe no dia seguinte, e os 30% ficam para os outros projetos e para o que o teto não conta (o
 // estado das cópias, o alarme, apagar a conta).
 // Cada pedido reserva antes exatamente as linhas dele. O maior pedido de um dia (o dia útil, worker/limits.ts, recordsPerDay: a cascata de
-// apagar uma sessão e a restauração) segue o menor dos dois tetos: 2.247 registros no beta e 4.747 na raiz; acima dele, a exclusão volta
-// com a cota e a restauração é too-big, em vez de esperar um dia que nunca chega.
+// apagar uma sessão e a restauração no servidor) segue o menor dos dois tetos: 2.247 registros no beta e 4.747 na raiz; acima dele, a
+// exclusão volta com a cota e a restauração no servidor é too-big, em vez de esperar um dia que nunca chega.
 // Para subir um teto, mude a var e publique. Uma var ausente, vazia ou que não seja um inteiro maior que 0 vale 0: nada passa.
 {
   "name": "klick-app-beta",
@@ -65,7 +67,7 @@
     "R2_CLASS_B_MONTH": "500000",
     "MAIL_PER_DAY": "10",
     "MAIL_PER_MONTH": "250",
-    "SNAPSHOT_MAX_RECORDS": "2247",
+    "SNAPSHOT_MAX_RECORDS": "250000",
     "RESTORE_MAX_RECORDS": "5000",
     "ROWS_WRITTEN_DAY_CAP": "10000"
   },
@@ -95,7 +97,7 @@
         "R2_CLASS_B_MONTH": "5000000",
         "MAIL_PER_DAY": "80",
         "MAIL_PER_MONTH": "2500",
-        "SNAPSHOT_MAX_RECORDS": "4747",
+        "SNAPSHOT_MAX_RECORDS": "250000",
         "RESTORE_MAX_RECORDS": "5000",
         "ROWS_WRITTEN_DAY_CAP": "60000"
       }

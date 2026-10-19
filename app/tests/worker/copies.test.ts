@@ -6,14 +6,17 @@ import { runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
 import { env } from 'cloudflare:workers';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { restoreChanges } from '../../src/core/sync/restore';
+import { assembleCopy, isManifest, sliceOf, type CopyManifest, type CopyPart } from '../../src/core/sync/copy-parts';
 import { accountPrefsOf, exportFromRecords } from '../../src/core/sync/snapshot';
 import { ACCOUNT_HEADER, SYNC_PROTOCOL, type Change, type CloudCopies, type SyncResponse } from '../../src/core/sync/types';
 import type { KlickExport } from '../../src/core/types';
 import { storageUsed } from '../../worker/budget';
 import type { Env } from '../../worker/env';
 import {
+  BIG_COPY_EVERY_DAYS,
   capsOf,
   COPIES_CACHE_MS,
+  COPY_PART_RECORDS,
   DAILY_READ_BUDGET,
   DAILY_WRITE_BUDGET,
   RECORDS_PER_DAY,
@@ -25,8 +28,8 @@ import {
   utcDay,
   utcMonth,
 } from '../../worker/limits';
-import { COMPACTABLE, rowToChange, type Row } from '../../worker/records-sql';
-import { dayOf, gunzipJson, gzipJson, preRestoreName, snapshotKey, snapshotPrefix } from '../../worker/snapshots';
+import { COMPACTABLE, PAGE_AFTER, RANGE_AFTER, rowToChange, type Row } from '../../worker/records-sql';
+import { dayOf, gunzipJson, gzipJson, partKey, preRestoreName, snapshotKey, snapshotPrefix } from '../../worker/snapshots';
 import { call, postJson, setState, stateOf, stubOf, T0, testDeps } from './helpers';
 
 const DAY = 86_400_000;
@@ -477,11 +480,13 @@ describe('restaurar dentro do grátis (decisões 1, 2 e 3)', () => {
 // cópia do dia não sai; acima de RESTORE_MAX_RECORDS, a restauração é recusada antes de ler o R2. As duas são vars do wrangler.jsonc, e
 // uma var ausente ou torta vale 0: nenhuma cópia, nenhuma restauração.
 describe('os tamanhos que cabem: a cópia e a restauração (Task 12)', () => {
+  const SMALL_CAP = '50'; // o SNAPSHOT_MAX_RECORDS de um teste que precisa passar dele sem semear 250 mil registros
   it('acima de SNAPSHOT_MAX_RECORDS a cópia do dia não sai e o sync diz paused "size"', async () => {
     const user = 'copia-tamanho';
     await sync(user, [session, solve('a')]);
-    await seedSolves(user, caps.snapshotRecords - 1);
-    expect(await recordCount(user)).toBe(caps.snapshotRecords + 1);
+    await setVars(user, { SNAPSHOT_MAX_RECORDS: SMALL_CAP }); // o teto de verdade (250 mil) pede uma conta enorme: um pequeno, só neste objeto
+    await seedSolves(user, Number(SMALL_CAP) - 1);
+    expect(await recordCount(user)).toBe(Number(SMALL_CAP) + 1);
     expect(await stubOf(user).snapshot(T0)).toBe(false);
     expect(await objectsOf(user)).toEqual([]);
     expect(await stateOf(user, 'snapshotRev')).toBeNull(); // não marca: tenta de novo no dia seguinte
@@ -580,6 +585,240 @@ describe('apagar a conta (spec 7.7) com as operações no fim', () => {
   });
 });
 
+// A cópia em partes (spec das cópias grandes, seção 4): acima de COPY_PART_RECORDS registros, a cópia sai em partes de COPY_PART_RECORDS
+// registros, na ordem das chaves, e o manifesto, gravado por último, é a cópia na lista; uma conta grande (acima do dia útil) copia só a cada
+// BIG_COPY_EVERY_DAYS dias. No ambiente dos testes o teto de linhas do dia está em 1e9, então o dia útil é o da conta (4.747): uma conta de
+// 5.001 registros é grande (semanal) e vai em partes. Os registros vêm direto no SQLite do objeto (seedSolves), sem milhares de pedidos.
+describe('a cópia em partes e a cada 7 dias numa conta grande', () => {
+  const bigDay = recordsPerDay(caps.rowsDay); // acima disto a conta é grande
+  const prefsAna: Change = { store: 'prefs', id: 'duelName', data: 'Ana', updatedAt: T0, deletedAt: null, deletionStamp: T0 };
+
+  // Uma conta de `n` registros: a sessão s1, o solve a e os x1.. semeados. `extra` entra no total.
+  async function accountWith(user: string, n: number, extra: Change[] = []): Promise<void> {
+    await sync(user, [session, solve('a'), ...extra]);
+    await seedSolves(user, n - 2 - extra.length);
+    expect(await recordCount(user)).toBe(n);
+  }
+  const readGz = async <T>(key: string): Promise<T> => (await gunzipJson(await (await env.SNAPSHOTS.get(key))!.arrayBuffer())) as T;
+  // O tamanho de tudo o que há no R2 da conta, as partes inclusive (a lista sem delimitador).
+  const bytesOf = async (user: string): Promise<number> => (await env.SNAPSHOTS.list({ prefix: snapshotPrefix(user) })).objects.reduce((sum, o) => sum + o.size, 0);
+  // A chave do registro `offset` (de 0) na ordem da tabela, sem os ajustes (que a cópia não pagina).
+  const keyAt = (user: string, offset: number): Promise<[string, string]> =>
+    runInDurableObject(stubOf(user), (_o, state) => {
+      const r = state.storage.sql.exec<{ store: string; id: string }>("SELECT store, id FROM records WHERE store <> 'prefs' ORDER BY store, id LIMIT 1 OFFSET ?", offset).one();
+      return [r.store, r.id] as [string, string];
+    });
+  const manifestOf = async (user: string, name: string): Promise<CopyManifest> => {
+    const m = await readGz<unknown>(snapshotKey(user, name));
+    expect(isManifest(m)).toBe(true);
+    return m as CopyManifest;
+  };
+  const partsOf = async (user: string, name: string, m: CopyManifest): Promise<CopyPart[]> =>
+    Promise.all(m.parts.map((_p, i) => readGz<CopyPart>(partKey(user, name, i + 1))));
+
+  it('conta com mais de COPY_PART_RECORDS: partes de 5.000 e o manifesto, na lista como uma cópia', async () => {
+    const user = 'partes-lista';
+    await accountWith(user, COPY_PART_RECORDS + 1);
+    expect(COPY_PART_RECORDS + 1).toBeGreaterThan(bigDay); // grande: sai em partes e semanal, a primeira vez sem esperar
+    expect(await stubOf(user).snapshot(T0)).toBe(true);
+    const day = dayOf(T0);
+    expect(await objectsOf(user)).toEqual([snapshotKey(user, day), partKey(user, day, 1), partKey(user, day, 2)]);
+
+    const m = await manifestOf(user, day);
+    expect([m.format, m.version, m.exportedAt, m.day, m.solves]).toEqual(['klick-parts', 1, T0, day, COPY_PART_RECORDS]);
+    expect(m.profile).toEqual(exportFromRecords([], T0).profile);
+    expect(m.parts).toEqual([
+      { last: await keyAt(user, COPY_PART_RECORDS - 1), records: COPY_PART_RECORDS },
+      { last: await keyAt(user, COPY_PART_RECORDS), records: 1 },
+    ]);
+    // Os metadados do manifesto (a lista os lê) trazem os solves ativos e as partes; a parte, nenhum.
+    expect((await env.SNAPSHOTS.head(snapshotKey(user, day)))!.customMetadata).toEqual({ kind: 'daily', day, solves: String(COPY_PART_RECORDS), parts: '2' });
+    expect((await env.SNAPSHOTS.head(partKey(user, day, 1)))!.customMetadata ?? {}).toEqual({});
+    const whole = assembleCopy(m, await partsOf(user, day, m));
+    expect([whole.sessions.length, whole.solves.length]).toEqual([1, COPY_PART_RECORDS]);
+    expect(new Set(whole.solves.map((s) => s.id)).size).toBe(COPY_PART_RECORDS);
+
+    expect(await list(user)).toEqual({ status: 200, body: { copies: [{ name: day, day, kind: 'daily', solves: COPY_PART_RECORDS, parts: 2 }], paused: null } });
+    expect(await stateOf(user, 'lastSnapshotDay')).toBe(day);
+    expect(await stateOf(user, 'snapshotRev')).not.toBeNull();
+  });
+
+  it('as páginas particionam as chaves: a parte acaba na última linha do SQL, mesmo a que a cópia não leva', async () => {
+    const user = 'partes-particao';
+    await accountWith(user, COPY_PART_RECORDS + 103, [prefsAna]); // 5.102 sem o ajuste: a parte 1 e 102 na 2
+    const lastOfFirst = await keyAt(user, COPY_PART_RECORDS - 1);
+    await runInDurableObject(stubOf(user), (_o, state) => {
+      const sql = state.storage.sql;
+      // A última linha da primeira página vira marca compactada (a cópia não a leva), e outro solve vai para a lixeira, com conteúdo.
+      sql.exec("UPDATE records SET data = '{}', deleted_at = ? WHERE store = ? AND id = ?", T0, ...lastOfFirst);
+      sql.exec("UPDATE records SET deleted_at = ? WHERE store = 'solves' AND id = 'x100'", T0);
+    });
+    expect(await stubOf(user).snapshot(T0)).toBe(true);
+    const day = dayOf(T0);
+    const m = await manifestOf(user, day);
+    expect(m.parts).toEqual([
+      { last: lastOfFirst, records: COPY_PART_RECORDS },
+      { last: await keyAt(user, COPY_PART_RECORDS + 101), records: 102 },
+    ]);
+    expect(m.profile?.duelName).toBe('Ana');
+    const parts = await partsOf(user, day, m);
+    expect(parts[0].solves.length).toBe(COPY_PART_RECORDS - 2); // sem a sessão e sem a marca compactada
+    expect(parts[0].solves.some((s) => s.id === lastOfFirst[1])).toBe(false);
+    expect(parts[1].solves.length).toBe(102);
+    // 5.103 solves (a, x1..x5101 menos o que é sessão): ativos, sem a marca e sem o da lixeira.
+    const solves = COPY_PART_RECORDS + 103 - 1 /* a sessão */ - 1 /* o ajuste */ - 2;
+    expect((await env.SNAPSHOTS.head(snapshotKey(user, day)))!.customMetadata!.solves).toBe(String(solves));
+    // As faixas do manifesto (sliceOf), lidas por RANGE_AFTER, são as partes: é o que a restauração (Task 4) vai ler.
+    for (let i = 0; i < m.parts.length; i++) {
+      const { lo, hi } = sliceOf(m, i);
+      const ids = await runInDurableObject(stubOf(user), (_o, state) =>
+        state.storage.sql
+          .exec<Row>(RANGE_AFTER, ...(lo ?? ['', '']), ...(hi ?? ['￿', '']), 100_000)
+          .toArray()
+          .map((r) => `${r.store}/${r.id}`),
+      );
+      expect(ids.length).toBe(m.parts[i].records);
+      const inPart = [...parts[i].sessions, ...parts[i].solves].map((r) => `${'order' in r ? 'sessions' : 'solves'}/${r.id}`);
+      expect(inPart.every((k) => ids.includes(k))).toBe(true);
+    }
+  });
+
+  it('PAGE_AFTER pula os ajustes, segue a ordem das chaves e para em LIMIT; RANGE_AFTER fecha a faixa em <=', async () => {
+    const user = 'partes-sql';
+    await sync(user, [session, solve('a'), solve('b'), solve('c'), prefsAna]);
+    const rows = await runInDurableObject(stubOf(user), (_o, state) => {
+      const sql = state.storage.sql;
+      const keys = (q: string, ...b: SqlStorageValue[]) => sql.exec<Row>(q, ...b).toArray().map((r) => `${r.store}/${r.id}`);
+      return {
+        all: keys(PAGE_AFTER, '', '', 100),
+        after: keys(PAGE_AFTER, 'sessions', 's1', 100),
+        limited: keys(PAGE_AFTER, '', '', 2),
+        range: keys(RANGE_AFTER, 'sessions', 's1', 'solves', 'b', 100),
+      };
+    });
+    expect(rows.all).toEqual(['sessions/s1', 'solves/a', 'solves/b', 'solves/c']);
+    expect(rows.after).toEqual(['solves/a', 'solves/b', 'solves/c']);
+    expect(rows.limited).toEqual(['sessions/s1', 'solves/a']);
+    expect(rows.range).toEqual(['solves/a', 'solves/b']);
+  });
+
+  it('a cópia em partes lê só páginas de COPY_PART_RECORDS, nunca a conta inteira de uma vez', async () => {
+    const user = 'partes-memoria';
+    await accountWith(user, 2 * COPY_PART_RECORDS + 1);
+    const queries: string[] = [];
+    const pages: SqlStorageCursor<Record<string, SqlStorageValue>>[] = [];
+    await runInDurableObject(stubOf(user), (instance) => {
+      const o = instance as unknown as { sql: SqlStorage };
+      const real = o.sql;
+      o.sql = new Proxy(real, {
+        get(target, key) {
+          const value = Reflect.get(target, key) as unknown;
+          if (key !== 'exec') return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+          return (query: string, ...bindings: unknown[]) => {
+            queries.push(query);
+            const cursor = target.exec(query, ...(bindings as SqlStorageValue[]));
+            if (query === PAGE_AFTER) pages.push(cursor);
+            return cursor;
+          };
+        },
+      });
+    });
+    expect(await stubOf(user).snapshot(T0)).toBe(true);
+    expect(queries).not.toContain('SELECT * FROM records');
+    // Três páginas (5.000, 5.000 e 1), e cada uma lê o que devolve, mais a linha em que o SQLite confere que o LIMIT acabou.
+    expect(pages).toHaveLength(3);
+    for (const p of pages) expect(p.rowsRead).toBeLessThanOrEqual(COPY_PART_RECORDS + 1);
+  });
+
+  it('cada parte reserva o espaço e uma operação A; o manifesto também', async () => {
+    const user = 'partes-reserva';
+    await accountWith(user, COPY_PART_RECORDS + 1);
+    expect(await stubOf(user).snapshot(T0)).toBe(true);
+    expect(await opsOf('A')).toBe(3); // as duas partes e o manifesto
+    expect(await storageUsed(env.DB)).toBe(await bytesOf(user)); // o espaço de cada objeto, somado
+    expect(JSON.parse((await stateOf(user, 'copies'))!)).toMatchObject({ gz: await bytesOf(user), paused: null }); // a estimativa da próxima
+  });
+
+  it('espaço ou operação recusados na parte k: nenhuma parte fica, o espaço volta, a cópia pausa', async () => {
+    // O tamanho de cada objeto de uma cópia igual, numa conta de outro nome (o conteúdo das partes não leva o nome).
+    await accountWith('partes-medida', COPY_PART_RECORDS + 1);
+    expect(await stubOf('partes-medida').snapshot(T0)).toBe(true);
+    const part1 = (await env.SNAPSHOTS.head(partKey('partes-medida', dayOf(T0), 1)))!.size;
+    await env.DB.batch([env.DB.prepare('DELETE FROM r2_ops'), env.DB.prepare('DELETE FROM r2_storage')]);
+
+    // Espaço: a parte 1 cabe e a 2 não (o espaço vem antes da operação, que a 2 não gasta).
+    const space = 'partes-sem-espaco';
+    await accountWith(space, COPY_PART_RECORDS + 1);
+    await seedUsed(ROOM - part1 - 5);
+    expect(await stubOf(space).snapshot(T0)).toBe(false);
+    expect(await objectsOf(space)).toEqual([]); // a parte 1 foi apagada
+    expect(await storageUsed(env.DB)).toBe(ROOM - part1 - 5); // o espaço dela voltou
+    expect(await opsOf('A')).toBe(1); // o put da parte 1 já tinha gastado a dele
+    expect(await stateOf(space, 'snapshotRev')).toBeNull();
+    expect(await stateOf(space, 'lastSnapshotDay')).toBeNull();
+    expect((await sync(space, [])).copiesPaused).toBe('space');
+    expect(await list(space)).toEqual({ status: 200, body: { copies: [], paused: 'space' } });
+
+    // Operações: sem a A da parte 2 (k = 2) e, em outra conta, sem a do manifesto (k = N + 1).
+    for (const [user, left] of [['partes-sem-op-2', 1], ['partes-sem-op-manifesto', 2]] as const) {
+      await env.DB.batch([env.DB.prepare('DELETE FROM r2_ops'), env.DB.prepare('DELETE FROM r2_storage')]);
+      await accountWith(user, COPY_PART_RECORDS + 1);
+      await seedOps('A', caps.classAMonth - left);
+      expect(await stubOf(user).snapshot(T0), user).toBe(false);
+      expect(await objectsOf(user), user).toEqual([]);
+      expect(await storageUsed(env.DB), user).toBe(0);
+      expect(await opsOf('A'), user).toBe(caps.classAMonth);
+      expect(await stateOf(user, 'snapshotRev'), user).toBeNull();
+      expect((await sync(user, [])).copiesPaused, user).toBe('ops');
+    }
+    // Com espaço e operações de novo, a mesma conta copia inteira.
+    await env.DB.batch([env.DB.prepare('DELETE FROM r2_ops'), env.DB.prepare('DELETE FROM r2_storage')]);
+    expect(await stubOf('partes-sem-op-2').snapshot(T0)).toBe(true);
+    expect(await objectsOf('partes-sem-op-2')).toHaveLength(3);
+    expect((await sync('partes-sem-op-2', [])).copiesPaused).toBeNull();
+  });
+
+  it('conta grande copia só a cada BIG_COPY_EVERY_DAYS dias', async () => {
+    const user = 'grande-semanal';
+    await accountWith(user, bigDay + 1); // acima do dia útil e dentro de uma parte só: um arquivo, semanal
+    expect(await stubOf(user).snapshot(T0)).toBe(true); // sem lastSnapshotDay, a primeira sai
+    expect(await stateOf(user, 'lastSnapshotDay')).toBe(dayOf(T0));
+    await sync(user, [solve('novo')], T0 + 1000); // a conta mudou: o que segura a cópia é só o prazo
+    const rev = await stateOf(user, 'snapshotRev');
+    const ops = await opsOf('A');
+    for (let k = 1; k < BIG_COPY_EVERY_DAYS; k++) {
+      expect(await stubOf(user).snapshot(T0 + k * DAY), `D+${k}`).toBe(false);
+      expect(await objectsOf(user), `D+${k}`).toEqual([snapshotKey(user, dayOf(T0))]);
+    }
+    expect([await stateOf(user, 'snapshotRev'), await opsOf('A')]).toEqual([rev, ops]); // sem marcar e sem gastar operação
+    expect((await sync(user, [], T0)).copiesPaused).toBeNull(); // adiada, não pausada
+    expect(await stubOf(user).snapshot(T0 + BIG_COPY_EVERY_DAYS * DAY)).toBe(true);
+    expect(await objectsOf(user)).toEqual([snapshotKey(user, dayOf(T0)), snapshotKey(user, dayOf(T0 + BIG_COPY_EVERY_DAYS * DAY))]);
+    expect(await stateOf(user, 'lastSnapshotDay')).toBe(dayOf(T0 + BIG_COPY_EVERY_DAYS * DAY));
+    // Um arquivo só, como sempre, e sem `parts` nos metadados.
+    expect((await env.SNAPSHOTS.head(snapshotKey(user, dayOf(T0))))!.customMetadata).toEqual({ kind: 'daily', day: dayOf(T0), solves: String(bigDay) });
+  });
+
+  it('conta pequena continua com um arquivo só, todo dia; no limite do dia útil também', async () => {
+    const user = 'pequena-diaria';
+    await sync(user, [session, solve('a')]);
+    expect(await stubOf(user).snapshot(T0)).toBe(true);
+    await sync(user, [solve('b')], T0 + 1000);
+    expect(await stubOf(user).snapshot(T0 + DAY)).toBe(true);
+    await sync(user, [solve('c')], T0 + DAY + 1000);
+    expect(await stubOf(user).snapshot(T0 + 2 * DAY)).toBe(true);
+    expect(await objectsOf(user)).toEqual([0, 1, 2].map((k) => snapshotKey(user, dayOf(T0 + k * DAY))));
+    expect((await env.SNAPSHOTS.head(snapshotKey(user, dayOf(T0))))!.customMetadata).toEqual({ kind: 'daily', day: dayOf(T0), solves: '1' });
+    expect((await list(user, T0 + 2 * DAY)).body).toMatchObject({ copies: [{ solves: 3, parts: 0 }, { solves: 2, parts: 0 }, { solves: 1, parts: 0 }] });
+
+    const edge = 'no-limite-do-dia';
+    await accountWith(edge, bigDay - 1); // com o solve novo, exatamente o dia útil: ainda diária
+    expect(await stubOf(edge).snapshot(T0)).toBe(true);
+    await sync(edge, [solve('novo')], T0 + 1000);
+    expect(await stubOf(edge).snapshot(T0 + DAY)).toBe(true);
+  });
+});
+
 // Revisão final (resíduo, I1): o COUNT do tamanho da conta percorria a tabela inteira, antes de qualquer teto da restauração; a restauração
 // não olhava o orçamento de leituras; e, contado nele, um punhado de restaurações recusadas numa conta grande travava o sync do dia. O COUNT
 // para em (o limite em uso) + 1, e a restauração recusa com restore-limit antes dele quando o orçamento de leituras do dia acabou.
@@ -610,11 +849,12 @@ describe('a contagem limitada do tamanho da conta', () => {
   it('pausada pelo tamanho, a cópia do alarme lê no máximo SNAPSHOT_MAX_RECORDS + 1 linhas', async () => {
     const user = 'tamanho-pausado-limitado';
     await sync(user, [session, solve('a')]);
-    await seedSolves(user, 2 * caps.snapshotRecords);
+    await setVars(user, { SNAPSHOT_MAX_RECORDS: '100' });
+    await seedSolves(user, 200);
     const read = await rowsRead(user);
     expect(await runDurableObjectAlarm(stubOf(user))).toBe(true);
     expect(read()).toBeGreaterThan(0);
-    expect(read()).toBeLessThanOrEqual(caps.snapshotRecords + 1);
+    expect(read()).toBeLessThanOrEqual(100 + 1);
     expect((await sync(user, [])).copiesPaused).toBe('size');
   });
 
