@@ -1,6 +1,11 @@
 <script lang="ts">
   // A tela do Timer (porte de prototype/scripts/app.js e ui/timer-view.js). Dona do timer, da entrada, da reação, do coach e da
   // pintura do tempo. O solve é gravado antes da reação: a reação só começa depois que o solve está em app.solves.
+  //
+  // O desafio por link é um modo desta tela (a maquete aprovada): o mesmo timer joga o embaralhamento da vez, e o solve vai para o desafio
+  // (app.duel.record), nunca para os solves. No modo, o embaralhamento diz "N de 7", o progresso (A) ou o placar (B) fica no topo (no
+  // desktop, no cartão "Desafio" da coluna da direita, no lugar da constância), os chips viram a lista dos tempos, os tiles de média somem e
+  // só +2 e DNF ficam (N e ⌫ não fazem nada). B confere a penalidade e vê o ponto antes do próximo: aí o Timer não arma.
   import { tick, untrack } from 'svelte';
   import { type CoachMessage, type CoachSeason, pickCoachMessage, type SeasonEnd, seasonEndMessage } from '../../core/coach';
   import { eventInfo } from '../../core/events';
@@ -24,7 +29,11 @@
   import { createTouchArm } from '../../core/touch';
   import type { EventId, SeasonState, Solve } from '../../core/types';
   import { T } from '../../strings';
+  import DuelBoard from '../duel/DuelBoard.svelte';
+  import DuelEnd from '../duel/DuelEnd.svelte';
+  import { duelTime, revealOf, splitTime } from '../duel/duel-view';
   import { daysAgoLabel, monthLabel } from '../format';
+  import { wideLayout } from '../layout';
   import type { CentroView as Vista } from '../centro';
   import { createCentroAnimator } from '../centro/animator';
   import { TIMING } from '../centro/behavior';
@@ -56,6 +65,21 @@
 
   let { app }: { app: AppState } = $props();
 
+  // O modo desafio: o embaralhamento da vez (solving) e, de B, a confirmação da penalidade (confirm) e a revelação do ponto (reveal). No fim
+  // (os sete de A, a partida de B, a resposta, a partida só para ver), a tela de fim fica no lugar do Timer.
+  const duel = $derived(app.duel.current);
+  const duelPhase = $derived(app.duel.phase);
+  const duelOn = $derived(duel !== null && (duelPhase === 'solving' || duelPhase === 'confirm' || duelPhase === 'reveal'));
+  const duelEnd = $derived(duel !== null && (duelPhase === 'finished' || duelPhase === 'reply' || duelPhase === 'view'));
+  const reviewing = $derived(duelOn && duelPhase !== 'solving'); // B confere a penalidade ou vê o ponto: o Timer não arma
+  const playEvent = $derived(duelOn && duel ? duel.event : app.event); // o evento que o timer joga (a inspeção e a imagem seguem ele)
+  const duelLast = $derived(duelOn ? (duel?.mine.at(-1) ?? null) : null); // o último tempo deste lado
+  const reveal = $derived(duelPhase === 'reveal' && duel && app.duel.score ? revealOf(duel, app.duel.score, app.duel.index) : null);
+  const revealTime = $derived(reveal ? splitTime(reveal.time) : null);
+  const wide = wideLayout(); // no desktop, o placar do desafio vai para a coluna da direita
+  // O espaço e o toque só armam no Timer de sempre e no embaralhamento da vez do desafio (o timer que corre ainda para com qualquer toque).
+  const armable = (): boolean => app.duel.phase === 'idle' || app.duel.phase === 'solving';
+
   // Os solves da lista antes do solve dado (a lista vem em ordem de tempo).
   const before = (list: Solve[], solve: Solve | null): Solve[] => {
     if (!solve) return [];
@@ -65,11 +89,13 @@
 
   // A inspeção vale quando o ajuste pede e o evento tem (o 3BLD não tem). Os ajustes do timer, do toque e do som entram pelo
   // efeito de ajustes, logo na montagem, antes de qualquer toque.
-  const inspectionOn = (): boolean => app.profile.settings.inspection && eventInfo(app.event).inspection;
+  const inspectionOn = (): boolean => app.profile.settings.inspection && eventInfo(playEvent).inspection;
   const timer: Timer = createTimer({ now: () => performance.now() });
   const sound = createSound();
   const touch = createTouchArm({
-    press: (at) => timer.press(at),
+    press: (at) => {
+      if (timer.state === 'running' || armable()) timer.press(at);
+    },
     release: (at) => timer.release(at),
     cancel: () => timer.cancel(),
     getState: () => timer.state,
@@ -109,6 +135,7 @@
   let destroyed = false;
   let failStreak = 0; // falhas seguidas do gerador de embaralhamentos
   let solveSeq = 0; // o último solve que a tela acompanha: uma gravação mais antiga que termina depois não mexe na tela
+  let runningDuel: string | null = null; // o solve que corre começou no desafio aberto (o id dele): vai para o desafio, nunca para os solves
   let controller: InputController | null = null;
 
   const theme = $derived<'light' | 'dark'>(
@@ -124,15 +151,18 @@
   const sessionNumber = $derived(last ? app.sessionSolves.findIndex((s) => s.id === last.id) + 1 : 0);
   const deltas = $derived(last ? solveDeltas(eventBefore, last, sessBefore) : null);
   const kind = $derived<ResultKind | null>(last ? resultKind(eventBefore, last, sessBefore) : null);
-  const pbTag = $derived(showResult && kind === 'pb');
-  const actionsShown = $derived(showResult && last !== null);
+  const pbTag = $derived(!duelOn && showResult && kind === 'pb');
+  // No desafio, as ações (só +2 e DNF) são do último tempo deste lado: de A, com o resultado na tela; de B, na confirmação.
+  const actionsShown = $derived(
+    duelOn ? (duel?.side === 'a' ? duelPhase === 'solving' && showResult && duelLast !== null : duelPhase === 'confirm') : showResult && last !== null,
+  );
 
   // Enquanto a fila segura o solve, a tela mostra o tempo do timer e não mostra os chips (o solve não está nos dados ainda).
   const holding = $derived(unstored !== null);
 
   const chips = $derived.by((): Chip[] => {
     const d = deltas;
-    if (!last || !d || saving || deleting || holding) return [];
+    if (duelOn || !last || !d || saving || deleting || holding) return [];
     const out: Chip[] = [];
     if (d.vsAvg !== null) out.push({ text: T.chips.vsAvg(d.vsAvg, d.avgN), pb: false });
     if (d.isPb && d.vsPb !== null) out.push({ text: T.chips.newPb(-d.vsPb), pb: true });
@@ -140,6 +170,9 @@
     out.push({ text: T.chips.solveN(sessionNumber), pb: false });
     return out;
   });
+
+  // No desafio, os chips de A viram a lista dos tempos até aqui (o número e o tempo). B tem o placar.
+  const duelChips = $derived(duelOn && duel?.side === 'a' ? duel.mine.map((t, i) => ({ n: i + 1, text: duelTime(t) })) : []);
 
   // Tiles: a média oficial e a de 12 são da sessão; o recorde é do evento; "hoje" conta todos os eventos.
   const tiles = $derived.by((): Tile[] => {
@@ -204,6 +237,7 @@
     if (timer.state === 'arming') return T.coach.arming;
     if (timer.state === 'ready') return T.coach.ready;
     if (view.state === 'running' || view.state === 'reaction') return null;
+    if (reviewing) return null; // B confere a penalidade ou vê o ponto: as notas da tela falam
     return idleText();
   }
 
@@ -221,6 +255,7 @@
     }
     if (timer.state === 'arming' || timer.state === 'ready') return T.timer.zero;
     if ((saving || holding) && timer.result) return resultText(timer.result);
+    if (duelOn) return duelLast ? duelTime(duelLast) : T.timer.zero;
     return last ? formatSolve(last) : T.timer.zero;
   }
 
@@ -239,7 +274,7 @@
     const view = live.paint(now);
     const body = document.body;
     body.dataset.cview = view.state;
-    body.dataset.result = timer.state === 'done' && showResult && kind ? kind : '';
+    body.dataset.result = !duelOn && timer.state === 'done' && showResult && kind ? kind : '';
     const e = timer.inspectElapsed;
     body.dataset.insp = timer.state === 'inspect' ? (e > 15000 ? 'over' : e >= 12000 ? '12' : e >= 8000 ? '8' : '') : '';
     if (timeEl) paintTime(timeEl, timeText());
@@ -379,6 +414,97 @@
     popToday();
   }
 
+  // Um solve do desafio: vai para o desafio aberto (app.duel.record), nunca para os solves, e não passa pelas contas do Timer (médias,
+  // recordes, marcos, coach). O Centro fica parado enquanto grava; depois, o de A volta ao parado (os pontos são de B) e o de B espera o
+  // ponto, com o anel apagado.
+  async function finishDuelSolve({ ms, penalty }: TimerResult, id: string): Promise<void> {
+    const mine = ++solveSeq;
+    const before = app.duel.current?.id === id ? app.duel.current.mine.length : null;
+    saving = true;
+    unstored = null;
+    showResult = false;
+    lastId = null;
+    live.hold();
+    coach = null;
+    closeNote();
+    kick();
+    try {
+      if (before !== null) await app.duel.record({ ms, penalty });
+    } finally {
+      if (mine === solveSeq) saving = false;
+    }
+    if (destroyed || mine !== solveSeq) {
+      kick();
+      return;
+    }
+    const d = app.duel.current;
+    const t = before !== null && d?.id === id && d.mine.length > before ? d.mine.at(-1) : undefined;
+    live.clearReaction();
+    if (app.duel.phase === 'confirm') live.wait(true);
+    showResult = t !== undefined && timer.state === 'done';
+    if (t && timer.state === 'done') {
+      const after = app.duel.phase === 'confirm' ? ` ${T.duel.checkPenalty}` : app.duel.phase === 'solving' ? ` ${T.duel.scramble(app.duel.index + 1)}.` : '';
+      app.announce(`${T.aria.final(duelTime(t))}${after}`);
+    }
+    kick();
+  }
+
+  // +2 e DNF no desafio: de A, no último solve, com o resultado na tela (até armar o próximo) ou na tela de mandar; de B, só na confirmação,
+  // antes de ver o ponto. O estado do desafio confere de novo (depois da revelação, nunca).
+  async function duelPenalize(p: '+2' | 'DNF'): Promise<void> {
+    const d = app.duel.current;
+    const t = d?.mine.at(-1);
+    if (!d || !t || penalizing) return;
+    const phase = app.duel.phase;
+    const open = d.side === 'a' ? (phase === 'solving' && showResult && timer.state === 'done') || phase === 'finished' : phase === 'confirm';
+    if (!open) return;
+    penalizing = true;
+    try {
+      await app.duel.setPenalty(t.penalty === p ? null : p);
+    } finally {
+      penalizing = false;
+    }
+    const now = app.duel.current?.mine.at(-1);
+    if (now) app.announce(T.aria.final(duelTime(now)));
+    kick();
+  }
+
+  // "Ver o ponto" (B): a revelação gravada, o Centro reage ao ponto (seu: 6 verdes; do oponente: 3 em âmbar; ninguém: o "="), o anúncio e
+  // o foco em "Próximo" (o botão que tinha o foco sumiu).
+  async function seePoint(): Promise<void> {
+    const id = app.duel.current?.id;
+    const phase = app.duel.phase;
+    if (phase !== 'confirm' || !id) return;
+    const refocus = focusLost() || (screenEl?.contains(document.activeElement) ?? false);
+    await app.duel.reveal();
+    const d = app.duel.current;
+    const score = app.duel.score;
+    if (destroyed || app.duel.phase !== 'reveal' || d?.id !== id || !score) return;
+    const shown = revealOf(d, score, app.duel.index);
+    if (!shown) return;
+    live.react(shown.centro, performance.now());
+    app.announce(shown.aria);
+    kick();
+    if (!refocus) return;
+    await tick();
+    if (!destroyed) screenEl?.querySelector<HTMLElement>('[data-duel-next]')?.focus({ preventScroll: true });
+  }
+
+  // "Próximo": o embaralhamento seguinte (ou o resultado). O botão some: o foco vai para a tela, como quando uma ação do Timer some.
+  async function nextPoint(): Promise<void> {
+    const refocus = focusLost() || (screenEl?.contains(document.activeElement) ?? false);
+    app.duel.next();
+    live.clearReaction();
+    showResult = false;
+    kick();
+    if (!refocus) return;
+    await tick();
+    if (!destroyed && app.duel.phase === 'solving') screenEl?.focus({ preventScroll: true });
+  }
+
+  // O foco caiu no body (ou em nada): o elemento que o tinha sumiu.
+  const focusLost = (): boolean => document.activeElement === null || document.activeElement === document.body;
+
   // Na virada, a face de cima segue cheia até a piscada passar e só depois esvazia (spec 8).
   function holdTop(until: number): void {
     clearTimeout(topHoldTimer);
@@ -511,22 +637,22 @@
     if (app.trainerRunning) return;
     switch (name) {
       case 'plus2':
-        void penalize('+2');
+        void (duelOn || duelEnd ? duelPenalize('+2') : penalize('+2'));
         return;
       case 'dnf':
-        void penalize('DNF');
+        void (duelOn || duelEnd ? duelPenalize('DNF') : penalize('DNF'));
         return;
       case 'note':
-        void openNote();
+        if (!duelOn && !duelEnd) void openNote(); // no desafio não há nota
         return;
       case 'delete':
-        void removeLast();
+        if (!duelOn && !duelEnd) void removeLast(); // nem excluir: não dá para refazer um embaralhamento
         return;
       case 'undo':
         void app.undoDelete();
         return;
       case 'next':
-        void app.nextScramble();
+        if (!duelOn && !duelEnd) void app.nextScramble(); // o embaralhamento do desafio é o da vez
         return;
       case 'shortcuts':
         app.dialog = 'shortcuts';
@@ -568,7 +694,10 @@
     app.timerBusy = next === 'inspect' || next === 'arming' || next === 'ready' || next === 'running';
     document.body.dataset.tstate = next;
     document.body.classList.toggle('solving', next === 'running');
-    if (next === 'running') animator.freeze(); // nada do Centro roda no solve (spec 6.4), já neste quadro
+    if (next === 'running') {
+      animator.freeze(); // nada do Centro roda no solve (spec 6.4), já neste quadro
+      runningDuel = duelOn && app.duel.phase === 'solving' ? (duel?.id ?? null) : null; // o solve é do modo em que começou a correr
+    }
     if (next === 'ready') sound.klick();
     if (next === 'inspect' || next === 'arming') {
       // As ações somem agora: se o foco estava nelas (ou na nota), ele vai para a tela, e não se perde no corpo do documento.
@@ -587,7 +716,9 @@
   function onDone(r: TimerResult): void {
     if (destroyed) return;
     sound.klick();
-    void finishSolve(r);
+    const id = runningDuel;
+    runningDuel = null;
+    void (id !== null ? finishDuelSolve(r, id) : finishSolve(r));
   }
 
   // Trocar de sessão (ou de evento, que vem com a sessão) zera a tela, como o resetUi do protótipo.
@@ -681,7 +812,7 @@
   // Ajustes do aparelho e do evento: o timer e o toque seguem o que a pessoa escolheu.
   $effect(() => {
     const s = app.profile.settings;
-    timer.setOptions({ holdMs: s.holdMs, inspection: s.inspection && eventInfo(app.event).inspection });
+    timer.setOptions({ holdMs: s.holdMs, inspection: s.inspection && eventInfo(playEvent).inspection });
     touch.setMode(s.mobileArm);
     sound.setEnabled('klick', s.sound.klick);
     sound.setEnabled('insp', s.sound.insp);
@@ -709,6 +840,29 @@
     });
   });
 
+  // Entrar no modo desafio, sair dele ou trocar de desafio zera a tela, como trocar de sessão (o que estiver armado é abandonado). A
+  // primeira passada só lembra: na montagem não há o que zerar.
+  let duelSeen: string | null = null;
+  $effect(() => {
+    const key = duelOn ? (duel?.id ?? null) : null;
+    untrack(() => {
+      if (key === duelSeen) return;
+      duelSeen = key;
+      controller?.abandonHold();
+      resetForSession();
+    });
+  });
+
+  // B confere a penalidade (o solve gravado, ou o desafio reaberto nesse ponto): o Centro espera o ponto, com o anel apagado.
+  $effect(() => {
+    const waiting = duelOn && duelPhase === 'confirm';
+    untrack(() => {
+      if (saving) return; // o solve ainda grava: finishDuelSolve decide depois
+      live.wait(waiting);
+      kick();
+    });
+  });
+
   // A entrada liga-se às zonas e ao documento quando a tela existe, e desliga (abandonando o que estiver armado) ao sair.
   $effect(() => {
     const screen = screenEl;
@@ -722,6 +876,7 @@
         dialogOpen: () => document.querySelector('dialog[open]') !== null,
         onAction,
         onWake,
+        canArm: armable,
       },
       { coarse: () => coarseMq, armMode: () => app.profile.settings.mobileArm },
     );
@@ -813,16 +968,42 @@
   });
 </script>
 
-<section class="screen timer" data-screen="timer" aria-label={T.tabs.timer} hidden={app.tab !== 'timer'} tabindex="-1" bind:this={screenEl}>
+<section
+  class="screen timer"
+  data-screen="timer"
+  data-duel={duelOn ? duelPhase : undefined}
+  aria-label={T.tabs.timer}
+  hidden={app.tab !== 'timer' || duelEnd}
+  tabindex="-1"
+  bind:this={screenEl}
+>
   <div class="t-main">
-    <ScrambleBlock
-      event={app.event}
-      scramble={app.scramble}
-      error={app.scrambleError}
-      {reloadHint}
-      pb={pbTag}
-      imageOn={app.profile.settings.scrambleImage}
-    />
+    {#if duelOn && duel && !wide.current}
+      <DuelBoard {duel} score={app.duel.score} index={app.duel.index} wide={false} />
+    {/if}
+    {#if duelOn}
+      <!-- Na revelação, o placar fica no lugar do embaralhamento (6b). -->
+      {#if duelPhase !== 'reveal'}
+        <ScrambleBlock
+          event={playEvent}
+          scramble={app.duel.scramble}
+          error={false}
+          reloadHint={false}
+          pb={false}
+          imageOn={app.profile.settings.scrambleImage}
+          label={T.duel.scramble(app.duel.index + 1)}
+        />
+      {/if}
+    {:else}
+      <ScrambleBlock
+        event={app.event}
+        scramble={app.scramble}
+        error={app.scrambleError}
+        {reloadHint}
+        pb={pbTag}
+        imageOn={app.profile.settings.scrambleImage}
+      />
+    {/if}
     {#if app.savePending > 0 || app.saveStalled}
       <div class="save-warn">
         <p>{T.data.saveFailed}</p>
@@ -830,29 +1011,55 @@
       </div>
     {/if}
     <div class="time" data-time aria-hidden="true" bind:this={timeEl}></div>
-    <div class="chips t-chips fade" data-chips>
-      {#each chips as c, i (i)}
-        <span class="chip" class:pb={c.pb}>{c.text}</span>
-      {/each}
+    <!-- No desafio, B não tem chips (o placar é o dele): a linha some, sem deixar o vão. -->
+    <div class="chips t-chips fade" data-chips hidden={duelOn && duelChips.length === 0}>
+      {#if duelOn}
+        {#each duelChips as c (c.n)}
+          <span class="chip"><span class="chip-n">{c.n}</span>{c.text}</span>
+        {/each}
+      {:else}
+        {#each chips as c, i (i)}
+          <span class="chip" class:pb={c.pb}>{c.text}</span>
+        {/each}
+      {/if}
     </div>
+    {#if reveal && revealTime}
+      <!-- A revelação (6b): o selo do ponto e, logo abaixo do tempo de B, o do oponente naquele embaralhamento. -->
+      <div class="dz-reveal" data-duel-reveal>
+        <span class="dz-verdict" class:op={!reveal.mine}>{reveal.verdict}</span>
+        <div class="dz-vs"><span class="label">{reveal.them}</span><b>{revealTime.int}<span class="dec">{revealTime.dec}</span></b></div>
+        {#if reveal.sub}<p class="dz-sub">{reveal.sub}</p>{/if}
+      </div>
+    {/if}
     <ResultActions
       visible={actionsShown}
-      plus2={last?.penalty === '+2'}
-      dnf={last?.penalty === 'DNF'}
-      note={last?.note ?? ''}
+      plus2={duelOn ? duelLast?.penalty === '+2' : last?.penalty === '+2'}
+      dnf={duelOn ? duelLast?.penalty === 'DNF' : last?.penalty === 'DNF'}
+      note={duelOn ? '' : (last?.note ?? '')}
       {noteOpen}
       bind:noteValue
       bind:inputEl={noteInput}
-      onPlus2={() => penalize('+2')}
-      onDnf={() => penalize('DNF')}
+      onPlus2={() => (duelOn ? duelPenalize('+2') : penalize('+2'))}
+      onDnf={() => (duelOn ? duelPenalize('DNF') : penalize('DNF'))}
       onNote={() => openNote()}
       onDelete={() => removeLast()}
       onNoteSave={(text) => saveNote(text)}
       onNoteClose={closeNoteAndFocus}
+      penaltiesOnly={duelOn}
     />
+    {#if duelOn && duelPhase === 'confirm'}
+      <!-- 6a: a penalidade antes do ponto. -->
+      <button type="button" class="btn primary dz-wide dz-step" data-duel-see onclick={seePoint}>{T.duel.seePoint}</button>
+      <p class="dz-note dz-step">{T.duel.checkPenalty}</p>
+    {:else if duelOn && duelPhase === 'reveal'}
+      <button type="button" class="btn primary dz-wide dz-step" data-duel-next onclick={nextPoint}>{T.duel.next}</button>
+      {#if !app.duel.score?.over}
+        <p class="dz-note dz-step">{T.duel.scramble(app.duel.index + 2)}</p>
+      {/if}
+    {/if}
     <!-- Lembrete de exportar: acima dos tiles. Só aparece parado (inativo ou com o solve pronto para a reação), nunca na inspeção, armado,
          pronto ou rodando. Quem tem conta não o vê (spec 9.4): entrar pelo convite o tira da tela. -->
-    {#if app.exportReminder && !app.timerBusy && !app.account?.signedIn}
+    {#if app.exportReminder && !app.timerBusy && !app.account?.signedIn && !duelOn}
       <div class="export-reminder" data-export-reminder>
         <p>{T.reminder.text}</p>
         <span class="data-actions">
@@ -874,38 +1081,51 @@
       {/if}
       <div class="t-coachtext">
         <div class="label fade">{T.timer.coachLabel}</div>
-        <p class="coach" class:quiet={coachShown === null}>{coachShown ?? ''}</p>
+        <p class="coach" class:quiet={coachShown === null} hidden={reviewing}>{coachShown ?? ''}</p>
       </div>
     </div>
-    <div class="card t-heat fade">
-      <div class="card-h">
-        <span class="label">{heat.label}</span>
-        <span class="muted num">{heat.streak}</span>
+    {#if duelOn && duel}
+      {#if wide.current}
+        <DuelBoard {duel} score={app.duel.score} index={app.duel.index} wide />
+      {/if}
+    {:else}
+      <div class="card t-heat fade">
+        <div class="card-h">
+          <span class="label">{heat.label}</span>
+          <span class="muted num">{heat.streak}</span>
+        </div>
+        <div class="heat" data-heat role="group" aria-label={heat.label}>
+          {#each heat.cells as c (c.day)}
+            <i role="img" class={c.cls} title={c.text} aria-label={c.text}></i>
+          {/each}
+          {#each heat.pads as p (p)}
+            <i style="visibility:hidden"></i>
+          {/each}
+        </div>
       </div>
-      <div class="heat" data-heat role="group" aria-label={heat.label}>
-        {#each heat.cells as c (c.day)}
-          <i role="img" class={c.cls} title={c.text} aria-label={c.text}></i>
-        {/each}
-        {#each heat.pads as p (p)}
-          <i style="visibility:hidden"></i>
-        {/each}
-      </div>
-    </div>
+    {/if}
   </aside>
 
-  <div class="tiles t-tiles fade" data-tiles>
-    {#each tiles as t (t.label)}
-      <div class="tile">
-        <small>{t.label}</small>
-        <b>{t.value}</b>
-        {#if t.sub}<em>{t.sub}</em>{/if}
-      </div>
-    {/each}
-  </div>
+  <!-- No desafio, os tiles de média somem: os tempos dele não entram nas médias. -->
+  {#if !duelOn}
+    <div class="tiles t-tiles fade" data-tiles>
+      {#each tiles as t (t.label)}
+        <div class="tile">
+          <small>{t.label}</small>
+          <b>{t.value}</b>
+          {#if t.sub}<em>{t.sub}</em>{/if}
+        </div>
+      {/each}
+    </div>
+  {/if}
 
-  <Zones bind:el={zonesEl} one={app.profile.settings.mobileArm === 'one'} />
-  <p class="t-hints fade muted">{T.timer.hints}</p>
+  <Zones bind:el={zonesEl} one={app.profile.settings.mobileArm === 'one'} hidden={reviewing} />
+  <p class="t-hints fade muted">{duelOn ? T.duel.hints : T.timer.hints}</p>
 </section>
+
+{#if duelEnd && app.tab === 'timer'}
+  <DuelEnd {app} />
+{/if}
 
 <style>
   /* A tela recebe o foco quando uma ação some: ele continua visível, com o contorno dos controles. */

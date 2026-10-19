@@ -1,0 +1,518 @@
+/* ---------- O desafio por link (a maquete aprovada, docs/design/2026-10-19-desafio-maquete.html) ----------
+   As peças novas do desafio, como a maquete as desenha: o placar em peças, o progresso de quem desafia, a revelação do ponto, as folhas e as
+   telas de fim. O resto (a pílula, o cartão, a folha, o campo) é o que o app já tem. */
+
+:root {
+  /* O contorno da peça ainda não jogada: do --muted, translúcido como o --cube-off. */
+  --pl-open: color-mix(in srgb, var(--muted) 42%, transparent);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --pl-open: color-mix(in srgb, var(--muted) 50%, transparent);
+  }
+}
+
+:root[data-theme='dark'] {
+  --pl-open: color-mix(in srgb, var(--muted) 50%, transparent);
+}
+
+/* A pílula do modo desafio troca a da sessão: a borda na tinta diz que o Timer está noutro modo. */
+.pill.mode {
+  border-color: var(--ink);
+}
+
+/* Abaixo de 375 px, com "Desafiar" no topo, os vãos passam de 12 para 8 px e a pílula perde 4 px de respiro de cada lado (cabe em 360 px). */
+@media (max-width: 374px) {
+  .topbar:has([data-desafiar]),
+  .topbar:has([data-desafiar]) .meta {
+    gap: 8px;
+  }
+
+  .pill[data-desafiar] {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+}
+
+/* O placar em peças: uma linha por pessoa, uma coluna por embaralhamento. Quem leva o ponto acende a peça na tinta (a cor das peças do
+   logo); a outra fica apagada (--cube-off). Ninguém pontua: as duas apagadas com um traço. Ainda não jogado: só o contorno. Não jogado (a
+   partida acabou antes): contorno tracejado, mais fraco. A coluna da vez ganha um contorno na tinta em volta das duas peças. */
+.placar {
+  --pc: 24px;
+  --pr: 6px;
+  position: relative;
+  display: grid;
+  grid-template-columns: auto repeat(7, var(--pc)) auto;
+  column-gap: 5px;
+  row-gap: 5px;
+  align-items: center;
+  justify-content: center;
+}
+
+.placar small {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-align: center;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.placar small[data-now] {
+  color: var(--ink);
+}
+
+.placar .pl-name {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: var(--pc);
+  margin-right: 7px;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.placar .pl-score {
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: var(--pc);
+  margin-left: 9px;
+  text-align: right;
+}
+
+.placar i,
+.prog i {
+  display: block;
+  position: relative;
+  width: var(--pc);
+  height: var(--pc);
+  border-radius: var(--pr);
+}
+
+[data-p='won'],
+[data-p='done'] {
+  background: var(--ink);
+}
+
+[data-p='lost'],
+[data-p='tie'] {
+  background: var(--cube-off);
+}
+
+[data-p='tie']::after {
+  content: '';
+  position: absolute;
+  left: 28%;
+  right: 28%;
+  top: calc(50% - 1px);
+  height: 2px;
+  border-radius: 1px;
+  background: var(--muted);
+}
+
+[data-p='open'] {
+  border: 1.5px solid var(--pl-open);
+}
+
+[data-p='skip'] {
+  border: 1.5px dashed var(--pl-open);
+  opacity: 0.6;
+}
+
+[data-p='now'] {
+  border: 1.5px solid var(--ink);
+}
+
+.pl-now {
+  position: absolute;
+  grid-row: 2 / 4;
+  inset: -4px;
+  border-radius: 9px;
+  box-shadow: 0 0 0 1.5px var(--ink);
+  pointer-events: none;
+}
+
+.dz-board {
+  padding: 12px 14px 14px;
+}
+
+/* O progresso de quem desafia: as sete peças, feitas na tinta, a da vez com contorno. */
+.prog {
+  --pc: 14px;
+  --pr: 4px;
+  display: inline-flex;
+  gap: 4px;
+  vertical-align: middle;
+}
+
+.dz-prog {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.chip-n {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 11px;
+}
+
+/* A revelação do ponto */
+.dz-verdict {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--bg);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.dz-verdict.op {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.dz-reveal {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+}
+
+.dz-vs {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 10px;
+}
+
+.dz-vs b {
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.dz-vs b .dec {
+  font-size: 0.6em;
+  letter-spacing: -0.02em;
+  color: var(--muted); /* a maquete usa o --dec; neste tamanho ele não passa no contraste AA (o --dec é dos centésimos do tempo grande) */
+}
+
+.dz-sub {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.btn.dz-wide {
+  width: 100%;
+  min-height: 48px;
+  justify-content: center;
+  font-size: 15px;
+}
+
+.dz-note {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* As telas de fim (A pronto, B terminou, a resposta) */
+.dz-end {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 560px; /* no desktop, uma coluna da largura de uma folha: a maquete só desenha o celular */
+}
+
+.dz-end:focus,
+.dz-result:focus {
+  outline: none;
+}
+
+.dz-end:focus-visible,
+.dz-result:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 4px;
+}
+
+.dz-end.center {
+  text-align: center;
+}
+
+.dz-hero {
+  width: 132px;
+  margin: 6px auto 0;
+}
+
+.dz-hero-tight {
+  margin-top: 0;
+}
+
+.dz-reply-label {
+  margin-top: 6px;
+}
+
+.dz-result {
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+}
+
+.dz-closed {
+  margin-top: 6px;
+  min-height: 0;
+}
+
+.dz-coach {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 14px;
+  align-items: center;
+  text-align: left;
+}
+
+.dz-coach .coach {
+  min-height: 0;
+  margin-top: 2px;
+  text-align: left;
+}
+
+.dz-times {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 18px;
+  margin-top: 6px;
+  text-align: left;
+}
+
+.dz-times.one {
+  grid-template-columns: 1fr;
+}
+
+.dz-times.cols {
+  grid-auto-flow: column;
+  grid-template-rows: repeat(4, auto);
+}
+
+.dz-times li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dz-times li .n {
+  width: 1.4em;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.dz-times li[data-now] {
+  font-weight: 600;
+}
+
+.dz-times li .tag {
+  margin-left: auto;
+}
+
+.dz-times li.none {
+  color: var(--dec);
+}
+
+.dz-end .row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dz-end.center .row {
+  justify-content: center;
+}
+
+.dz-center {
+  text-align: center;
+}
+
+.hist.dz-match {
+  margin-top: 0;
+  text-align: left;
+  padding: 6px 10px 4px;
+}
+
+.dz-match th:not(:first-child),
+.dz-match td:not(:first-child) {
+  text-align: right;
+}
+
+.dz-match td:first-child,
+.dz-match th:first-child {
+  width: 2em;
+  color: var(--muted);
+}
+
+.dz-match td:first-child {
+  white-space: nowrap;
+}
+
+.dz-match td.w {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.dz-match tr:last-child td {
+  border-bottom: 0;
+}
+
+.dz-match tr.dz-skip td {
+  color: var(--muted); /* a maquete usa o --dec; em 14 px ele não passa no contraste AA */
+}
+
+.dz-match tr.dz-skip td.dz-rest {
+  text-align: left;
+}
+
+/* O campo do desafio: o evento da folha "Desafiar" e o nome nas telas de fim. */
+.field.dz-field {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+  font-size: 14px;
+  text-align: left;
+}
+
+.dz-field input,
+.dz-field select {
+  font: inherit;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-btn);
+  background: var(--bg);
+  color: var(--ink);
+  width: 100%;
+}
+
+.dz-field small {
+  font-size: 12px;
+  color: var(--muted);
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* As folhas do desafio */
+.dz-sheet p + p,
+.dz-sheet .chips + p {
+  margin-top: 8px;
+}
+
+.dz-sheet .chips {
+  margin-top: 4px;
+}
+
+.dz-invite-head {
+  margin-top: 0;
+}
+
+.dz-invite-head h2,
+.dz-invalid-head h2 {
+  margin: 2px 0 0;
+}
+
+.dz-invalid-head {
+  margin-top: 0;
+}
+
+.dz-invalid-head h2 {
+  margin: 0;
+}
+
+.dz-invite-centro {
+  width: 68px;
+  flex: none;
+}
+
+.dz-sheet .stack .btn {
+  justify-content: center;
+}
+
+/* O cartão "Desafio" da coluna da direita, no desktop (no lugar da constância). */
+.dz-side-prog {
+  margin-top: 12px;
+}
+
+.dz-side-board {
+  margin-top: 12px;
+}
+
+.dz-side-board .placar {
+  --pc: 20px;
+  --pr: 5px;
+  justify-content: start;
+}
+
+.dz-side-board .placar .pl-score {
+  font-size: 22px;
+}
+
+/* O modo desafio do Timer: a revelação e os passos de B no fluxo da coluna; no celular, cada peça na ordem da maquete (o placar no topo, o
+   selo debaixo do tempo, o botão e a nota depois das ações). */
+.timer[data-duel] .dz-reveal,
+.timer[data-duel] .dz-step,
+.timer[data-duel] .dz-top {
+  margin-top: 12px;
+}
+
+/* Fora do celular o Timer é alinhado à esquerda: a revelação fica debaixo do tempo, e os botões de B na largura deles. */
+@media (min-width: 640px) {
+  .timer[data-duel] .dz-reveal {
+    justify-items: start;
+  }
+
+  .timer[data-duel] .btn.dz-step {
+    width: auto;
+    min-width: 280px;
+  }
+}
+
+@media (max-width: 639px) {
+  /* No celular, o modo desafio não tem a linha do coach (3, 6a, 6b): o progresso ou o placar ocupa o topo, e as zonas cabem acima da barra. */
+  .timer[data-duel] .coach {
+    display: none;
+  }
+
+  .timer[data-duel] .dz-top {
+    order: 0;
+    margin-top: 0;
+  }
+
+  .timer[data-duel] .dz-reveal {
+    order: 4;
+    margin-top: 0;
+  }
+
+  .timer[data-duel] .dz-step {
+    order: 6;
+    margin-top: 0;
+  }
+
+  .dz-end.screen {
+    padding-top: 0;
+  }
+}

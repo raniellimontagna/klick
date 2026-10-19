@@ -593,6 +593,116 @@ export const T = Object.freeze({
     later: 'Agora não',
   }),
   season: (n: number, done: number, finish: string) => `Temporada ${n} · ${done} de 9 marcos · ${finish}`,
+  // O desafio por link (spec do desafio e a maquete aprovada, docs/design/2026-10-19-desafio-maquete.html): a pílula do Timer, as folhas,
+  // o modo desafio do Timer e as telas de fim. O texto é o da maquete; o que ela não desenha (o erro de gerar, o empate, a resposta sem
+  // nome) segue o tom dela.
+  duel: Object.freeze({
+    // A barra do topo (1, 3): "Desafiar" ao lado da pílula da sessão; no modo, uma pílula só.
+    challenge: 'Desafiar',
+    pill: (event: string): string => `Desafio · ${event} ▾`,
+    // A folha "Desafiar" (2a, 2b)
+    sheetTitle: 'Desafiar',
+    sheetText: 'Você resolve sete embaralhamentos e manda o link. Quem receber joga contra os seus tempos, um por vez; primeiro a 3 pontos vence.',
+    eventLabel: 'Evento',
+    outsideStats: 'Os tempos do desafio não entram nas suas médias nem nos recordes.',
+    start: 'Começar',
+    cancel: 'Cancelar',
+    generating: 'Gerando os sete embaralhamentos…',
+    generateFailed: 'Não consegui gerar os sete embaralhamentos. Tente de novo.',
+    // O modo desafio do Timer (3, 6a, 6b e o desktop)
+    scramble: (n: number): string => `Embaralhamento ${n} de 7`,
+    card: (event: string): string => `Desafio · ${event}`,
+    now: 'agora',
+    hints: 'espaço armar · qualquer tecla para · P +2 · D DNF · os tempos do desafio não entram nas médias',
+    // A pílula do modo (3b)
+    menuLabel: 'Desafio',
+    menuTitle: (event: string): string => `Desafio · ${event}`,
+    menuText: (n: number | null): string =>
+      `${n === null ? '' : `Embaralhamento ${n} de 7. `}Sair não perde nada: o desafio fica em Evolução › Desafios e continua de onde parou.`,
+    keepGoing: 'Continuar o desafio',
+    pause: 'Pausar e voltar ao Timer',
+    discard: 'Descartar o desafio',
+    confirmAgain: 'Tem certeza? Clique de novo',
+    // A terminou (4)
+    readyLabel: 'Desafio pronto',
+    readyCoach: 'Sete de sete. Agora é com quem receber.',
+    myTimes: (event: string): string => `Seus tempos · ${event}`,
+    nameLabel: 'Seu nome no desafio (opcional)',
+    nameHint: 'Só quem receber este link vê. Fica guardado nos Ajustes.',
+    nameHintReply: (them: string): string => `${them} vê na resposta. Fica guardado nos Ajustes.`,
+    nameCount: (n: number, max: number): string => `${n}/${max}`,
+    send: 'Mandar o desafio',
+    sendNote: 'Abre o compartilhar do aparelho. Sem ele, o link é copiado.',
+    copied: 'Link copiado. Cole na conversa.',
+    copyFailed: 'Não consegui copiar o link. Tente de novo.',
+    linkFailed: 'Não consegui preparar o link. Tente de novo.',
+    // O texto que vai com o link: sem nome, o "Alguém te desafiou" do convite.
+    shareText: (name: string, event: string): string => `${name || 'Alguém'} te desafiou no Klick: ${event}, sete embaralhamentos, primeiro a 3 pontos.`,
+    replyText: (name: string, event: string): string => `${name || 'Alguém'} respondeu ao seu desafio no Klick: ${event}, a partida inteira, ponto a ponto.`,
+    // B abre o link (5)
+    inviteLabel: 'Desafio por link',
+    invited: (name: string): string => (name ? `${name} te desafiou` : 'Alguém te desafiou'),
+    chipScrambles: '7 embaralhamentos',
+    chipTarget: 'primeiro a 3 pontos',
+    inviteText: (name: string): string =>
+      `Um por vez, sem refazer: depois de cada solve, aparece o tempo de ${name || 'quem desafiou'} naquele embaralhamento e quem levou o ponto.`,
+    noAccount: 'Sem conta e sem instalar nada.',
+    localOnly: 'Seus tempos ficam só neste aparelho.',
+    accept: 'Aceitar',
+    notNow: 'Agora não',
+    // A penalidade antes do ponto (6a) e a revelação (6b)
+    seePoint: 'Ver o ponto',
+    checkPenalty: 'Confira a penalidade antes: depois do ponto, o tempo fica.',
+    pointMine: 'Ponto seu',
+    pointTheirs: (name: string): string => (name ? `Ponto de ${name}` : 'Ponto do oponente'),
+    pointNone: (twoDnf: boolean): string => `Ninguém pontua · ${twoDnf ? 'dois DNF' : 'empate no centésimo'}`,
+    withPlus2: (time: string): string => `${time} com +2`,
+    youFaster: (diff: string): string => `você foi ${diff} s mais rápido`,
+    theyFaster: (name: string, diff: string): string => `${name || 'o oponente'} foi ${diff} s mais rápido`,
+    next: 'Próximo',
+    // "Ranielli: 0:15.51 com +2. Ponto seu. Você 2, Ranielli 1."
+    revealAria: (them: string, time: string, verdict: string, mine: number, theirs: number): string =>
+      `${them}: ${time}. ${verdict}. Você ${mine}, ${them} ${theirs}.`,
+    // O placar em peças: quem é quem pelo nome da linha; o leitor de tela ouve por extenso.
+    me: 'Você',
+    opponent: 'Oponente',
+    yourOpponent: 'Seu oponente',
+    board: (them: string, mine: number, theirs: number, cells: readonly string[]): string =>
+      `Placar: Você ${mine}, ${them} ${theirs}. ${cells.map((c, i) => `${i + 1}: ${c}`).join('; ')}.`,
+    cellMine: 'ponto seu',
+    cellTheirs: (name: string): string => (name ? `ponto de ${name}` : 'ponto do oponente'),
+    cellNone: 'ninguém pontua',
+    cellOpen: 'ainda não jogado',
+    cellSkip: 'não jogado',
+    // O fim da partida (7, 8)
+    youWon: (mine: number, theirs: number, bySingle: boolean): string => `Você venceu ${mine} × ${theirs}${bySingle ? ' no melhor single' : ''}`,
+    theyWon: (name: string, theirs: number, mine: number, bySingle: boolean): string =>
+      `${name || 'Seu oponente'} venceu ${theirs} × ${mine}${bySingle ? ' no melhor single' : ''}`,
+    draw: (mine: number, theirs: number): string => `Empate em ${mine} × ${theirs}`,
+    standing: (them: string, mine: number, theirs: number): string => `Você ${mine} × ${theirs} ${them}`, // uma partida que não acabou (só para ver)
+    against: (name: string, event: string, n: number): string => `${name ? `Contra ${name}` : 'Contra o oponente'} · ${event} · fechou no embaralhamento ${n}`,
+    closedBy: (who: string, n: number): string => `${who} fechou no embaralhamento ${n}.`,
+    closedAt: (n: number): string => `A partida fechou no embaralhamento ${n}.`,
+    myBest: (time: string): string => `Seu melhor da partida: ${time}.`,
+    colNumber: '#',
+    colPoint: 'Ponto',
+    pointCellMine: 'seu',
+    pointCellNone: 'ninguém',
+    notPlayed: (n: number): string => (n === 1 ? 'não jogado' : 'não jogados'),
+    yoursUnplayed: (times: readonly string[]): string =>
+      times.length === 1 ? `seu ${times[0]}` : `seus ${times.slice(0, -1).join(', ')} e ${times.at(-1)}`,
+    sendReply: 'Mandar a resposta',
+    replyNote: (name: string): string => `${name || 'Quem desafiou'} vê a partida inteira, ponto a ponto.`,
+    rematch: 'Desafiar de volta',
+    // A abre a resposta (8)
+    replyLabel: 'Resposta do desafio',
+    seeAll: 'Ver em Desafios',
+    close: 'Fechar',
+    // Link inválido (10)
+    invalidTitle: 'Este desafio não abre nesta versão do Klick',
+    invalidText: 'O link pode ter sido cortado no caminho ou vir de uma versão mais nova do Klick. Peça o link de novo a quem mandou.',
+    invalidNothing: 'Nada mudou no seu Klick.',
+  }),
   // Conta e sync (sub-projeto 5a): Ajustes, o diálogo de entrar, o indicador e os avisos. Voz calma; nada de culpa.
   conta: Object.freeze({
     syncFailedLive: 'O sync parou. Seus solves continuam salvos neste aparelho.',

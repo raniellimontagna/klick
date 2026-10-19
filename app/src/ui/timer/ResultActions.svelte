@@ -15,6 +15,7 @@
     onDelete: () => void;
     onNoteSave: (text: string) => void;
     onNoteClose: () => void;
+    penaltiesOnly?: boolean; // o desafio: só +2 e DNF (sem Nota e sem Excluir, não dá para refazer um embaralhamento)
   }
 
   let {
@@ -31,6 +32,7 @@
     onDelete,
     onNoteSave,
     onNoteClose,
+    penaltiesOnly = false,
   }: Props = $props();
 
   // Esc fecha a nota (protótipo app.js). Quem fecha decide o foco.
@@ -49,8 +51,10 @@
 <div class="t-actions fade" data-actions hidden={!visible}>
   <button type="button" class="btn" data-act="plus2" aria-pressed={plus2 ? 'true' : 'false'} onclick={onPlus2}>{T.actions.plus2} <kbd>P</kbd></button>
   <button type="button" class="btn" data-act="dnf" aria-pressed={dnf ? 'true' : 'false'} onclick={onDnf}>{T.actions.dnf} <kbd>D</kbd></button>
-  <button type="button" class="btn" class:has-note={note !== ''} data-act="note" aria-label={note ? T.note.button(note) : undefined} onclick={onNote}>{T.actions.note} <kbd>M</kbd></button>
-  <button type="button" class="btn" data-act="delete" onclick={onDelete}>{T.actions.delete} <kbd>⌫</kbd></button>
+  {#if !penaltiesOnly}
+    <button type="button" class="btn" class:has-note={note !== ''} data-act="note" aria-label={note ? T.note.button(note) : undefined} onclick={onNote}>{T.actions.note} <kbd>M</kbd></button>
+    <button type="button" class="btn" data-act="delete" onclick={onDelete}>{T.actions.delete} <kbd>⌫</kbd></button>
+  {/if}
 </div>
 
 <form class="t-note fade" data-noteform hidden={!noteOpen} onsubmit={submit}>

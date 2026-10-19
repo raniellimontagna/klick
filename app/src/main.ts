@@ -8,6 +8,7 @@ import './styles/tokens.css';
 import './styles/base.css';
 import './styles/components.css';
 import './styles/screens.css';
+import './styles/duel.css';
 import { mount } from 'svelte';
 import { registerSW } from 'virtual:pwa-register';
 import App from './ui/App.svelte';

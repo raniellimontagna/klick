@@ -21,6 +21,10 @@
 import SyncIndicator from './SyncIndicator.svelte';
   import UpdatePrompt from './dialogs/UpdatePrompt.svelte';
   import DbNotice from './dialogs/DbNotice.svelte';
+  import ChallengeSheet from './duel/ChallengeSheet.svelte';
+  import DuelMenu from './duel/DuelMenu.svelte';
+  import InvalidSheet from './duel/InvalidSheet.svelte';
+  import InviteSheet from './duel/InviteSheet.svelte';
   import { dbNotice, dbUpgrade } from './state/db-notice.svelte';
   import TimerScreen from './timer/TimerScreen.svelte';
 
@@ -161,9 +165,10 @@ import SyncIndicator from './SyncIndicator.svelte';
   let tourOffered = false;
   let installOffered = false;
 
-  // Primeira vez: o tour abre quando nenhum outro diálogo está aberto e o perfil ainda não foi marcado como visto.
+  // Primeira vez: o tour abre quando nenhum outro diálogo está aberto e o perfil ainda não foi marcado como visto. Um desafio aberto (ou um
+  // link sendo lido) vem antes: quem chega por um link vai direto ao desafio, e a apresentação fica para depois.
   $effect(() => {
-    if (!app || tourOffered || app.dialog !== null || app.profile.onboarded) return;
+    if (!app || tourOffered || app.dialog !== null || app.profile.onboarded || app.duel.blocksOnboarding) return;
     tourOffered = true;
     app.dialog = 'onboarding';
   });
@@ -172,7 +177,7 @@ import SyncIndicator from './SyncIndicator.svelte';
   // de plataforma fica em shouldShowInstallGuide.
   $effect(() => {
     const meta = app?.meta;
-    if (!app || !meta || installOffered || app.dialog !== null || app.timerBusy || app.solves.length < INSTALL_GUIDE_SOLVES) return;
+    if (!app || !meta || installOffered || app.dialog !== null || app.timerBusy || app.duel.blocksOnboarding || app.solves.length < INSTALL_GUIDE_SOLVES) return;
     const offer = shouldShowInstallGuide({
       ua: navigator.userAgent,
       maxTouchPoints: navigator.maxTouchPoints,
@@ -197,6 +202,14 @@ import SyncIndicator from './SyncIndicator.svelte';
     if (shownTab !== null && shownTab !== tab) window.scrollTo(0, 0);
     shownTab = tab;
   });
+
+  // As pílulas do topo (a maquete aprovada, 1 e 3): "Desafiar", irmã da pílula da sessão, só no Timer parado (some na inspeção e no solve,
+  // como o resto do topo, e com uma partida aberta por cima). No modo desafio, as duas dão lugar a "Desafio · 3×3 ▾", que abre continuar,
+  // sair e descartar.
+  const duelMode = $derived(app !== null && app.duel.current !== null && ['solving', 'confirm', 'reveal', 'finished'].includes(app.duel.phase));
+  const challengeShown = $derived(
+    app !== null && app.tab === 'timer' && !app.timerBusy && ['idle', 'picking', 'loading', 'invalid'].includes(app.duel.phase),
+  );
 
   function current(tab: Tab): 'page' | undefined {
     return app?.tab === tab ? 'page' : undefined;
@@ -249,7 +262,14 @@ import SyncIndicator from './SyncIndicator.svelte';
         {/each}
       </nav>
       <div class="meta">
-        <button type="button" class="pill" data-session-pill aria-haspopup="dialog" onclick={() => openDialog('sessions')}>{T.session.pill(eventInfo(app.event).short, app.activeSession?.name ?? '')}</button>
+        {#if duelMode && app.duel.current}
+          <button type="button" class="pill mode" data-duel-pill aria-haspopup="dialog" onclick={() => openDialog('duel')}>{T.duel.pill(eventInfo(app.duel.current.event).short)}</button>
+        {:else}
+          {#if challengeShown}
+            <button type="button" class="pill" data-desafiar aria-haspopup="dialog" onclick={() => app?.duel.pick()}>{T.duel.challenge}</button>
+          {/if}
+          <button type="button" class="pill" data-session-pill aria-haspopup="dialog" onclick={() => openDialog('sessions')}>{T.session.pill(eventInfo(app.event).short, app.activeSession?.name ?? '')}</button>
+        {/if}
         <span data-date>{dateLabel(Date.now())}</span>
         <SyncIndicator {app} />
       </div>
@@ -329,6 +349,11 @@ import SyncIndicator from './SyncIndicator.svelte';
       {#if app.account}
         <SignInDialog {app} open={app.dialog === 'signin'} />
       {/if}
+      <!-- O desafio: as folhas abrem pelas fases dele (escolher e gerar, o convite, o link torto); a da pílula, por app.dialog. -->
+      <ChallengeSheet {app} />
+      <InviteSheet {app} />
+      <InvalidSheet {app} />
+      <DuelMenu {app} />
     </div>
   {:else if dbUpgrade() === 'running'}
     <main class="screen">
