@@ -7,7 +7,8 @@
   // Mandar: a folha do sistema (ou a cópia) só abre dentro do toque da pessoa, então o link fica pronto antes: ao chegar na tela, a cada
   // pausa na digitação do nome (que grava nos Ajustes ao preparar) e a cada troca da penalidade do sétimo. Até lá, o botão espera. O toque
   // dá o link por saído (app.duel.send: os tempos de A travam e a marca de mandado entra na fila, sem esperar) e abre a folha na hora; a
-  // folha recusada oferece "Copiar o link", num toque novo, e a folha fechada sem mandar volta o desafio a jogar (app.duel.unsend).
+  // folha recusada oferece "Copiar o link", num toque novo, e a folha fechada sem mandar volta o desafio a jogar (app.duel.unsend), como a
+  // cópia que falha quando ela era o único caminho (sem a folha do sistema, nada saiu do aparelho).
   import { onDestroy, tick, untrack } from 'svelte';
   import { MAX_DUEL_NAME } from '../../core/duel/link';
   import { eventInfo } from '../../core/events';
@@ -122,9 +123,11 @@
         },
         () => app.showToast(T.duel.sentNotSaved),
       );
+    } else {
+      void marking.catch(() => {}); // a resposta de B: o link já sai pela folha; o nome que não gravou já avisou
     }
     if (!canShare()) {
-      copyNow(url);
+      copyNow(url, true);
       return;
     }
     copyOffer = null;
@@ -134,11 +137,13 @@
     });
   }
 
-  // A cópia, também na hora do toque (o de Mandar sem a folha do sistema, ou o de "Copiar o link").
-  function copyNow(url: string): void {
+  // A cópia, também na hora do toque (o de Mandar sem a folha do sistema, ou o de "Copiar o link"). `only`: era o único caminho (sem a
+  // folha do sistema); se ela falha, nada saiu do aparelho, e o desafio volta a jogar, como ao fechar a folha sem mandar.
+  function copyNow(url: string, only = false): void {
     void copyLink(url).then((how) => {
       if (how === 'failed') {
         app.showToast(T.duel.copyFailed);
+        if (only) void app.duel.unsend();
         return;
       }
       app.showToast(T.duel.copied);

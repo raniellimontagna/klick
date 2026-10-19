@@ -830,6 +830,50 @@ describe('a barra do topo e a pílula do modo', () => {
   });
 });
 
+describe('mandar sem nada sair', () => {
+  it('sem a folha do sistema e sem conseguir copiar, nada saiu: o desafio volta a jogar e +2 e DNF voltam', async () => {
+    const { a, repo } = await device();
+    await mount(a);
+    await a.duel.start('333');
+    for (let i = 0; i < 7; i++) await a.duel.record(tm(10_000 + i));
+    const writeText = vi.fn(async (_text: string) => {
+      throw new DOMException('negado', 'NotAllowedError');
+    });
+    stubShare(undefined, writeText);
+    (await readyButton(T.duel.send)).click();
+    expect(writeText).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(a.toast?.text).toBe(T.duel.copyFailed));
+    await waitFor(() => expect(a.duel.linkOut).toBe(false));
+    await waitFor(() => expect(a.duel.current).toMatchObject({ status: 'playing' }));
+    expect(await repo.getDuel(a.duel.current!.id)).toMatchObject({ status: 'playing' });
+    expect(await screen.findByRole('group', { name: T.duel.lastPenalty(7) })).toBeInTheDocument();
+  });
+
+  it('a resposta de B que não sai não deixa promessa sem dono', async () => {
+    const b = await acceptedB();
+    for (let i = 0; i < 3; i++) {
+      await solveDuel(b.a, 10_000);
+      await fireEvent.click(screen.getByRole('button', { name: T.duel.seePoint }));
+      await waitFor(() => expect(b.a.duel.phase).toBe('reveal'));
+      await fireEvent.click(await screen.findByRole('button', { name: T.duel.next }));
+    }
+    await waitFor(() => expect(b.a.duel.phase).toBe('finished'));
+    const share = vi.fn(async (_data: ShareData) => {});
+    stubShare(share);
+    const button = await readyButton(T.duel.sendReply);
+    // Trocado à mão, sem vi.spyOn: o espião segura a promessa que devolve (para os resultados dele), e a rejeição sem dono não apareceria.
+    let sent = 0;
+    b.a.duel.send = () => {
+      sent++;
+      return Promise.reject(new Error('o banco caiu'));
+    };
+    button.click();
+    expect(sent).toBe(1);
+    expect(share).toHaveBeenCalledTimes(1); // a folha abre do mesmo jeito: o link já estava pronto
+    await sleep(20);
+  });
+});
+
 describe('a resposta em Desafios', () => {
   it('"Ver em Desafios" abre a lista dos Desafios, com a partida terminada', async () => {
     const A = await device({ name: 'Ranielli' });
