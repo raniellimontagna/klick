@@ -8,7 +8,7 @@ import { emailKeyOf } from '../../worker/abuse';
 import type { Env } from '../../worker/env';
 import { COMPACT_PER_DAY, DAILY_WRITE_BUDGET, MAX_WRITES_PER_REQUEST, rowsOf, utcDay } from '../../worker/limits';
 import { COMPACTABLE } from '../../worker/records-sql';
-import { dayOf, gunzipJson, nextSnapshotAt, preRestoreName, snapshotKey, snapshotPrefix } from '../../worker/snapshots';
+import { dayOf, gunzipJson, gzipJson, nextSnapshotAt, partKey, preRestoreName, snapshotKey, snapshotPrefix } from '../../worker/snapshots';
 import { authDeps, call, ORIGIN, postJson, setState, stateOf, stubOf, T0, testDeps, testEnv } from './helpers';
 
 const as = (user: string): Record<string, string> => ({ [ACCOUNT_HEADER]: user }); // a conta que o aparelho espera (C1)
@@ -86,7 +86,7 @@ describe('a cópia diária (spec 8.3)', () => {
     const data = (await gunzipJson(await object!.arrayBuffer())) as KlickExport;
     expect(data).toMatchObject({ format: 'klick', version: 1 });
     expect(data.solves.map((s) => s.id)).toEqual(['a', 'b']);
-    expect(await listOf('conta-alarme')).toEqual({ copies: [{ name: day, day, kind: 'daily', solves: 2 }], paused: null });
+    expect(await listOf('conta-alarme')).toEqual({ copies: [{ name: day, day, kind: 'daily', solves: 2, parts: 0 }], paused: null });
     expect(await stub.snapshot(Date.now())).toBe(false); // nada mudou desde a última
     expect(await alarmOf('conta-alarme')).toBeGreaterThan(Date.now()); // e o de amanhã já está marcado
   });
@@ -110,6 +110,29 @@ describe('a cópia diária (spec 8.3)', () => {
     expect(dayOf(t)).toBe('2026-10-14');
     expect(preRestoreName(Date.UTC(2026, 9, 15, 21, 3, 7))).toBe('2026-10-15T21-03-07Z-antes');
     expect(preRestoreName(t)).toBe('2026-10-15T02-00-00Z-antes'); // o dia e a hora em UTC, mesmo quando em Brasília ainda é dia 14
+  });
+});
+
+// O formato em partes (a conta grande): o manifesto fica na chave da cópia, e as partes numa pasta com o nome dela. A lista mostra só o
+// manifesto, com quantas partes ele tem; as partes ficam de fora.
+describe('a lista das cópias com partes', () => {
+  it('a lista não mostra as partes, só o manifesto, com parts', async () => {
+    const user = 'conta-partes';
+    const day = '2026-10-20';
+    const big = '2026-10-19';
+    await sync(user, [session, solve('a')]); // a conta existe (a lista vem do objeto dela); as cópias abaixo são postas direto no R2
+    const bytes = await gzipJson({ x: 1 });
+    await env.SNAPSHOTS.put(snapshotKey(user, day), bytes, { customMetadata: { kind: 'daily', day, solves: '30', parts: '3' } });
+    for (const i of [1, 2, 3]) await env.SNAPSHOTS.put(partKey(user, day, i), bytes);
+    await env.SNAPSHOTS.put(snapshotKey(user, big), bytes, { customMetadata: { kind: 'daily', day: big, solves: '5' } });
+    expect(partKey(user, day, 1)).toBe(`snap/${user}/${day}/001.json.gz`);
+    expect(partKey(user, day, 12)).toBe(`snap/${user}/${day}/012.json.gz`);
+    expect(await objectsOf(user)).toHaveLength(5); // as quatro partes e as duas cópias estão no R2
+    const list = (await copies(user)).sort((a, b) => (a.name < b.name ? 1 : -1));
+    expect(list).toEqual([
+      { name: day, day, kind: 'daily', solves: 30, parts: 3 },
+      { name: big, day: big, kind: 'daily', solves: 5, parts: 0 },
+    ]);
   });
 });
 
@@ -212,7 +235,7 @@ describe('restaurar um dia (spec 8.3)', () => {
     expect(res.status).toBe(204);
     const list = await copies('conta-volta');
     expect(list.map((c) => c.kind).sort()).toEqual(['daily', 'pre-restore']);
-    expect(list.find((c) => c.kind === 'pre-restore')).toEqual({ name: preRestoreName(T0 + 1000), day: dayOf(T0 + 1000), kind: 'pre-restore', solves: 2 });
+    expect(list.find((c) => c.kind === 'pre-restore')).toEqual({ name: preRestoreName(T0 + 1000), day: dayOf(T0 + 1000), kind: 'pre-restore', solves: 2, parts: 0 });
     const all = new Map((await sync('conta-volta', [], 0)).changes.map((c) => [c.id, c]));
     expect(all.get('a')).toMatchObject({ deletedAt: null, data: { ms: 1000 } });
     expect(all.get('a')!.updatedAt).toBeGreaterThan(T0 + 50);

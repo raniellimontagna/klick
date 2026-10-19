@@ -43,8 +43,8 @@ describe('cópias na nuvem (spec 8.3 e 9.1)', () => {
   it('lista os dias com os solves; restaurar pede o segundo clique e depois sincroniza', async () => {
     const net = fakeApi(new FakeServer());
     net.cloud.copies = [
-      { name: '2026-10-15', day: '2026-10-15', kind: 'daily', solves: 1234 },
-      { name: '2026-10-14T21-03-00Z-antes', day: '2026-10-14', kind: 'pre-restore', solves: 1200 },
+      { name: '2026-10-15', day: '2026-10-15', kind: 'daily', solves: 1234, parts: 0 },
+      { name: '2026-10-14T21-03-00Z-antes', day: '2026-10-14', kind: 'pre-restore', solves: 1200, parts: 0 },
     ];
     const { app } = await appWithAccount(net.api, { signedIn: true });
     render(AjustesScreen, { app });
@@ -63,7 +63,7 @@ describe('cópias na nuvem (spec 8.3 e 9.1)', () => {
 
   it('o segundo clique em "Restaurar este dia" antes de 400 ms não restaura; depois, restaura', async () => {
     const net = fakeApi(new FakeServer());
-    net.cloud.copies = [{ name: '2026-10-15', day: '2026-10-15', kind: 'daily', solves: 5 }];
+    net.cloud.copies = [{ name: '2026-10-15', day: '2026-10-15', kind: 'daily', solves: 5, parts: 0 }];
     const { app } = await appWithAccount(net.api, { signedIn: true });
     render(AjustesScreen, { app });
     await fireEvent.click(await screen.findByRole('button', { name: 'Ver cópias na nuvem' }));
@@ -82,7 +82,7 @@ describe('cópias na nuvem (spec 8.3 e 9.1)', () => {
 
   it('a cópia que não existe mais (404) avisa e relê a lista, sem sincronizar; sem rede, nada muda', async () => {
     const net = fakeApi(new FakeServer());
-    net.cloud.copies = [{ name: '2026-09-10', day: '2026-09-10', kind: 'daily', solves: 10 }];
+    net.cloud.copies = [{ name: '2026-09-10', day: '2026-09-10', kind: 'daily', solves: 10, parts: 0 }];
     const { app } = await appWithAccount(net.api, { signedIn: true });
     render(AjustesScreen, { app });
     await fireEvent.click(await screen.findByRole('button', { name: 'Ver cópias na nuvem' }));
@@ -131,7 +131,7 @@ describe('cópias na nuvem: pausas e recusas', () => {
 
   it.each(REFUSALS)('cada recusa da restauração mostra a mensagem dela e nada muda (%s, %i)', async (code, status, message) => {
     const net = fakeApi(new FakeServer());
-    net.cloud.copies = [{ name: '2026-10-15', day: '2026-10-15', kind: 'daily', solves: 3 }];
+    net.cloud.copies = [{ name: '2026-10-15', day: '2026-10-15', kind: 'daily', solves: 3, parts: 0 }];
     const { app, repo } = await appWithAccount(net.api, { signedIn: true });
     await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
     await app.addSolve({ ms: 9000, penalty: null, at: Date.now() });
@@ -200,7 +200,7 @@ describe('cópias na nuvem: pausas e recusas', () => {
 
   it('a lista com as cópias pausadas diz por quê no topo do diálogo', async () => {
     const net = fakeApi(new FakeServer());
-    net.cloud.copies = [{ name: '2026-10-15', day: '2026-10-15', kind: 'daily', solves: 3 }];
+    net.cloud.copies = [{ name: '2026-10-15', day: '2026-10-15', kind: 'daily', solves: 3, parts: 0 }];
     let paused: string | null = 'ops'; // a lista guardada, que não se renovou este mês
     net.api.cloudCopies = createSyncApi(async () => Response.json({ copies: net.cloud.copies, paused })).cloudCopies;
     const { app } = await appWithAccount(net.api, { signedIn: true });
@@ -440,7 +440,7 @@ describe('a conta deste aparelho nas rotas da conta (C1)', () => {
 describe('cliente HTTP das cópias e da conta (Task 17)', () => {
   it('lista, restaura e apaga nas rotas do servidor; o 404 da cópia chega como 404', async () => {
     const seen: { url: string; init?: RequestInit }[] = [];
-    const copies = [{ name: '2026-10-15', day: '2026-10-15', kind: 'daily', solves: 3 }];
+    const copies = [{ name: '2026-10-15', day: '2026-10-15', kind: 'daily', solves: 3, parts: 0 }];
     const api = createSyncApi(async (url, init) => {
       seen.push({ url, init });
       if (url === '/api/snapshots') return Response.json({ copies });
@@ -465,13 +465,27 @@ describe('cliente HTTP das cópias e da conta (Task 17)', () => {
     for (const init of seen.map((s) => s.init)) expect(init?.signal).toBeInstanceOf(AbortSignal); // com prazo
   });
 
+  it('a cópia sem parts (um Worker de antes das partes) vale 0; parts torto tira a cópia da lista', async () => {
+    const copies = [
+      { name: '2026-10-15', day: '2026-10-15', kind: 'daily', solves: 3 },
+      { name: '2026-10-16', day: '2026-10-16', kind: 'daily', solves: 4, parts: 3 },
+      { name: '2026-10-17', day: '2026-10-17', kind: 'daily', solves: 5, parts: '3' },
+      { name: '2026-10-18', day: '2026-10-18', kind: 'daily', solves: 5, parts: -1 },
+    ];
+    const api = createSyncApi(async () => Response.json({ copies }));
+    expect((await api.cloudCopies('conta-1')).copies).toEqual([
+      { name: '2026-10-15', day: '2026-10-15', kind: 'daily', solves: 3, parts: 0 },
+      { name: '2026-10-16', day: '2026-10-16', kind: 'daily', solves: 4, parts: 3 },
+    ]);
+  });
+
   it('uma lista fora da forma (o index.html sem o Worker) é erro do servidor', async () => {
     await expect(createSyncApi(async () => new Response('<!doctype html>', { status: 200 })).cloudCopies('conta-1')).rejects.toMatchObject({ kind: 'server' });
     await expect(createSyncApi(async () => Response.json({ copies: 'nada' })).cloudCopies('conta-1')).rejects.toMatchObject({ kind: 'server' });
   });
 
   it('a lista traz a pausa das cópias; uma pausa torta vale null', async () => {
-    const copies = [{ name: '2026-10-15', day: '2026-10-15', kind: 'daily', solves: 3 }];
+    const copies = [{ name: '2026-10-15', day: '2026-10-15', kind: 'daily', solves: 3, parts: 0 }];
     const list = (paused: unknown) => createSyncApi(async () => Response.json({ copies, paused })).cloudCopies('conta-1');
     expect(await list('space')).toEqual({ copies, paused: 'space' });
     expect(await list('ops')).toEqual({ copies, paused: 'ops' });

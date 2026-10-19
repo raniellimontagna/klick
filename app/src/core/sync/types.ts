@@ -120,6 +120,7 @@ export interface CloudCopy {
   day: string; // AAAA-MM-DD, em Brasília
   kind: 'daily' | 'pre-restore';
   solves: number; // solves ativos na cópia
+  parts: number; // as partes da cópia grande (core/sync/copy-parts.ts); 0 numa cópia de um arquivo só
 }
 
 // Por que as cópias na nuvem estão pausadas (endurecimento 4.2 e decisões 1 e 2): o teto de espaço das cópias encheu ('space'), o de

@@ -92,12 +92,16 @@ function syncResponseOf(body: unknown): SyncResponse | null {
   return { ...(r as unknown as SyncResponse), rejected: (r.rejected as Rejected[] | undefined) ?? [] };
 }
 
-// Uma cópia da lista com a forma que o diálogo mostra (o nome é a chave da lista e vai na rota de restaurar).
-const isCopy = (c: unknown): c is CloudCopy => {
-  if (typeof c !== 'object' || c === null) return false;
+// Uma cópia da lista com a forma que o diálogo mostra (o nome é a chave da lista e vai na rota de restaurar). Um Worker de antes das
+// cópias em partes não manda `parts`: vale 0 (um arquivo só). Uma forma torta fica de fora da lista.
+function cloudCopy(c: unknown): CloudCopy | null {
+  if (typeof c !== 'object' || c === null) return null;
   const r = c as Record<string, unknown>;
-  return typeof r.name === 'string' && typeof r.day === 'string' && (r.kind === 'daily' || r.kind === 'pre-restore') && Number.isFinite(r.solves);
-};
+  if (typeof r.name !== 'string' || typeof r.day !== 'string' || (r.kind !== 'daily' && r.kind !== 'pre-restore') || !Number.isFinite(r.solves)) return null;
+  const parts = r.parts === undefined ? 0 : r.parts;
+  if (typeof parts !== 'number' || !Number.isInteger(parts) || parts < 0) return null;
+  return { name: r.name, day: r.day, kind: r.kind, solves: r.solves as number, parts };
+}
 
 export function createSyncApi(
   fetcher: Fetcher = (input, init) => fetch(input, init),
@@ -150,7 +154,7 @@ export function createSyncApi(
       }
       const list = body as { copies?: unknown; paused?: unknown } | null;
       if (!Array.isArray(list?.copies)) throw new ApiError('server', res.status);
-      return { copies: list.copies.filter(isCopy), paused: pausedOf(list.paused) };
+      return { copies: list.copies.flatMap((c) => cloudCopy(c) ?? []), paused: pausedOf(list.paused) };
     },
     async restoreCloudCopy(name, account) {
       await post(`/api/snapshots/${encodeURIComponent(name)}/restore`, {}, timeouts.sync, { [ACCOUNT_HEADER]: account });

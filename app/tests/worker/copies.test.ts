@@ -241,7 +241,7 @@ describe('a lista das cópias (decisão 1)', () => {
     await sync(user, [session, solve('a')]);
     await stubOf(user).snapshot(T0);
     const r2 = await countR2(user);
-    const first = { name: dayOf(T0), day: dayOf(T0), kind: 'daily', solves: 1 };
+    const first = { name: dayOf(T0), day: dayOf(T0), kind: 'daily', solves: 1, parts: 0 };
     expect(await list(user)).toEqual({ status: 200, body: { copies: [first], paused: null } });
     expect([r2.list, await opsOf('A')]).toEqual([1, 2]); // o put da cópia e uma página da lista
     expect(await list(user, T0 + COPIES_CACHE_MS - 1)).toEqual({ status: 200, body: { copies: [first], paused: null } });

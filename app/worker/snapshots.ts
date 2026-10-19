@@ -5,6 +5,8 @@ import type { CloudCopy } from '../src/core/sync/types';
 export const SNAPSHOTS_ROOT = 'snap/'; // todas as cópias, de todas as contas: o que a recontagem do espaço lista (budget.ts)
 export const snapshotPrefix = (userId: string): string => `${SNAPSHOTS_ROOT}${userId}/`;
 export const snapshotKey = (userId: string, name: string): string => `${snapshotPrefix(userId)}${name}.json.gz`;
+// Uma parte da cópia grande (copy-parts.ts): numa pasta com o nome da cópia, `i` de 1, com 3 dígitos para a lista da pasta sair na ordem.
+export const partKey = (userId: string, name: string, i: number): string => `${snapshotPrefix(userId)}${name}/${String(i).padStart(3, '0')}.json.gz`;
 export const SNAPSHOT_NAME = /^\d{4}-\d{2}-\d{2}(T\d{2}-\d{2}-\d{2}Z-antes)?$/;
 
 const BRT = 3 * 3_600_000;
@@ -19,21 +21,15 @@ export function nextSnapshotAt(t: number): number {
   return today > t ? today : today + 86_400_000;
 }
 
-async function pipe(input: Uint8Array, transform: CompressionStream | DecompressionStream): Promise<ArrayBuffer> {
-  const stream = new Blob([input]).stream().pipeThrough(transform);
-  return new Response(stream).arrayBuffer();
-}
+// gzipJson e gunzipJson moraram aqui: o app também lê as partes, então vivem em core/gzip.ts, e quem importa daqui segue igual.
+export { gunzipJson, gzipJson } from '../src/core/gzip';
 
-export function gzipJson(data: unknown): Promise<ArrayBuffer> {
-  return pipe(new TextEncoder().encode(JSON.stringify(data)), new CompressionStream('gzip'));
-}
-
-export async function gunzipJson(bytes: ArrayBuffer): Promise<unknown> {
-  return JSON.parse(new TextDecoder().decode(await pipe(new Uint8Array(bytes), new DecompressionStream('gzip')))) as unknown;
-}
+const partsOf = (v: string | undefined): number => (v !== undefined && /^\d+$/.test(v) ? Number(v) : 0);
 
 // As cópias da conta no R2, a mais nova primeiro, e quantas páginas a listagem levou (cada uma, uma operação A). A ordem é a da gravação: o
 // nome da diária leva o dia de Brasília, e o da de antes de restaurar, a data em UTC, que entre 21h e meia-noite de lá já é o dia seguinte.
+// Com `delimiter: '/'` a listagem traz só os objetos de baixo do prefixo da conta: as partes, numa pasta, vão para `delimitedPrefixes` e
+// ficam de fora; quem as guarda é o manifesto, que diz quantas são (`parts` nos metadados; sem ele, ou torto, 0: um arquivo só).
 // Só `list` do bucket: quem chama passa um que reserva a operação antes de cada página (account-store.ts).
 export async function listCopiesIn(bucket: Pick<R2Bucket, 'list'>, userId: string): Promise<{ copies: CloudCopy[]; pages: number }> {
   const prefix = snapshotPrefix(userId);
@@ -41,13 +37,13 @@ export async function listCopiesIn(bucket: Pick<R2Bucket, 'list'>, userId: strin
   let pages = 0;
   let cursor: string | undefined;
   do {
-    const page = await bucket.list({ prefix, include: ['customMetadata'], cursor });
+    const page = await bucket.list({ prefix, delimiter: '/', include: ['customMetadata'], cursor });
     pages += 1;
     for (const o of page.objects) {
       const name = o.key.slice(prefix.length, -'.json.gz'.length);
       const meta = o.customMetadata ?? {};
       const kind = meta.kind === 'pre-restore' ? 'pre-restore' : 'daily';
-      found.push({ copy: { name, day: meta.day ?? name.slice(0, 10), kind, solves: Number(meta.solves ?? 0) }, uploaded: o.uploaded.getTime() });
+      found.push({ copy: { name, day: meta.day ?? name.slice(0, 10), kind, solves: Number(meta.solves ?? 0), parts: partsOf(meta.parts) }, uploaded: o.uploaded.getTime() });
     }
     cursor = page.truncated ? page.cursor : undefined;
   } while (cursor);
