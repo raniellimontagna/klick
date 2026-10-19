@@ -217,6 +217,19 @@ describe('o link do desafio (spec 4)', () => {
     expect((await decodeDuelLink(payloadOf(last('R++\nU'))))?.scrambles[6]).toBe('R++\nU');
   });
 
+  // A revisão final: os controles de formato (\p{Cf}) reordenariam o texto em volta do nome (o U+202E vira o resto da linha de trás para a
+  // frente). No link, o nome com um deles vira vazio; cleanDuelName os tira (são invisíveis: nada a trocar por espaço).
+  it('o nome recusa os controles de formato (o U+202E e os outros \\p{Cf}): no link vira vazio, e cleanDuelName os tira', async () => {
+    for (const ch of ['\u202e', '\u202d', '\u202a', '\u2066', '\u2067', '\u2068', '\u2069', '\u200e', '\u200f', '\u061c', '\ufeff']) {
+      const name = `Ana${ch}Bia`;
+      expect(isDuelName(name), JSON.stringify(ch)).toBe(false);
+      const decoded = await decodeDuelLink(payloadOf(link({ a: { name, times: times() }, b: { name, times: times(1) } })));
+      expect([decoded?.a.name, decoded?.b?.name], JSON.stringify(ch)).toEqual(['', '']);
+      expect(cleanDuelName(name)).toBe('AnaBia');
+      expect(cleanDuelName(`${ch}Ana${ch}`)).toBe('Ana');
+    }
+  });
+
   it('cleanDuelName apara, corta em 20 sem partir um par UTF-16 e sempre devolve um nome que vale', () => {
     expect(cleanDuelName('  Ana  ')).toBe('Ana');
     expect(cleanDuelName('Ana\nBia')).toBe('Ana Bia');

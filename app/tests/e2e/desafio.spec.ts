@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
-import { type BrowserContext, expect, type Page, test } from '@playwright/test';
+import { type BrowserContext, devices, expect, type Page, test } from '@playwright/test';
+import { encodeDuelLink } from '../../src/core/duel/link';
 import { T } from '../../src/strings';
 import { fresh, noInspection, quickSolve } from './helpers';
 
@@ -138,5 +139,25 @@ test('A desafia, B responde noutro navegador sem conta, A vê o resultado', asyn
   } finally {
     await contextA.close();
     await contextB.close();
+  }
+});
+
+// A revisão final: um embaralhamento montado à mão sem espaços (os de verdade sempre têm) quebra a linha em qualquer ponto, e a tela do
+// celular não rola para o lado.
+test('um embaralhamento sem espaços, num link montado à mão, cabe na largura do celular', async ({ browser }) => {
+  const context = await browser.newContext({ ...devices['Pixel 7'] });
+  try {
+    const page = await context.newPage();
+    const long = 'R'.repeat(1_000);
+    const times = Array.from({ length: 7 }, () => ({ ms: 10_000, penalty: null }));
+    const link = await encodeDuelLink({ v: 1, id: 'abcdefgh12345678', event: '333', scrambles: Array.from({ length: 7 }, () => long), a: { name: 'Ana', times } });
+    await page.goto(`/#desafio=${link}`);
+    const invite = page.getByRole('dialog', { name: 'Ana te desafiou' });
+    await invite.getByRole('button', { name: T.duel.accept }).click();
+    await expect(page.locator('[data-screen="timer"]')).toHaveAttribute('data-duel', 'solving');
+    await expect(page.locator('[data-screen="timer"] [data-scramble]')).toHaveText(long);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+  } finally {
+    await context.close();
   }
 });

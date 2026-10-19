@@ -17,8 +17,9 @@
   import { eventInfo } from '../../core/events';
   import { T } from '../../strings';
   import type { AppState } from '../state/app.svelte';
+  import Bidi from './Bidi.svelte';
   import DuelCentro from './DuelCentro.svelte';
-  import { bestOf, duelTime, outcomeOf, rowName } from './duel-view';
+  import { bestOf, duelTime, isolate, outcomeOf, plain, rowName } from './duel-view';
   import { focusTimerIfLost } from './focus';
   import MatchCards from './MatchCards.svelte';
   import PasteReply from './PasteReply.svelte';
@@ -74,7 +75,7 @@
         const lost = active === null || active === document.body || active.closest('[data-screen="timer"]') !== null;
         if (first && !lost) return;
         (titleEl ?? sectionEl)?.focus({ preventScroll: true });
-        if (!first && phase === 'reply' && outcome) app.announce(T.duel.replyArrived(outcome.title, outcome.closed));
+        if (!first && phase === 'reply' && outcome) app.announce(plain(T.duel.replyArrived(outcome.title, outcome.closed)));
       });
     });
   });
@@ -190,7 +191,7 @@
       aria-labelledby="{uid}-name"
       aria-describedby="{uid}-hint"
     />
-    <small id="{uid}-hint"><span>{hint}</span><span class="num">{T.duel.nameCount(name.length, MAX_DUEL_NAME)}</span></small>
+    <small id="{uid}-hint"><span><Bidi text={hint} /></span><span class="num">{T.duel.nameCount(name.length, MAX_DUEL_NAME)}</span></small>
   </label>
 {/snippet}
 
@@ -259,27 +260,27 @@
     </section>
   {:else if outcome && phase === 'finished'}
     <!-- 7: B terminou -->
-    <section class="screen dz-end center" data-screen="duel" aria-label={outcome.title} tabindex="-1" bind:this={sectionEl}>
+    <section class="screen dz-end center" data-screen="duel" aria-label={plain(outcome.title)} tabindex="-1" bind:this={sectionEl}>
       <div class="dz-hero"><DuelCentro {app} view={outcome.centro ? { state: 'reaction', result: outcome.centro } : undefined} jump={outcome.won} /></div>
       <div>
-        <h1 class="dz-result" tabindex="-1" bind:this={titleEl}>{outcome.title}</h1>
-        <p class="dz-sub">{T.duel.against(duel.theirName, short, outcome.played)}</p>
+        <h1 class="dz-result" tabindex="-1" bind:this={titleEl}><Bidi text={outcome.title} /></h1>
+        <p class="dz-sub"><Bidi text={T.duel.against(isolate(duel.theirName), short, outcome.played)} /></p>
       </div>
       {#if score}<MatchCards {duel} {score} />{/if}
       {@render nameField(T.duel.nameHintReply(them))}
       {@render sendButton(T.duel.sendReply)}
-      <p class="dz-note">{T.duel.replyNote(duel.theirName)}</p>
+      <p class="dz-note"><Bidi text={T.duel.replyNote(isolate(duel.theirName))} /></p>
       <button type="button" class="btn dz-wide" onclick={() => app.duel.rematch()}>{T.duel.rematch}</button>
     </section>
   {:else if outcome && score}
     <!-- 8: A abre a resposta (e a partida só para ver) -->
-    <section class="screen dz-end center" data-screen="duel" aria-label={outcome.title} tabindex="-1" bind:this={sectionEl}>
+    <section class="screen dz-end center" data-screen="duel" aria-label={plain(outcome.title)} tabindex="-1" bind:this={sectionEl}>
       <div class="label dz-reply-label">{T.duel.replyLabel}</div>
       <div class="dz-hero dz-hero-tight"><DuelCentro {app} view={outcome.centro ? { state: 'reaction', result: outcome.centro } : undefined} jump={outcome.won} /></div>
       <div>
-        <h1 class="dz-result" tabindex="-1" bind:this={titleEl}>{outcome.title}</h1>
+        <h1 class="dz-result" tabindex="-1" bind:this={titleEl}><Bidi text={outcome.title} /></h1>
         {#if score.over}
-          <p class="coach dz-closed">{outcome.closed}{duel.side === 'a' ? ` ${T.duel.myBest(bestOf(duel.mine, outcome.played))}` : ''}</p>
+          <p class="coach dz-closed"><Bidi text={outcome.closed} />{duel.side === 'a' ? ` ${T.duel.myBest(bestOf(duel.mine, outcome.played))}` : ''}</p>
         {/if}
       </div>
       {#if score}<MatchCards {duel} {score} />{/if}

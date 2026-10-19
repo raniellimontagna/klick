@@ -60,6 +60,7 @@ body.solving .centro * {
   font: 400 14px/1.5 var(--mono);
   color: var(--ink-2);
   word-spacing: 2px;
+  overflow-wrap: anywhere; /* um embaralhamento sem espaços (um link de desafio montado à mão) quebra a linha, sem rolar a tela para o lado */
 }
 
 .pb-tag {

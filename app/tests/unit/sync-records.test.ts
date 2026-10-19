@@ -103,6 +103,16 @@ describe('perfil da conta e do aparelho (spec 5.2)', () => {
     expect(prefsFromProfile(splitProfile(profile({ duelName: 'x'.repeat(21) })).account, { withDefaults: true }).get('duelName')).toBe('');
   });
 
+  // A revisão final: os controles de formato (\p{Cf}: as marcas e os embutidos de direção, o U+202E inclusive) reordenariam o texto em volta
+  // do nome. O nome não os aceita: nem a preferência, nem o item no sync.
+  it('duelName recusa os controles de formato, como o U+202E', () => {
+    for (const ch of ['\u202e', '\u202a', '\u2066', '\u2068', '\u2069', '\u200f', '\u061c', '\ufeff']) {
+      expect(isPrefValue('duelName', `Ana${ch}Bia`), JSON.stringify(ch)).toBe(false);
+      expect(checkChange({ store: 'prefs', id: 'duelName', data: `Ana${ch}Bia`, updatedAt: 3, deletedAt: null, deletionStamp: 3 }).ok).toBe(false);
+    }
+    expect(profileFromPrefs([{ key: 'duelName', value: 'Ana\u202eBia', updatedAt: 1 }]).duelName).toBe('');
+  });
+
   it('o valor padrão de cada família de chaves', () => {
     expect(['trail.0', 'lessonAt.1', 'algChoice.x', 'trainOff.x', 'finish', 'settings.inspection'].map(defaultPrefValue)).toEqual([false, null, 0, false, 'fosco', true]);
     expect(isPrefValue('season', defaultSeason())).toBe(true);

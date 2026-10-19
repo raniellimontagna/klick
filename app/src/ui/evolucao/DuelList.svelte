@@ -3,6 +3,7 @@
   // você), o oponente, o evento, o estado e a data. "Jogando" abre direto no ponto em que parou, no Timer; os outros abrem a partida (9c).
   import type { Duel } from '../../core/types';
   import { T } from '../../strings';
+  import Bidi from '../duel/Bidi.svelte';
   import { duelItemOf, miniBoardOf } from '../duel/duel-view';
   import { focusTimerIfLost } from '../duel/focus';
   import MiniPlacar from '../duel/MiniPlacar.svelte';
@@ -41,8 +42,8 @@
       <button type="button" class="dz-item" aria-label={item.label} aria-describedby="{uid}-{d.id}" onclick={() => open(d)}>
         <MiniPlacar {board} id="{uid}-{d.id}" />
         <span class="dz-item-t">
-          <b>{item.title} <span>· {item.event}</span></b>
-          <small><span class="tag" class:wait={item.tag === 'wait'} class:live={item.tag === 'live'}>{item.tagText}</span>{item.detail}</small>
+          <b><Bidi text={item.title} /> <span>· {item.event}</span></b>
+          <small><span class="tag" class:wait={item.tag === 'wait'} class:live={item.tag === 'live'}>{item.tagText}</span><Bidi text={item.detail} /></small>
         </span>
         <span class="dz-chev" aria-hidden="true">›</span>
       </button>

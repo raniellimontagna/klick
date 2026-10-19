@@ -14,14 +14,16 @@ export const DUEL_LINK_ID = /^[a-z0-9]{8,32}$/; // o id do link (newLinkId dá 1
 const UNPRINTABLE = /[\u0000-\u0009\u000b-\u001f\u007f]|\p{Cs}/u;
 export const isDuelText = (text: string): boolean => !UNPRINTABLE.test(text);
 // O nome é de uma linha só: sem nenhum caractere de controle, a quebra de linha inclusive (ela só vale no embaralhamento), sem as quebras do
-// Unicode (NEL, separador de linha e de parágrafo) e sem metade solta de par UTF-16. Uma constante só serve a isDuelName e a cleanDuelName.
-const UNPRINTABLE_NAME = /[\u0000-\u001f\u007f\u0085\u2028\u2029]|\p{Cs}/u;
+// Unicode (NEL, separador de linha e de parágrafo) e sem metade solta de par UTF-16. Nem os controles de formato (\p{Cf}: as marcas, os
+// embutidos e os isolamentos de direção, o U+202E inclusive), que reordenariam o texto em volta do nome na tela de quem o recebe (a tela
+// ainda isola cada nome, duel-view.ts). Uma constante só serve a isDuelName e a cleanDuelName.
+const UNPRINTABLE_NAME = /[\u0000-\u001f\u007f\u0085\u2028\u2029]|\p{Cs}|\p{Cf}/u;
 export const isDuelName = (value: unknown): value is string =>
   typeof value === 'string' && value.length <= MAX_DUEL_NAME && !UNPRINTABLE_NAME.test(value);
-// O que a pessoa digitou como nome: controles e quebras viram espaço, metades soltas somem, aparado, cortado em MAX_DUEL_NAME sem partir um
-// par UTF-16 ao meio. O resultado sempre passa em isDuelName.
+// O que a pessoa digitou como nome: controles e quebras viram espaço, metades soltas e controles de formato (invisíveis) somem, aparado,
+// cortado em MAX_DUEL_NAME sem partir um par UTF-16 ao meio. O resultado sempre passa em isDuelName.
 export function cleanDuelName(text: string): string {
-  const flat = text.replace(new RegExp(UNPRINTABLE_NAME.source, 'gu'), (ch) => (/\p{Cs}/u.test(ch) ? '' : ' ')).trim();
+  const flat = text.replace(new RegExp(UNPRINTABLE_NAME.source, 'gu'), (ch) => (/\p{Cs}|\p{Cf}/u.test(ch) ? '' : ' ')).trim();
   let name = flat.slice(0, MAX_DUEL_NAME);
   if (/[\ud800-\udbff]$/.test(name)) name = name.slice(0, -1); // o corte caiu no meio de um par
   return name.trim();

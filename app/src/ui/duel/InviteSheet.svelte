@@ -6,14 +6,17 @@
   import { T } from '../../strings';
   import { modal } from '../dialogs/modal';
   import type { AppState } from '../state/app.svelte';
+  import Bidi from './Bidi.svelte';
   import DuelCentro from './DuelCentro.svelte';
+  import { isolate, plain } from './duel-view';
   import { focusTimerIfLost } from './focus';
 
   let { app }: { app: AppState } = $props();
 
   const invite = $derived(app.duel.invite);
   const open = $derived(app.duel.phase === 'receive' && invite !== null);
-  const title = $derived(T.duel.invited(invite?.name ?? ''));
+  const name = $derived(isolate(invite?.name ?? '')); // o nome isolado na tela (Bidi); o rótulo da folha vai sem as marcas
+  const title = $derived(T.duel.invited(name));
 
   function onclose(): void {
     if (app.duel.phase === 'receive') app.duel.decline();
@@ -21,13 +24,13 @@
   }
 </script>
 
-<dialog class="sheet dz-sheet" aria-label={title} use:modal={{ open, onclose }}>
+<dialog class="sheet dz-sheet" aria-label={plain(title)} use:modal={{ open, onclose }}>
   {#if open && invite}
     <div class="signin-status dz-invite-head">
       <div class="dz-invite-centro"><DuelCentro {app} /></div>
       <div>
         <div class="label">{T.duel.inviteLabel}</div>
-        <h2>{title}</h2>
+        <h2><Bidi text={title} /></h2>
       </div>
     </div>
     <div class="chips">
@@ -35,7 +38,7 @@
       <span class="chip">{T.duel.chipScrambles}</span>
       <span class="chip">{T.duel.chipTarget}</span>
     </div>
-    <p>{T.duel.inviteText(invite.name)}</p>
+    <p><Bidi text={T.duel.inviteText(name)} /></p>
     <!-- Com conta, o desafio sobe no sync com o resto: os tempos ficam também na conta. -->
     <p><b>{T.duel.noAccount}</b> <span class="muted">{app.account?.signedIn ? T.duel.localAndAccount : T.duel.localOnly}</span></p>
     <div class="row">

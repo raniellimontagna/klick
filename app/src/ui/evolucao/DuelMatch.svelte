@@ -10,6 +10,7 @@
   import type { Duel } from '../../core/types';
   import { T } from '../../strings';
   import { confirmReady } from '../confirm';
+  import Bidi from '../duel/Bidi.svelte';
   import { bestOf, duelTime, matchLabelOf, outcomeOf } from '../duel/duel-view';
   import { focusTimerIfLost } from '../duel/focus';
   import MatchCards from '../duel/MatchCards.svelte';
@@ -114,8 +115,8 @@
     ><span aria-hidden="true">‹</span> {T.duel.listTitle}</button
   >
   <div>
-    <div class="label">{matchLabelOf(duel, now)}</div>
-    <h1 class="dz-result dz-match-title" tabindex="-1" data-evo-heading>{title}</h1>
+    <div class="label"><Bidi text={matchLabelOf(duel, now)} /></div>
+    <h1 class="dz-result dz-match-title" tabindex="-1" data-evo-heading><Bidi text={title} /></h1>
   </div>
   {#if score}
     <MatchCards {duel} {score} />

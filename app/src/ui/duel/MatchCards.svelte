@@ -4,6 +4,7 @@
   import type { DuelScore } from '../../core/duel/score';
   import type { Duel } from '../../core/types';
   import { T } from '../../strings';
+  import Bidi from './Bidi.svelte';
   import { boardOf, matchOf, rowName } from './duel-view';
   import Placar from './Placar.svelte';
 
@@ -21,7 +22,7 @@
       <tr>
         <th>{T.duel.colNumber}</th>
         <th>{T.duel.me}</th>
-        <th>{them}</th>
+        <th><Bidi text={them} /></th>
         <th>{T.duel.colPoint}</th>
       </tr>
     </thead>
@@ -31,7 +32,7 @@
           <td>{row.n}</td>
           <td class:w={row.winner === 'me'}>{row.mine}</td>
           <td class:w={row.winner === 'them'}>{row.theirs}</td>
-          <td>{row.point}</td>
+          <td><Bidi text={row.point} /></td>
         </tr>
       {/each}
       {#if match.rest}

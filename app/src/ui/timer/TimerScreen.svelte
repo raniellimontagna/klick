@@ -30,6 +30,7 @@
   import type { EventId, SeasonState, Solve } from '../../core/types';
   import { T } from '../../strings';
   import DuelBoard from '../duel/DuelBoard.svelte';
+  import Bidi from '../duel/Bidi.svelte';
   import DuelEnd from '../duel/DuelEnd.svelte';
   import { duelTime, revealOf, splitTime } from '../duel/duel-view';
   import { daysAgoLabel, monthLabel } from '../format';
@@ -1045,9 +1046,9 @@
     {#if reveal && revealTime}
       <!-- A revelação (6b): o selo do ponto e, logo abaixo do tempo de B, o do oponente naquele embaralhamento. -->
       <div class="dz-reveal" data-duel-reveal>
-        <span class="dz-verdict" class:op={!reveal.mine}>{reveal.verdict}</span>
-        <div class="dz-vs"><span class="label">{reveal.them}</span><b>{revealTime.int}<span class="dec">{revealTime.dec}</span></b></div>
-        {#if reveal.sub}<p class="dz-sub">{reveal.sub}</p>{/if}
+        <span class="dz-verdict" class:op={!reveal.mine}><Bidi text={reveal.verdict} /></span>
+        <div class="dz-vs"><span class="label"><Bidi text={reveal.them} /></span><b>{revealTime.int}<span class="dec">{revealTime.dec}</span></b></div>
+        {#if reveal.sub}<p class="dz-sub"><Bidi text={reveal.sub} /></p>{/if}
       </div>
     {/if}
     <ResultActions

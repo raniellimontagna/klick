@@ -10,7 +10,8 @@
   import { T } from '../../strings';
   import { dateLabel, timeOfDay } from '../format';
   import { groupTrash, type TrashView } from '../trash';
-  import { duelTitle } from '../duel/duel-view';
+  import Bidi from '../duel/Bidi.svelte';
+  import { duelTitle, plain } from '../duel/duel-view';
   import type { AppState } from '../state/app.svelte';
   import { modal } from './modal';
 
@@ -110,12 +111,12 @@
           {@const event = eventInfo(d.event).short}
           {@const title = duelTitle(d)}
           <li class="setting">
-            <span>{T.duel.trashRow(title, event, d.side === 'a' && d.theirs === null)}<small>{T.trashDialog.deletedOn(`${when}, ${timeOfDay(d.deletedAt ?? d.updatedAt)}`)}</small></span>
+            <span><Bidi text={T.duel.trashRow(title, event, d.side === 'a' && d.theirs === null)} /><small>{T.trashDialog.deletedOn(`${when}, ${timeOfDay(d.deletedAt ?? d.updatedAt)}`)}</small></span>
             <button
               type="button"
               class="btn"
               data-restore={`duel:${d.id}`}
-              aria-label={T.duel.trashRestore(title, event)}
+              aria-label={plain(T.duel.trashRestore(title, event))}
               onclick={() => restore('duel', d.id)}>{T.trashDialog.restore}</button
             >
           </li>

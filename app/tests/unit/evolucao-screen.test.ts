@@ -337,7 +337,8 @@ describe('Evolução: Desafios', () => {
     a.openDuels({ kind: 'duel', id: MARINA.id });
     render(EvolucaoScreen, { app: a });
     expect(await screen.findByRole('heading', { name: 'Você venceu 3 × 0' })).toBeInTheDocument();
-    expect(screen.getByText(/^Marina te desafiou · 3×3 · hoje, \d{2}:\d{2}$/)).toBeInTheDocument();
+    // O texto inteiro, partido em pedaços (o nome num <bdi>).
+    expect(screen.getByText((_, el) => /^Marina te desafiou · 3×3 · hoje, \d{2}:\d{2}$/.test(el?.textContent ?? ''))).toBeInTheDocument();
     expect(screen.getByRole('button', { name: T.duel.delete })).toBeInTheDocument();
     await fireEvent.click(screen.getByRole('button', { name: T.duel.sendReply }));
     await waitFor(() => expect(a.duel.phase).toBe('finished'));

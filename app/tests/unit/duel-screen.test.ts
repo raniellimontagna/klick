@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -8,6 +11,7 @@ import { createRepository, type Repository } from '../../src/data/repository';
 import { createScrambleQueue } from '../../src/scramble/queue';
 import { T } from '../../src/strings';
 import { AppState } from '../../src/ui/state/app.svelte';
+import { expectIsolated } from './bidi';
 import { mockMedia } from './media';
 import { appWithAccount, fakeApi, manualEnv } from './sync-account';
 import { FakeServer } from './sync-fakes';
@@ -104,6 +108,9 @@ async function answered(A: AppState): Promise<string> {
   }
   return (await B.a.duel.replyUrl('https://klick.test', 'Bia'))!;
 }
+
+// O elemento com este texto inteiro, mesmo partido em pedaços (o nome fica num <bdi>, a revisão final).
+const whole = (text: string) => (_: string, el: Element | null): boolean => el !== null && el.textContent === text;
 
 const timeText = (): string => document.querySelector('[data-screen="timer"] [data-time]')?.textContent ?? '';
 const liveText = (): string => document.querySelector('[data-live]')?.textContent ?? '';
@@ -322,7 +329,7 @@ describe('a tela do desafio (a maquete aprovada)', () => {
     await tick();
     // 7: o resultado, o placar com o 5, o 6 e o 7 tracejados, e a partida ponto a ponto.
     expect(screen.getByRole('heading', { name: 'Você venceu 3 × 1' })).toBeInTheDocument();
-    expect(screen.getByText('Contra Ranielli · 3×3 · fechou no embaralhamento 4')).toBeInTheDocument();
+    expect(screen.getByText(whole('Contra Ranielli · 3×3 · fechou no embaralhamento 4'))).toBeInTheDocument();
     const board = screen.getByRole('img', { name: /^Placar: Você 3, Ranielli 1\./ });
     expect(board.getAttribute('aria-label')).toBe(
       'Placar: Você 3, Ranielli 1. 1: ponto seu; 2: ponto de Ranielli; 3: ponto seu; 4: ponto seu; 5: não jogado; 6: não jogado; 7: não jogado.',
@@ -339,7 +346,7 @@ describe('a tela do desafio (a maquete aprovada)', () => {
     ]);
     expect(document.querySelector('.dz-match tbody tr td.w')).toHaveTextContent('0:10.00');
     expect(await readyButton(T.duel.sendReply)).toBeInTheDocument();
-    expect(screen.getByText(T.duel.replyNote('Ranielli'))).toBeInTheDocument();
+    expect(screen.getByText(whole(T.duel.replyNote('Ranielli')))).toBeInTheDocument();
     // A pílula do modo segue; o Timer de sempre, não.
     expect(document.querySelector('[data-screen="timer"]')).toHaveAttribute('hidden');
     expect(screen.getByRole('button', { name: T.duel.pill('3×3') })).toBeInTheDocument();
@@ -734,7 +741,7 @@ describe('a barra do topo e a pílula do modo', () => {
     // 8: a partida inteira; a barra normal (a pílula da sessão), sem a do modo.
     expect(screen.getByText(T.duel.replyLabel)).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Bia venceu 3 × 1' })).toBeInTheDocument();
-    expect(screen.getByText('Bia fechou no embaralhamento 4. Seu melhor da partida: 0:12.34.')).toBeInTheDocument();
+    expect(screen.getByText(whole('Bia fechou no embaralhamento 4. Seu melhor da partida: 0:12.34.'))).toBeInTheDocument();
     expect(document.querySelector('[data-session-pill]')).not.toBeNull();
     expect(screen.queryByRole('button', { name: T.duel.pill('3×3') })).toBeNull();
     expect(screen.getByRole('img', { name: /^Placar: Você 1, Bia 3\./ })).toBeInTheDocument();
@@ -988,5 +995,92 @@ describe('colar a resposta (o Klick da tela de início)', () => {
     expect(A.a.duel.phase).toBe('view');
     expect(screen.queryByText(T.duel.strayText)).toBeNull();
     expect(screen.queryByRole('button', { name: T.duel.copyLink })).toBeNull();
+  });
+});
+
+// A revisão final: um nome da direita para a esquerda (ou com números colados) não reordena o texto em volta. Todo lugar da tela que mostra
+// um nome o isola num <bdi>: o convite, a revelação e o placar, as telas de fim, a lista dos Desafios e a partida aberta.
+describe('os nomes isolados na tela', () => {
+  const RTL = 'رانيا'; // "Rania", em árabe
+  const RTL_B = 'بيا';
+
+  it('o nome de quem desafiou, do convite ao fim e em Desafios, e o de quem respondeu, na resposta', async () => {
+    const b = await device();
+    await mount(b.a);
+    await b.a.duel.openLink(await encodeDuelLink({ ...LINK, a: { name: RTL, times: A_TIMES } }));
+    const invite = await screen.findByRole('dialog', { name: `${RTL} te desafiou` });
+    expect(expectIsolated(RTL, invite)).toBe(2); // o título e o texto das regras
+    await fireEvent.click(within(invite).getByRole('button', { name: T.duel.accept }));
+    await waitFor(() => expect(b.a.duel.phase).toBe('solving'));
+    await tick();
+    for (let i = 0; i < 3; i++) {
+      await solveDuel(b.a, 30_000); // A leva os três
+      await fireEvent.click(screen.getByRole('button', { name: T.duel.seePoint }));
+      await waitFor(() => expect(b.a.duel.phase).toBe('reveal'));
+      await tick();
+      // O selo, o nome sobre o tempo, a diferença e a linha do placar.
+      expect(expectIsolated(RTL, document.querySelector('[data-duel-reveal]')!)).toBe(3);
+      expect(expectIsolated(RTL)).toBeGreaterThanOrEqual(4);
+      await fireEvent.click(screen.getByRole('button', { name: T.duel.next }));
+    }
+    await waitFor(() => expect(b.a.duel.phase).toBe('finished'));
+    await tick();
+    // 7: o título, "Contra…", o aviso do nome, a nota, o placar e a tabela (a coluna e os pontos dela).
+    expect(screen.getByRole('heading', { name: `${RTL} venceu 3 × 0` })).toBeInTheDocument();
+    expect(expectIsolated(RTL)).toBeGreaterThanOrEqual(9);
+    // Em Desafios: a linha da lista e a partida aberta (9c).
+    b.a.duel.exit();
+    b.a.openDuels();
+    const item = await screen.findByRole('button', { name: new RegExp(`^${RTL} · 3×3, terminado`) });
+    expect(expectIsolated(RTL, item)).toBe(2); // o nome e o resultado
+    await fireEvent.click(item);
+    await screen.findByRole('heading', { name: `${RTL} venceu 3 × 0` });
+    expect(expectIsolated(RTL)).toBeGreaterThanOrEqual(5);
+
+    // A abre a resposta de quem tem o nome da direita para a esquerda (8).
+    cleanup();
+    const A = await device({ name: 'Ranielli' });
+    await A.a.duel.start('333');
+    for (const t of A_TIMES) await A.a.duel.record(t);
+    const url = (await A.a.duel.challengeUrl('https://klick.test'))!;
+    A.a.duel.exit();
+    const B = await device();
+    await B.a.duel.openLink(duelPayloadOf(new URL(url).hash)!);
+    await B.a.duel.accept();
+    for (const t of [tm(10_000), tm(10_000), tm(10_000)]) {
+      await B.a.duel.record(t);
+      await B.a.duel.reveal();
+      B.a.duel.next();
+    }
+    const reply = (await B.a.duel.replyUrl('https://klick.test', RTL_B))!;
+    await mount(A.a);
+    await A.a.duel.openLink(duelPayloadOf(new URL(reply).hash)!);
+    expect(await screen.findByRole('heading', { name: `${RTL_B} venceu 3 × 0` })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: `${RTL_B} venceu 3 × 0` })).toBeInTheDocument(); // o rótulo da tela, sem as marcas
+    // O título, "… fechou no embaralhamento 3.", o placar e a tabela.
+    expect(expectIsolated(RTL_B)).toBeGreaterThanOrEqual(5);
+    expect(document.body.textContent).not.toMatch(/[⁨⁩]/); // as marcas viram <bdi>: nenhuma fica no texto
+  });
+});
+
+// A revisão final: um embaralhamento montado à mão sem espaços (os de verdade sempre têm) não empurra a tela para o lado. O jsdom não
+// mede a página: o teste confere que a regra da folha de estilo vale para o embaralhamento do desafio, e quebrar em qualquer ponto é o
+// que deixa a linha caber na largura.
+describe('o embaralhamento montado à mão', () => {
+  const SCREENS_CSS = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/styles/screens.css'), 'utf8');
+
+  it('sem espaços, ele quebra a linha em qualquer ponto', async () => {
+    const style = document.createElement('style');
+    style.textContent = SCREENS_CSS;
+    document.head.append(style);
+    try {
+      const long = 'R'.repeat(1_000);
+      await acceptedB({ link: { ...LINK, scrambles: Array.from({ length: 7 }, () => long) } });
+      const scramble = document.querySelector('[data-screen="timer"] [data-scramble]') as HTMLElement;
+      expect(scramble).toHaveTextContent(long);
+      expect(getComputedStyle(scramble).overflowWrap).toBe('anywhere');
+    } finally {
+      style.remove();
+    }
   });
 });

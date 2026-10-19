@@ -15,6 +15,7 @@ import DataSection from '../../src/ui/ajustes/DataSection.svelte';
 
 vi.mock('../../src/ui/download', () => ({ downloadText: vi.fn(() => true) }));
 import { downloadText } from '../../src/ui/download';
+import { expectIsolated } from './bidi';
 
 const download = vi.mocked(downloadText);
 
@@ -222,6 +223,19 @@ describe('Seus dados: cópias, exportar, lixeira e importar', () => {
     await vi.waitFor(async () => expect((await repo.getDuel(BIA.id))!.deletedAt).toBeNull());
     expect(await screen.findByText(T.trashDialog.empty)).toBeInTheDocument();
     expect(a.solves).toEqual([]); // o desafio volta sozinho: nada dele entra nos solves
+  });
+
+  // A revisão final: o nome de quem respondeu fica num <bdi> na linha da lixeira; o rótulo de Restaurar vai sem as marcas.
+  it('lixeira: o nome do desafio fica isolado, e o Restaurar dele tem o nome por extenso', async () => {
+    const { a, repo } = await app();
+    const rtl = { ...BIA, theirName: 'بيا' };
+    await repo.saveDuel(rtl);
+    await repo.deleteDuel(rtl.id);
+    render(DataSection, { app: a });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Ver lixeira (1)' }));
+    const restore = await screen.findByRole('button', { name: T.duel.trashRestore('بيا', '3×3') });
+    expect(restore.closest('li')).toHaveTextContent(T.duel.trashRow('بيا', '3×3'));
+    expect(expectIsolated('بيا', restore.closest('li')!)).toBe(1);
   });
 
   it('lixeira: o texto só fala de desafios quando há um nela', async () => {

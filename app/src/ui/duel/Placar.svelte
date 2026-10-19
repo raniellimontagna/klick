@@ -3,6 +3,7 @@
   // coluna da vez ganha o contorno na tinta em volta das duas peças. Para o leitor de tela, uma imagem com o placar por extenso.
   import { DUEL_SCRAMBLES } from '../../core/duel/score';
   import { T } from '../../strings';
+  import Bidi from './Bidi.svelte';
   import type { Board } from './duel-view';
 
   let { board, them }: { board: Board; them: string } = $props();
@@ -21,7 +22,7 @@
     <i data-p={p}></i>
   {/each}
   <b class="pl-score num">{board.mine}</b>
-  <b class="pl-name">{them}</b>
+  <b class="pl-name"><Bidi text={them} /></b>
   {#each board.them as p, i (i)}
     <i data-p={p}></i>
   {/each}

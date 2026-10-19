@@ -1,6 +1,9 @@
 // As contas da tela do desafio (a maquete aprovada, docs/design/2026-10-19-desafio-maquete.html): o placar em peças, o progresso de quem
 // desafia, a revelação do ponto, o resultado, a partida ponto a ponto e a lista dos Desafios em Evolução. Puro: os componentes só desenham.
 // Tudo do lado deste aparelho: "Você" é sempre quem vê, e o outro lado é o nome que ele mandou (ou "Oponente").
+//
+// Os nomes nos textos que aparecem vêm isolados (isolate): a tela troca cada um por um <bdi> (Bidi.svelte). Os rótulos para o leitor de
+// tela (o placar por extenso, o nome do botão da lista, o anúncio da revelação) vêm sem as marcas.
 import { DUEL_SCRAMBLES, type DuelScore, effectiveMs } from '../../core/duel/score';
 import { eventInfo } from '../../core/events';
 import { formatMs } from '../../core/stats';
@@ -30,8 +33,25 @@ export function splitTime(text: string): { int: string; dec: string } {
   return cut < 0 ? { int: text, dec: '' } : { int: text.slice(0, cut), dec: text.slice(cut) };
 }
 
-// O nome do outro lado na linha do placar, no selo e na tabela: o que ele escolheu mandar, ou "Oponente".
-export const rowName = (name: string): string => name || T.duel.opponent;
+// Um nome no texto da tela (a revisão final), entre as marcas de isolamento do Unicode (FSI e PDI), que um nome não pode ter (\p{Cf},
+// link.ts): um nome da direita para a esquerda, ou com números colados, não reordena o texto em volta. Sem nome, nada: o texto de reserva
+// ("Alguém", "Oponente") é do app.
+const FSI = '\u2068';
+const PDI = '\u2069';
+export const isolate = (name: string): string => (name ? `${FSI}${name}${PDI}` : '');
+// O texto sem as marcas: o que vai num rótulo para o leitor de tela (um atributo, um anúncio).
+export const plain = (text: string): string => text.replace(/[\u2068\u2069]/g, '');
+
+// O texto em trechos, para a tela desenhar cada nome num <bdi>: `name` diz se o trecho é um nome isolado.
+export function bidiParts(text: string): { text: string; name: boolean }[] {
+  return text
+    .split(/(\u2068[^\u2069]*\u2069)/)
+    .filter((piece) => piece !== '')
+    .map((piece) => (piece.startsWith(FSI) ? { text: piece.slice(1, -1), name: true } : { text: piece, name: false }));
+}
+
+// O nome do outro lado na linha do placar, no selo e na tabela: o que ele escolheu mandar (isolado), ou "Oponente".
+export const rowName = (name: string): string => isolate(name) || T.duel.opponent;
 
 // O melhor dos primeiros `n` tempos (o +2 somado, sem os DNF); só DNF, "DNF".
 export function bestOf(times: readonly DuelTime[], n: number = times.length): string {
@@ -76,7 +96,7 @@ export function boardOf(d: Duel, score: DuelScore, now: number | null): Board {
   }
   const mine = score.points[mySide];
   const theirs = score.points[other(mySide)];
-  return { me, them, mine, theirs, now, label: T.duel.board(rowName(d.theirName), mine, theirs, cells) };
+  return { me, them, mine, theirs, now, label: T.duel.board(plain(rowName(d.theirName)), mine, theirs, cells) };
 }
 
 export interface Reveal {
@@ -99,12 +119,16 @@ export function revealOf(d: Duel, score: DuelScore, i: number): Reveal | null {
   const point = score.perPoint[i];
   const mySide = d.side;
   const verdict =
-    point === null ? T.duel.pointNone(mine.penalty === 'DNF' && theirs.penalty === 'DNF') : point === mySide ? T.duel.pointMine : T.duel.pointTheirs(d.theirName);
+    point === null
+      ? T.duel.pointNone(mine.penalty === 'DNF' && theirs.penalty === 'DNF')
+      : point === mySide
+        ? T.duel.pointMine
+        : T.duel.pointTheirs(isolate(d.theirName));
   const parts: string[] = [];
   if (theirs.penalty === '+2') parts.push(T.duel.withPlus2(formatMs(theirs.ms)));
   if (point !== null && mine.penalty !== 'DNF' && theirs.penalty !== 'DNF') {
     const diff = (Math.abs(centis(mine) - centis(theirs)) / 100).toFixed(2);
-    parts.push(point === mySide ? T.duel.youFaster(diff) : T.duel.theyFaster(d.theirName, diff));
+    parts.push(point === mySide ? T.duel.youFaster(diff) : T.duel.theyFaster(isolate(d.theirName), diff));
   }
   const spoken = theirs.penalty === '+2' ? T.duel.withPlus2(formatMs(effectiveMs(theirs))) : duelTime(theirs);
   const name = rowName(d.theirName);
@@ -114,7 +138,7 @@ export function revealOf(d: Duel, score: DuelScore, i: number): Reveal | null {
     them: name,
     time: duelTime(theirs),
     sub: capitalized(parts.join(' · ')),
-    aria: T.duel.revealAria(name, spoken, verdict, score.points[mySide], score.points[other(mySide)]),
+    aria: T.duel.revealAria(plain(name), spoken, plain(verdict), score.points[mySide], score.points[other(mySide)]),
     centro: point === null ? 'tie' : point === mySide ? 'good' : 'slow',
   };
 }
@@ -139,7 +163,8 @@ export function outcomeOf(d: Duel, score: DuelScore): Outcome {
   if (!score.over) return { title: T.duel.standing(rowName(d.theirName), mine, theirs), closed: '', centro: null, won: false, played };
   if (score.winner === mySide) return { title: T.duel.youWon(mine, theirs, bySingle), closed: closed(T.duel.me), centro: 'pb', won: true, played };
   if (score.winner === other(mySide)) {
-    return { title: T.duel.theyWon(d.theirName, theirs, mine, bySingle), closed: closed(d.theirName || T.duel.yourOpponent), centro: 'slow', won: false, played };
+    const them = isolate(d.theirName);
+    return { title: T.duel.theyWon(them, theirs, mine, bySingle), closed: closed(them || T.duel.yourOpponent), centro: 'slow', won: false, played };
   }
   return { title: T.duel.draw(mine, theirs), closed: T.duel.closedAt(played), centro: 'tie', won: false, played };
 }
@@ -185,7 +210,7 @@ export function miniBoardOf(d: Duel, score: DuelScore | null): Board {
 // Quem está do outro lado, na lista: o nome que ele mandou. Sem nome: o desafio de A antes da resposta ("Seu desafio", antes de mandar;
 // "Desafio mandado", esperando), ou "Seu oponente".
 export function duelTitle(d: Duel): string {
-  if (d.theirName) return d.theirName;
+  if (d.theirName) return isolate(d.theirName);
   if (d.side === 'a' && d.theirs === null) return d.status === 'playing' ? T.duel.ownTitle : T.duel.sentTitle;
   return T.duel.yourOpponent;
 }
@@ -226,7 +251,7 @@ export function duelItemOf(d: Duel, score: DuelScore | null, now: number): DuelI
   const title = duelTitle(d);
   const event = eventInfo(d.event).short;
   const detail = parts.join(' · ');
-  return { title, event, tag, tagText, detail, label: `${title} · ${event}, ${tagText}, ${detail}` };
+  return { title, event, tag, tagText, detail, label: plain(`${title} · ${event}, ${tagText}, ${detail}`) };
 }
 
 // O texto do cartão (9a): "1 jogando · 1 esperando resposta · 3 terminados".
@@ -237,6 +262,6 @@ export function duelsSummary(duels: readonly Duel[]): string {
 
 // O rótulo da partida aberta (9c): "Você desafiou · 3×3 · hoje, 14:32" (ou "Ranielli te desafiou", do lado de quem recebeu).
 export function matchLabelOf(d: Duel, now: number): string {
-  const who = d.side === 'a' ? T.duel.youChallenged : T.duel.invited(d.theirName);
+  const who = d.side === 'a' ? T.duel.youChallenged : T.duel.invited(isolate(d.theirName));
   return T.duel.matchLabel(who, eventInfo(d.event).short, `${daysAgoLabel(d.createdAt, now)}, ${timeOfDay(d.createdAt)}`);
 }
