@@ -799,6 +799,42 @@ describe('a cópia em partes e a cada 7 dias numa conta grande', () => {
     expect((await env.SNAPSHOTS.head(snapshotKey(user, dayOf(T0))))!.customMetadata).toEqual({ kind: 'daily', day: dayOf(T0), solves: String(bigDay) });
   });
 
+  it('conta grande fora do dia da cópia lê no máximo recordsPerDay + 1 linhas', async () => {
+    const user = 'grande-fora-do-dia';
+    await accountWith(user, 2 * bigDay);
+    expect(await stubOf(user).snapshot(T0)).toBe(true);
+    await sync(user, [solve('novo')], T0 + 1000); // mudou: só o prazo segura a cópia
+    // As linhas que o SQLite leu nas consultas aos registros (o rowsRead de cada cursor), desde agora.
+    const cursors: SqlStorageCursor<Record<string, SqlStorageValue>>[] = [];
+    await runInDurableObject(stubOf(user), (instance) => {
+      const o = instance as unknown as { sql: SqlStorage };
+      const real = o.sql;
+      o.sql = new Proxy(real, {
+        get(target, key) {
+          const value = Reflect.get(target, key) as unknown;
+          if (key !== 'exec') return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+          return (query: string, ...bindings: unknown[]) => {
+            const cursor = target.exec(query, ...(bindings as SqlStorageValue[]));
+            if (/FROM records\b/.test(query) && query !== COMPACTABLE) cursors.push(cursor);
+            return cursor;
+          };
+        },
+      });
+    });
+    const read = () => cursors.reduce((sum, c) => sum + c.rowsRead, 0);
+    for (let k = 1; k < BIG_COPY_EVERY_DAYS; k++) expect(await stubOf(user).snapshot(T0 + k * DAY), `D+${k}`).toBe(false);
+    expect(read()).toBeGreaterThan(0);
+    expect(read()).toBeLessThanOrEqual((BIG_COPY_EVERY_DAYS - 1) * (bigDay + 1)); // cada dia, no máximo recordsPerDay + 1
+    expect((await sync(user, [], T0)).copiesPaused).toBeNull();
+    // No dia da cópia, a conta é contada até o teto e a cópia sai.
+    expect(await stubOf(user).snapshot(T0 + BIG_COPY_EVERY_DAYS * DAY)).toBe(true);
+    // A pausa por tamanho continua conferida na vez da conta grande: com um teto abaixo dela, 'size'.
+    await sync(user, [solve('outro')], T0 + BIG_COPY_EVERY_DAYS * DAY + 1000);
+    await setVars(user, { SNAPSHOT_MAX_RECORDS: String(bigDay + 5) });
+    expect(await stubOf(user).snapshot(T0 + 2 * BIG_COPY_EVERY_DAYS * DAY)).toBe(false);
+    expect((await sync(user, [], T0)).copiesPaused).toBe('size');
+  });
+
   it('conta pequena continua com um arquivo só, todo dia; no limite do dia útil também', async () => {
     const user = 'pequena-diaria';
     await sync(user, [session, solve('a')]);

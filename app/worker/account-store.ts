@@ -709,7 +709,7 @@ export class AccountStore extends DurableObject<Env> {
   // não tem cópia (o teto da memória do objeto em partes; 'size'), conferido por um COUNT antes de ler a conta. Uma conta grande, com mais
   // registros que o dia útil (recordsPerDay), copia só quando passaram BIG_COPY_EVERY_DAYS dias ou mais desde a última (lastSnapshotDay, o dia
   // de Brasília de uma cópia gravada) ou quando nunca copiou; fora do prazo volta sem pausa e sem marcar snapshotRev, e o alarme de amanhã
-  // pergunta de novo. Com o tamanho da última cópia (`gz`), o espaço e a operação A também são conferidos antes de ler (copyRoom): uma conta
+  // pergunta de novo. Por isso a primeira contagem vai só até o dia útil + 1: nos dias sem cópia, uma conta de 250 mil não gasta as leituras. Com o tamanho da última cópia (`gz`), o espaço e a operação A também são conferidos antes de ler (copyRoom): uma conta
   // pausada por eles não lê nem comprime a conta todo dia para descobrir de novo que não cabe (a primeira cópia lê, como antes). A gravação
   // é de writeCopy (um arquivo ou as partes, e a reserva de cada uma). Recusada, ela não é gravada nem marca snapshotRev (o alarme de amanhã
   // tenta de novo), e a pausa fica no estado, com o motivo; gravada, a pausa sai e a lista guardada se renova.
@@ -719,9 +719,17 @@ export class AccountStore extends DurableObject<Env> {
     if (this.deleted() || userId === null || this.getState('snapshotRev') === rev) return false;
     const caps = capsOf(this.env);
     if (caps.snapshotRecords === 0) return this.pauseCopies(userId, 'size');
-    const records = this.recordCount(caps.snapshotRecords, now);
+    // A primeira contagem para no menor dos dois limites + 1: o bastante para saber se a conta passou do teto ('size') ou do dia útil (é
+    // grande). Uma grande fora do prazo volta aqui, depois de contar no máximo recordsPerDay + 1 linhas (e não as até 250 mil do teto);
+    // só uma grande na vez conta de novo, até o teto. Uma pequena já sabe o tamanho exato.
+    const useful = recordsPerDay(caps.rowsDay);
+    let records = this.recordCount(Math.min(useful, caps.snapshotRecords), now);
     if (records > caps.snapshotRecords) return this.pauseCopies(userId, 'size');
-    if (records > recordsPerDay(caps.rowsDay) && !this.bigCopyDue(now)) return false;
+    if (records > useful) {
+      if (!this.bigCopyDue(now)) return false;
+      records = this.recordCount(caps.snapshotRecords, now);
+      if (records > caps.snapshotRecords) return this.pauseCopies(userId, 'size');
+    }
     const estimate = this.copies().gz;
     const short = estimate === null ? null : await copyRoom(this.env.DB, estimate, now, caps);
     if (short !== null) return this.pauseCopies(userId, short);
