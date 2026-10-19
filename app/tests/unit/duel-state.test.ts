@@ -889,6 +889,79 @@ describe('o estado do desafio (spec do desafio, seções 3 a 6)', () => {
     expect(await B.app.duel.challengeLink(ORIGIN)).toBeNull();
   });
 
+  // A revisão da Task 6, rodada 2: o link que saiu (o toque em Mandar) trava a penalidade, mesmo com a marca de mandado sem gravar. Fechar a
+  // folha sem mandar destrava (e volta a jogar, sobre o registro que a marca gravou); sair do desafio também.
+  it('o link que saiu trava a penalidade; fechar a folha sem mandar destrava e volta a jogar; sair também destrava', async () => {
+    const { app, repo } = await device();
+    await app.duel.start('333');
+    const id = app.duel.current!.id;
+    for (const x of A_TIMES) await app.duel.record(x);
+    const saveDuel = repo.saveDuel.bind(repo);
+    repo.saveDuel = async () => {
+      throw new Error('quota');
+    };
+    expect(app.duel.linkOut).toBe(false);
+    const marking = app.duel.send(ORIGIN);
+    expect(app.duel.linkOut).toBe(true); // na hora do toque, antes de a marca gravar
+    expect(await marking).toBeNull();
+    expect(await repo.getDuel(id)).toMatchObject({ status: 'playing' });
+    await app.duel.setPenalty('+2');
+    expect(app.duel.current!.mine[6]).toEqual(A_TIMES[6]);
+    expect((await repo.getDuel(id))!.mine[6]).toEqual(A_TIMES[6]);
+    repo.saveDuel = saveDuel;
+
+    // Mandado de novo: a marca grava; fechar a folha (AbortError) volta a jogar sobre o registro dela, e a penalidade vale.
+    const url = await app.duel.send(ORIGIN);
+    expect(url).not.toBeNull();
+    expect(await repo.getDuel(id)).toMatchObject({ status: 'waiting' });
+    await app.duel.unsend();
+    expect(app.duel.linkOut).toBe(false);
+    expect(await repo.getDuel(id)).toMatchObject({ status: 'playing' });
+    await app.duel.setPenalty('DNF');
+    expect((await repo.getDuel(id))!.mine[6]).toEqual(tm(13_080, 'DNF'));
+
+    // Um desafio que já esperava a resposta (mandado antes) não volta a jogar ao cancelar uma nova folha.
+    await app.duel.challengeUrl(ORIGIN);
+    void app.duel.send(ORIGIN);
+    await app.duel.unsend();
+    expect(await repo.getDuel(id)).toMatchObject({ status: 'waiting' });
+
+    // Sair do desafio (ou abrir outro) destrava.
+    const fresh = await device();
+    await fresh.app.duel.start('333');
+    for (const x of A_TIMES) await fresh.app.duel.record(x);
+    void fresh.app.duel.send(ORIGIN);
+    expect(fresh.app.duel.linkOut).toBe(true);
+    fresh.app.duel.exit();
+    expect(fresh.app.duel.linkOut).toBe(false);
+  });
+
+  it('preparar o link não grava o nome que não mudou, e o myName de B só grava ao mandar', async () => {
+    const A = await device();
+    await A.app.duel.start('333');
+    for (const x of A_TIMES) await A.app.duel.record(x);
+    const names = vi.spyOn(A.app, 'setDuelName');
+    await A.app.duel.challengeLink(ORIGIN, 'Rani');
+    await A.app.duel.challengeLink(ORIGIN, ' Rani ');
+    await A.app.duel.challengeLink(ORIGIN, 'Rani');
+    expect(names).toHaveBeenCalledTimes(1);
+    const url = await A.app.duel.challengeUrl(ORIGIN, 'Rani');
+    expect(names).toHaveBeenCalledTimes(1);
+
+    const B = await accepted(url!);
+    await play(B.app, B_TIMES);
+    const bNames = vi.spyOn(B.app, 'setDuelName');
+    const prepared = await B.app.duel.replyLink(ORIGIN, 'Bia');
+    expect(await decodeDuelLink(payloadOf(prepared))).toMatchObject({ b: { name: 'Bia', times: B_TIMES } });
+    expect(B.app.profile.duelName).toBe('Bia'); // o nome vai para os Ajustes ao preparar
+    expect(await B.repo.getDuel(B.id)).toMatchObject({ myName: '' }); // o registro, só ao mandar
+    await B.app.duel.replyLink(ORIGIN, 'Bia');
+    expect(bNames).toHaveBeenCalledTimes(1);
+    expect(await B.app.duel.send(ORIGIN)).toBe(prepared);
+    expect(await B.repo.getDuel(B.id)).toMatchObject({ myName: 'Bia' });
+    expect(B.app.duel.linkOut).toBe(false); // B não tem penalidade a travar: a partida acabou
+  });
+
   it('o current de B é o mesmo objeto enquanto o desafio não muda', async () => {
     const A = await device();
     const B = await accepted(await challenge(A.app));

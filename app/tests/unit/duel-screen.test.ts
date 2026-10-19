@@ -387,12 +387,58 @@ describe('a tela do desafio (a maquete aprovada)', () => {
     expect(share).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(a.toast?.text).toBe(T.duel.sentNotSaved));
     expect(a.duel.current).toMatchObject({ status: 'playing' });
-    // O link já saiu com estes tempos: +2 e DNF somem da tela.
+    // O link já saiu com estes tempos: +2 e DNF somem da tela, e P e D no teclado não mudam nada nem anunciam (o link não muda).
     expect(screen.queryByRole('group', { name: T.duel.lastPenalty(7) })).toBeNull();
+    expect(a.duel.linkOut).toBe(true);
+    const announce = vi.spyOn(a, 'announce');
+    key('keydown', 'KeyP', 'p');
+    key('keydown', 'KeyD', 'd');
+    await sleep(50);
+    expect(a.duel.current!.mine[6]).toEqual(tm(10_006));
+    expect(announce).not.toHaveBeenCalled();
+    expect(send).toBeEnabled(); // o link pronto é o mesmo
     repo.saveDuel = saveDuel;
     (await readyButton(T.duel.send)).click();
     await waitFor(() => expect(a.duel.current).toMatchObject({ status: 'waiting' }));
     expect(share).toHaveBeenCalledTimes(2);
+  });
+
+  it('a marca de mandado sai antes da folha do sistema, e a folha abre na hora do toque', async () => {
+    const { a } = await device();
+    await mount(a);
+    await a.duel.start('333');
+    for (let i = 0; i < 7; i++) await a.duel.record(tm(10_000 + i));
+    const order: string[] = [];
+    const sending = a.duel.send.bind(a.duel);
+    vi.spyOn(a.duel, 'send').mockImplementation((origin) => {
+      order.push('marca');
+      return sending(origin);
+    });
+    stubShare(async () => {
+      order.push('folha');
+    });
+    (await readyButton(T.duel.send)).click();
+    expect(order).toEqual(['marca', 'folha']);
+    expect(a.duel.linkOut).toBe(true);
+    await waitFor(() => expect(a.duel.current).toMatchObject({ status: 'waiting' }));
+  });
+
+  it('fechar a folha sem mandar volta o desafio a jogar, e +2 e DNF do sétimo voltam', async () => {
+    const { a } = await device();
+    await mount(a);
+    await a.duel.start('333');
+    for (let i = 0; i < 7; i++) await a.duel.record(tm(10_000 + i));
+    stubShare(async () => {
+      throw new DOMException('fechou', 'AbortError');
+    });
+    (await readyButton(T.duel.send)).click();
+    expect(a.duel.linkOut).toBe(true); // o toque travou os tempos; a folha fechada destrava
+    await waitFor(() => expect(a.duel.linkOut).toBe(false));
+    await waitFor(() => expect(a.duel.current).toMatchObject({ status: 'playing' }));
+    const group = await screen.findByRole('group', { name: T.duel.lastPenalty(7) });
+    await fireEvent.click(within(group).getByRole('button', { name: /DNF/ }));
+    await waitFor(() => expect(a.duel.current!.mine[6]).toEqual(tm(10_006, 'DNF')));
+    expect(a.toast).toBeNull(); // cancelar não é erro
   });
 
   it('no toque, A põe DNF no sétimo na tela de mandar, e o link leva o DNF; mandado, P e D não fazem nada', async () => {
@@ -486,6 +532,21 @@ describe('a tela do desafio (a maquete aprovada)', () => {
     expect(alert).not.toHaveAttribute('open');
     expect(await repo.listDuels({ includeDeleted: true })).toEqual([]);
     expect(screen.getByRole('button', { name: T.duel.challenge })).toBeInTheDocument();
+  });
+
+  it('dois toques em "Ver o ponto": um ponto só, sem recomeçar a reação nem anunciar duas vezes', async () => {
+    const b = await acceptedB();
+    await solveDuel(b.a, 10_000);
+    const reveal = vi.spyOn(b.a.duel, 'reveal');
+    const announce = vi.spyOn(b.a, 'announce');
+    const see = screen.getByRole('button', { name: T.duel.seePoint });
+    see.click();
+    see.click();
+    await waitFor(() => expect(b.a.duel.phase).toBe('reveal'));
+    await sleep(80);
+    expect(reveal).toHaveBeenCalledTimes(1); // o segundo toque não chega à revelação: a reação não recomeça
+    expect(announce.mock.calls.filter(([text]) => text.startsWith('Ranielli: '))).toHaveLength(1);
+    await waitFor(() => expect(litRing()).toBe(6), { timeout: 2000 });
   });
 
   it('teclado e leitor de tela: o placar e a revelação são anunciados', async () => {

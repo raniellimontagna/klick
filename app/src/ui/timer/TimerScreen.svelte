@@ -466,7 +466,7 @@
     const phase = app.duel.phase;
     const open =
       d.side === 'a'
-        ? (phase === 'solving' && showResult && timer.state === 'done') || (phase === 'finished' && d.status === 'playing')
+        ? (phase === 'solving' && showResult && timer.state === 'done') || (phase === 'finished' && d.status === 'playing' && !app.duel.linkOut)
         : phase === 'confirm';
     if (!open) return;
     penalizing = true;

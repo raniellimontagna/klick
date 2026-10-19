@@ -8,7 +8,7 @@
 // A tela grava o registro inteiro a partir da cópia dela, e só sobre o registro que leu (expectUpdatedAt, conferido na transação). Se ele
 // mudou por fora (outra aba, o sync, uma restauração, um wipe), a ação é largada e a tela volta ao que está gravado: uma aba que ficou
 // para trás não refaz um embaralhamento que a outra já revelou.
-import { decodeDuelLink, duelUrl, encodeDuelLink, isDuelScramble, newLinkId } from '../../core/duel/link';
+import { cleanDuelName, decodeDuelLink, duelUrl, encodeDuelLink, isDuelScramble, newLinkId } from '../../core/duel/link';
 import { DUEL_SCRAMBLES, type DuelScore, scoreDuel } from '../../core/duel/score';
 import type { Duel, DuelLink, DuelSide, DuelTime, EventId, Penalty } from '../../core/types';
 import { type ChangeKind, DuelConflictError, type Repository } from '../../data/repository';
@@ -128,6 +128,9 @@ export class DuelState {
   // app.duel. A tela lê `current`, `opponent`, `score` e `invite`, que só mostram o revelado. Trocados inteiros a cada mudança.
   #duel = $state.raw<Duel | null>(null);
   #offer = $state.raw<DuelLink | null>(null); // o link de 'receive', até aceitar ou recusar
+  // O link de A que saiu nesta tela (o toque em Mandar): os tempos não mudam mais, mesmo que a marca de mandado não grave. `revert`: o toque
+  // é que deu o desafio por mandado (ele jogava), então fechar a folha sem mandar o volta a jogar. Sai com o desafio (sair, abrir outro).
+  #out = $state.raw<{ id: string; revert: boolean } | null>(null);
   // O desafio que a tela vê: para B, `theirs` cortado nos revelados. Derivado, é a mesma referência enquanto o desafio não muda.
   #shown = $derived.by((): Duel | null => {
     const d = this.#duel;
@@ -282,7 +285,7 @@ export class DuelState {
   setPenalty(p: Penalty): Promise<void> {
     return this.serial(async () => {
       const d = this.#duel;
-      if (!d || d.mine.length === 0) return;
+      if (!d || d.mine.length === 0 || this.#out?.id === d.id) return; // o link já saiu com estes tempos
       const open =
         d.side === 'a' ? d.status === 'playing' && (this.stage === 'solving' || this.stage === 'finished') : this.stage === 'confirm';
       const last = d.mine.length - 1;
@@ -368,7 +371,7 @@ export class DuelState {
       const d = this.#duel;
       if (!d || d.side !== 'a' || d.mine.length < DUEL_SCRAMBLES) throw new Error('O desafio ainda não tem os sete tempos');
       const epoch = this.epoch;
-      if (name !== undefined) await this.host.setDuelName(name);
+      await this.rename(name);
       const sent: Duel = { ...d, myName: this.host.duelName(), status: d.status === 'playing' ? 'waiting' : d.status };
       const saved = sent.myName !== d.myName || sent.status !== d.status ? await this.save(sent, d.updatedAt, epoch) : d;
       if (typeof saved === 'string') return null;
@@ -385,11 +388,61 @@ export class DuelState {
       const d = this.#duel;
       if (this.readOnly || !d || d.side !== 'a' || d.mine.length < DUEL_SCRAMBLES) return null;
       const epoch = this.epoch;
-      if (name !== undefined) await this.host.setDuelName(name);
+      await this.rename(name);
       const now = this.#duel;
       if (epoch !== this.epoch || !now) return null;
       return duelUrl(origin, await encodeDuelLink(linkOf({ ...now, myName: this.host.duelName() })));
     });
+  }
+
+  // O link da resposta de B como está agora, sem gravar o nome no registro (só ao mandar, em replyUrl): o mesmo papel de challengeLink.
+  replyLink(origin: string, name?: string): Promise<string | null> {
+    return this.serial(async () => {
+      const d = this.#duel;
+      if (this.readOnly || !d || d.side !== 'b' || !scoreOf(d)?.over) return null;
+      const epoch = this.epoch;
+      await this.rename(name);
+      const now = this.#duel;
+      if (epoch !== this.epoch || !now) return null;
+      return duelUrl(origin, await encodeDuelLink(linkOf({ ...now, myName: this.host.duelName() })));
+    });
+  }
+
+  // O link saiu (o toque em Mandar, logo antes da folha do sistema ou da cópia): o de A trava os tempos já, e a marca (challengeUrl para A,
+  // replyUrl para B) entra na fila sem o toque esperar por ela; se o sistema derrubar a página a caminho do app de mensagens, ela já
+  // começou. null se a marca não gravou.
+  send(origin: string): Promise<string | null> {
+    const d = this.#duel;
+    if (!d || this.readOnly) return Promise.resolve(null);
+    if (d.side === 'b') return this.replyUrl(origin);
+    this.#out = { id: d.id, revert: d.status === 'playing' };
+    return this.challengeUrl(origin);
+  }
+
+  // A pessoa fechou a folha sem mandar (AbortError): os tempos destravam e, se o toque é que deu o desafio por mandado, ele volta a jogar.
+  // Na fila, depois da marca: grava sobre o registro que ela gravou (a data dela). Sem a marca gravada, só destrava.
+  unsend(): Promise<void> {
+    return this.serial(async () => {
+      const d = this.#duel;
+      const out = this.#out;
+      if (!d || !out || out.id !== d.id) return;
+      this.#out = null;
+      if (!out.revert || d.status !== 'waiting' || this.readOnly) return;
+      const epoch = this.epoch;
+      const saved = await this.save({ ...d, status: 'playing' }, d.updatedAt, epoch);
+      if (epoch === this.epoch && typeof saved !== 'string') this.#duel = saved;
+    });
+  }
+
+  // O link de A saiu nesta tela: a penalidade não muda mais (a tela de mandar tira +2 e DNF).
+  get linkOut(): boolean {
+    const d = this.#duel;
+    return d !== null && this.#out?.id === d.id;
+  }
+
+  // O nome dos links vai para os Ajustes só quando muda (limpo como os Ajustes o guardam): preparar o link a cada pausa não regrava o mesmo.
+  private async rename(name: string | undefined): Promise<void> {
+    if (name !== undefined && cleanDuelName(name) !== this.host.duelName()) await this.host.setDuelName(name);
   }
 
   // "Mandar de novo": o mesmo link de um desafio de A que espera resposta; null para qualquer outro.
@@ -416,7 +469,7 @@ export class DuelState {
       const d = this.#duel;
       if (!d || d.side !== 'b' || !scoreOf(d)?.over) throw new Error('A partida ainda não acabou');
       const epoch = this.epoch;
-      if (name !== undefined) await this.host.setDuelName(name);
+      await this.rename(name);
       const named: Duel = { ...d, myName: this.host.duelName() };
       const saved = named.myName !== d.myName ? await this.save(named, d.updatedAt, epoch) : d;
       if (typeof saved === 'string') return null;
@@ -573,6 +626,7 @@ export class DuelState {
     this.epoch++;
     this.#duel = null;
     this.#offer = null;
+    this.#out = null;
     this.go(phase);
   }
 

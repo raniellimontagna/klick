@@ -6,8 +6,8 @@
   //
   // Mandar: a folha do sistema (ou a cópia) só abre dentro do toque da pessoa, então o link fica pronto antes: ao chegar na tela, a cada
   // pausa na digitação do nome (que grava nos Ajustes ao preparar) e a cada troca da penalidade do sétimo. Até lá, o botão espera. O toque
-  // compartilha na hora, sem esperar nada antes; a folha recusada oferece "Copiar o link", num toque novo. Só depois de compartilhado (ou
-  // copiado) o desafio de A é dado por mandado (challengeUrl), e +2 e DNF do sétimo somem.
+  // dá o link por saído (app.duel.send: os tempos de A travam e a marca de mandado entra na fila, sem esperar) e abre a folha na hora; a
+  // folha recusada oferece "Copiar o link", num toque novo, e a folha fechada sem mandar volta o desafio a jogar (app.duel.unsend).
   import { onDestroy, tick, untrack } from 'svelte';
   import { MAX_DUEL_NAME } from '../../core/duel/link';
   import { eventInfo } from '../../core/events';
@@ -31,7 +31,6 @@
   let name = $state(untrack(() => app.profile.duelName)); // o último usado (Ajustes); vazio, quem recebe lê "Alguém te desafiou"
   let prepared = $state<string | null>(null); // o link pronto para o toque; null enquanto prepara
   let copyOffer = $state<string | null>(null); // a folha recusou: o link que "Copiar o link" copia
-  let handedOut = $state(false); // o link de A saiu nesta tela: a penalidade do sétimo não muda mais, mesmo se a marca não gravou
   let noteValue = $state(''); // o campo de nota das ações (não aparece aqui)
   let destroyed = false;
   let generation = 0; // o preparo mais novo: um mais velho que termina depois não vale
@@ -50,8 +49,8 @@
   // Quem manda: A com os sete (4) ou B com a partida acabada (7).
   const sendable = $derived(duel !== null && phase === 'finished');
   const last = $derived(duel?.mine.at(-1) ?? null);
-  // +2 e DNF do sétimo, na tela de mandar, até o link sair.
-  const penaltyOpen = $derived(duel !== null && duel.side === 'a' && phase === 'finished' && duel.status === 'playing' && !handedOut);
+  // +2 e DNF do sétimo, na tela de mandar, até o link sair (mesmo que a marca de mandado não tenha gravado).
+  const penaltyOpen = $derived(duel !== null && duel.side === 'a' && phase === 'finished' && duel.status === 'playing' && !app.duel.linkOut);
   // O que muda o link: o desafio e as penalidades (o nome entra pelo campo).
   const content = $derived(duel ? `${duel.id}|${duel.mine.map((t) => t.penalty ?? '').join(',')}` : '');
 
@@ -96,7 +95,7 @@
     clearTimeout(debounce);
     debounce = setTimeout(() => {
       const side = duel?.side;
-      const make = side === 'a' ? app.duel.challengeLink(location.origin, n) : app.duel.replyUrl(location.origin, n);
+      const make = side === 'a' ? app.duel.challengeLink(location.origin, n) : app.duel.replyLink(location.origin, n);
       void make
         .catch(() => null)
         .then((url) => {
@@ -110,19 +109,29 @@
     clearTimeout(debounce);
   });
 
-  // O toque em Mandar: a folha do sistema na hora (ou, sem ela, a cópia), com o link já pronto. Nada de esperar antes.
+  // O toque em Mandar: a marca de mandado entra na fila (sem esperar) e a folha do sistema abre na hora (ou, sem ela, a cópia), com o link já
+  // pronto. Nada é esperado antes da folha: o gesto da pessoa só vale ali.
   function send(): void {
     const url = prepared;
     const d = duel;
     if (!url || !d) return;
     const text = d.side === 'a' ? T.duel.shareText(app.profile.duelName, short) : T.duel.replyText(app.profile.duelName, short);
+    const marking = app.duel.send(location.origin);
+    if (d.side === 'a') {
+      void marking.then(
+        (saved) => {
+          if (!saved) app.showToast(T.duel.sentNotSaved);
+        },
+        () => app.showToast(T.duel.sentNotSaved),
+      );
+    }
     if (!canShare()) {
       copyNow(url);
       return;
     }
     copyOffer = null;
     void shareLink(text, url).then((how) => {
-      if (how === 'shared') sent();
+      if (how === 'cancelled') void app.duel.unsend(); // fechou a folha sem mandar: o desafio volta a jogar
       else if (how === 'failed' && !destroyed) copyOffer = url;
     });
   }
@@ -136,20 +145,7 @@
       }
       app.showToast(T.duel.copied);
       if (!destroyed) copyOffer = null;
-      sent();
     });
-  }
-
-  // O link de A saiu: o desafio passa a esperar a resposta. Se a marca não grava, o aviso, e mandar de novo grava.
-  function sent(): void {
-    if (duel?.side !== 'a') return;
-    handedOut = true;
-    void app.duel.challengeUrl(location.origin).then(
-      (url) => {
-        if (!url) app.showToast(T.duel.sentNotSaved);
-      },
-      () => app.showToast(T.duel.sentNotSaved),
-    );
   }
 
   // +2 e DNF no sétimo (a tela de mandar). O link é preparado de novo com a penalidade nova.
