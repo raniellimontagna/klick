@@ -13,14 +13,15 @@ export const DUEL_LINK_ID = /^[a-z0-9]{8,32}$/; // o id do link (newLinkId dá 1
 // sete embaralhamentos assim passariam do tamanho que o sync aceita. O desafio ficaria só neste aparelho (revisão da Task 3).
 const UNPRINTABLE = /[\u0000-\u0009\u000b-\u001f\u007f]|\p{Cs}/u;
 export const isDuelText = (text: string): boolean => !UNPRINTABLE.test(text);
-// O nome é de uma linha só: sem nenhum caractere de controle, a quebra de linha inclusive (ela só vale no embaralhamento).
-const UNPRINTABLE_NAME = /[\u0000-\u001f\u007f]|\p{Cs}/u;
+// O nome é de uma linha só: sem nenhum caractere de controle, a quebra de linha inclusive (ela só vale no embaralhamento), sem as quebras do
+// Unicode (NEL, separador de linha e de parágrafo) e sem metade solta de par UTF-16. Uma constante só serve a isDuelName e a cleanDuelName.
+const UNPRINTABLE_NAME = /[\u0000-\u001f\u007f\u0085\u2028\u2029]|\p{Cs}/u;
 export const isDuelName = (value: unknown): value is string =>
   typeof value === 'string' && value.length <= MAX_DUEL_NAME && !UNPRINTABLE_NAME.test(value);
-// O que a pessoa digitou como nome: controles e metades soltas viram espaço ou somem, aparado, cortado em MAX_DUEL_NAME sem partir um par
-// UTF-16 ao meio. O resultado sempre passa em isDuelName.
+// O que a pessoa digitou como nome: controles e quebras viram espaço, metades soltas somem, aparado, cortado em MAX_DUEL_NAME sem partir um
+// par UTF-16 ao meio. O resultado sempre passa em isDuelName.
 export function cleanDuelName(text: string): string {
-  const flat = text.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\p{Cs}/gu, '').trim();
+  const flat = text.replace(new RegExp(UNPRINTABLE_NAME.source, 'gu'), (ch) => (/\p{Cs}/u.test(ch) ? '' : ' ')).trim();
   let name = flat.slice(0, MAX_DUEL_NAME);
   if (/[\ud800-\udbff]$/.test(name)) name = name.slice(0, -1); // o corte caiu no meio de um par
   return name.trim();

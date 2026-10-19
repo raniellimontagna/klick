@@ -202,6 +202,21 @@ describe('o link do desafio (spec 4)', () => {
     expect((await decodeDuelLink(payloadOf(link({ scrambles: [...link().scrambles.slice(0, 6), 'R++ D--\nU'] }))))?.scrambles[6]).toBe('R++ D--\nU');
   });
 
+  // Uma linha só inclui as quebras de linha do Unicode (NEL, separador de linha e de parágrafo), que o texto de um nome não pode ter.
+  it('o nome recusa as quebras de linha do Unicode (U+0085, U+2028, U+2029), e o link e cleanDuelName concordam', async () => {
+    for (const ch of ['\u0085', '\u2028', '\u2029']) {
+      const name = `Ana${ch}Bia`;
+      expect(isDuelName(name), JSON.stringify(ch)).toBe(false);
+      const decoded = await decodeDuelLink(payloadOf(link({ a: { name, times: times() } })));
+      expect(decoded?.a.name, JSON.stringify(ch)).toBe('');
+      expect(cleanDuelName(name)).toBe('Ana Bia');
+      expect(isDuelName(cleanDuelName(`${ch}Ana${ch}`))).toBe(true);
+    }
+    // No embaralhamento só a quebra de linha comum vale (megaminx); as outras não passam.
+    const last = (text: string) => link({ scrambles: [...link().scrambles.slice(0, 6), text] });
+    expect((await decodeDuelLink(payloadOf(last('R++\nU'))))?.scrambles[6]).toBe('R++\nU');
+  });
+
   it('cleanDuelName apara, corta em 20 sem partir um par UTF-16 e sempre devolve um nome que vale', () => {
     expect(cleanDuelName('  Ana  ')).toBe('Ana');
     expect(cleanDuelName('Ana\nBia')).toBe('Ana Bia');

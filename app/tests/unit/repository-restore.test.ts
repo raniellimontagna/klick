@@ -443,3 +443,30 @@ describe('restaurar com conta põe na fila tudo o que grava, e só o que o servi
     expect(refusedBy(await pendingChanges(db))).toEqual([]);
   });
 });
+
+// Uma cópia de antes do nome dos desafios não o traz: restaurar não pode gravar '' por cima do nome do aparelho (e subir para a conta).
+describe('restaurar uma cópia de antes do nome dos desafios', () => {
+  const copy = (profile: KlickExport['profile']): KlickExport => ({ format: 'klick', version: 1, exportedAt: t, sessions: [], solves: [], profile });
+
+  it('a cópia sem o nome deixa o nome daqui, e nenhum item "" é gravado', async () => {
+    const { db, repo } = await fresh('conta-1');
+    await repo.saveProfile({ duelName: 'Ana' });
+    await db.clear('outbox');
+    t += 1000;
+    await repo.replaceAll(copy({ finish: 'fosco', onboarded: true, trail: Array<boolean>(9).fill(false) }));
+    expect((await repo.getProfile()).duelName).toBe('Ana');
+    expect(await db.get('prefs', 'duelName')).toMatchObject({ value: 'Ana' });
+    expect(await db.getAll('prefs')).not.toContainEqual(expect.objectContaining({ key: 'duelName', value: '' }));
+  });
+
+  it('a cópia que traz o nome vale, mesmo vazio', async () => {
+    const { repo } = await fresh('conta-1');
+    await repo.saveProfile({ duelName: 'Ana' });
+    t += 1000;
+    await repo.replaceAll(copy({ duelName: 'Bia' }));
+    expect((await repo.getProfile()).duelName).toBe('Bia');
+    t += 1000;
+    await repo.replaceAll(copy({ duelName: '' }));
+    expect((await repo.getProfile()).duelName).toBe('');
+  });
+});

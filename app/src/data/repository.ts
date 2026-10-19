@@ -1779,8 +1779,9 @@ export function createRepository(
         // A restauração fica com a temporada mais adiantada (spec 5.6), mesmo que a cópia não tenha perfil, e uma cópia sem perfil também
         // não tira o acabamento que a pessoa escolheu.
         const local = composeProfile(device, items);
-        // O que é do treino e a cópia não traz (uma cópia de antes do treino) fica o daqui.
-        const kept: ProfilePatch = { lessonAt: local.lessonAt, algChoice: local.algChoice, trainOff: local.trainOff };
+        // O que é do treino e a cópia não traz (uma cópia de antes do treino) fica o daqui; o nome dos desafios também (uma cópia de antes
+        // dele gravaria '' por cima do nome, com a data da restauração, e subiria para a conta). A cópia que o traz vale: `profile` vem depois.
+        const kept: ProfilePatch = { lessonAt: local.lessonAt, algChoice: local.algChoice, trainOff: local.trainOff, duelName: local.duelName };
         const restored = profile ? mergeProfile(defaultProfile(), { ...kept, ...profile }) : null;
         const season = moreAdvanced(local.season, seasonFrom(profile?.season));
         // Sem perfil na cópia e sem temporada a guardar, o perfil volta aos padrões, como sempre foi. Sem perfil na cópia e com temporada a

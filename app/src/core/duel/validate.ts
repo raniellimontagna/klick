@@ -7,7 +7,6 @@ import { DUEL_SCRAMBLES } from './score';
 
 const isRec = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
-const isName = isDuelName;
 const STATUSES: readonly DuelStatus[] = ['playing', 'waiting', 'done'];
 // Os tempos de um lado: até sete, cada um no formato do link.
 const isTimes = (v: unknown): boolean => Array.isArray(v) && v.length <= DUEL_SCRAMBLES && v.every(isDuelTime);
@@ -18,7 +17,7 @@ export function isDuel(v: unknown): v is Duel {
     isRec(v) && typeof v.linkId === 'string' && DUEL_LINK_ID.test(v.linkId) && (v.side === 'a' || v.side === 'b') &&
     v.id === `${v.linkId}-${v.side}` && typeof v.event === 'string' && EVENT_IDS.includes(v.event as EventId) &&
     Array.isArray(v.scrambles) && v.scrambles.length === DUEL_SCRAMBLES && v.scrambles.every(isDuelScramble) &&
-    isTimes(v.mine) && (v.theirs === null || isTimes(v.theirs)) && isName(v.myName) && isName(v.theirName) &&
+    isTimes(v.mine) && (v.theirs === null || isTimes(v.theirs)) && isDuelName(v.myName) && isDuelName(v.theirName) &&
     STATUSES.includes(v.status as DuelStatus) && isNum(v.createdAt) && isNum(v.updatedAt) && (v.deletedAt === null || isNum(v.deletedAt))
   );
 }
