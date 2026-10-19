@@ -86,7 +86,7 @@
         { "name": "OTP_BURST", "namespace_id": "2102", "simple": { "limit": 5, "period": 60 } }
       ],
       "vars": {
-        "ACCOUNTS_ENABLED": "false",
+        "ACCOUNTS_ENABLED": "true",
         "APP_ORIGIN": "https://klick.ranimontagna.com",
         "TURNSTILE_SITE_KEY": "0x4AAAAAAFZP094_-Gx1c3Ik",
         "MAIL_FROM": "Klick <nao-responda@ranimontagna.com>",

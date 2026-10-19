@@ -69,7 +69,7 @@ DNS de cada um. A v1 não está mais no ar (o projeto da Vercel foi apagado em 1
 
 ### A conta e o sync
 
-- **Liga e desliga:** `ACCOUNTS_ENABLED` em `wrangler.jsonc`. Ligada no beta; desligada na raiz até o ok do Ranielli. Desligada, o
+- **Liga e desliga:** `ACCOUNTS_ENABLED` em `wrangler.jsonc`. Ligada no beta e, desde 19/10/2026, na raiz. Desligada, o
   `/api` (menos `/api/health`) responde 404 e o app não mostra nada de conta.
 - **Cada ambiente tem os próprios dados:** D1 (`klick-auth-beta` e `klick-auth`, o login), Durable Objects (uma conta por objeto) e
   R2 (`klick-snapshots-beta` e `klick-snapshots`, as cópias diárias, apagadas depois de 30 dias por uma regra do bucket).

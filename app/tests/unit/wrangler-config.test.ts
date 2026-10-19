@@ -41,9 +41,10 @@ const CAPS = ['SNAPSHOT_BYTES_CAP', 'R2_CLASS_A_MONTH', 'R2_CLASS_B_MONTH', 'MAI
 const SECRETS = ['BETTER_AUTH_SECRET', 'TURNSTILE_SECRET', 'RESEND_API_KEY', 'E2E_MAILBOX'];
 
 describe('wrangler.jsonc', () => {
-  it('a conta ligada no beta e desligada na raiz até o ok do Ranielli (spec 8.4 e 12)', () => {
+  // A raiz ligou a conta em 19/10/2026, com o ok do Ranielli (spec 8.4 e 12; os portões do app/README.md).
+  it('a conta ligada no beta e na raiz', () => {
     expect(config.vars.ACCOUNTS_ENABLED).toBe('true');
-    expect(config.env.production.vars.ACCOUNTS_ENABLED).toBe('false');
+    expect(config.env.production.vars.ACCOUNTS_ENABLED).toBe('true');
   });
 
   it('nenhum segredo (nem a caixa do ponta a ponta) nas variáveis de nenhum ambiente', () => {
