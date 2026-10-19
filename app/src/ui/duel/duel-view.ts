@@ -1,11 +1,13 @@
 // As contas da tela do desafio (a maquete aprovada, docs/design/2026-10-19-desafio-maquete.html): o placar em peças, o progresso de quem
-// desafia, a revelação do ponto, o resultado e a partida ponto a ponto. Puro: os componentes só desenham. Tudo do lado deste aparelho:
-// "Você" é sempre quem vê, e o outro lado é o nome que ele mandou (ou "Oponente").
+// desafia, a revelação do ponto, o resultado, a partida ponto a ponto e a lista dos Desafios em Evolução. Puro: os componentes só desenham.
+// Tudo do lado deste aparelho: "Você" é sempre quem vê, e o outro lado é o nome que ele mandou (ou "Oponente").
 import { DUEL_SCRAMBLES, type DuelScore, effectiveMs } from '../../core/duel/score';
+import { eventInfo } from '../../core/events';
 import { formatMs } from '../../core/stats';
 import type { Duel, DuelSide, DuelTime } from '../../core/types';
 import { T } from '../../strings';
 import type { CentroResult } from '../centro';
+import { daysAgoLabel, timeOfDay } from '../format';
 
 // Uma peça do placar: levou o ponto (acesa), não levou (apagada), ninguém pontua (apagada com o traço), ainda não jogado (o contorno) e não
 // jogado porque a partida acabou antes (o contorno tracejado). As do progresso de A: feita, a da vez e a que falta.
@@ -169,4 +171,72 @@ export function matchOf(d: Duel, score: DuelScore): { rows: MatchRow[]; rest: { 
   const unplayed = mySide === 'a' ? d.mine.slice(played).map(duelTime) : [];
   const text = unplayed.length > 0 ? `${T.duel.notPlayed(left)} · ${T.duel.yoursUnplayed(unplayed)}` : T.duel.notPlayed(left);
   return { rows, rest: { label, text } };
+}
+
+// ----- Evolução › Desafios (a maquete aprovada, 9a a 9c): o cartão, a lista e a partida aberta, dos desafios guardados -----
+
+// O mini placar: o placar em peças, sem a coluna da vez. Antes da resposta (A sem o outro lado), todas por jogar.
+export function miniBoardOf(d: Duel, score: DuelScore | null): Board {
+  if (score) return boardOf(d, score, null);
+  const open: Piece[] = Array.from({ length: DUEL_SCRAMBLES }, () => 'open');
+  return { me: open, them: open, mine: 0, theirs: 0, now: null, label: T.duel.board(rowName(d.theirName), 0, 0, open.map(() => T.duel.cellOpen)) };
+}
+
+// Quem está do outro lado, na lista: o nome que ele mandou. Sem nome: o desafio de A antes da resposta ("Seu desafio", antes de mandar;
+// "Desafio mandado", esperando), ou "Seu oponente".
+export function duelTitle(d: Duel): string {
+  if (d.theirName) return d.theirName;
+  if (d.side === 'a' && d.theirs === null) return d.status === 'playing' ? T.duel.ownTitle : T.duel.sentTitle;
+  return T.duel.yourOpponent;
+}
+
+export type DuelTag = 'live' | 'wait' | 'done';
+
+export interface DuelItem {
+  title: string; // "Bia", "Desafio mandado"
+  event: string; // "3×3"
+  tag: DuelTag; // jogando, esperando resposta, terminado
+  tagText: string;
+  detail: string; // "Bia venceu 3 × 1 · hoje", "Você 1 × 1 · 3 de 7 · ontem", "ontem"
+  label: string; // o nome do botão, para o leitor de tela: "Bia · 3×3, terminado, Bia venceu 3 × 1 · hoje" (o placar fica de descrição)
+}
+
+// Uma linha da lista (9b). A data é a da criação, a mesma da ordem da lista. Um desafio que joga diz o embaralhamento da vez: o seguinte ao
+// último revelado (B) ou ao último feito (A); de B, também o placar até ali.
+export function duelItemOf(d: Duel, score: DuelScore | null, now: number): DuelItem {
+  const day = daysAgoLabel(d.createdAt, now);
+  const parts: string[] = [];
+  let tag: DuelTag;
+  let tagText: string;
+  if (d.status === 'done') {
+    tag = 'done';
+    tagText = T.duel.tagDone;
+    if (score) parts.push(outcomeOf(d, score).title);
+  } else if (d.status === 'waiting') {
+    tag = 'wait';
+    tagText = T.duel.tagWaiting;
+  } else {
+    tag = 'live';
+    tagText = T.duel.tagPlaying;
+    if (score) parts.push(T.duel.rowScore(score.points[d.side], score.points[other(d.side)]));
+    const done = score ? score.perPoint.length : d.mine.length;
+    parts.push(T.progress.of(Math.min(done + 1, DUEL_SCRAMBLES), DUEL_SCRAMBLES));
+  }
+  parts.push(day);
+  const title = duelTitle(d);
+  const event = eventInfo(d.event).short;
+  const detail = parts.join(' · ');
+  return { title, event, tag, tagText, detail, label: `${title} · ${event}, ${tagText}, ${detail}` };
+}
+
+// O texto do cartão (9a): "1 jogando · 1 esperando resposta · 3 terminados".
+export function duelsSummary(duels: readonly Duel[]): string {
+  const count = (status: Duel['status']): number => duels.filter((d) => d.status === status).length;
+  return T.duel.summary(count('playing'), count('waiting'), count('done'));
+}
+
+// O rótulo da partida aberta (9c): "Você desafiou · 3×3 · hoje, 14:32" (ou "Ranielli te desafiou", do lado de quem recebeu).
+export function matchLabelOf(d: Duel, now: number): string {
+  const who = d.side === 'a' ? T.duel.youChallenged : T.duel.invited(d.theirName);
+  return T.duel.matchLabel(who, eventInfo(d.event).short, `${daysAgoLabel(d.createdAt, now)}, ${timeOfDay(d.createdAt)}`);
 }

@@ -1,6 +1,8 @@
-import { render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { tick } from 'svelte';
+import { encodeDuelLink } from '../../src/core/duel/link';
+import type { DuelLink } from '../../src/core/types';
 import { DB_NAME, openKlickDb } from '../../src/data/db';
 import { createRepository } from '../../src/data/repository';
 import { createScrambleQueue } from '../../src/scramble/queue';
@@ -400,5 +402,123 @@ describe('casca do app: robustez (brief 9b)', () => {
     const tour = document.querySelector('[data-import-input]');
     expect(tour?.getAttribute('aria-label')).toBe(T.onboarding.importFileTour);
     expect(T.onboarding.importFileTour).not.toBe(T.dados.importFile);
+  });
+});
+
+// O link do desafio ao abrir (spec do desafio, seção 4; a maquete aprovada, 5 e 10): `#desafio=` no boot e no hashchange, e o fragmento sai
+// da barra (recarregar não abre o mesmo aviso de novo).
+describe('casca do app: o link do desafio', () => {
+  const SCRAMBLES = Array.from({ length: 7 }, (_, i) => `R U R' U' F${i}`);
+  const LINK: DuelLink = {
+    v: 1,
+    id: 'abcdefgh12345678',
+    event: '333',
+    scrambles: SCRAMBLES,
+    a: { name: 'Ranielli', times: SCRAMBLES.map((_, i) => ({ ms: 12_000 + i, penalty: null })) },
+  };
+
+  // Um aparelho sem inspeção e sem tempo de armar: o solve pelo teclado fica síncrono.
+  async function duelDevice({ onboarded = true }: { onboarded?: boolean } = {}) {
+    const repo = createRepository(await openKlickDb(`shell-dz-${++dbn}`), { channel: null });
+    if (onboarded) await repo.saveProfile({ onboarded: true });
+    const app = new AppState({ repo, queue: createScrambleQueue({ generate: async () => "R U R'" }), storage: null, storageManager: null });
+    await app.init();
+    await app.updateSettings({ inspection: false, holdMs: 0 });
+    hooks.boot = async () => app;
+    return { app, repo };
+  }
+
+  const key = (type: 'keydown' | 'keyup', code: string, k: string): void => {
+    document.body.dispatchEvent(new KeyboardEvent(type, { code, key: k, bubbles: true, cancelable: true }));
+  };
+  const hashChanged = (): Promise<void> => new Promise((resolve) => window.addEventListener('hashchange', () => resolve(), { once: true }));
+
+  afterEach(() => {
+    hooks.boot = null;
+    history.replaceState(null, '', '/');
+  });
+
+  it('abrir com #desafio= abre o desafio e limpa o fragmento', async () => {
+    const { app } = await duelDevice();
+    history.replaceState(null, '', `/?de=zap#desafio=${await encodeDuelLink(LINK)}`);
+    render(App);
+    const invite = await screen.findByRole('dialog', { name: 'Ranielli te desafiou' });
+    // O fragmento saiu da barra; o caminho e a busca ficam.
+    expect(location.hash).toBe('');
+    expect(`${location.pathname}${location.search}`).toBe('/?de=zap');
+    await fireEvent.click(within(invite).getByRole('button', { name: T.duel.accept }));
+    await waitFor(() => expect(app.duel.phase).toBe('solving'));
+    expect(app.duel.current).toMatchObject({ side: 'b', theirName: 'Ranielli' });
+  });
+
+  it('#desafio= torto mostra o aviso e não grava nada', async () => {
+    const { app, repo } = await duelDevice();
+    history.replaceState(null, '', '/#desafio=isto-nao-e-um-desafio');
+    render(App);
+    const alert = await screen.findByRole('alertdialog', { name: T.duel.invalidTitle });
+    expect(location.hash).toBe('');
+    expect(await repo.listDuels({ includeDeleted: true })).toEqual([]);
+    // Fechar volta ao Timer, e recarregar não abriria o aviso de novo (o fragmento já saiu).
+    await fireEvent.click(within(alert).getByRole('button', { name: T.duel.close }));
+    expect(app.duel.phase).toBe('idle');
+    expect(location.hash).toBe('');
+  });
+
+  it('um hashchange com desafio abre a tela com o app já aberto', async () => {
+    const { app } = await duelDevice();
+    render(App);
+    await screen.findByRole('button', { name: 'Timer' });
+    app.tab = 'evolucao'; // o link chega com outra aba aberta: o convite e o desafio são do Timer
+    await tick();
+    const changed = hashChanged();
+    location.hash = `#desafio=${await encodeDuelLink(LINK)}`;
+    await changed;
+    await screen.findByRole('dialog', { name: 'Ranielli te desafiou' });
+    expect(app.tab).toBe('timer');
+    expect(location.hash).toBe('');
+    // Outro fragmento qualquer não é desafio: nada muda.
+    await fireEvent.click(screen.getByRole('button', { name: T.duel.notNow }));
+    const other = hashChanged();
+    location.hash = '#main';
+    await other;
+    await tick();
+    expect(app.duel.phase).toBe('idle');
+    expect(location.hash).toBe('#main');
+  });
+
+  // A decisão do primeiro toque: um link que chega com o timer ocupado (a inspeção, o solve) espera ele parar. Com o timer rodando, o
+  // primeiro toque em qualquer lugar para o solve e é engolido; o convite por cima perderia esse toque.
+  it('um link aberto com o timer rodando espera o solve parar, e o primeiro toque no convite vale', async () => {
+    const { app } = await duelDevice();
+    render(App);
+    await screen.findByRole('button', { name: 'Timer' });
+    key('keydown', 'Space', ' ');
+    key('keyup', 'Space', ' ');
+    await waitFor(() => expect(app.timerBusy).toBe(true));
+    const changed = hashChanged();
+    location.hash = `#desafio=${await encodeDuelLink(LINK)}`;
+    await changed;
+    await new Promise((resolve) => setTimeout(resolve, 50)); // o tempo de ler o link, se ele não esperasse
+    expect(location.hash).toBe(''); // lido e tirado da barra, esperando
+    expect(app.timerBusy).toBe(true);
+    expect(app.duel.phase).toBe('idle');
+    expect(screen.queryByRole('dialog', { name: 'Ranielli te desafiou' })).toBeNull();
+    key('keydown', 'KeyA', 'a'); // o solve para: é um solve de sempre
+    const invite = await screen.findByRole('dialog', { name: 'Ranielli te desafiou' });
+    await waitFor(() => expect(app.solves).toHaveLength(1));
+    const accept = within(invite).getByRole('button', { name: T.duel.accept });
+    await fireEvent.pointerDown(accept);
+    await fireEvent.click(accept);
+    await waitFor(() => expect(app.duel.phase).toBe('solving'));
+  });
+
+  it('a primeira visita por um link vai direto ao desafio, e a apresentação fica para depois', async () => {
+    const { app } = await duelDevice({ onboarded: false });
+    history.replaceState(null, '', `/#desafio=${await encodeDuelLink(LINK)}`);
+    render(App);
+    await screen.findByRole('dialog', { name: 'Ranielli te desafiou' });
+    expect(app.dialog).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: T.duel.notNow }));
+    await waitFor(() => expect(app.dialog).toBe('onboarding'));
   });
 });

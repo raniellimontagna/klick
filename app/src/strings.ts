@@ -714,6 +714,33 @@ export const T = Object.freeze({
     invalidTitle: 'Este desafio não abre nesta versão do Klick',
     invalidText: 'O link pode ter sido cortado no caminho ou vir de uma versão mais nova do Klick. Peça o link de novo a quem mandou.',
     invalidNothing: 'Nada mudou no seu Klick.',
+    // Evolução › Desafios (9a, 9b, 9c): o cartão no topo, a lista e a partida aberta.
+    entryLabel: 'Desafios',
+    // "1 jogando · 1 esperando resposta · 3 terminados": só os estados que existem.
+    summary: (playing: number, waiting: number, done: number): string =>
+      [
+        playing > 0 ? `${playing} jogando` : '',
+        waiting > 0 ? `${waiting} esperando resposta` : '',
+        done > 0 ? `${done} ${done === 1 ? 'terminado' : 'terminados'}` : '',
+      ]
+        .filter(Boolean)
+        .join(' · '),
+    listTitle: 'Desafios',
+    backTo: (to: string): string => `Voltar para ${to}`, // "‹ Evolução" e "‹ Desafios": o nome acessível diz para onde volta
+    tagPlaying: 'jogando',
+    tagWaiting: 'esperando resposta',
+    tagDone: 'terminado',
+    sentTitle: 'Desafio mandado', // o desafio de A esperando a resposta, sem o nome de ninguém ainda
+    ownTitle: 'Seu desafio', // o de A antes de mandar
+    rowScore: (mine: number, theirs: number): string => `Você ${mine} × ${theirs}`,
+    listNote: 'Os tempos dos desafios ficam fora das médias e dos recordes.',
+    youChallenged: 'Você desafiou',
+    matchLabel: (who: string, event: string, when: string): string => `${who} · ${event} · ${when}`,
+    waitingTitle: 'Esperando resposta',
+    resend: 'Mandar de novo',
+    delete: 'Excluir',
+    deleteNote: 'Vai para a lixeira, com os solves e as sessões, e some de vez em 30 dias.',
+    deleted: 'Desafio excluído',
   }),
   // Conta e sync (sub-projeto 5a): Ajustes, o diálogo de entrar, o indicador e os avisos. Voz calma; nada de culpa.
   conta: Object.freeze({

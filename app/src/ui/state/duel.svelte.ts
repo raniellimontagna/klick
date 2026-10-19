@@ -65,7 +65,8 @@ function sidesOf(d: Duel): { a: DuelTime[]; b: DuelTime[] } | null {
   return { a: d.theirs.slice(0, n), b: d.mine.slice(0, n) };
 }
 
-function scoreOf(d: Duel): DuelScore | null {
+// O placar de um desafio guardado, do lado deste aparelho, só com o revelado: a tela do desafio e a lista dos Desafios (Evolução) leem o mesmo.
+export function scoreOf(d: Duel): DuelScore | null {
   const sides = sidesOf(d);
   return sides ? scoreDuel(sides.a, sides.b) : null;
 }

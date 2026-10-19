@@ -2,6 +2,11 @@
   // A tela da Evolução (porte de prototype/scripts/ui/evolucao-view.js): indicadores, gráfico, distribuição e histórico.
   // Os filtros são evento, sessão (só as do evento escolhido) e período; o evento segue a sessão atual até a pessoa escolher um.
   // Os números vêm de core/stats.ts e os gráficos de ui/charts.ts. Os textos ficam em strings.ts.
+  //
+  // Os desafios (a maquete aprovada do desafio, 9a a 9c): com pelo menos um guardado, o cartão "Desafios" no topo, fora dos filtros (os
+  // desafios não entram nos números), com o resumo e o mini placar do último; ele abre a lista, e a lista abre a partida. Onde a tela está
+  // fica em app.evolucaoView. Sem desafios, a tela é a de sempre.
+  import { tick, untrack } from 'svelte';
   import { EVENTS } from '../../core/events';
   import {
     averageOf,
@@ -16,11 +21,16 @@
     rollingAverages,
     stdDevMs,
   } from '../../core/stats';
-  import type { EventId, Solve } from '../../core/types';
+  import type { Duel, EventId, Solve } from '../../core/types';
   import { T } from '../../strings';
   import { type Bin, evolutionChart, histogramBins } from '../charts';
+  import { duelsSummary, miniBoardOf } from '../duel/duel-view';
+  import MiniPlacar from '../duel/MiniPlacar.svelte';
   import { relativeTime, truncate } from '../format';
   import type { AppState } from '../state/app.svelte';
+  import { scoreOf } from '../state/duel.svelte';
+  import DuelList from './DuelList.svelte';
+  import DuelMatch from './DuelMatch.svelte';
 
   type Period = keyof typeof T.evolucao.periods;
   interface Kpi {
@@ -46,6 +56,7 @@
   const TABLE_ROWS = 30; // os últimos solves do período que a tabela mostra
 
   let { app }: { app: AppState } = $props();
+  const uid = $props.id();
 
   // O relógio da tela: a hora de montagem, atualizada a cada minuto enquanto a tela existe. Sem ele, "Quando" e a janela do
   // período ficariam presos no último momento em que algo mudou (as derivadas não se refazem sozinhas com o tempo).
@@ -151,6 +162,56 @@
   const axisFrom = $derived(bins.length ? formatMs(bins[0].from).slice(0, -3) : '');
   const axisTo = $derived(bins.length ? formatMs(bins[bins.length - 1].to).slice(0, -3) : '');
 
+  // Os desafios guardados (fora da lixeira), relidos a cada aviso de mudança neles. null enquanto a primeira leitura não volta: o cartão e
+  // a lista esperam, sem piscar. Uma leitura que falha deixa o que havia (e avisa, se a pessoa está na lista ou numa partida).
+  let duels = $state.raw<Duel[] | null>(null);
+  let reading = 0;
+  $effect(() => {
+    void app.duelChanges;
+    const mine = ++reading;
+    untrack(() => app.listDuels()).then(
+      (list) => {
+        if (mine === reading) duels = list;
+      },
+      () => {
+        if (mine === reading && app.evolucaoView.kind !== 'stats') app.showToast(T.data.readFailed);
+      },
+    );
+  });
+
+  const view = $derived(app.evolucaoView);
+  const latest = $derived(duels?.[0] ?? null);
+  const latestBoard = $derived(latest ? miniBoardOf(latest, scoreOf(latest)) : null);
+  const summary = $derived(duels ? duelsSummary(duels) : '');
+  const opened = $derived(view.kind === 'duel' ? (duels?.find((d) => d.id === view.id) ?? null) : null);
+
+  // A partida aberta que sumiu (para a lixeira, noutra aba ou aqui) volta à lista; sem nenhum desafio guardado (o último excluído, um wipe),
+  // a Evolução volta a ser a de sempre, como a de quem nunca desafiou.
+  $effect(() => {
+    if (view.kind === 'stats' || duels === null) return;
+    if (duels.length === 0) untrack(() => (app.evolucaoView = { kind: 'stats' }));
+    else if (view.kind === 'duel' && opened === null) untrack(() => (app.evolucaoView = { kind: 'duels' }));
+  });
+
+  // Trocar de vista (o cartão, uma linha, voltar, excluir) tira da tela o botão tocado: o foco vai para o título da vista nova (ou, de volta
+  // aos números, para o cartão). Abrir a tela não mexe no foco.
+  let shownView: string | null = null;
+  $effect(() => {
+    const key = view.kind === 'duel' ? `duel:${view.id}` : view.kind;
+    const ready = duels !== null;
+    untrack(() => {
+      if (!ready || key === shownView) return;
+      const first = shownView === null;
+      shownView = key;
+      if (first) return;
+      void tick().then(() => {
+        const active = document.activeElement;
+        if (active !== null && active !== document.body) return;
+        document.querySelector<HTMLElement>('[data-screen="evolucao"] [data-evo-heading], [data-screen="evolucao"] [data-duels-entry]')?.focus();
+      });
+    });
+  });
+
   const rows = $derived.by((): Row[] => {
     const out: Row[] = [];
     const lowest = Math.max(split.first, pool.length - TABLE_ROWS);
@@ -173,84 +234,108 @@
 </script>
 
 <section class="screen" data-screen="evolucao" aria-label={T.tabs.evolucao}>
-  <div class="page-h">
-    <h1>{T.tabs.evolucao}</h1>
-    <select class="pill" data-evo-event aria-label={T.evolucao.eventLabel} value={event} onchange={(e) => onEvent(e.currentTarget)}>
-      {#each EVENTS as ev (ev.id)}
-        <option value={ev.id}>{ev.name}</option>
-      {/each}
-    </select>
-    <select class="pill" data-evo-session aria-label={T.evolucao.sessionLabel} value={sessionId} onchange={(e) => onSession(e.currentTarget)}>
-      <option value="all">{T.evolucao.allSessions}</option>
-      {#each eventSessions as s (s.id)}
-        <option value={s.id}>{s.name}</option>
-      {/each}
-    </select>
-    <div class="seg" role="group" aria-label={T.evolucao.periodLabel}>
-      {#each PERIODS as p (p)}
-        <button type="button" data-period={p} aria-pressed={period === p ? 'true' : 'false'} onclick={() => (period = p)}>{T.evolucao.periods[p]}</button>
-      {/each}
-    </div>
-  </div>
-
-  <div class="kpis">
-    {#each kpis as k (k.label)}
-      <div class="tile">
-        <small>{k.label}</small>
-        <b class:pb={k.pb}>{k.value}</b>
-        <em>{k.sub}</em>
-      </div>
-    {/each}
-  </div>
-
-  <div class="evo-grid">
-    <div class="card">
-      <div class="label">{T.evolucao.chartLabel(official.n)}</div>
-      {@html chart}
-    </div>
-    <div class="card">
-      <div class="label">{distLabel}</div>
-      <div class="bars" role="img" aria-label={barsLabel}>
-        {#each bins as b, i (b.from)}
-          <i class:hl={i === hlIndex} style="height: {Math.max(2, (b.count / maxCount) * 100)}%" title="{b.open ? T.evolucao.binOpen(formatMs(b.from)) : `${formatMs(b.from)}–${formatMs(b.to)}`}: {b.count}"></i>
+  {#if view.kind !== 'stats'}
+    {#if opened}
+      <DuelMatch {app} duel={opened} {now} />
+    {:else if duels && duels.length > 0}
+      <DuelList {app} {duels} {now} />
+    {/if}
+  {:else}
+    <div class="page-h">
+      <h1>{T.tabs.evolucao}</h1>
+      <select class="pill" data-evo-event aria-label={T.evolucao.eventLabel} value={event} onchange={(e) => onEvent(e.currentTarget)}>
+        {#each EVENTS as ev (ev.id)}
+          <option value={ev.id}>{ev.name}</option>
+        {/each}
+      </select>
+      <select class="pill" data-evo-session aria-label={T.evolucao.sessionLabel} value={sessionId} onchange={(e) => onSession(e.currentTarget)}>
+        <option value="all">{T.evolucao.allSessions}</option>
+        {#each eventSessions as s (s.id)}
+          <option value={s.id}>{s.name}</option>
+        {/each}
+      </select>
+      <div class="seg" role="group" aria-label={T.evolucao.periodLabel}>
+        {#each PERIODS as p (p)}
+          <button type="button" data-period={p} aria-pressed={period === p ? 'true' : 'false'} onclick={() => (period = p)}>{T.evolucao.periods[p]}</button>
         {/each}
       </div>
-      <div class="bars-x">
-        {#if bins.length}
-          <span>{axisFrom}</span><span>{axisTo}</span>
-        {/if}
+    </div>
+
+    {#if duels && latest && latestBoard}
+      <!-- 9a: o nome é o resumo; o mini placar do último desafio fica de descrição. -->
+      <button
+        type="button"
+        class="card dz-entry"
+        data-duels-entry
+        aria-label="{T.duel.entryLabel}, {summary}"
+        aria-describedby="{uid}-last"
+        onclick={() => app.openDuels()}
+      >
+        <span><span class="label">{T.duel.entryLabel}</span><span>{summary}</span></span>
+        <MiniPlacar board={latestBoard} id="{uid}-last" />
+        <span class="dz-chev" aria-hidden="true">›</span>
+      </button>
+    {/if}
+
+    <div class="kpis">
+      {#each kpis as k (k.label)}
+        <div class="tile">
+          <small>{k.label}</small>
+          <b class:pb={k.pb}>{k.value}</b>
+          <em>{k.sub}</em>
+        </div>
+      {/each}
+    </div>
+
+    <div class="evo-grid">
+      <div class="card">
+        <div class="label">{T.evolucao.chartLabel(official.n)}</div>
+        {@html chart}
+      </div>
+      <div class="card">
+        <div class="label">{distLabel}</div>
+        <div class="bars" role="img" aria-label={barsLabel}>
+          {#each bins as b, i (b.from)}
+            <i class:hl={i === hlIndex} style="height: {Math.max(2, (b.count / maxCount) * 100)}%" title="{b.open ? T.evolucao.binOpen(formatMs(b.from)) : `${formatMs(b.from)}–${formatMs(b.to)}`}: {b.count}"></i>
+          {/each}
+        </div>
+        <div class="bars-x">
+          {#if bins.length}
+            <span>{axisFrom}</span><span>{axisTo}</span>
+          {/if}
+        </div>
       </div>
     </div>
-  </div>
 
-  <div class="card hist">
-    <table>
-      <thead>
-        <tr>
-          <th>{T.evolucao.columns.number}</th>
-          <th>{T.evolucao.columns.time}</th>
-          <th>{T.tiles.avg(5)}</th>
-          <th class="scr">{T.evolucao.columns.scramble}</th>
-          <th>{T.evolucao.columns.when}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {#each rows as r (r.id)}
+    <div class="card hist">
+      <table>
+        <thead>
           <tr>
-            <td class="num">{r.number}</td>
-            <td>
-              {r.time}
-              {#if r.pb}<span class="tag pb">{T.evolucao.pbTag}</span>{:else if r.plus2}<span class="tag">{T.timer.plus2}</span>{/if}
-              {#if r.note}<small class="note">{truncate(r.note, 48)}</small>{/if}
-            </td>
-            <td>{r.avg}</td>
-            <td class="scr">{r.scramble}</td>
-            <td>{r.when}</td>
+            <th>{T.evolucao.columns.number}</th>
+            <th>{T.evolucao.columns.time}</th>
+            <th>{T.tiles.avg(5)}</th>
+            <th class="scr">{T.evolucao.columns.scramble}</th>
+            <th>{T.evolucao.columns.when}</th>
           </tr>
-        {:else}
-          <tr><td colspan="5" class="muted">{T.evolucao.empty}</td></tr>
-        {/each}
-      </tbody>
-    </table>
-  </div>
+        </thead>
+        <tbody>
+          {#each rows as r (r.id)}
+            <tr>
+              <td class="num">{r.number}</td>
+              <td>
+                {r.time}
+                {#if r.pb}<span class="tag pb">{T.evolucao.pbTag}</span>{:else if r.plus2}<span class="tag">{T.timer.plus2}</span>{/if}
+                {#if r.note}<small class="note">{truncate(r.note, 48)}</small>{/if}
+              </td>
+              <td>{r.avg}</td>
+              <td class="scr">{r.scramble}</td>
+              <td>{r.when}</td>
+            </tr>
+          {:else}
+            <tr><td colspan="5" class="muted">{T.evolucao.empty}</td></tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
+  {/if}
 </section>

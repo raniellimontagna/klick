@@ -829,3 +829,20 @@ describe('a barra do topo e a pílula do modo', () => {
     await waitFor(() => expect(a.dialog).toBe('onboarding'));
   });
 });
+
+describe('a resposta em Desafios', () => {
+  it('"Ver em Desafios" abre a lista dos Desafios, com a partida terminada', async () => {
+    const A = await device({ name: 'Ranielli' });
+    const reply = await answered(A.a);
+    A.a.duel.exit();
+    await mount(A.a);
+    await A.a.duel.openLink(duelPayloadOf(new URL(reply).hash)!);
+    await fireEvent.click(await screen.findByRole('button', { name: T.duel.seeAll }));
+    expect(A.a.duel.phase).toBe('idle');
+    expect(A.a.tab).toBe('evolucao');
+    expect(await screen.findByRole('heading', { name: T.duel.listTitle })).toBeInTheDocument();
+    const item = await screen.findByRole('button', { name: /^Bia · 3×3/ });
+    expect(item).toHaveTextContent(T.duel.tagDone);
+    expect(item).toHaveTextContent('Bia venceu 3 × 0');
+  });
+});

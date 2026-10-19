@@ -14,9 +14,9 @@
   import { T } from '../../strings';
   import type { AppState } from '../state/app.svelte';
   import DuelCentro from './DuelCentro.svelte';
-  import { bestOf, boardOf, duelTime, matchOf, outcomeOf, rowName } from './duel-view';
+  import { bestOf, duelTime, outcomeOf, rowName } from './duel-view';
   import { focusTimerIfLost } from './focus';
-  import Placar from './Placar.svelte';
+  import MatchCards from './MatchCards.svelte';
   import { canShare, copyLink, shareLink } from './send';
   import ResultActions from '../timer/ResultActions.svelte';
 
@@ -43,8 +43,6 @@
   // A tela de mandar de A (4): os sete feitos, ainda sem a resposta. Uma partida só para ver, sem o outro lado, mostra os tempos do mesmo jeito.
   const ready = $derived(duel !== null && duel.side === 'a' && (phase === 'finished' || (phase === 'view' && score === null)));
   const outcome = $derived(duel && score ? outcomeOf(duel, score) : null);
-  const board = $derived(duel && score ? boardOf(duel, score, null) : null);
-  const match = $derived(duel && score ? matchOf(duel, score) : null);
   const them = $derived(rowName(duel?.theirName ?? ''));
   // Quem manda: A com os sete (4) ou B com a partida acabada (7).
   const sendable = $derived(duel !== null && phase === 'finished');
@@ -162,10 +160,10 @@
     focusTimerIfLost();
   }
 
-  // "Ver em Desafios": a Evolução, onde ficam os desafios guardados.
+  // "Ver em Desafios": a lista dos Desafios, em Evolução, onde ficam os desafios guardados.
   function seeAll(): void {
     app.duel.exit();
-    app.tab = 'evolucao';
+    app.openDuels();
   }
 </script>
 
@@ -192,40 +190,6 @@
   >
   {#if copyOffer}
     <button type="button" class="btn dz-wide" onclick={() => copyOffer && copyNow(copyOffer)}>{T.duel.copyLink}</button>
-  {/if}
-{/snippet}
-
-{#snippet matchCards()}
-  {#if board && match && duel}
-    <div class="card dz-board"><Placar {board} {them} /></div>
-    <div class="card hist dz-match">
-      <table>
-        <thead>
-          <tr>
-            <th>{T.duel.colNumber}</th>
-            <th>{T.duel.me}</th>
-            <th>{them}</th>
-            <th>{T.duel.colPoint}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each match.rows as row (row.n)}
-            <tr>
-              <td>{row.n}</td>
-              <td class:w={row.winner === 'me'}>{row.mine}</td>
-              <td class:w={row.winner === 'them'}>{row.theirs}</td>
-              <td>{row.point}</td>
-            </tr>
-          {/each}
-          {#if match.rest}
-            <tr class="dz-skip">
-              <td>{match.rest.label}</td>
-              <td colspan="3" class="dz-rest">{match.rest.text}</td>
-            </tr>
-          {/if}
-        </tbody>
-      </table>
-    </div>
   {/if}
 {/snippet}
 
@@ -287,7 +251,7 @@
         <h1 class="dz-result" tabindex="-1" bind:this={titleEl}>{outcome.title}</h1>
         <p class="dz-sub">{T.duel.against(duel.theirName, short, outcome.played)}</p>
       </div>
-      {@render matchCards()}
+      {#if score}<MatchCards {duel} {score} />{/if}
       {@render nameField(T.duel.nameHintReply(them))}
       {@render sendButton(T.duel.sendReply)}
       <p class="dz-note">{T.duel.replyNote(duel.theirName)}</p>
@@ -304,7 +268,7 @@
           <p class="coach dz-closed">{outcome.closed}{duel.side === 'a' ? ` ${T.duel.myBest(bestOf(duel.mine, outcome.played))}` : ''}</p>
         {/if}
       </div>
-      {@render matchCards()}
+      {#if score}<MatchCards {duel} {score} />{/if}
       <div class="row">
         {#if phase === 'reply'}
           <button type="button" class="btn primary" onclick={seeAll}>{T.duel.seeAll}</button>

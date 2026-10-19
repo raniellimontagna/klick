@@ -465,6 +465,132 @@
   justify-content: center;
 }
 
+/* Evolução › Desafios (9a, 9b, 9c): o cartão no topo, a lista e a partida aberta. */
+
+/* O mini placar: as duas linhas de peças, sem nomes nem números ("Você" em cima). */
+.placar.mini {
+  --pc: 7px;
+  --pr: 2px;
+  display: inline-grid;
+  grid-template-columns: none;
+  gap: 2px;
+  flex: none;
+}
+
+.placar.mini .pl-row {
+  display: flex;
+  gap: 2px;
+}
+
+.placar.mini [data-p='open'],
+.placar.mini [data-p='skip'] {
+  border-width: 1px;
+}
+
+.placar.mini [data-p='tie']::after {
+  left: 1px;
+  right: 1px;
+  height: 1px;
+  top: 3px;
+}
+
+.dz-entry {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  text-align: left;
+  margin-bottom: 12px;
+}
+
+.dz-entry > span:first-of-type {
+  flex: 1;
+  display: grid;
+  gap: 2px;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.dz-chev {
+  font-size: 20px;
+  color: var(--muted);
+  line-height: 1;
+}
+
+.link.dz-back {
+  align-self: flex-start;
+  padding-left: 0;
+  margin: 2px 0 0;
+  text-decoration: none;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.dz-list {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.dz-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-tile);
+  background: var(--surface);
+  box-shadow: var(--inner);
+  text-align: left;
+}
+
+.dz-item-t {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+}
+
+.dz-item-t b {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.dz-item-t b span {
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.dz-item-t small {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.dz-item-t .tag {
+  margin: 0 6px 0 0;
+  white-space: nowrap;
+}
+
+.tag.wait {
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--pl-open);
+  color: var(--ink-2);
+}
+
+.tag.live {
+  background: var(--ink);
+  color: var(--bg);
+}
+
+.dz-list-note {
+  margin-top: 14px;
+}
+
+.dz-match-title {
+  margin-top: 4px;
+}
+
 /* O cartão "Desafio" da coluna da direita, no desktop (no lugar da constância). */
 .dz-side-prog {
   margin-top: 12px;

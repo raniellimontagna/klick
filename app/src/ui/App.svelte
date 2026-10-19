@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
+  import { duelPayloadOf } from '../core/duel/link';
   import { eventInfo } from '../core/events';
   import { backupFileName } from '../data/folder';
   import { exportStuckDb } from '../data/db';
@@ -108,6 +109,10 @@ import SyncIndicator from './SyncIndicator.svelte';
     armDeadline();
     boot()
       .then((ready) => {
+        // O link vem antes da casca: o desafio começa a abrir antes da primeira passada do tour, e a primeira visita por um link vai direto
+        // a ele (a apresentação fica para depois).
+        const payload = takeDuelLink();
+        if (payload !== null) openDuelLink(ready, payload);
         app = ready;
       })
       .catch(() => {
@@ -159,6 +164,49 @@ import SyncIndicator from './SyncIndicator.svelte';
     };
     window.addEventListener('beforeinstallprompt', keep);
     return () => window.removeEventListener('beforeinstallprompt', keep);
+  });
+
+  // O link do desafio (spec do desafio, seção 4): `#desafio=…` ao abrir o app (no boot) e com ele já aberto (hashchange, o link tocado de
+  // novo). Lido, o fragmento sai da barra de endereço, com o caminho e a busca de antes: recarregar não abre o mesmo convite (nem o aviso do
+  // link torto) de novo. Antes do boot, o hashchange não faz nada: o boot lê o fragmento.
+  function takeDuelLink(): string | null {
+    const payload = duelPayloadOf(location.hash);
+    if (payload !== null) history.replaceState(history.state, '', `${location.pathname}${location.search}`);
+    return payload;
+  }
+
+  // O convite, o desafio e a resposta são do Timer: o link leva a ele, de qualquer aba. Com o timer ocupado (a inspeção, o solve, o treino),
+  // o link espera ele parar: com o timer rodando, o primeiro toque em qualquer lugar para o solve e é engolido, e o convite por cima perderia
+  // esse toque. O solve que corria termina como um solve de sempre.
+  let waitingLink = $state<string | null>(null);
+  const timerFree = (a: AppState): boolean => !a.timerBusy && !a.pendingInspect && !a.trainerRunning;
+
+  function openDuelLink(a: AppState, payload: string): void {
+    if (!timerFree(a)) {
+      waitingLink = payload;
+      return;
+    }
+    a.tab = 'timer';
+    void a.duel.openLink(payload);
+  }
+
+  $effect(() => {
+    const a = app;
+    const payload = waitingLink;
+    if (!a || payload === null || !timerFree(a)) return;
+    waitingLink = null;
+    untrack(() => openDuelLink(a, payload));
+  });
+
+  onMount(() => {
+    const changed = (): void => {
+      const a = app;
+      if (!a) return;
+      const payload = takeDuelLink();
+      if (payload !== null) openDuelLink(a, payload);
+    };
+    window.addEventListener('hashchange', changed);
+    return () => window.removeEventListener('hashchange', changed);
   });
 
   // As aberturas sozinhas valem uma vez por abertura do app. Dispensar o guia fica gravado (meta), então ele não volta nas próximas.

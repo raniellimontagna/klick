@@ -10,11 +10,11 @@ import { createSeasonTracker, defaultSeason, type MarkStatus, planAdvance, seaso
 import { dayKey } from '../../core/stats';
 import type { CaseSet, TrailStep } from '../../core/trail/types';
 import { defaultSettings } from '../../core/types';
-import type { EventId, Meta, Penalty, Practice, Profile, SeasonState, Session, Solve } from '../../core/types';
+import type { Duel, EventId, Meta, Penalty, Practice, Profile, SeasonState, Session, Solve } from '../../core/types';
 import type { BackupRecord } from '../../data/db';
 import { backupFileName, type DirHandleLike, folderGranted, pickFolder, saveToFolder } from '../../data/folder';
 import { defaultSessionId, newId } from '../../data/ids';
-import type { ChangeKind, KlickExport, NewSolve, ProfilePatch, Repository } from '../../data/repository';
+import { type ChangeKind, DuelConflictError, type KlickExport, type NewSolve, type ProfilePatch, type Repository } from '../../data/repository';
 import {
   countSolveSaved,
   createBackup,
@@ -51,6 +51,9 @@ export type Tab = 'timer' | 'evolucao' | 'trilha' | 'companion' | 'ajustes';
 // Onde a aba Trilha está (spec do sub-projeto 4, seção 8.2): o começo, a aula de uma etapa, um conjunto do treino ou a rodada dele.
 // Fica no AppState: a tela da Trilha só existe com a aba aberta, e a pessoa volta ao mesmo lugar.
 export type TrailView = { kind: 'home' } | { kind: 'lesson'; step: TrailStep } | { kind: 'set'; set: CaseSet } | { kind: 'round'; set: CaseSet };
+// Onde a aba Evolução está (a maquete aprovada do desafio, 9a a 9c): os números de sempre, a lista dos Desafios ou uma partida aberta. Como a
+// da Trilha, fica no AppState: "Ver em Desafios", no fim de uma partida, abre a lista de outra aba.
+export type EvolucaoView = { kind: 'stats' } | { kind: 'duels' } | { kind: 'duel'; id: string };
 // 'duel': a folha da pílula do modo desafio (continuar, sair ou descartar).
 export type DialogId = 'sessions' | 'shortcuts' | 'onboarding' | 'export' | 'import' | 'backups' | 'trash' | 'install' | 'signin' | 'signout' | 'cloud' | 'deleteAccount' | 'duel';
 export interface Toast {
@@ -274,6 +277,10 @@ export class AppState {
   practice = $state.raw<Practice[]>([]); // as tentativas do treino, em ordem de at (lista de referência, como os solves)
   trailView = $state<TrailView>({ kind: 'home' });
   trailFlashes = $state(0); // soma 1 a cada vez que uma etapa nova fica marcada: o Centro da Trilha pisca a face lateral
+  evolucaoView = $state<EvolucaoView>({ kind: 'stats' });
+  // Soma 1 a cada aviso de mudança nos desafios ('duels' ou 'all', desta aba ou de fora): a Evolução relê a lista deles. Os desafios não
+  // ficam na memória do app (só a Evolução os mostra, e só o aberto, no DuelState, joga).
+  duelChanges = $state(0);
 
   readonly account: AccountState | null; // a conta e o sync; null sem os deps (AppDeps.account)
   readonly duel: DuelState; // o desafio por link (spec do desafio): um modo do Timer; parado ('idle'), nada muda
@@ -899,6 +906,42 @@ export class AppState {
     return ok;
   }
 
+  // --- Os desafios guardados (Evolução › Desafios). O que joga é o DuelState; aqui, a lista e a lixeira. ---
+
+  // Os desafios fora da lixeira, os mais novos primeiro (pela criação).
+  listDuels(): Promise<Duel[]> {
+    return this.repo.listDuels();
+  }
+
+  // Abre a Evolução na lista dos Desafios (ou numa partida).
+  openDuels(view: EvolucaoView = { kind: 'duels' }): void {
+    this.evolucaoView = view;
+    this.tab = 'evolucao';
+  }
+
+  // "Excluir" (9c): para a lixeira, só o registro que a tela mostrou (se ele mudou por fora, a resposta chegou noutra aba por exemplo, nada
+  // vai para a lixeira: a lista relê pelo aviso e mostra o novo). Excluído, o aviso de desfazer, por UNDO_MS, como o do solve.
+  async deleteDuel(d: Duel): Promise<boolean> {
+    let conflict = false;
+    const ok = await this.duelWrite(async () => {
+      try {
+        await this.repo.deleteDuel(d.id, { expectUpdatedAt: d.updatedAt });
+      } catch (err) {
+        if (!(err instanceof DuelConflictError)) throw err;
+        conflict = true;
+      }
+    });
+    if (!ok || conflict) return false;
+    this.showToast(T.duel.deleted, T.toast.undoTouch, () => void this.duelWrite(() => this.repo.restoreDuel(d.id)), UNDO_MS);
+    return true;
+  }
+
+  // Uma gravação de desafio pedida aqui: depois de uma restauração em curso (como as do DuelState e as do treino), e com o aviso se falhar.
+  private async duelWrite(action: () => Promise<unknown>): Promise<boolean> {
+    while (this.restoring) await this.restoring;
+    return this.write(action);
+  }
+
   // Exporta para um arquivo. Se o navegador baixa, a exportação conta (zera o lembrete). Se não baixa (iframe, ou o download falhou),
   // o texto vai para o ExportDialog, e a exportação só conta quando a pessoa copia o texto.
   async exportFile(format: ExportFormat): Promise<void> {
@@ -1488,6 +1531,7 @@ export class AppState {
     this.unsubscribe = this.repo.onChange((kind, origin, solveIds) => {
       this.account?.changed(kind, origin); // uma gravação daqui pede o sync; 'sync' relê o estado da conta
       this.duel.changed(kind); // o desafio aberto confere o registro dele: a resposta que chegou, um wipe, uma restauração
+      if (kind === 'duels' || kind === 'all') this.duelChanges += 1;
       if (origin === 'local' || kind === 'sync') return;
       if (kind === 'solves' && solveIds) void this.refreshSolveIds(solveIds);
       else void this.refreshKinds(readsOf(kind));
