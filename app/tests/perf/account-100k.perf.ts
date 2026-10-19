@@ -856,7 +856,7 @@ function restoreRecomputing(store: AccountStore, name: string, now: number): Pro
     const practice = Array.isArray(copy.practice) ? copy.practice : null;
     const duels = Array.isArray(copy.duels) ? copy.duels : null;
     const input = { sessions: copy.sessions, solves: copy.solves, practice, duels };
-    const prefs = accountPrefsOf(copy.profile);
+    const prefs = accountPrefsOf(copy.profile, current);
     const rows = rowsOf(restoreChanges(current, input, prefs, stamp).length); // só a contagem
     if (rows > DAILY_WRITE_BUDGET) return 'too-big';
     if (rows > DAILY_WRITE_BUDGET - s.dayCount('writes', now).n) return 'write-budget';

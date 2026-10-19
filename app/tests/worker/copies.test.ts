@@ -131,7 +131,7 @@ async function restoreCount(user: string, name: string): Promise<number> {
   const current = await runInDurableObject(stubOf(user), (_o, state) => state.storage.sql.exec<Row>('SELECT * FROM records').toArray().map(rowToChange));
   const practice = Array.isArray(copy.practice) ? copy.practice : null;
   const duels = Array.isArray(copy.duels) ? copy.duels : null;
-  return restoreChanges(current, { sessions: copy.sessions, solves: copy.solves, practice, duels }, accountPrefsOf(copy.profile), T0 + DAY).length;
+  return restoreChanges(current, { sessions: copy.sessions, solves: copy.solves, practice, duels }, accountPrefsOf(copy.profile, current), T0 + DAY).length;
 }
 const objectsOf = async (user: string): Promise<string[]> => (await env.SNAPSHOTS.list({ prefix: snapshotPrefix(user) })).objects.map((o) => o.key);
 
@@ -681,5 +681,26 @@ describe('os desafios nas cópias na nuvem', () => {
     expect(await duelsOf(user)).toEqual(before);
     const solves = (await sync(user, [])).changes.filter((c) => c.store === 'solves').sort((x, y) => (x.id < y.id ? -1 : 1));
     expect(solves.map((c) => [c.id, c.deletedAt])).toEqual([['a', T0 + 3000], ['b', null]]);
+  });
+
+  // A revisão final: o nome dos desafios é a única chave da conta mais nova que as cópias na nuvem. Uma cópia de antes dele (o perfil sem
+  // duelName) gravaria '' por cima do nome, com a data da restauração, e o sync o levaria a todos os aparelhos. Fica o da conta; a cópia
+  // que traz o nome vale, como no aparelho (replaceAll).
+  it('restaurar uma cópia de antes do nome dos desafios mantém o nome da conta; a que traz o nome o restaura', async () => {
+    const user = 'restaura-nome';
+    const named = (data: string, at: number): Change => ({ store: 'prefs', id: 'duelName', data, updatedAt: at, deletedAt: null, deletionStamp: at });
+    const nameOf = async (): Promise<Change[]> => (await sync(user, [])).changes.filter((c) => c.store === 'prefs' && c.id === 'duelName');
+    await sync(user, [session, solve('a'), named('Ana', T0)]);
+    const { duels: _d, ...older } = exportFromRecords([session, solve('a')], T0 - DAY);
+    const { duelName: _n, ...profile } = older.profile!;
+    await env.SNAPSHOTS.put(snapshotKey(user, dayOf(T0 - DAY)), await gzipJson({ ...older, profile }));
+    expect((await restore(user, dayOf(T0 - DAY), T0 + 1000)).status).toBe(204);
+    expect(await nameOf()).toEqual([expect.objectContaining({ data: 'Ana', deletedAt: null })]);
+
+    // Uma cópia com o nome: o dela volta.
+    const withName = exportFromRecords([session, solve('a'), named('Bia', T0 - DAY)], T0 - DAY);
+    await env.SNAPSHOTS.put(snapshotKey(user, dayOf(T0 - 2 * DAY)), await gzipJson(withName));
+    expect((await restore(user, dayOf(T0 - 2 * DAY), T0 + 2000)).status).toBe(204);
+    expect(await nameOf()).toEqual([expect.objectContaining({ data: 'Bia', deletedAt: null })]);
   });
 });

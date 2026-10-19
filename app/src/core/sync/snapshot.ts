@@ -38,9 +38,13 @@ export function exportFromRecords(records: readonly Change[], at: number): Klick
 }
 
 // As chaves da conta de um perfil de arquivo, todas (o padrão por baixo do que faltar): o que restaurar a cópia grava (restoreChanges).
-export function accountPrefsOf(profile: ProfilePatch | null): Map<string, unknown> | null {
+// O nome dos desafios é a única chave mais nova que as cópias na nuvem: uma cópia de antes dele (o perfil sem `duelName`) fica com o da
+// conta, lido dos registros de agora (`current`). O padrão por baixo gravaria '' por cima do nome, com a data da restauração, e o sync o
+// levaria a todos os aparelhos. É o que o aparelho faz ao restaurar (replaceAll); a cópia que traz o nome vale.
+export function accountPrefsOf(profile: ProfilePatch | null, current: readonly Change[]): Map<string, unknown> | null {
   if (!profile) return null;
-  const base = joinProfile(undefined, profileFromPrefs([]));
+  const here = profileFromPrefs(current.filter((c) => c.store === 'prefs').map(changeToPref));
+  const base = { ...joinProfile(undefined, profileFromPrefs([])), duelName: here.duelName };
   const full: Profile = {
     ...base,
     ...Object.fromEntries(Object.entries(profile).filter(([, v]) => v !== undefined)),

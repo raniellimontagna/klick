@@ -52,7 +52,7 @@ describe('a cópia diária no formato do export (spec 8.3)', () => {
     const changes = restoreChanges(
       [...now.values()],
       { sessions: file.sessions, solves: file.solves, practice: file.practice ?? null, duels: file.duels ?? null },
-      accountPrefsOf(file.profile),
+      accountPrefsOf(file.profile, [...now.values()]),
       stamp,
     );
     const result = applyChanges(new MapView(now), changes, { mode: 'server' });

@@ -47,8 +47,8 @@ export const UPSERT_RECORD = `INSERT INTO records (store, id, data, updated_at, 
 export const COUNT_ACTIVE = 'SELECT store, count(*) AS n FROM records WHERE deleted_at IS NULL GROUP BY store';
 export const STORED_BYTES = 'SELECT coalesce(sum(length(CAST(data AS BLOB))), 0) AS n, count(*) AS rows FROM records';
 
-// O tamanho da conta em registros (sessões, solves, treino e ajustes; na lixeira e as marcas compactadas inclusive), contado pelo índice
-// até ?: a cópia do dia (SNAPSHOT_MAX_RECORDS) e a restauração (RESTORE_MAX_RECORDS) o conferem antes de ler a conta inteira (Task 12),
+// O tamanho da conta em registros (sessões, solves, treino, desafios e ajustes; na lixeira e as marcas compactadas inclusive), contado pelo
+// índice até ?: a cópia do dia (SNAPSHOT_MAX_RECORDS) e a restauração (RESTORE_MAX_RECORDS) o conferem antes de ler a conta inteira (Task 12),
 // com o limite em uso + 1, o bastante para saber que ela passou dele, sem percorrer uma conta enorme inteira (revisão final).
 export const COUNT_RECORDS = 'SELECT count(*) AS n FROM (SELECT 1 FROM records LIMIT ?)';
 

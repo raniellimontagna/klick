@@ -817,7 +817,7 @@ export class AccountStore extends DurableObject<Env> {
       // Uma cópia de antes do treino ou dos desafios (sem a lista) não mexe neles.
       const practice = Array.isArray(copy.practice) ? copy.practice : null;
       const duels = Array.isArray(copy.duels) ? copy.duels : null;
-      const changes = restoreChanges(current, { sessions: copy.sessions, solves: copy.solves, practice, duels }, accountPrefsOf(copy.profile), stamp);
+      const changes = restoreChanges(current, { sessions: copy.sessions, solves: copy.solves, practice, duels }, accountPrefsOf(copy.profile, current), stamp);
       if (changes.length > day) return 'too-big';
       const rows = rowsOf(changes.length);
       if (rows > DAILY_WRITE_BUDGET - this.dayCount('writes', now).n || !(await this.dayRoom(rows, now, 'restore'))) return 'write-budget';
