@@ -162,3 +162,21 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
 export function defaultSettings(): Settings {
   return structuredClone(DEFAULT_SETTINGS);
 }
+
+// O desafio por link (spec do desafio, seções 3 e 4). Um tempo do desafio: `ms` é o tempo cru; o +2 só entra na comparação.
+export interface DuelTime {
+  ms: number;
+  penalty: Penalty;
+}
+
+export type DuelSide = 'a' | 'b'; // a = quem desafia
+
+// O que viaja no fragmento do link. `b` só existe na resposta (mesmos campos de `a`).
+export interface DuelLink {
+  v: 1;
+  id: string;
+  event: EventId;
+  scrambles: string[];
+  a: { name: string; times: DuelTime[] };
+  b?: { name: string; times: DuelTime[] };
+}
