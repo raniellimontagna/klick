@@ -113,11 +113,10 @@ describe('wrangler.jsonc', () => {
   // da conta, iguais nos dois ambientes. Na leitura de 10 ms, as duas vão a 0 (nenhuma cópia, toda restauração recusada), só na configuração.
   // A cópia do dia vai só até o que o app consegue restaurar (RECORDS_PER_DAY, worker/limits.ts: os testes do Worker conferem o mesmo
   // número): uma cópia maior ocuparia o espaço gratuito das cópias de todas as contas sem nunca poder voltar (revisão final, I5).
+  // No beta, o teto global de 10 mil linhas por dia restaura no máximo 2.247 registros, e a cópia do dia acompanha.
   it('os tamanhos da cópia do dia e da restauração ficam na configuração, nos dois ambientes', () => {
-    for (const vars of [config.vars, config.env.production.vars]) {
-      expect(vars.SNAPSHOT_MAX_RECORDS).toBe('4747');
-      expect(vars.RESTORE_MAX_RECORDS).toBe('5000');
-    }
+    expect([config.vars.SNAPSHOT_MAX_RECORDS, config.env.production.vars.SNAPSHOT_MAX_RECORDS]).toEqual(['2247', '4747']);
+    for (const vars of [config.vars, config.env.production.vars]) expect(vars.RESTORE_MAX_RECORDS).toBe('5000');
   });
 
   // Decisão 6 e o portão 11 do README: as 100 mil linhas gravadas por dia nos Durable Objects do grátis são da conta da Cloudflare inteira

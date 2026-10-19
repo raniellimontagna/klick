@@ -24,6 +24,7 @@ import {
   PULL_PAGE_WITH_PUSH,
   READS_SAVE_EVERY,
   RECORDS_PER_DAY,
+  recordsPerDay,
   REQUEST_ROWS,
   rowsOf,
   ROWS_PER_COMPACT,
@@ -381,10 +382,10 @@ describe('os tamanhos que cabem (Task 12)', () => {
     expect(RECORDS_PER_DAY).toBe(4_747);
     expect(rowsOf(RECORDS_PER_DAY) + rowsOf(0, COMPACT_PER_DAY)).toBeLessThanOrEqual(DAILY_WRITE_BUDGET);
     expect(rowsOf(RECORDS_PER_DAY + 1) + rowsOf(0, COMPACT_PER_DAY)).toBeGreaterThan(DAILY_WRITE_BUDGET);
-    // As vars do beta (wrangler.jsonc); a raiz tem as mesmas (tests/unit/wrangler-config.test.ts). A cópia do dia vai só até o que o app
-    // consegue restaurar (revisão final, I5).
+    // As vars do beta (wrangler.jsonc; a raiz em tests/unit/wrangler-config.test.ts). A cópia do dia vai só até o que o app consegue
+    // restaurar no ambiente (revisão final, I5): no beta, o dia útil do teto global de 10 mil linhas.
     const caps = capsOf(env as unknown as Env);
-    expect([caps.snapshotRecords, caps.restoreRecords]).toEqual([RECORDS_PER_DAY, 5_000]);
+    expect([caps.snapshotRecords, caps.restoreRecords]).toEqual([recordsPerDay(caps.rowsDay), 5_000]);
   });
 
   it('rowsOf: 4 linhas por registro gravado, 1 por solve compactado, e as 5 do estado quando o pedido grava; só receber não conta', () => {

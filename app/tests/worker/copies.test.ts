@@ -17,6 +17,7 @@ import {
   DAILY_READ_BUDGET,
   DAILY_WRITE_BUDGET,
   RECORDS_PER_DAY,
+  recordsPerDay,
   RESTORE_ATTEMPTS_PER_DAY,
   RESTORES_PER_DAY,
   rowsOf,
@@ -436,14 +437,16 @@ describe('restaurar dentro do grátis (decisões 1, 2 e 3)', () => {
   it('acima das linhas de um dia, 413 too-big; acima do que sobra hoje, 429 write-budget', async () => {
     const big = 'restaura-grande';
     await sync(big, [session, solve('a')]);
-    // A cópia leva 2.600 solves que a conta depois perde (tirados direto do SQLite) e troca por outros 2.600: a conta fica abaixo de
-    // RECORDS_PER_DAY registros, e restaurar o dia volta os da cópia e manda os de agora para a lixeira, mais linhas que as de um dia. É
-    // a conferência das linhas que recusa, depois de ler a cópia.
-    await seedSolves(big, 2_600, 'y');
+    // A cópia leva pouco mais da metade do dia útil do ambiente em solves, que a conta depois perde (tirados direto do SQLite) e troca por
+    // outros tantos: a conta fica abaixo do dia útil, e restaurar o dia volta os da cópia e manda os de agora para a lixeira, mais que um
+    // dia. É a conferência das linhas que recusa, depois de ler a cópia.
+    const day = recordsPerDay(capsOf(env as unknown as Env).rowsDay);
+    const half = Math.ceil(day * 0.55);
+    await seedSolves(big, half, 'y');
     await stubOf(big).snapshot(T0);
     await dropSolves(big, 'y');
-    await seedSolves(big, 2_600);
-    expect(await recordCount(big)).toBeLessThanOrEqual(RECORDS_PER_DAY);
+    await seedSolves(big, half);
+    expect(await recordCount(big)).toBeLessThanOrEqual(day);
     const account = await accountOf(big);
     const r2 = await countR2(big);
     expect(await restore(big, dayOf(T0), T0 + 1000)).toEqual({ status: 413, body: { error: 'too-big' } });
