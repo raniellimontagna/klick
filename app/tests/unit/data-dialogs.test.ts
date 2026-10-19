@@ -224,6 +224,42 @@ describe('Seus dados: cópias, exportar, lixeira e importar', () => {
     expect(a.solves).toEqual([]); // o desafio volta sozinho: nada dele entra nos solves
   });
 
+  it('lixeira: o texto só fala de desafios quando há um nela', async () => {
+    const { a, repo } = await app();
+    const gone = (await a.addSolve({ ms: 60000, penalty: null, at: Date.now() }))!;
+    await a.deleteSolve(gone.id);
+    const first = render(DataSection, { app: a });
+    // Sem desafio na lixeira, o texto de sempre.
+    expect(await screen.findByText(T.dados.trashHint)).toBeInTheDocument();
+    await fireEvent.click(await screen.findByRole('button', { name: 'Ver lixeira (1)' }));
+    expect(await screen.findByText(T.trashDialog.intro)).toBeInTheDocument();
+    first.unmount();
+    a.dialog = null;
+    await repo.saveDuel(BIA);
+    await repo.deleteDuel(BIA.id);
+    render(DataSection, { app: a });
+    expect(await screen.findByText(T.duel.trashHint)).toBeInTheDocument();
+    await fireEvent.click(await screen.findByRole('button', { name: 'Ver lixeira (2)' }));
+    expect(await screen.findByText(T.duel.trashIntro)).toBeInTheDocument();
+    expect(screen.queryByText(T.trashDialog.intro)).toBeNull();
+  });
+
+  it('lixeira: sem nome, o desafio tem o mesmo título da lista dos Desafios', async () => {
+    const { a, repo } = await app();
+    const sent = { ...BIA, id: 'sent000000000001-a', linkId: 'sent000000000001', event: '222' as const, theirs: null, theirName: '', status: 'waiting' as const };
+    const anon = { ...BIA, id: 'anon000000000001-a', linkId: 'anon000000000001', theirName: '' };
+    for (const d of [sent, anon]) {
+      await repo.saveDuel(d);
+      await repo.deleteDuel(d.id);
+    }
+    render(DataSection, { app: a });
+    await fireEvent.click(await screen.findByRole('button', { name: /Ver lixeira/ }));
+    const own = await screen.findByRole('button', { name: T.duel.trashRestore(T.duel.sentTitle, '2×2') });
+    expect(own.closest('li')).toHaveTextContent(T.duel.trashRow(T.duel.sentTitle, '2×2', true));
+    const them = screen.getByRole('button', { name: T.duel.trashRestore(T.duel.yourOpponent, '3×3') });
+    expect(them.closest('li')).toHaveTextContent(T.duel.trashRow(T.duel.yourOpponent, '3×3'));
+  });
+
   it('lixeira: o desafio que uma restauração mandou para a lixeira volta por ela', async () => {
     const { a, repo } = await app();
     await a.addSolve({ ms: 60000, penalty: null, at: Date.now() });

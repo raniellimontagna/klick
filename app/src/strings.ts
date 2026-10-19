@@ -741,9 +741,13 @@ export const T = Object.freeze({
     delete: 'Excluir',
     deleteNote: 'Vai para a lixeira, com os solves e as sessões, e some de vez em 30 dias.',
     deleted: 'Desafio excluído',
-    // A lixeira em Ajustes: a linha "Desafio · Bia · 3×3", com o seu Restaurar.
-    trashRow: (name: string, event: string): string => `Desafio · ${name} · ${event}`,
+    // A lixeira em Ajustes: a linha "Desafio · Bia · 3×3", com o seu Restaurar; o título é o da lista ("Desafio mandado · 2×2" já diz que é um
+    // desafio: `own`, o de A antes da resposta). Com um desafio nela, os textos da lixeira falam deles também.
+    trashRow: (name: string, event: string, own = false): string => (own ? `${name} · ${event}` : `Desafio · ${name} · ${event}`),
     trashRestore: (name: string, event: string): string => `Restaurar desafio · ${name} · ${event}`,
+    trashHint: 'Solves, sessões e desafios excluídos ficam aqui por 30 dias.',
+    trashIntro:
+      'Solves, sessões e desafios excluídos. Ficam aqui por 30 dias e depois somem de vez. Restaurar uma sessão traz de volta os solves dela que estão aqui.',
   }),
   // Conta e sync (sub-projeto 5a): Ajustes, o diálogo de entrar, o indicador e os avisos. Voz calma; nada de culpa.
   conta: Object.freeze({

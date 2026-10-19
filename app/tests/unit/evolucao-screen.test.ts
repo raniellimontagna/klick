@@ -310,11 +310,38 @@ describe('Evolução: Desafios', () => {
     await fireEvent.click(remove);
     await new Promise((resolve) => setTimeout(resolve, 450));
     await fireEvent.click(remove);
-    expect(await screen.findByRole('heading', { name: T.tabs.evolucao })).toBeInTheDocument();
+    const heading = await screen.findByRole('heading', { name: T.tabs.evolucao });
     await waitFor(() => expect(a.evolucaoView).toEqual({ kind: 'stats' }));
     expect(screen.queryByRole('button', { name: /^Desafios, / })).toBeNull();
+    // Sem o cartão para onde voltar, o foco fica no título da Evolução (não cai no body).
+    await waitFor(() => expect(document.activeElement).toBe(heading));
     a.toast!.onAction!();
     expect(await screen.findByRole('button', { name: `${T.duel.entryLabel}, 1 terminado` })).toBeInTheDocument();
+  });
+
+  it('a primeira leitura dos desafios falha com a lista aberta: a Evolução de sempre, com o aviso, nunca em branco', async () => {
+    const { a } = await withDuels(BIA);
+    a.openDuels();
+    const list = a.listDuels.bind(a);
+    let calls = 0;
+    a.listDuels = () => (++calls === 1 ? Promise.reject(new Error('o banco caiu')) : list());
+    render(EvolucaoScreen, { app: a });
+    expect(await screen.findByRole('heading', { name: T.tabs.evolucao })).toBeInTheDocument();
+    expect(a.evolucaoView).toEqual({ kind: 'stats' });
+    expect(a.toast?.text).toBe(T.data.readFailed);
+  });
+
+  it('a partida terminada de B oferece "Mandar a resposta", que volta à tela do fim (7)', async () => {
+    const { a } = await withDuels({ ...MARINA, mine: [tm(10_000), tm(10_000), tm(10_000)], revealed: 3, status: 'done' });
+    a.openDuels({ kind: 'duel', id: MARINA.id });
+    render(EvolucaoScreen, { app: a });
+    expect(await screen.findByRole('heading', { name: 'Você venceu 3 × 0' })).toBeInTheDocument();
+    expect(screen.getByText(/^Marina te desafiou · 3×3 · hoje, \d{2}:\d{2}$/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: T.duel.delete })).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: T.duel.sendReply }));
+    await waitFor(() => expect(a.duel.phase).toBe('finished'));
+    expect(a.duel.current).toMatchObject({ id: MARINA.id, side: 'b' });
+    expect(a.tab).toBe('timer');
   });
 
   it('"Jogando" abre direto no desafio, no ponto em que parou', async () => {

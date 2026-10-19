@@ -110,9 +110,8 @@ import SyncIndicator from './SyncIndicator.svelte';
     boot()
       .then((ready) => {
         // O link vem antes da casca: o desafio começa a abrir antes da primeira passada do tour, e a primeira visita por um link vai direto
-        // a ele (a apresentação fica para depois).
-        const payload = takeDuelLink();
-        if (payload !== null) openDuelLink(ready, payload);
+        // a ele (a apresentação fica para depois). Um erro do link não é falha da abertura: a casca abre com o aviso do link.
+        openFromHash(ready);
         app = ready;
       })
       .catch(() => {
@@ -198,12 +197,20 @@ import SyncIndicator from './SyncIndicator.svelte';
     untrack(() => openDuelLink(a, payload));
   });
 
-  onMount(() => {
-    const changed = (): void => {
-      const a = app;
-      if (!a) return;
+  // O fragmento da barra, se for um desafio. Um erro no caminho (o navegador recusa mexer no histórico, por exemplo) mostra o aviso de que o
+  // link não abre: nunca derruba a abertura do app nem o ouvinte.
+  function openFromHash(a: AppState): void {
+    try {
       const payload = takeDuelLink();
       if (payload !== null) openDuelLink(a, payload);
+    } catch {
+      a.duel.invalid();
+    }
+  }
+
+  onMount(() => {
+    const changed = (): void => {
+      if (app) openFromHash(app);
     };
     window.addEventListener('hashchange', changed);
     return () => window.removeEventListener('hashchange', changed);

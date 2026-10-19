@@ -884,7 +884,9 @@ describe('a resposta em Desafios', () => {
     await fireEvent.click(await screen.findByRole('button', { name: T.duel.seeAll }));
     expect(A.a.duel.phase).toBe('idle');
     expect(A.a.tab).toBe('evolucao');
-    expect(await screen.findByRole('heading', { name: T.duel.listTitle })).toBeInTheDocument();
+    const heading = await screen.findByRole('heading', { name: T.duel.listTitle });
+    // O botão tocado saiu da tela com a resposta: o foco vai para o título da lista.
+    await waitFor(() => expect(document.activeElement).toBe(heading));
     const item = await screen.findByRole('button', { name: /^Bia · 3×3/ });
     expect(item).toHaveTextContent(T.duel.tagDone);
     expect(item).toHaveTextContent('Bia venceu 3 × 0');

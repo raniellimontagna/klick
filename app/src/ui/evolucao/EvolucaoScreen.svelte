@@ -163,7 +163,8 @@
   const axisTo = $derived(bins.length ? formatMs(bins[bins.length - 1].to).slice(0, -3) : '');
 
   // Os desafios guardados (fora da lixeira), relidos a cada aviso de mudança neles. null enquanto a primeira leitura não volta: o cartão e
-  // a lista esperam, sem piscar. Uma leitura que falha deixa o que havia (e avisa, se a pessoa está na lista ou numa partida).
+  // a lista esperam, sem piscar. Uma leitura que falha deixa o que havia e avisa, se a pessoa está na lista ou numa partida; se nem a
+  // primeira voltou, não há o que mostrar ali, e a tela volta aos números (nunca fica em branco).
   let duels = $state.raw<Duel[] | null>(null);
   let reading = 0;
   $effect(() => {
@@ -174,7 +175,9 @@
         if (mine === reading) duels = list;
       },
       () => {
-        if (mine === reading && app.evolucaoView.kind !== 'stats') app.showToast(T.data.readFailed);
+        if (mine !== reading || app.evolucaoView.kind === 'stats') return;
+        app.showToast(T.data.readFailed);
+        if (duels === null) app.evolucaoView = { kind: 'stats' };
       },
     );
   });
@@ -193,21 +196,28 @@
     else if (view.kind === 'duel' && opened === null) untrack(() => (app.evolucaoView = { kind: 'duels' }));
   });
 
-  // Trocar de vista (o cartão, uma linha, voltar, excluir) tira da tela o botão tocado: o foco vai para o título da vista nova (ou, de volta
-  // aos números, para o cartão). Abrir a tela não mexe no foco.
+  // Trocar de vista (o cartão, uma linha, voltar, excluir) tira da tela o botão tocado: o foco que caiu no body vai para o título da vista
+  // nova; de volta aos números, para o cartão, ou, sem ele (o último desafio excluído), para o título da Evolução. A tela que abre já numa
+  // lista ou numa partida ("Ver em Desafios", que sai da tela com o toque) faz o mesmo; abrir nos números não mexe no foco.
   let shownView: string | null = null;
   $effect(() => {
-    const key = view.kind === 'duel' ? `duel:${view.id}` : view.kind;
+    const kind = view.kind;
+    const key = view.kind === 'duel' ? `duel:${view.id}` : kind;
     const ready = duels !== null;
     untrack(() => {
       if (!ready || key === shownView) return;
       const first = shownView === null;
       shownView = key;
-      if (first) return;
+      if (first && kind === 'stats') return;
       void tick().then(() => {
         const active = document.activeElement;
         if (active !== null && active !== document.body) return;
-        document.querySelector<HTMLElement>('[data-screen="evolucao"] [data-evo-heading], [data-screen="evolucao"] [data-duels-entry]')?.focus();
+        const root = document.querySelector('[data-screen="evolucao"]');
+        const target =
+          kind === 'stats'
+            ? (root?.querySelector<HTMLElement>('[data-duels-entry]') ?? root?.querySelector<HTMLElement>('[data-evo-title]'))
+            : root?.querySelector<HTMLElement>('[data-evo-heading]');
+        target?.focus();
       });
     });
   });
@@ -242,7 +252,7 @@
     {/if}
   {:else}
     <div class="page-h">
-      <h1>{T.tabs.evolucao}</h1>
+      <h1 tabindex="-1" data-evo-title>{T.tabs.evolucao}</h1>
       <select class="pill" data-evo-event aria-label={T.evolucao.eventLabel} value={event} onchange={(e) => onEvent(e.currentTarget)}>
         {#each EVENTS as ev (ev.id)}
           <option value={ev.id}>{ev.name}</option>

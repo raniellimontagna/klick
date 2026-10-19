@@ -31,6 +31,7 @@
   let storage = $state<StorageView | null>(null); // null enquanto consulta
   let backupCount = $state<number | null>(null);
   let trashCount = $state<number | null>(null);
+  let trashDuels = $state(false); // há desafio na lixeira: o texto dela fala deles
   let folderChosen = $state<boolean | null>(null);
   let fileInput = $state<HTMLInputElement>();
   let statusEl = $state<HTMLElement>();
@@ -70,11 +71,12 @@
   async function refreshCounts(): Promise<void> {
     const [backups, trash, folder] = await Promise.all([
       app.listBackups().then((list) => list.length, () => null),
-      app.listTrash().then((t) => groupTrash(t).count, () => null),
+      app.listTrash().then((t) => ({ count: groupTrash(t).count, duels: t.duels.length > 0 }), () => null),
       app.hasBackupFolder().catch(() => null),
     ]);
     backupCount = backups;
-    trashCount = trash;
+    trashCount = trash?.count ?? null;
+    trashDuels = trash?.duels ?? false;
     folderChosen = folder;
   }
 
@@ -144,7 +146,7 @@
   </div>
 
   <div class="setting">
-    {@render caption(T.dados.trash, T.dados.trashHint)}
+    {@render caption(T.dados.trash, trashDuels ? T.duel.trashHint : T.dados.trashHint)}
     <button type="button" class="btn" onclick={() => (app.dialog = 'trash')}>{T.dados.trashView(trashCount)}</button>
   </div>
 

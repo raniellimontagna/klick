@@ -39,7 +39,8 @@ describe('a página /privacidade', () => {
   });
 
   it('os direitos dizem o que o app faz de fato: o que o export leva, onde ficam passkeys e sessões, e o que se pede por e-mail', () => {
-    for (const fact of ['Exportar (Klick)', 'sessões, solves, treino e ajustes', 'Passkeys', 'Sair de todos os aparelhos', 'trocar o e-mail']) expect(text).toContain(fact);
+    for (const fact of ['Exportar (Klick)', 'sessões, solves, treino, desafios e ajustes', 'Passkeys', 'Sair de todos os aparelhos', 'trocar o e-mail'])
+      expect(text).toContain(fact);
     // O resto que se pede por e-mail inclui o registro de cada aparelho (a revisão final, I5).
     expect(text).toMatch(/Uma cópia do resto \([^)]*o registro de cada aparelho[^)]*\)/);
     expect(text).not.toContain('baixa tudo'); // o arquivo não leva o e-mail, as passkeys nem as sessões
@@ -51,8 +52,15 @@ describe('a página /privacidade', () => {
       expect(text).toContain(fact);
   });
 
+  // O que a conta guarda dos desafios (a revisão da Task 7): eles sobem com o nome e os tempos de quem jogou com você, o nome dos desafios é
+  // um ajuste da conta, e a exportação os leva.
+  it('a conta guarda os desafios, com o nome e os tempos de quem jogou com você, e o nome dos desafios nos ajustes', () => {
+    expect(text).toMatch(/Seus solves, sessões, o treino de algoritmos e os desafios, com o nome e os tempos de quem jogou com você\./);
+    expect(text).toMatch(/Os ajustes da conta: [^.]*o nome que vai nos desafios\./);
+  });
+
   it('tem a data desta versão', () => {
-    expect(text).toContain('versão de 16 de outubro de 2026');
+    expect(text).toContain('versão de 19 de outubro de 2026');
   });
 
   it('é uma página em português, legível no celular', () => {

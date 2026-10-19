@@ -220,6 +220,11 @@ export class DuelState {
     this.exit();
   }
 
+  // Um link que nem chegou a ser lido (um erro do navegador ao tirá-lo da barra): o aviso de que não abre, sem gravar nada.
+  invalid(): void {
+    this.leave('invalid');
+  }
+
   // Gera os sete, um por vez, e só então cria o registro de A. Uma falha (ou o prazo do gerador) volta à folha com o aviso: nenhum
   // desafio começa com menos de sete.
   async start(event: EventId): Promise<void> {

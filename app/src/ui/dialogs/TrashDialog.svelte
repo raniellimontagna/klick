@@ -2,14 +2,15 @@
   // A lixeira: solves e sessões excluídos, os mais recentes primeiro. Restaurar devolve o item (uma sessão traz os solves que saíram
   // junto com ela, por isso eles aparecem só como contagem na linha da sessão: ui/trash.ts). Depois de restaurar, o foco vai para o
   // próximo item da lista (ou para Fechar, se a lista acabou): o botão de quem sai some. Os desafios (excluídos em Evolução, ou mandados
-  // para cá por uma restauração) vêm depois, cada um na sua linha: "Desafio · Bia · 3×3".
+  // para cá por uma restauração) vêm depois, cada um na sua linha, com o título da lista dos Desafios: "Desafio · Bia · 3×3". Só com um
+  // desafio na lixeira o texto de cima fala deles.
   import { tick } from 'svelte';
   import { eventInfo } from '../../core/events';
   import { formatSolve } from '../../core/stats';
   import { T } from '../../strings';
   import { dateLabel, timeOfDay } from '../format';
   import { groupTrash, type TrashView } from '../trash';
-  import { rowName } from '../duel/duel-view';
+  import { duelTitle } from '../duel/duel-view';
   import type { AppState } from '../state/app.svelte';
   import { modal } from './modal';
 
@@ -72,7 +73,7 @@
 <dialog bind:this={dialogEl} class="sheet" aria-label={T.trashDialog.title} use:modal={{ open, onclose }}>
   {#if open}
     <h2>{T.trashDialog.title}</h2>
-    <p class="muted">{T.trashDialog.intro}</p>
+    <p class="muted">{view.duels?.length ? T.duel.trashIntro : T.trashDialog.intro}</p>
     {#if loaded && view.count === 0}
       <p class="muted">{T.trashDialog.empty}</p>
     {/if}
@@ -107,13 +108,14 @@
         {#each view.duels ?? [] as d (d.id)}
           {@const when = dateLabel(d.deletedAt ?? d.updatedAt)}
           {@const event = eventInfo(d.event).short}
+          {@const title = duelTitle(d)}
           <li class="setting">
-            <span>{T.duel.trashRow(rowName(d.theirName), event)}<small>{T.trashDialog.deletedOn(`${when}, ${timeOfDay(d.deletedAt ?? d.updatedAt)}`)}</small></span>
+            <span>{T.duel.trashRow(title, event, d.side === 'a' && d.theirs === null)}<small>{T.trashDialog.deletedOn(`${when}, ${timeOfDay(d.deletedAt ?? d.updatedAt)}`)}</small></span>
             <button
               type="button"
               class="btn"
               data-restore={`duel:${d.id}`}
-              aria-label={T.duel.trashRestore(rowName(d.theirName), event)}
+              aria-label={T.duel.trashRestore(title, event)}
               onclick={() => restore('duel', d.id)}>{T.trashDialog.restore}</button
             >
           </li>

@@ -512,6 +512,25 @@ describe('casca do app: o link do desafio', () => {
     await waitFor(() => expect(app.duel.phase).toBe('solving'));
   });
 
+  // Um erro ao ler o link (aqui, o navegador recusa mexer no histórico) não derruba a abertura: a casca abre, e o desafio mostra o aviso.
+  it('um erro ao ler o link no boot não vira o aviso de banco indisponível: o desafio mostra que não abre', async () => {
+    const { app, repo } = await duelDevice();
+    history.replaceState(null, '', `/#desafio=${await encodeDuelLink(LINK)}`);
+    const replace = vi.spyOn(history, 'replaceState').mockImplementation(() => {
+      throw new DOMException('negado', 'SecurityError');
+    });
+    try {
+      render(App);
+      expect(await screen.findByRole('alertdialog', { name: T.duel.invalidTitle })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Timer' })).toBeInTheDocument();
+      expect(screen.queryByText(T.data.dbUnavailable)).toBeNull();
+      expect(app.duel.phase).toBe('invalid');
+      expect(await repo.listDuels({ includeDeleted: true })).toEqual([]);
+    } finally {
+      replace.mockRestore();
+    }
+  });
+
   it('a primeira visita por um link vai direto ao desafio, e a apresentação fica para depois', async () => {
     const { app } = await duelDevice({ onboarded: false });
     history.replaceState(null, '', `/#desafio=${await encodeDuelLink(LINK)}`);
