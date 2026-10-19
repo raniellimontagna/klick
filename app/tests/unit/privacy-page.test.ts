@@ -45,6 +45,12 @@ describe('a página /privacidade', () => {
     expect(text).not.toContain('baixa tudo'); // o arquivo não leva o e-mail, as passkeys nem as sessões
   });
 
+  // O desafio por link (spec do desafio, seção 8): um parágrafo, no tom da página.
+  it('explica o desafio por link: os tempos e o nome que a pessoa mandou, que o Klick não vê nem guarda, e o sync só com conta', () => {
+    for (const fact of ['desafio por link', 'os tempos', 'o nome que você escolheu mandar', 'não vê nem guarda', 'se você entrou na conta'])
+      expect(text).toContain(fact);
+  });
+
   it('tem a data desta versão', () => {
     expect(text).toContain('versão de 16 de outubro de 2026');
   });

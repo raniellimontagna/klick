@@ -195,6 +195,49 @@ describe('Seus dados: cópias, exportar, lixeira e importar', () => {
     expect(screen.queryAllByRole('button', { name: /Restaurar solve/ })).toHaveLength(0);
   });
 
+  // Um desafio de A, terminado contra Bia (os desafios na lixeira: a maquete aprovada do desafio, 9c).
+  const BIA = {
+    id: 'bia0000000000001-a',
+    linkId: 'bia0000000000001',
+    side: 'a' as const,
+    event: '333' as const,
+    scrambles: Array.from({ length: 7 }, (_, i) => `R U F${i}`),
+    mine: Array.from({ length: 7 }, () => ({ ms: 10_000, penalty: null })),
+    theirs: Array.from({ length: 3 }, () => ({ ms: 12_000, penalty: null })),
+    myName: '',
+    theirName: 'Bia',
+    status: 'done' as const,
+  };
+
+  it('lixeira: mostra o desafio excluído, com o seu Restaurar, e o restaura', async () => {
+    const { a, repo } = await app();
+    await repo.saveDuel(BIA);
+    await repo.deleteDuel(BIA.id);
+    render(DataSection, { app: a });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Ver lixeira (1)' }));
+    const restore = await screen.findByRole('button', { name: T.duel.trashRestore('Bia', '3×3') });
+    expect(restore.closest('li')).toHaveTextContent(T.duel.trashRow('Bia', '3×3'));
+    expect(restore.closest('li')).toHaveTextContent(/excluído em /);
+    await fireEvent.click(restore);
+    await vi.waitFor(async () => expect((await repo.getDuel(BIA.id))!.deletedAt).toBeNull());
+    expect(await screen.findByText(T.trashDialog.empty)).toBeInTheDocument();
+    expect(a.solves).toEqual([]); // o desafio volta sozinho: nada dele entra nos solves
+  });
+
+  it('lixeira: o desafio que uma restauração mandou para a lixeira volta por ela', async () => {
+    const { a, repo } = await app();
+    await a.addSolve({ ms: 60000, penalty: null, at: Date.now() });
+    const copy = await createBackup(repo, 'manual', Date.now()); // uma cópia de antes do desafio
+    await repo.saveDuel(BIA);
+    expect(await a.restoreFromBackup(copy.id)).toBe(true);
+    expect((await repo.getDuel(BIA.id))!.deletedAt).not.toBeNull();
+    render(DataSection, { app: a });
+    await fireEvent.click(await screen.findByRole('button', { name: /Ver lixeira/ }));
+    await fireEvent.click(await screen.findByRole('button', { name: T.duel.trashRestore('Bia', '3×3') }));
+    await vi.waitFor(async () => expect((await repo.getDuel(BIA.id))!.deletedAt).toBeNull());
+    expect((await repo.listDuels()).map((d) => d.id)).toEqual([BIA.id]);
+  });
+
   it('versão anterior: mostra quantos registros não puderam ser lidos e marca a oferta', async () => {
     const v1 = {
       state: {

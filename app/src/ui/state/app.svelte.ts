@@ -894,12 +894,14 @@ export class AppState {
     return this.repo.listBackups();
   }
 
-  listTrash(): Promise<{ sessions: Session[]; solves: Solve[] }> {
+  listTrash(): Promise<{ sessions: Session[]; solves: Solve[]; duels: Duel[] }> {
     return this.repo.listTrash();
   }
 
-  // Devolve um item da lixeira. Uma sessão traz de volta os solves excluídos dela (o repositório faz isso na mesma transação).
-  async restoreFromTrash(item: { kind: 'solve' | 'session'; id: string }): Promise<boolean> {
+  // Devolve um item da lixeira. Uma sessão traz de volta os solves excluídos dela (o repositório faz isso na mesma transação). Um desafio
+  // (o excluído em Evolução, ou o que uma restauração mandou para a lixeira) volta sozinho: ele não entra nos solves nem nas contas.
+  async restoreFromTrash(item: { kind: 'solve' | 'session' | 'duel'; id: string }): Promise<boolean> {
+    if (item.kind === 'duel') return this.duelWrite(() => this.repo.restoreDuel(item.id));
     const ok = await this.write(() => (item.kind === 'solve' ? this.repo.restoreSolve(item.id) : this.repo.restoreSession(item.id)));
     await this.refresh();
     if (ok) await this.checkSeason();

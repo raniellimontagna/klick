@@ -741,6 +741,9 @@ export const T = Object.freeze({
     delete: 'Excluir',
     deleteNote: 'Vai para a lixeira, com os solves e as sessões, e some de vez em 30 dias.',
     deleted: 'Desafio excluído',
+    // A lixeira em Ajustes: a linha "Desafio · Bia · 3×3", com o seu Restaurar.
+    trashRow: (name: string, event: string): string => `Desafio · ${name} · ${event}`,
+    trashRestore: (name: string, event: string): string => `Restaurar desafio · ${name} · ${event}`,
   }),
   // Conta e sync (sub-projeto 5a): Ajustes, o diálogo de entrar, o indicador e os avisos. Voz calma; nada de culpa.
   conta: Object.freeze({

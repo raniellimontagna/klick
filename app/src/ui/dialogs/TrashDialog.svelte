@@ -1,13 +1,15 @@
 <script lang="ts">
   // A lixeira: solves e sessões excluídos, os mais recentes primeiro. Restaurar devolve o item (uma sessão traz os solves que saíram
   // junto com ela, por isso eles aparecem só como contagem na linha da sessão: ui/trash.ts). Depois de restaurar, o foco vai para o
-  // próximo item da lista (ou para Fechar, se a lista acabou): o botão de quem sai some.
+  // próximo item da lista (ou para Fechar, se a lista acabou): o botão de quem sai some. Os desafios (excluídos em Evolução, ou mandados
+  // para cá por uma restauração) vêm depois, cada um na sua linha: "Desafio · Bia · 3×3".
   import { tick } from 'svelte';
   import { eventInfo } from '../../core/events';
   import { formatSolve } from '../../core/stats';
   import { T } from '../../strings';
   import { dateLabel, timeOfDay } from '../format';
   import { groupTrash, type TrashView } from '../trash';
+  import { rowName } from '../duel/duel-view';
   import type { AppState } from '../state/app.svelte';
   import { modal } from './modal';
 
@@ -36,12 +38,12 @@
     loaded = true;
   }
 
-  // O botão restaurar de cada item tem a chave data-restore ("solve:ID" ou "session:ID"): é por ela que o foco volta.
+  // O botão restaurar de cada item tem a chave data-restore ("solve:ID", "session:ID" ou "duel:ID"): é por ela que o foco volta.
   function restoreButtons(): HTMLButtonElement[] {
     return listEl ? [...listEl.querySelectorAll<HTMLButtonElement>('button[data-restore]')] : [];
   }
 
-  async function restore(kind: 'solve' | 'session', id: string): Promise<void> {
+  async function restore(kind: 'solve' | 'session' | 'duel', id: string): Promise<void> {
     if (busy) return;
     const key = `${kind}:${id}`;
     const before = restoreButtons().findIndex((b) => b.dataset.restore === key);
@@ -99,6 +101,20 @@
               data-restore={`solve:${s.id}`}
               aria-label={T.trashDialog.restoreSolve(formatSolve(s))}
               onclick={() => restore('solve', s.id)}>{T.trashDialog.restore}</button
+            >
+          </li>
+        {/each}
+        {#each view.duels ?? [] as d (d.id)}
+          {@const when = dateLabel(d.deletedAt ?? d.updatedAt)}
+          {@const event = eventInfo(d.event).short}
+          <li class="setting">
+            <span>{T.duel.trashRow(rowName(d.theirName), event)}<small>{T.trashDialog.deletedOn(`${when}, ${timeOfDay(d.deletedAt ?? d.updatedAt)}`)}</small></span>
+            <button
+              type="button"
+              class="btn"
+              data-restore={`duel:${d.id}`}
+              aria-label={T.duel.trashRestore(rowName(d.theirName), event)}
+              onclick={() => restore('duel', d.id)}>{T.trashDialog.restore}</button
             >
           </li>
         {/each}
