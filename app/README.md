@@ -118,8 +118,9 @@ Antes da raiz:
 9. **A conta da Cloudflare continua no Workers Free.**
 10. **O uso dos outros projetos da conta**, no painel: as operações A e B do R2, e Durable Objects, D1 e Workers.
 11. **As decisões do Ranielli:** um orçamento de linhas gravadas por dia somado entre todas as contas, e uma regra de rate limit do WAF
-    em `/api/*`. O orçamento foi aprovado e está no código (`ROWS_WRITTEN_DAY_CAP`: 10 mil no beta e 60 mil na raiz; a migração 0004);
-    falta a regra do WAF.
+    em `/api/*`. O orçamento foi aprovado e está no código (`ROWS_WRITTEN_DAY_CAP`: 10 mil no beta e 60 mil na raiz; a migração 0004):
+    cada pedido que grava reserva antes exatamente as linhas dele, e o maior pedido de um dia segue o menor dos dois tetos (2.247
+    registros no beta, 4.747 na raiz). Falta a regra do WAF.
 12. **`ACCOUNTS_ENABLED` em `"true"` na raiz** (`wrangler.jsonc`, `env.production`) e publicar (`pnpm run deploy:production`).
 
 ## Por que o cubing.js é empacotado à parte

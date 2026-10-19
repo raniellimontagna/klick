@@ -48,11 +48,18 @@ vi.mock('../../worker/limits', async (importOriginal) => {
     get PULL_PAGE_WITH_PUSH() {
       return knobs.page ?? real.PULL_PAGE_WITH_PUSH;
     },
-    // O máximo de registros de um pedido num dia segue o orçamento: levantado, ele não recusa a cascata nem a restauração medidas.
+    // O máximo de registros de um pedido num dia (o dia útil) segue o orçamento: levantado, ele não recusa a cascata nem a restauração
+    // medidas. O objeto usa recordsPerDay (o menor do orçamento e do teto do ambiente), que o módulo de verdade calcula com o orçamento
+    // dele: aqui, com o do botão.
     get RECORDS_PER_DAY() {
       return knobs.budget === null
         ? real.RECORDS_PER_DAY
         : Math.floor((knobs.budget - real.rowsOf(0, real.COMPACT_PER_DAY) - real.REQUEST_ROWS) / real.ROWS_PER_WRITE);
+    },
+    recordsPerDay(rowsDay: number): number {
+      if (knobs.budget === null) return real.recordsPerDay(rowsDay);
+      const day = rowsDay > 0 ? Math.min(knobs.budget, rowsDay) : knobs.budget;
+      return Math.max(0, Math.floor((day - real.rowsOf(0, real.COMPACT_PER_DAY) - real.REQUEST_ROWS) / real.ROWS_PER_WRITE));
     },
   };
 });
@@ -133,6 +140,7 @@ import {
   PULL_PAGE,
   PULL_PAGE_WITH_PUSH,
   RECORDS_PER_DAY,
+  recordsPerDay,
   REQUEST_ROWS,
   RESTORES_PER_DAY,
   rowsOf,
@@ -834,7 +842,7 @@ function restoreRecomputing(store: AccountStore, name: string, now: number): Pro
     const { list, at } = s.copies();
     if (list !== null && now - at < COPIES_CACHE_MS && !list.some((c) => c.name === name)) return 'not-found';
     const caps = capsOf(s.env);
-    const most = Math.min(caps.restoreRecords, RECORDS_PER_DAY);
+    const most = Math.min(caps.restoreRecords, recordsPerDay(caps.rowsDay)); // o dia útil, como no objeto
     if (caps.restoreRecords === 0 || s.recordCount(most, now) > most) return 'too-big';
     if (!(await takeOps(s.env.DB, 'B', 2, now, caps.classBMonth))) return 'r2-budget';
     const object = await s.env.SNAPSHOTS.get(snapshotKey(userId, name));

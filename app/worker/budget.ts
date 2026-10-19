@@ -126,7 +126,15 @@ export async function reserveRows(db: D1Database, n: number, now: number, cap: n
   return taken.meta.changes > 0;
 }
 
-// Soma `n` linhas sem recusar: as que um objeto gravou além do que tinha reservado (account-store.ts, spendRows), que já estão gravadas.
+// Antes de reservar, quando a reserva ainda não pode sair (a restauração, antes do R2): o dia UTC de `now` mais `n` linhas cabe no teto? Só
+// lê; a reserva de depois (reserveRows) continua a autoridade.
+export async function rowsRoom(db: D1Database, n: number, now: number, cap: number): Promise<boolean> {
+  if (!isCount(n) || !isCount(cap)) return false;
+  const row = await db.prepare('SELECT count FROM rows_day WHERE day = ?').bind(utcDay(now)).first<{ count: number }>();
+  return (row?.count ?? 0) + n <= cap;
+}
+
+// Soma `n` linhas sem recusar: as que um objeto gravou além do que tinha reservado (account-store.ts, settleRows), que já estão gravadas.
 export async function countRows(db: D1Database, n: number, now: number): Promise<void> {
   if (!isCount(n) || n === 0) return;
   await db

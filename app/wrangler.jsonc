@@ -21,6 +21,9 @@
 // até a virada do dia UTC. Cada ambiente soma as linhas de todas as contas dele no próprio D1 e para no teto: 10 mil no beta e 60 mil na
 // raiz, 70% do dia juntos; o resto do lote sobe no dia seguinte, e os 30% ficam para os outros projetos e para o que o teto não conta (o
 // estado das cópias, o alarme, apagar a conta).
+// Cada pedido reserva antes exatamente as linhas dele. O maior pedido de um dia (o dia útil, worker/limits.ts, recordsPerDay: a cascata de
+// apagar uma sessão e a restauração) segue o menor dos dois tetos: 2.247 registros no beta e 4.747 na raiz; acima dele, a exclusão volta
+// com a cota e a restauração é too-big, em vez de esperar um dia que nunca chega.
 // Para subir um teto, mude a var e publique. Uma var ausente, vazia ou que não seja um inteiro maior que 0 vale 0: nada passa.
 {
   "name": "klick-app-beta",

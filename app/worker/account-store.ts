@@ -21,11 +21,10 @@ import {
   type SyncStore,
 } from '../src/core/sync/types';
 import type { KlickExport } from '../src/core/types';
-import { copyRoom, countRows, reserveCopy, reserveRows, takeOps } from './budget';
+import { copyRoom, countRows, reserveCopy, reserveRows, rowsRoom, takeOps } from './budget';
 import type { Env } from './env';
 import {
   ACCOUNT_BYTES_CAP,
-  capOf,
   capsOf,
   COMPACT_PER_DAY,
   COPIES_CACHE_MS,
@@ -38,11 +37,10 @@ import {
   PULL_PAGE,
   PULL_PAGE_WITH_PUSH,
   READS_SAVE_EVERY,
-  RECORDS_PER_DAY,
+  recordsPerDay,
   REQUEST_ROWS,
   RESTORE_ATTEMPTS_PER_DAY,
   RESTORES_PER_DAY,
-  ROWS_CHUNK,
   rowsOf,
   ROWS_PER_COMPACT,
   SESSION_PREPAY,
@@ -85,13 +83,8 @@ interface DayCount {
   n: number;
 }
 
-// As linhas do teto do ambiente (ROWS_WRITTEN_DAY_CAP; rows_day no D1) que o objeto já reservou no dia UTC `day` e ainda não gravou (`n`),
-// e a menor reserva que o D1 recusou nesse dia (`refused`): no mesmo dia, o D1 só sobe, então pedir o mesmo ou mais seria recusado de novo,
-// e não volta a ele (nem ao log). Só na memória: guardar a sobra gravaria uma linha a cada reserva. O objeto que sai da memória perde a
-// sobra, que fica contada no D1 sem ter sido gravada: a conta erra para mais, nunca para menos.
-interface RowsLeft extends DayCount {
-  refused: number;
-}
+// Quem reserva no teto de linhas do ambiente (reserveDay), no log quando o teto recusa.
+type RowsOp = 'sync' | 'device' | 'compact' | 'restore';
 
 // O bucket de `listCopiesIn` com o teto: cada página reserva a operação A dela antes de ir ao R2, e sem ela a listagem para aqui.
 const OUT_OF_OPS = new Error('r2-budget');
@@ -168,8 +161,9 @@ export class AccountStore extends DurableObject<Env> {
   private readonly sql: SqlStorage;
   // As linhas lidas no dia que ainda não foram para o estado (o orçamento de leituras: readsOf, countReads, saveReads).
   private unsaved: DayCount = { day: '', n: 0 };
-  // As linhas do teto do ambiente reservadas e ainda não gravadas (rowsLeftOf, ensureRows, spendRows).
-  private rowsLeft: RowsLeft = { day: '', n: 0, refused: Infinity };
+  // A menor reserva que o teto do ambiente recusou no dia UTC `day` (reserveDay, dayRoom): no mesmo dia, o D1 só sobe, então pedir o mesmo
+  // ou mais seria recusado de novo, e o objeto não volta a ele (nem ao log). Perdê-la ao sair da memória só faz a próxima perguntar de novo.
+  private refused = { day: '', rows: Infinity };
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -306,50 +300,46 @@ export class AccountStore extends DurableObject<Env> {
     }
   }
 
-  // A sobra do teto do ambiente no dia UTC de `now` (num dia novo, nada). O dia nunca volta atrás, como o do orçamento da conta (usage): um
-  // pedido com a hora de um dia que já passou reserva e gasta no dia mais novo que o objeto já viu.
-  private rowsLeftOf(now: number): RowsLeft {
-    const today = utcDay(now);
-    if (this.rowsLeft.day < today) this.rowsLeft = { day: today, n: 0, refused: Infinity };
-    return this.rowsLeft;
-  }
-
-  // Antes de gravar (o sync, o aparelho, a compactação e a restauração; apagar a conta não passa por aqui): garante na sobra `rows` linhas
-  // do teto do ambiente (ROWS_WRITTEN_DAY_CAP), as mesmas que o orçamento da conta conta (rowsOf). O que falta vem do D1 numa reserva só: os
-  // blocos de ROWS_CHUNK que cobrem o que falta, ou, quando eles já não cabem no que sobra do dia, só o que falta. Sem nem isso, false: nada
-  // foi reservado, e vai para o log ({evt:'rows-cap'}, com o que faltava). Quem chama roda em exclusive (blockConcurrencyWhile): nenhum
-  // outro pedido gasta a sobra enquanto a reserva espera o D1.
-  private async ensureRows(rows: number, now: number, op: 'sync' | 'device' | 'compact' | 'restore'): Promise<boolean> {
-    const left = this.rowsLeftOf(now);
-    const need = rows - left.n;
-    if (need <= 0) return true;
-    if (need >= left.refused) return false;
-    const cap = capOf(this.env, 'ROWS_WRITTEN_DAY_CAP');
-    const chunks = Math.ceil(need / ROWS_CHUNK) * ROWS_CHUNK;
-    for (const n of chunks > need ? [chunks, need] : [need]) {
-      if (await reserveRows(this.env.DB, n, Date.parse(left.day), cap)) {
-        left.n += n;
-        return true;
-      }
-    }
-    left.refused = need;
-    console.log(JSON.stringify({ evt: 'rows-cap', user: this.getState('userId'), op, rows: need }));
+  // Antes de gravar (o sync, o aparelho, a compactação e a restauração; apagar a conta não passa por aqui): reserva no teto do ambiente
+  // (ROWS_WRITTEN_DAY_CAP) exatamente as `rows` linhas que a gravação conta no orçamento da conta (rowsOf), numa instrução do D1 (reserveRows),
+  // no dia do orçamento (dayCount, que nunca volta atrás). Nada fica na memória do objeto, e sair dela não perde nada. false: o teto do dia
+  // acabou, nada foi reservado, e vai para o log ({evt:'rows-cap'}). Quem chama roda em exclusive (blockConcurrencyWhile): nada muda na
+  // conta entre conferir, reservar e gravar.
+  private async reserveDay(rows: number, now: number, op: RowsOp): Promise<boolean> {
+    if (rows <= 0) return true;
+    const day = this.dayCount('writes', now).day;
+    if (this.refused.day === day && rows >= this.refused.rows) return false;
+    if (await reserveRows(this.env.DB, rows, Date.parse(day), capsOf(this.env).rowsDay)) return true;
+    this.refuse(day, rows, op);
     return false;
   }
 
-  // Depois de gravar: as linhas gravadas (rowsOf, o mesmo número que o orçamento da conta somou) saem da sobra. O que passou do reservado
-  // (a sessão que a cascata devolve, que o corte não prevê: cut) já está gravado, e conta no D1 sem recusar; uma falha nessa conta vai só
-  // para o log, e a gravação fica.
-  private async spendRows(rows: number, now: number): Promise<void> {
-    const left = this.rowsLeftOf(now);
-    left.n -= rows;
-    if (left.n >= 0) return;
-    const over = -left.n;
-    left.n = 0;
+  // Sem reservar (a restauração, antes de ir ao R2, quando ainda não sabe quanto grava): o dia mais `rows` linhas cabe no teto do ambiente?
+  // Só lê; a reserva de depois (reserveDay) continua a autoridade.
+  private async dayRoom(rows: number, now: number, op: RowsOp): Promise<boolean> {
+    if (rows <= 0) return true;
+    const day = this.dayCount('writes', now).day;
+    if (this.refused.day === day && rows >= this.refused.rows) return false;
+    if (await rowsRoom(this.env.DB, rows, Date.parse(day), capsOf(this.env).rowsDay)) return true;
+    this.refuse(day, rows, op);
+    return false;
+  }
+
+  // O teto recusou `rows` linhas no dia: fica lembrado (refused), e vai para o log.
+  private refuse(day: string, rows: number, op: RowsOp): void {
+    this.refused = { day, rows: this.refused.day === day ? Math.min(this.refused.rows, rows) : rows };
+    console.log(JSON.stringify({ evt: 'rows-cap', user: this.getState('userId'), op, rows }));
+  }
+
+  // Depois de gravar: o que passou do reservado (a sessão que a cascata devolve, que o corte não prevê: cut) já está gravado, e conta no D1
+  // sem recusar; uma falha nessa conta vai só para o log, e a gravação fica. O reservado que não foi gravado (a mudança que a cota recusou,
+  // ou que não mudou nada) fica contado: a conta erra para mais, nunca para menos.
+  private async settleRows(reserved: number, wrote: number, now: number): Promise<void> {
+    if (wrote <= reserved) return;
     try {
-      await countRows(this.env.DB, over, Date.parse(left.day));
+      await countRows(this.env.DB, wrote - reserved, Date.parse(this.dayCount('writes', now).day));
     } catch {
-      console.log(JSON.stringify({ evt: 'rows-uncounted', rows: over }));
+      console.log(JSON.stringify({ evt: 'rows-uncounted', rows: wrote - reserved }));
     }
   }
 
@@ -381,7 +371,7 @@ export class AccountStore extends DurableObject<Env> {
 
   // Grava o que um lote mudou e acerta os contadores: os ativos pelo activeDelta, os bytes pelo que write() gravou, e cada registro gravado
   // (a cascata e a versão vencedora que volta para quem mandou a velha, inclusive) conta no orçamento do dia, em linhas (rowsOf). Devolve
-  // essas linhas: quem chama as gasta da sobra do teto do ambiente (spendRows).
+  // essas linhas: quem chama as confere com o que reservou no teto do ambiente (settleRows).
   private commit(result: Pick<ApplyResult, 'writes' | 'activeDelta'>, batch: Batch, usage: Usage): number {
     const grew = this.write(result.writes, batch);
     const rows = rowsOf(result.writes.length);
@@ -414,19 +404,20 @@ export class AccountStore extends DurableObject<Env> {
 
   // O que um pedido do sync lê do lote (decisão 6 e Task 12): no máximo MAX_WRITES_PER_REQUEST mudanças, e só as que cabem, com a cascata,
   // nas linhas que sobram hoje (`room`), contadas por cima (rowsOf: cada mudança grava um registro). A exclusão de uma sessão grava também
-  // os solves ativos dela (a cascata, em applyChanges), contados antes pelo índice (ACTIVE_CHILDREN, até RECORDS_PER_DAY, o bastante para
-  // saber que não cabem; uma vez por sessão no lote): a que não cabe no que sobra hoje fica para amanhã, com o resto do lote; a que passa de
-  // RECORDS_PER_DAY registros (não caberia num dia com a compactação do alarme ao lado) volta com o motivo da cota (o aparelho a guarda,
-  // "só neste aparelho", e Enviar de novo manda os solves antes dela: repository.ts, requeueHeld), sem gravar nada dela, e o resto do lote
-  // segue. Assim nenhum pedido grava mais que o dia de uma conta. A cascata em partes, pelo servidor, fica para uma spec própria.
+  // os solves ativos dela (a cascata, em applyChanges), contados antes pelo índice (ACTIVE_CHILDREN, até `most`, o bastante para saber que
+  // não cabem; uma vez por sessão no lote): a que não cabe no que sobra hoje fica para amanhã, com o resto do lote; a que passa de `most`
+  // registros (o dia útil, recordsPerDay: não caberia num dia inteiro da conta ou do teto do ambiente, com a compactação do alarme ao lado)
+  // volta com o motivo da cota (o aparelho a guarda, "só neste aparelho", e Enviar de novo manda os solves antes dela: repository.ts,
+  // requeueHeld), sem gravar nada dela, e o resto do lote segue. Assim nenhum pedido grava mais que um dia, e nenhum espera um dia que nunca
+  // chega. A cascata em partes, pelo servidor, fica para uma spec própria.
   //
   // O que cut() não prevê: a sessão apagada que a cascata devolve (um solve ativo do lote, mais novo que a exclusão dela, a traz de volta;
   // apply.ts e merge.ts, cascade) grava uma sessão a mais por sessão apagada distinta no lote. É pouco e limitado (no máximo uma por
-  // mudança lida), e entra no orçamento pelo que commit() conta de verdade (e no teto do ambiente, por spendRows).
+  // mudança lida), e entra no orçamento pelo que commit() conta de verdade (e no teto do ambiente, por settleRows).
   //
   // `children`: os solves ativos de cada sessão apagada no lote, lidos uma vez; o corte de novo do mesmo pedido (sem linhas no teto do
   // ambiente, syncBatch) os passa, e não lê o índice outra vez.
-  private cut(changes: readonly unknown[], room: number, children = new Map<string, number>()): Cut {
+  private cut(changes: readonly unknown[], room: number, most: number, children = new Map<string, number>()): Cut {
     const read: unknown[] = [];
     const refused: Rejected[] = [];
     let writes = 0; // registros que o que foi lido grava, a cascata inclusive
@@ -439,13 +430,13 @@ export class AccountStore extends DurableObject<Env> {
       if (sid !== null) {
         let count = children.get(sid);
         if (count === undefined) {
-          count = this.sql.exec<{ n: number }>(ACTIVE_CHILDREN, sid, RECORDS_PER_DAY).one().n;
+          count = this.sql.exec<{ n: number }>(ACTIVE_CHILDREN, sid, most).one().n;
           children.set(sid, count);
           rows += count;
         }
         n += count;
       }
-      if (sid !== null && n > RECORDS_PER_DAY) refused.push({ store: 'sessions', id: sid, reason: QUOTA_REASON });
+      if (sid !== null && n > most) refused.push({ store: 'sessions', id: sid, reason: QUOTA_REASON });
       else if (rowsOf(writes + n) > room) break;
       else {
         writes += n;
@@ -503,17 +494,17 @@ export class AccountStore extends DurableObject<Env> {
   //
   // A cota (endurecimento 4.1): applyChanges recusa, com o motivo da cota, o registro que passaria do teto de ativos, e o teto de bytes
   // (bytesCap), a mudança que faria a conta passar de ACCOUNT_BYTES_CAP. O orçamento do dia (decisão 6) e o corte do pedido (cut): só as
-  // primeiras mudanças que cabem no que sobra de DAILY_WRITE_BUDGET hoje, até MAX_WRITES_PER_REQUEST, são lidas; as outras não são gravadas e
-  // voltam em `deferred` (as últimas N do lote), com `retryAt`: a meia-noite UTC do fim do dia do orçamento, quando ele volta, ou a hora do
-  // pedido, quando foi o corte do pedido (o app manda o resto em seguida). A exclusão de uma sessão cuja cascata não caberia num dia volta
-  // em `rejected`, com o motivo da cota. O recebimento segue igual, com ou sem orçamento. Toda resposta leva `copiesPaused`, a pausa das
-  // cópias na nuvem (null quando elas seguem).
+  // primeiras mudanças que cabem no que sobra de DAILY_WRITE_BUDGET hoje, até MAX_WRITES_PER_REQUEST, são lidas; as outras não são gravadas
+  // e voltam em `deferred` (as últimas N do lote), com `retryAt`: a meia-noite UTC do fim do dia do orçamento, quando ele volta, ou a hora
+  // do pedido, quando foi o corte do pedido (o app manda o resto em seguida). A exclusão de uma sessão cuja cascata não caberia num dia (o
+  // dia útil, recordsPerDay) volta em `rejected`, com o motivo da cota. O recebimento segue igual, com ou sem orçamento. Toda resposta leva
+  // `copiesPaused`, a pausa das cópias na nuvem (null quando elas seguem).
   //
-  // O teto do ambiente (ROWS_WRITTEN_DAY_CAP): as linhas do que o corte leu são reservadas (ensureRows) antes de gravar. A reserva espera o
-  // D1, e a transação síncrona não espera nada: o pedido corta o lote numa transação, reserva, e grava noutra, tudo em exclusive, sem outro
-  // pedido no meio. Sem linhas no teto, o lote corta de novo só com a sobra que o objeto já tem (quase sempre nada), e o resto volta em
-  // `deferred` como no orçamento da conta, com `retryAt` na virada do dia UTC; o recebimento segue. Um pedido que não grava nada (só
-  // recebe, ou com o orçamento da conta no fim) não reserva nada e não espera o D1.
+  // O teto do ambiente (ROWS_WRITTEN_DAY_CAP): as linhas do que o corte leu são reservadas (reserveDay) antes de gravar, exatamente elas,
+  // numa instrução do D1. A reserva espera o D1, e a transação síncrona não espera nada: o pedido corta o lote numa transação, reserva, e
+  // grava noutra, tudo em exclusive, sem outro pedido no meio. Sem linhas no teto, nada do lote é lido (o corte de novo, sem linhas: só as
+  // recusas da cota do começo dele), e o resto volta em `deferred` como no orçamento da conta, com `retryAt` na virada do dia UTC; o
+  // recebimento segue. Um pedido que não grava nada (só recebe, ou com o orçamento da conta no fim) não reserva nada e não espera o D1.
   //
   // O orçamento de leituras (revisão final, I2 c): passadas DAILY_READ_BUDGET linhas lidas no dia, o pedido não lê nada (unread). Senão, as
   // linhas que ele leu (as contagens da cascata, os registros do lote, a página) contam. O aparelho do pedido vem depois, fora da transação
@@ -526,17 +517,20 @@ export class AccountStore extends DurableObject<Env> {
         const reads = this.readsOf(now);
         if (reads.n >= DAILY_READ_BUDGET) return { unread: this.unread(req, now, reads.day) };
         const usage = this.usage(now);
+        const most = recordsPerDay(capsOf(this.env).rowsDay);
         const children = new Map<string, number>();
-        const cut = this.cut(req.changes, DAILY_WRITE_BUDGET - usage.writes, children);
+        const cut = this.cut(req.changes, DAILY_WRITE_BUDGET - usage.writes, most, children);
         this.countReads(cut.rows, now);
-        return { usage, children, cut };
+        return { usage, most, children, cut };
       });
       if (plan === 'deleted') return plan;
       if (plan.unread !== undefined) return { response: plan.unread, unread: true };
       const { usage } = plan;
       let { cut } = plan;
-      if (!(await this.ensureRows(rowsOf(cut.writes), now, 'sync'))) {
-        cut = this.cut(req.changes, Math.min(DAILY_WRITE_BUDGET - usage.writes, this.rowsLeftOf(now).n), plan.children);
+      let reserved = rowsOf(cut.writes);
+      if (!(await this.reserveDay(reserved, now, 'sync'))) {
+        cut = this.cut(req.changes, 0, plan.most, plan.children);
+        reserved = 0;
       }
       const { response, rows } = this.ctx.storage.transactionSync(() => {
         const from = req.cursor > Number(this.getState('rev') ?? '0') ? 0 : req.cursor;
@@ -560,7 +554,7 @@ export class AccountStore extends DurableObject<Env> {
         };
         return { response, rows };
       });
-      await this.spendRows(rows, now);
+      await this.settleRows(reserved, rows, now);
       await this.touchDevice(req.deviceId, now, rows > 0);
       return { response, unread: false };
     });
@@ -591,18 +585,19 @@ export class AccountStore extends DurableObject<Env> {
   }
 
   // O aparelho do pedido, na tabela `devices` (a página de privacidade a cita; nada a lê): gravado só quando é novo ou quando a linha dele
-  // passou de DEVICE_TOUCH_MS, e só os MAX_DEVICES mais recentes ficam (um aparelho novo além deles tira o mais velho dos outros). A gravação
-  // conta no orçamento do dia: num pedido que gravou mudanças (`paid`), ela já está nas REQUEST_ROWS dele; num que só recebe, ela conta as
-  // REQUEST_ROWS, que também saem do teto do ambiente (ensureRows, antes de gravar), e sem elas no dia, numa conta ou na outra, fica para
-  // depois. Fora da transação do pedido, e uma falha só vai para o log: no grátis, passadas as linhas gravadas do dia de todas as contas,
-  // toda gravação falha, e o recebimento não pode cair por isso. Roda no exclusive do sync: nada muda entre conferir e gravar.
+  // passou de DEVICE_TOUCH_MS, e só os MAX_DEVICES mais recentes ficam (um aparelho novo além deles tira o mais velho dos outros). A
+  // gravação conta no orçamento do dia: num pedido que gravou mudanças (`paid`), ela já está nas REQUEST_ROWS dele; num que só recebe, ela
+  // conta as REQUEST_ROWS, que também são reservadas no teto do ambiente (reserveDay, antes de gravar), e sem elas no dia, numa conta ou na
+  // outra, fica para depois. Fora da transação do pedido, e uma falha só vai para o log: no grátis, passadas as linhas gravadas do dia de
+  // todas as contas, toda gravação falha, e o recebimento não pode cair por isso. Roda no exclusive do sync: nada muda entre conferir e
+  // gravar.
   private async touchDevice(deviceId: string, now: number, paid: boolean): Promise<void> {
     try {
       const seen = this.sql.exec<{ at: number }>('SELECT last_sync_at AS at FROM devices WHERE device_id = ?', deviceId).toArray()[0]?.at;
       if (seen !== undefined && now - seen <= DEVICE_TOUCH_MS) return;
       const writes = this.dayCount('writes', now);
       const rows = paid ? 0 : REQUEST_ROWS;
-      if (writes.n + rows > DAILY_WRITE_BUDGET || !(await this.ensureRows(rows, now, 'device'))) return;
+      if (writes.n + rows > DAILY_WRITE_BUDGET || !(await this.reserveDay(rows, now, 'device'))) return;
       this.ctx.storage.transactionSync(() => {
         this.sql.exec(
           'INSERT INTO devices (device_id, last_sync_at) VALUES (?, ?) ON CONFLICT(device_id) DO UPDATE SET last_sync_at = excluded.last_sync_at',
@@ -616,7 +611,6 @@ export class AccountStore extends DurableObject<Env> {
         }
         if (rows > 0) this.setState('writes', JSON.stringify({ day: writes.day, n: writes.n + rows }));
       });
-      await this.spendRows(rows, now);
     } catch {
       console.log(JSON.stringify({ evt: 'device-skipped' }));
     }
@@ -642,8 +636,8 @@ export class AccountStore extends DurableObject<Env> {
   // chegou à revisão dele recebe a marca (que um aparelho sem o solve não grava). `parent` fica. Um aparelho que ainda tem o conteúdo e o
   // manda de novo grava uma revisão nova, como qualquer mudança, e a compactação de outro dia o tira de novo.
   //
-  // As linhas dela saem também do teto do ambiente (ensureRows), reservadas entre achar os vencidos e gravar (o alarme roda em exclusive);
-  // sem elas, a compactação fica para o alarme de amanhã, e a cópia do dia segue.
+  // As linhas dela são reservadas também no teto do ambiente (reserveDay), exatamente elas, entre achar os vencidos e gravar (o alarme roda
+  // em exclusive); sem elas, a compactação fica para o alarme de amanhã, e a cópia do dia segue.
   private async compact(now: number): Promise<number> {
     const plan = this.ctx.storage.transactionSync(() => {
       const usage = this.usage(now);
@@ -656,7 +650,7 @@ export class AccountStore extends DurableObject<Env> {
     });
     if (plan === null || plan.due.length === 0) return 0;
     const rows = rowsOf(0, plan.due.length);
-    if (!(await this.ensureRows(rows, now, 'compact'))) return 0;
+    if (!(await this.reserveDay(rows, now, 'compact'))) return 0;
     this.ctx.storage.transactionSync(() => {
       let freed = 0;
       for (const r of plan.due) {
@@ -665,7 +659,6 @@ export class AccountStore extends DurableObject<Env> {
       }
       this.addUsage(plan.usage, { bytes: -freed, writes: rows });
     });
-    await this.spendRows(rows, now);
     return plan.due.length;
   }
 
@@ -748,18 +741,17 @@ export class AccountStore extends DurableObject<Env> {
   // e uma recusa não muda nada na conta (só a tentativa, abaixo, conta): a conta apagada; as restaurações do dia UTC (RESTORES_PER_DAY), as
   // tentativas do dia que chegaram ao R2 (RESTORE_ATTEMPTS_PER_DAY) e as leituras do dia da conta (DAILY_READ_BUDGET), restore-limit; um
   // nome fora da lista guardada ainda válida (not-found, sem perguntar ao R2: toda cópia passa por este objeto e renova a lista, então a
-  // lista válida tem tudo o que existe); o tamanho da conta, mais registros que RESTORE_MAX_RECORDS ou que RECORDS_PER_DAY (too-big, num
-  // COUNT só, que para no limite + 1 e conta nas leituras: nem o D1, nem o R2, nem o gunzip); as linhas de hoje para o mínimo que a
-  // restauração grava (write-budget: cada sessão e cada solve ativo de agora ganha uma mudança, volte da cópia ou vá para a lixeira; os
-  // contadores do estado, sem ler a conta), as mesmas no teto do ambiente (write-budget: ensureRows, a sobra do objeto ou uma reserva no
-  // D1, que fica na sobra se a restauração parar depois); com o tamanho da última cópia da conta, o espaço e a operação A da cópia de antes
-  // (copyRoom: no-room, r2-budget; sem a estimativa, só a reserva de depois confere). Até aqui, nada do R2. Depois: as duas leituras do R2,
-  // ler a cópia e conferir a de antes (operações B, r2-budget), e a tentativa conta no dia; a cópia (not-found; a lista só se renova quando
-  // o nome estava nela, ou quando ela já não valia); as mudanças da restauração contra o que um pedido grava num dia (RECORDS_PER_DAY,
-  // too-big, como no corte do sync) e as linhas delas (rowsOf) contra o que sobra hoje, na conta e no teto do ambiente (write-budget); o
-  // espaço da cópia de antes (no-room: nunca se restaura sem ela, decisão 3) e a operação A do put dela (r2-budget). As de depois de ler a
-  // cópia continuam a autoridade. Sem o atalho da lista, alternar "restaurar um nome que não existe" com "abrir a lista" gastaria uma
-  // operação A por par.
+  // lista válida tem tudo o que existe); o tamanho da conta, mais registros que RESTORE_MAX_RECORDS ou que o dia útil (too-big, num COUNT
+  // só, que para no limite + 1 e conta nas leituras: nem o D1, nem o R2, nem o gunzip); as linhas de hoje para o mínimo que a restauração
+  // grava (write-budget: cada sessão e cada solve ativo de agora ganha uma mudança, volte da cópia ou vá para a lixeira; os contadores do
+  // estado, sem ler a conta), as mesmas no teto do ambiente (write-budget: dayRoom, que só lê o D1); com o tamanho da última cópia da
+  // conta, o espaço e a operação A da cópia de antes (copyRoom: no-room, r2-budget; sem a estimativa, só a reserva de depois confere). Até
+  // aqui, nada do R2. Depois: as duas leituras do R2, ler a cópia e conferir a de antes (operações B, r2-budget), e a tentativa conta no
+  // dia; a cópia (not-found; a lista só se renova quando o nome estava nela, ou quando ela já não valia); as mudanças da restauração contra
+  // o que um pedido grava num dia (o dia útil, too-big, como no corte do sync) e as linhas delas (rowsOf) contra o que sobra hoje, na conta
+  // e no teto do ambiente, que as reserva (write-budget: reserveDay); o espaço da cópia de antes (no-room: nunca se restaura sem ela,
+  // decisão 3) e a operação A do put dela (r2-budget). As de depois de ler a cópia continuam a autoridade. Sem o atalho da lista, alternar
+  // "restaurar um nome que não existe" com "abrir a lista" gastaria uma operação A por par.
   async restoreSnapshot(name: string, now: number): Promise<'ok' | 'not-found' | 'deleted' | RestoreRefusal> {
     const outcome = await this.exclusive(async (): Promise<'ok' | 'not-found' | 'deleted' | RestoreRefusal> => {
       if (this.deleted()) return 'deleted';
@@ -772,11 +764,12 @@ export class AccountStore extends DurableObject<Env> {
       const { list, at, gz: estimate } = this.copies();
       if (list !== null && now - at < COPIES_CACHE_MS && !list.some((c) => c.name === name)) return 'not-found';
       const caps = capsOf(this.env);
-      const most = Math.min(caps.restoreRecords, RECORDS_PER_DAY);
+      const day = recordsPerDay(caps.rowsDay); // o dia útil: o menor do orçamento da conta e do teto do ambiente
+      const most = Math.min(caps.restoreRecords, day);
       if (caps.restoreRecords === 0 || this.recordCount(most, now) > most) return 'too-big';
       const usage = this.usage(now);
       const least = rowsOf(usage.active.sessions + usage.active.solves);
-      if (least > DAILY_WRITE_BUDGET - usage.writes || !(await this.ensureRows(least, now, 'restore'))) return 'write-budget';
+      if (least > DAILY_WRITE_BUDGET - usage.writes || !(await this.dayRoom(least, now, 'restore'))) return 'write-budget';
       const short = estimate === null ? null : await copyRoom(this.env.DB, estimate, now, caps);
       if (short !== null) return short === 'space' ? 'no-room' : 'r2-budget';
       if (!(await takeOps(this.env.DB, 'B', 2, now, caps.classBMonth))) return 'r2-budget';
@@ -791,9 +784,9 @@ export class AccountStore extends DurableObject<Env> {
       const stamp = current.reduce((max, c) => Math.max(max, c.updatedAt + 1, c.deletionStamp + 1), now); // vence tudo o que existe
       const practice = Array.isArray(copy.practice) ? copy.practice : null;
       const changes = restoreChanges(current, { sessions: copy.sessions, solves: copy.solves, practice }, accountPrefsOf(copy.profile), stamp);
-      if (changes.length > RECORDS_PER_DAY) return 'too-big';
+      if (changes.length > day) return 'too-big';
       const rows = rowsOf(changes.length);
-      if (rows > DAILY_WRITE_BUDGET - this.dayCount('writes', now).n || !(await this.ensureRows(rows, now, 'restore'))) return 'write-budget';
+      if (rows > DAILY_WRITE_BUDGET - this.dayCount('writes', now).n || !(await this.reserveDay(rows, now, 'restore'))) return 'write-budget';
       // Uma segunda restauração no mesmo segundo (o clique duplo) acha a cópia de antes da primeira, que já guarda o estado de antes: ela
       // fica como está, e não precisa de espaço nem de operação A.
       const key = snapshotKey(userId, preRestoreName(now));
@@ -816,7 +809,7 @@ export class AccountStore extends DurableObject<Env> {
         this.setState('restores', JSON.stringify({ day: restores.day, n: restores.n + 1 }));
         return wrote;
       });
-      await this.spendRows(wrote, now);
+      await this.settleRows(rows, wrote, now);
       return 'ok';
     });
     this.saveReads(now);
@@ -825,7 +818,7 @@ export class AccountStore extends DurableObject<Env> {
 
   // Apagar a conta (spec 7.7): o banco inteiro do objeto e o alarme somem na hora, e fica só a marca de apagada. Depois de uma cópia ou de
   // uma restauração em andamento, nunca no meio delas. Apagar de novo (um pedido que falhou no meio) dá no mesmo. Não passa pelo teto de
-  // linhas do ambiente (ensureRows): nada impede apagar uma conta, e o deleteAll grava pouco (14 linhas numa conta de 4.006 registros, na
+  // linhas do ambiente (reserveDay): nada impede apagar uma conta, e o deleteAll grava pouco (14 linhas numa conta de 4.006 registros, na
   // sonda do portão 8 do README).
   async wipe(): Promise<void> {
     await this.exclusive(async () => {

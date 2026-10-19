@@ -1,8 +1,9 @@
 // O teto de linhas gravadas por dia do ambiente (ROWS_WRITTEN_DAY_CAP; decisão 6 e o portão 11 do README): as 100 mil linhas gravadas por
-// dia do grátis são da conta da Cloudflare inteira, e o teto soma as de todas as contas do Klick num dia UTC, no D1 (rows_day). Cada objeto
-// reserva em blocos de ROWS_CHUNK e guarda a sobra na memória. O teto é trocado só no objeto de cada conta (o env que ele lê; o
-// vitest.worker.config.ts põe um que nunca enche), e o dia do D1 é semeado direto. Cada teste usa dias próprios, longe de T0 e de hoje,
-// onde nenhum outro reserva; a compactação, que segue a hora de verdade, semeia o dia de hoje cheio para o teto pequeno do objeto dela.
+// dia do grátis são da conta da Cloudflare inteira, e o teto soma as de todas as contas do Klick num dia UTC, no D1 (rows_day). Cada pedido
+// que grava reserva antes exatamente as linhas dele, numa instrução do D1; nada fica guardado na memória do objeto. O teto é trocado só no
+// objeto de cada conta (o env que ele lê; o vitest.worker.config.ts põe um que nunca enche), e o dia do D1 é semeado direto. Cada teste usa
+// dias próprios, longe de T0 e de hoje, onde nenhum outro reserva; a compactação, que segue a hora de verdade, semeia o dia de hoje cheio
+// para o teto pequeno do objeto dela.
 import { runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
 import { env } from 'cloudflare:workers';
 import { describe, expect, it, vi } from 'vitest';
@@ -10,7 +11,20 @@ import { TOMBSTONE_KEEP_MS, type ActiveCounts } from '../../src/core/sync/limits
 import { exportFromRecords } from '../../src/core/sync/snapshot';
 import { ACCOUNT_HEADER, SYNC_PROTOCOL, type Change, type SyncResponse } from '../../src/core/sync/types';
 import type { Env } from '../../worker/env';
-import { MAX_WRITES_PER_REQUEST, nextUtcDay, REQUEST_ROWS, ROWS_CHUNK, rowsOf, utcDay, utcMonth } from '../../worker/limits';
+import { QUOTA_REASON } from '../../src/core/sync/limits';
+import {
+  COMPACT_PER_DAY,
+  DAILY_WRITE_BUDGET,
+  MAX_WRITES_PER_REQUEST,
+  nextUtcDay,
+  RECORDS_PER_DAY,
+  recordsPerDay,
+  REQUEST_ROWS,
+  rowsOf,
+  ROWS_PER_WRITE,
+  utcDay,
+  utcMonth,
+} from '../../worker/limits';
 import { dayOf, gzipJson, snapshotKey } from '../../worker/snapshots';
 import { call, postJson, stateOf, stubOf, T0, testDeps } from './helpers';
 
@@ -28,6 +42,9 @@ const solve = (id: string, o: Partial<Change> & { sessionId?: string } = {}): Ch
 });
 const session = (id = 's1', o: Partial<Change> = {}): Change => ({
   store: 'sessions', id, data: { name: 'Sessão', event: '333', order: 0, createdAt: T0 }, updatedAt: T0, deletedAt: null, deletionStamp: T0, ...o,
+});
+const practice = (id: string): Change => ({
+  store: 'practice', id, data: { caseId: 'T', ms: 1000, ok: true, helped: false, at: T0 }, updatedAt: T0, deletedAt: null, deletionStamp: T0,
 });
 const gone = (t: number) => ({ updatedAt: t, deletedAt: t, deletionStamp: t });
 const many = (prefix: string, n: number): Change[] => Array.from({ length: n }, (_, i) => solve(`${prefix}${String(i).padStart(4, '0')}`));
@@ -135,69 +152,65 @@ async function seedSolves(user: string, sid: string, n: number): Promise<void> {
 }
 
 describe('o teto de linhas gravadas por dia do ambiente', () => {
-  it('a constante do bloco', () => {
-    expect(ROWS_CHUNK).toBe(2_000);
-  });
-
   it('soma as contas: a primeira grava, a segunda fica para amanhã (retryAt à meia-noite UTC), a página dela volta, e nada se perde', async () => {
     const now = at(1);
     const [first, second] = ['teto-soma-a', 'teto-soma-b'];
     await sync(second, [session(), solve('b1')], { now: now - DAY }); // a conta que fica sem linhas já tem o que receber
-    for (const user of [first, second]) await setCap(user, String(ROWS_CHUNK));
+    const cap = rowsOf(MAX_WRITES_PER_REQUEST); // o dia inteiro cabe no pedido da primeira
+    for (const user of [first, second]) await setCap(user, String(cap));
     const a = await sync(first, many('a', MAX_WRITES_PER_REQUEST), { now });
     expect([a.accepted, a.rejected, a.deferred, a.retryAt]).toEqual([MAX_WRITES_PER_REQUEST, [], undefined, undefined]);
-    expect(await dayRow(now)).toBe(ROWS_CHUNK); // um bloco, que cobre o pedido inteiro
+    expect(await dayRow(now)).toBe(cap); // exatamente as linhas do pedido
     const before = await json(second, 'writes');
     const { result: b, logged } = await logsOf(() => sync(second, [solve('b2')], { now, device: 'd2' }));
     expect([b.accepted, b.rejected, b.deferred, b.retryAt]).toEqual([0, [], 1, nextUtcDay(now)]);
     expect(b.changes.map((c) => c.id)).toEqual(['s1', 'b1']); // o recebimento segue
     expect(logged).toContainEqual({ evt: 'rows-cap', user: second, op: 'sync', rows: rowsOf(1) });
     expect(logged).toContainEqual(expect.objectContaining({ evt: 'sync', user: second, pushed: 1, deferred: 1 }));
-    expect(await dayRow(now)).toBe(ROWS_CHUNK); // recusado, nada somado
+    expect(await dayRow(now)).toBe(cap); // recusado, nada somado
     expect(await json(second, 'writes')).toEqual(before); // nem no orçamento da conta
     // No dia seguinte (UTC), o aparelho manda o que esperou, e passa.
     const next = await sync(second, [solve('b2')], { now: nextUtcDay(now), device: 'd2', cursor: b.cursor });
     expect([next.accepted, next.rejected, next.deferred]).toEqual([1, [], undefined]);
     expect(next.changes.map((c) => c.id)).toEqual(['b2']);
-    expect(await dayRow(nextUtcDay(now))).toBe(ROWS_CHUNK);
+    expect(await dayRow(nextUtcDay(now))).toBe(rowsOf(1));
   });
 
-  it('em blocos: muitos syncs pequenos reservam no D1 uma vez a cada ROWS_CHUNK linhas, e a conta grava o mesmo número que o teto conta', async () => {
+  it('uma reserva por pedido que grava, com exatamente as linhas dele; nenhuma para o que só recebe', async () => {
     const now = at(4);
-    const user = 'teto-blocos';
+    const user = 'teto-exato';
     const statements = await countDay(user);
-    const [requests, per] = [50, 20];
-    for (let i = 0; i < requests; i++) await sync(user, many(`p${i}-`, per), { now });
-    const rows = requests * rowsOf(per);
-    expect(rows).toBeGreaterThan(2 * ROWS_CHUNK);
-    expect(statements.n).toBe(Math.ceil(rows / ROWS_CHUNK)); // 3, não 50
-    expect(await dayRow(now)).toBe(Math.ceil(rows / ROWS_CHUNK) * ROWS_CHUNK);
+    const sizes = [1, 7, 20, 3, MAX_WRITES_PER_REQUEST, 2];
+    for (const [i, n] of sizes.entries()) await sync(user, many(`p${i}-`, n), { now });
+    const rows = sizes.reduce((sum, n) => sum + rowsOf(n), 0);
+    expect(statements.n).toBe(sizes.length);
+    expect(await dayRow(now)).toBe(rows);
     expect(await json(user, 'writes')).toEqual({ day: utcDay(now), n: rows }); // rowsOf, o mesmo número nos dois
+    for (let i = 0; i < 3; i++) await sync(user, [], { now, cursor: i }); // só recebe, com a linha do aparelho fresca
+    expect([statements.n, await dayRow(now)]).toEqual([sizes.length, rows]);
   });
 
-  it('um pedido maior que um bloco reserva, de uma vez, os blocos que o cobrem; a sobra serve os pedidos seguintes', async () => {
+  it('a exclusão de uma sessão reserva de uma vez as linhas da cascata inteira', async () => {
     const now = at(6);
-    const user = 'teto-blocos-grandes';
+    const user = 'teto-cascata';
     await sync(user, [session()], { now: now - DAY });
     await seedSolves(user, 's1', 600);
     const statements = await countDay(user);
     const res = await sync(user, [session('s1', gone(T0 + 10))], { now }); // a cascata grava a sessão e os 600 solves
     expect([res.accepted, res.rejected, res.deferred]).toEqual([1, [], undefined]);
-    expect(rowsOf(601)).toBeGreaterThan(ROWS_CHUNK);
-    expect([statements.n, await dayRow(now)]).toEqual([1, 2 * ROWS_CHUNK]);
-    await sync(user, many('n', MAX_WRITES_PER_REQUEST), { now }); // cabe na sobra (4.000 - 2.409)
-    expect([statements.n, await dayRow(now)]).toEqual([1, 2 * ROWS_CHUNK]);
+    expect([statements.n, await dayRow(now)]).toEqual([1, rowsOf(601)]);
+    expect(await json(user, 'writes')).toEqual({ day: utcDay(now), n: rowsOf(601) });
   });
 
-  it('com pouco espaço no dia, o pedido menor que um bloco passa com a reserva do que ele precisa; o que não cabe fica para amanhã', async () => {
+  it('com pouco espaço no dia, o pedido que cabe passa e o seguinte, que não cabe, fica para amanhã', async () => {
     const now = at(8);
     const user = 'teto-sobra';
     const cap = 10_000;
     await setCap(user, String(cap));
-    await seedDay(now, cap - rowsOf(10) - 1); // cabem as linhas de 10 solves, não um bloco
+    await seedDay(now, cap - rowsOf(10) - 1); // cabem as linhas de 10 solves, e sobra 1
     const fits = await sync(user, many('s', 10), { now });
     expect([fits.accepted, fits.deferred]).toEqual([10, undefined]);
-    expect(await dayRow(now)).toBe(cap - 1); // só o que o pedido precisava
+    expect(await dayRow(now)).toBe(cap - 1);
     const over = await sync(user, many('t', 1), { now });
     expect([over.accepted, over.deferred, over.retryAt]).toEqual([0, 1, nextUtcDay(now)]);
     expect(await dayRow(now)).toBe(cap - 1);
@@ -217,10 +230,10 @@ describe('o teto de linhas gravadas por dia do ambiente', () => {
     const statements = await countDay(user);
     const { result: first, logged } = await logsOf(async () => [await sync(user, many('a', 1), { now }), await sync(user, many('b', 2), { now })]);
     expect(first.map((r) => [r.accepted, r.deferred])).toEqual([[0, 1], [0, 2]]);
-    expect(statements.n).toBe(2); // o bloco e o que faltava, só no primeiro
+    expect(statements.n).toBe(1); // só o primeiro pergunta
     expect(logged.filter((l) => (l as { evt?: string }).evt === 'rows-cap')).toEqual([{ evt: 'rows-cap', user, op: 'sync', rows: rowsOf(1) }]);
     await sync(user, [], { now, device: 'd2' }); // o aparelho novo pede menos que o recusado: pergunta, e cabe
-    expect([statements.n, await dayRow(now)]).toEqual([4, cap]);
+    expect([statements.n, await dayRow(now)]).toEqual([2, cap]);
     const devices = await runInDurableObject(stubOf(user), (_o, state) => state.storage.sql.exec<{ id: string }>('SELECT device_id AS id FROM devices ORDER BY id').toArray());
     expect(devices.map((d) => d.id)).toEqual(['d1', 'd2']);
   });
@@ -277,7 +290,7 @@ describe('o teto de linhas gravadas por dia do ambiente', () => {
   it('a compactação do alarme fica para outro dia sem linhas no teto; a cópia do dia sai do mesmo jeito', async () => {
     const user = 'teto-compacta';
     const old = Date.now() - TOMBSTONE_KEEP_MS - HOUR;
-    // Antes de hoje: o dia do teto, como o do orçamento da conta, nunca volta atrás, e um sync num dia à frente seguraria a sobra dele.
+    // Antes de hoje: o dia do teto é o do orçamento da conta, que nunca volta atrás, e um sync num dia à frente levaria a compactação para ele.
     await sync(user, [session(), solve('velho', gone(old)), solve('vivo')], { now: Date.now() - 2 * DAY });
     await setCap(user, '1000');
     await seedDay(Date.now(), 1000); // o alarme segue a hora de verdade
@@ -296,8 +309,8 @@ describe('o teto de linhas gravadas por dia do ambiente', () => {
     const user = 'teto-restaura';
     await sync(user, [session(), solve('a'), solve('b')], { now: now - DAY });
     await env.SNAPSHOTS.put(snapshotKey(user, dayOf(now - DAY)), await gzipJson(exportFromRecords([session()], now - DAY)));
-    await setCap(user, '1000');
-    await seedDay(now, 1000);
+    await setCap(user, '10000'); // o do beta: o dia útil deixa a conta passar (too-big), e o dia está cheio
+    await seedDay(now, 10_000);
     const before = await recordsOf(user);
     const r2 = await countR2(user);
     expect(await restore(user, dayOf(now - DAY), now)).toEqual({ status: 429, body: { error: 'write-budget' } });
@@ -306,7 +319,7 @@ describe('o teto de linhas gravadas por dia do ambiente', () => {
     expect(opsB?.count ?? 0).toBe(0);
     expect(await stateOf(user, 'attempts')).toBeNull(); // nem chegou ao R2
     expect(await recordsOf(user)).toEqual(before);
-    expect(await dayRow(now)).toBe(1000);
+    expect(await dayRow(now)).toBe(10_000);
   });
 
   it('a restauração que só sabe o tamanho depois de ler a cópia: sem linhas para ela, write-budget antes de gravar qualquer coisa', async () => {
@@ -315,14 +328,14 @@ describe('o teto de linhas gravadas por dia do ambiente', () => {
     await sync(user, [session(), solve('a')], { now: now - DAY });
     const name = dayOf(now - DAY);
     await env.SNAPSHOTS.put(snapshotKey(user, name), await gzipJson(exportFromRecords([session(), ...many('c', 40)], now - DAY)));
-    await setCap(user, '1000');
-    await seedDay(now, 1000 - rowsOf(2) - 10); // o mínimo (a sessão e o solve de agora) cabe; as 40 da cópia, não
+    await setCap(user, '10000');
+    await seedDay(now, 10_000 - rowsOf(2) - 10); // o mínimo (a sessão e o solve de agora) cabe; as 40 da cópia, não
     const before = await recordsOf(user);
     const r2 = await countR2(user);
     expect(await restore(user, name, now)).toEqual({ status: 429, body: { error: 'write-budget' } });
     expect(r2).toEqual({ get: 1 }); // leu a cópia; nem a cópia de antes, nem nada gravado
     expect(await recordsOf(user)).toEqual(before);
-    expect(await dayRow(now)).toBe(1000 - 10); // o mínimo ficou reservado, na sobra do objeto
+    expect(await dayRow(now)).toBe(10_000 - rowsOf(2) - 10); // a conferência de antes do R2 só lê: nada ficou reservado
   });
 
   it('apagar a conta não passa pelo teto: com ele em 0, apaga', async () => {
@@ -337,5 +350,61 @@ describe('o teto de linhas gravadas por dia do ambiente', () => {
     expect(res.status).toBe(204);
     expect(await stateOf(user, 'deleted')).toBe('1');
     expect(await recordsOf(user)).toEqual([]);
+  });
+});
+
+// O dia útil de um pedido (rodada 1 do teto): a exclusão de uma sessão cuja cascata não caberia num dia inteiro volta com "cota" (o aparelho
+// a guarda, e Enviar de novo a manda) em vez de esperar um dia que nunca chega. O dia é o menor entre o orçamento da conta e o teto do
+// ambiente, menos a folga da compactação do alarme: no beta, 2.247 registros; na raiz, os 4.747 do orçamento da conta.
+describe('o dia útil: o menor dos dois tetos', () => {
+  const BETA = 10_000; // o teto do beta (wrangler.jsonc; tests/unit/wrangler-config.test.ts)
+
+  it('recordsPerDay: o orçamento da conta ou o teto do ambiente, o menor, menos a folga do alarme', () => {
+    expect(recordsPerDay(BETA)).toBe(2_247);
+    expect(recordsPerDay(60_000)).toBe(RECORDS_PER_DAY);
+    expect(RECORDS_PER_DAY).toBe(recordsPerDay(DAILY_WRITE_BUDGET));
+    expect(rowsOf(recordsPerDay(BETA)) + rowsOf(0, COMPACT_PER_DAY)).toBeLessThanOrEqual(BETA);
+    expect(rowsOf(recordsPerDay(BETA) + 1) + rowsOf(0, COMPACT_PER_DAY)).toBeGreaterThan(BETA);
+    expect(ROWS_PER_WRITE * recordsPerDay(BETA)).toBeLessThan(BETA);
+    // A var torta (o teto 0): nada cabe de qualquer jeito, e tudo fica para depois; a regra fica a da conta, e não devolve "cota".
+    expect(recordsPerDay(0)).toBe(RECORDS_PER_DAY);
+  });
+
+  it('no teto do beta, a exclusão acima do dia útil volta com "cota" e não fica para amanhã; uma no limite passa num dia novo', async () => {
+    const most = recordsPerDay(BETA);
+    const now = at(30);
+    const big = 'teto-dia-util-grande';
+    await sync(big, [session()], { now: now - DAY });
+    await seedSolves(big, 's1', most); // a sessão e os solves: most + 1 registros na cascata
+    await setCap(big, String(BETA));
+    const before = await recordsOf(big);
+    const res = await sync(big, [session('s1', gone(T0 + 10)), practice('depois')], { now });
+    expect([res.accepted, res.rejected, res.deferred, res.retryAt]).toEqual([1, [{ store: 'sessions', id: 's1', reason: QUOTA_REASON }], undefined, undefined]);
+    expect((await recordsOf(big)).filter((r) => r.store !== 'practice')).toEqual(before); // nem a sessão nem os solves dela
+    expect(await dayRow(now)).toBe(rowsOf(1)); // só a tentativa
+
+    const edge = 'teto-dia-util-limite';
+    const fresh = at(32);
+    await sync(edge, [session()], { now: fresh - DAY });
+    await seedSolves(edge, 's1', most - 1); // most registros na cascata
+    await setCap(edge, String(BETA));
+    const day = await sync(edge, [session('s1', gone(T0 + 10))], { now: fresh });
+    expect([day.accepted, day.rejected, day.deferred]).toEqual([1, [], undefined]);
+    expect(await dayRow(fresh)).toBe(rowsOf(most));
+    expect((await json<ActiveCounts>(edge, 'active')).solves).toBe(0);
+  });
+
+  it('no teto do beta, a restauração de uma conta acima do dia útil é too-big, antes do R2', async () => {
+    const most = recordsPerDay(BETA);
+    const now = at(34);
+    const user = 'teto-dia-util-restaura';
+    await sync(user, [session()], { now: now - DAY });
+    await seedSolves(user, 's1', most); // most + 1 registros
+    await env.SNAPSHOTS.put(snapshotKey(user, dayOf(now - DAY)), await gzipJson(exportFromRecords([session()], now - DAY)));
+    await setCap(user, String(BETA));
+    const r2 = await countR2(user);
+    expect(await restore(user, dayOf(now - DAY), now)).toEqual({ status: 413, body: { error: 'too-big' } });
+    expect(r2).toEqual({});
+    expect(await dayRow(now)).toBe(0);
   });
 });

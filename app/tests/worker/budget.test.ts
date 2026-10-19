@@ -1,9 +1,9 @@
 import { env } from 'cloudflare:workers';
 import { describe, expect, it, vi } from 'vitest';
-import { countOps, countRows, reserveMail, reserveRows, reserveStorage, setStorage, storageUsed, takeOps } from '../../worker/budget';
+import { countOps, countRows, reserveMail, reserveRows, reserveStorage, rowsRoom, setStorage, storageUsed, takeOps } from '../../worker/budget';
 import type { Env } from '../../worker/env';
 import { MAX_DATA_CHARS } from '../../src/core/sync/shape';
-import { ACCOUNT_BYTES_CAP, capOf, capsOf, COMPACT_PER_DAY, COPIES_CACHE_MS, DAILY_WRITE_BUDGET, nextUtcDay, RESTORES_PER_DAY, ROWS_CHUNK, SESSION_PREPAY, STORAGE_HEADROOM, utcDay, utcMonth } from '../../worker/limits';
+import { ACCOUNT_BYTES_CAP, capOf, capsOf, COMPACT_PER_DAY, COPIES_CACHE_MS, DAILY_WRITE_BUDGET, nextUtcDay, RESTORES_PER_DAY, SESSION_PREPAY, STORAGE_HEADROOM, utcDay, utcMonth } from '../../worker/limits';
 
 const at = (iso: string): number => Date.parse(iso);
 const opsRow = async (month: string, cls: string) =>
@@ -29,7 +29,6 @@ describe('os tetos do Worker (spec 4, 7.1, 7.6)', () => {
     expect(STORAGE_HEADROOM).toBe(0.95);
     expect(ACCOUNT_BYTES_CAP).toBe(50_000_000);
     expect(SESSION_PREPAY).toBe(3 * MAX_DATA_CHARS); // o maior data de uma sessão em UTF-8
-    expect(ROWS_CHUNK).toBe(2_000);
   });
 
   it('o dia e o mês são em UTC, e o dia seguinte começa à meia-noite UTC', () => {
@@ -188,7 +187,7 @@ describe('os tetos do Worker (spec 4, 7.1, 7.6)', () => {
     expect([await mailRow('d:2027-06-11'), await mailRow('m:2027-06')]).toEqual([4, 10]);
   });
 
-  // O teto de linhas gravadas por dia do ambiente (account-store.ts, ensureRows): uma instrução só, o upsert com a condição dentro dele.
+  // O teto de linhas gravadas por dia do ambiente (account-store.ts, reserveDay): uma instrução só, o upsert com a condição dentro dele.
   it('reserveRows reserva até o teto numa instrução só e recusa sem somar; o dia seguinte (UTC) começa do zero', async () => {
     const day = at('2028-01-10T12:00:00Z');
     const seen = { prepare: 0, batch: 0 };
@@ -233,6 +232,18 @@ describe('os tetos do Worker (spec 4, 7.1, 7.6)', () => {
     const results = await Promise.all(Array.from({ length: 25 }, () => reserveRows(env.DB, 300, day, 2_000)));
     expect(results.filter(Boolean)).toHaveLength(6); // 6 × 300 = 1.800; a sétima daria 2.100
     expect(await rowsRow('2028-03-10')).toBe(1_800);
+  });
+
+  it('rowsRoom confere sem reservar: o dia mais `n` cabe no teto?', async () => {
+    const day = at('2028-05-10T12:00:00Z');
+    expect(await rowsRoom(env.DB, 10, day, 10)).toBe(true); // sem a linha do dia, o dia está vazio
+    expect(await rowsRow('2028-05-10')).toBe(0); // e conferir não a cria
+    expect(await reserveRows(env.DB, 6, day, 10)).toBe(true);
+    expect(await rowsRoom(env.DB, 4, day, 10)).toBe(true);
+    expect(await rowsRoom(env.DB, 5, day, 10)).toBe(false);
+    expect(await rowsRow('2028-05-10')).toBe(6);
+    expect(await rowsRoom(env.DB, 0, day, 0)).toBe(false); // teto 0: nada cabe
+    expect(await rowsRoom(env.DB, 1.5, day, 10)).toBe(false);
   });
 
   it('countRows soma sem recusar, também além do teto: o que já foi gravado', async () => {

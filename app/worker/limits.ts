@@ -36,10 +36,9 @@ export type CapName =
 // O orçamento do dia (decisão 6) conta linhas gravadas no SQLite do objeto, o que o grátis conta (100 mil por dia, somadas entre todas as
 // contas): 20 mil por conta por dia UTC, 20% do dia de todas. A chave do estado continua 'writes' ({ day, n }), agora em linhas (rowsOf).
 export const DAILY_WRITE_BUDGET = 20_000;
-// O teto do dia somado entre todas as contas do ambiente (ROWS_WRITTEN_DAY_CAP, a var; a tabela rows_day do D1): cada objeto reserva as
-// linhas no D1 antes de gravar, em blocos de ROWS_CHUNK, e gasta a sobra do bloco nas gravações seguintes do mesmo dia sem voltar ao D1
-// (account-store.ts, ensureRows). Um bloco por vez, não uma reserva por pedido: o D1 também conta as linhas que grava.
-export const ROWS_CHUNK = 2_000;
+// O teto do dia somado entre todas as contas do ambiente é a var ROWS_WRITTEN_DAY_CAP (a tabela rows_day do D1): cada pedido que grava
+// reserva nele, antes, exatamente as linhas que conta aqui (rowsOf), numa instrução do D1 (account-store.ts, reserveDay). Nada fica na
+// memória do objeto, e sair dela não perde nada.
 // O orçamento de leituras do dia (revisão final, I2 c): as linhas que os pedidos de uma conta leem no SQLite do objeto por dia UTC (a página do
 // sync, as mudanças do lote, a cascata, a cópia do dia e a restauração). O grátis tem 5 milhões por dia somadas entre todas as contas; pedir
 // sempre do cursor 0 lê uma página inteira por pedido, e na rajada uma conta só as esvaziaria em horas. Folgado: o primeiro sync inteiro de
@@ -84,11 +83,20 @@ export function rowsOf(writes: number, compacted = 0): number {
   return rows > 0 ? rows + REQUEST_ROWS : 0;
 }
 
-// O máximo de registros que um pedido grava num dia: a exclusão de uma sessão com a cascata dela (acima disto, ela volta com a cota) e a
-// restauração (acima disto, ela é recusada antes de ler o R2). Deixa no dia a compactação do alarme: rowsOf(RECORDS_PER_DAY) mais
-// rowsOf(0, COMPACT_PER_DAY) cabem em DAILY_WRITE_BUDGET. Sem essa folga, uma cascata perto do máximo perderia o dia para a compactação das
-// 03:05 (ou qualquer gravação antes dela) e escorregaria de um dia para o outro.
-export const RECORDS_PER_DAY = Math.floor((DAILY_WRITE_BUDGET - rowsOf(0, COMPACT_PER_DAY) - REQUEST_ROWS) / ROWS_PER_WRITE);
+// O máximo de registros que um pedido grava num dia (o dia útil): a exclusão de uma sessão com a cascata dela (acima disto, ela volta com a
+// cota) e a restauração (acima disto, ela é recusada antes de ler o R2). O dia é o menor entre o orçamento da conta (DAILY_WRITE_BUDGET) e o
+// teto do ambiente (`rowsDay`, ROWS_WRITTEN_DAY_CAP): acima de um dia inteiro de qualquer um dos dois, o pedido ficaria para amanhã todo dia
+// (no beta, com 10 mil, uma cascata de uns 2.500 solves). Deixa no dia a compactação do alarme: rowsOf(o dia útil) mais
+// rowsOf(0, COMPACT_PER_DAY) cabem no dia. Sem essa folga, uma cascata perto do máximo perderia o dia para a compactação das 03:05 (ou
+// qualquer gravação antes dela) e escorregaria de um dia para o outro. Com o teto do ambiente em 0 (a var torta), nada cabe de qualquer
+// jeito e tudo fica para depois: vale só o orçamento da conta, e um erro de configuração não devolve exclusões com a cota.
+export function recordsPerDay(rowsDay: number): number {
+  const day = rowsDay > 0 ? Math.min(DAILY_WRITE_BUDGET, rowsDay) : DAILY_WRITE_BUDGET;
+  return Math.max(0, Math.floor((day - rowsOf(0, COMPACT_PER_DAY) - REQUEST_ROWS) / ROWS_PER_WRITE));
+}
+// O dia útil só com o orçamento da conta (o teto do ambiente acima dele, como na raiz): o que o app consegue restaurar, e o tamanho que a
+// cópia do dia aceita (SNAPSHOT_MAX_RECORDS, no wrangler.jsonc).
+export const RECORDS_PER_DAY = recordsPerDay(DAILY_WRITE_BUDGET);
 // O conteúdo gravado de uma conta, em bytes (a soma dos `data`). A cota conta registros, não tamanho: 16 KB de nota em cada solve levariam
 // uma conta só a ~1,6 GB dos 5 GB de Durable Objects que todas dividem no grátis. Folgado: 100 mil solves comuns ficam em ~25 MB.
 export const ACCOUNT_BYTES_CAP = 50_000_000;
