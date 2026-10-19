@@ -33,9 +33,9 @@ export function splitTime(text: string): { int: string; dec: string } {
   return cut < 0 ? { int: text, dec: '' } : { int: text.slice(0, cut), dec: text.slice(cut) };
 }
 
-// Um nome no texto da tela (a revisão final), entre as marcas de isolamento do Unicode (FSI e PDI), que um nome não pode ter (\p{Cf},
-// link.ts): um nome da direita para a esquerda, ou com números colados, não reordena o texto em volta. Sem nome, nada: o texto de reserva
-// ("Alguém", "Oponente") é do app.
+// Um nome no texto da tela (a revisão final), entre as marcas de isolamento do Unicode (FSI e PDI), que um nome não pode ter (os controles
+// de direção, link.ts): um nome da direita para a esquerda, ou com números colados, não reordena o texto em volta. Sem nome, nada: o texto
+// de reserva ("Alguém", "Oponente") é do app.
 const FSI = '\u2068';
 const PDI = '\u2069';
 export const isolate = (name: string): string => (name ? `${FSI}${name}${PDI}` : '');

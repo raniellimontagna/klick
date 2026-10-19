@@ -10,10 +10,12 @@
   // folha recusada oferece "Copiar o link", num toque novo, e a folha fechada sem mandar volta o desafio a jogar (app.duel.unsend), como a
   // cópia que falha quando ela era o único caminho (sem a folha do sistema, nada saiu do aparelho).
   //
-  // A resposta que abriu fora do app (no iPhone, o Klick da tela de início guarda à parte do Safari): o desafio que espera a resposta oferece
-  // "Colar a resposta" (4), e a resposta vista num aparelho sem nenhum lado dela explica onde colar e copia o próprio link (8).
+  // A resposta que abriu fora do app (no iPhone, o Klick da tela de início guarda à parte do Safari): o desafio com os sete, ainda sem
+  // resposta, oferece "Colar a resposta" (4), e a resposta vista num aparelho sem nenhum lado dela explica onde colar e copia o próprio
+  // link (8).
   import { onDestroy, tick, untrack } from 'svelte';
   import { duelUrl, MAX_DUEL_NAME } from '../../core/duel/link';
+  import { DUEL_SCRAMBLES } from '../../core/duel/score';
   import { eventInfo } from '../../core/events';
   import { T } from '../../strings';
   import type { AppState } from '../state/app.svelte';
@@ -251,7 +253,8 @@
         {@render nameField(T.duel.nameHint)}
         {@render sendButton(T.duel.send)}
         <p class="dz-note dz-center">{T.duel.sendNote}</p>
-        {#if duel.status === 'waiting'}
+        {#if duel.status !== 'done' && duel.mine.length === DUEL_SCRAMBLES}
+          <!-- A resposta pode fechar este desafio (a emenda da I2): esperando, ou jogando porque a marca de mandado não gravou. -->
           <PasteReply {app} wide />
         {/if}
       {:else}

@@ -961,13 +961,30 @@ describe('colar a resposta (o Klick da tela de início)', () => {
     expect(await screen.findByRole('textbox', { name: T.duel.pasteLabel })).toBeInTheDocument();
   });
 
-  it('só o desafio que espera a resposta oferece colar', async () => {
+  // O resíduo da revisão final: a marca de mandado não gravou (ou um AbortError a desfez depois de o link sair), e o desafio ficou jogando
+  // com os sete. A resposta de verdade fecha esse desafio (a emenda da I2), então colar vale também ali.
+  it('o desafio que ficou jogando com os sete (a marca de mandado não gravou) também oferece colar, e a resposta fecha a partida', async () => {
     const A = await device({ name: 'Ranielli' });
     await mount(A.a);
     await A.a.duel.start('333');
+    const id = A.a.duel.current!.id;
     for (const t of A_TIMES) await A.a.duel.record(t);
+    const url = (await A.a.duel.challengeLink('https://klick.test'))!; // o link que saiu; a marca de mandado não gravou
+    expect(await A.repo.getDuel(id)).toMatchObject({ status: 'playing' });
+    const B = await device();
+    await B.a.duel.openLink(duelPayloadOf(new URL(url).hash)!);
+    await B.a.duel.accept();
+    for (const t of [tm(10_000), tm(10_000), tm(10_000)]) {
+      await B.a.duel.record(t);
+      await B.a.duel.reveal();
+      B.a.duel.next();
+    }
+    const reply = (await B.a.duel.replyUrl('https://klick.test', 'Bia'))!;
     await readyButton(T.duel.send);
-    expect(screen.queryByRole('button', { name: T.duel.paste })).toBeNull(); // ainda não mandou
+    stubClipboard({ readText: async () => reply });
+    await fireEvent.click(screen.getByRole('button', { name: T.duel.paste }));
+    expect(await screen.findByRole('heading', { name: 'Bia venceu 3 × 0' })).toBeInTheDocument();
+    expect(await A.repo.getDuel(id)).toMatchObject({ status: 'done', theirName: 'Bia' });
   });
 
   it('a resposta aberta num aparelho sem o desafio explica e copia o link no toque', async () => {

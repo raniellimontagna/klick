@@ -1,5 +1,6 @@
 <script lang="ts">
-  // "Colar a resposta" (a revisão final), no desafio de A que espera a resposta: na tela de mandar (4) e na partida aberta em Evolução (9c).
+  // "Colar a resposta" (a revisão final), no desafio de A com os sete, ainda sem resposta (esperando, ou jogando porque a marca de mandado não
+  // gravou): na tela de mandar (4) e na partida aberta em Evolução (9c).
   // No iPhone, o Klick da tela de início guarda à parte do Safari, e a resposta tocada no WhatsApp abre no Safari, sem o desafio (só para
   // ver). O toque lê a área de transferência na hora (dentro do gesto, sem esperar nada antes) e abre o link no Timer como se ele tivesse
   // sido tocado: valem as regras de sempre da resposta (app.duel.openLink). Sem a leitura (o navegador não a tem, ou a pessoa recusou), o

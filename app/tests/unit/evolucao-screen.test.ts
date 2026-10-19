@@ -346,6 +346,23 @@ describe('Evolução: Desafios', () => {
     expect(a.tab).toBe('timer');
   });
 
+  // O resíduo da revisão final: o desafio de A com os sete que ficou jogando (a marca de mandado não gravou) também oferece colar; com
+  // menos de sete, não.
+  it('a partida aberta de A com os sete, ainda jogando, oferece "Colar a resposta"; com menos de sete, não', async () => {
+    const playing = { ...SENT, status: 'playing' as const };
+    const short = { ...SENT, id: 'half000000000001-a', linkId: 'half000000000001', status: 'playing' as const, mine: SENT.mine.slice(0, 3) };
+    const { a } = await withDuels(playing, short);
+    a.openDuels({ kind: 'duel', id: playing.id });
+    const view = render(EvolucaoScreen, { app: a });
+    expect(await screen.findByRole('button', { name: T.duel.keepGoing })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: T.duel.paste })).toBeInTheDocument();
+    view.unmount();
+    a.openDuels({ kind: 'duel', id: short.id });
+    render(EvolucaoScreen, { app: a });
+    expect(await screen.findByRole('button', { name: T.duel.keepGoing })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: T.duel.paste })).toBeNull();
+  });
+
   it('"Jogando" abre direto no desafio, no ponto em que parou', async () => {
     const { a } = await withDuels(MARINA);
     a.openDuels();

@@ -4,8 +4,10 @@
   // depois, na lista). O desafio de A que espera a resposta mostra os sete tempos e "Mandar de novo": o mesmo link, preparado antes do toque
   // (a folha do sistema só abre dentro dele), como na tela de mandar. A partida terminada de B oferece "Mandar a resposta", que volta à tela
   // do fim (7), onde o envio de sempre corre dentro do toque; o registro de B não sabe se a resposta já saiu, então ela vale sempre. O de A
-  // que espera também oferece "Colar a resposta", para a resposta que abriu fora do app (PasteReply).
+  // com os sete, ainda sem resposta (esperando, ou jogando porque a marca de mandado não gravou), também oferece "Colar a resposta", para a
+  // resposta que abriu fora do app (PasteReply).
   import { onDestroy, untrack } from 'svelte';
+  import { DUEL_SCRAMBLES } from '../../core/duel/score';
   import { eventInfo } from '../../core/events';
   import type { Duel } from '../../core/types';
   import { T } from '../../strings';
@@ -27,6 +29,8 @@
   const waiting = $derived(duel.side === 'a' && duel.status === 'waiting');
   const playing = $derived(duel.status === 'playing');
   const replyable = $derived(duel.side === 'b' && duel.status === 'done');
+  // A resposta pode fechar este desafio (a emenda da I2): o de A com os sete, ainda sem resposta.
+  const pasteable = $derived(duel.side === 'a' && duel.status !== 'done' && duel.mine.length === DUEL_SCRAMBLES);
   const title = $derived(waiting ? T.duel.waitingTitle : (outcome?.title ?? T.duel.ownTitle));
 
   let armed = $state(false); // "Excluir" espera o segundo toque
@@ -139,14 +143,17 @@
       {#if copyOffer}
         <button type="button" class="btn" onclick={() => copyOffer && copyNow(copyOffer)}>{T.duel.copyLink}</button>
       {/if}
-      <PasteReply {app} />
     {/if}
     {#if replyable}
       <button type="button" class="btn primary" onclick={keepGoing}>{T.duel.sendReply}</button>
     {/if}
     {#if playing}
       <button type="button" class="btn primary" onclick={keepGoing}>{T.duel.keepGoing}</button>
-    {:else}
+    {/if}
+    {#if pasteable}
+      <PasteReply {app} />
+    {/if}
+    {#if !playing}
       <button type="button" class="btn danger" disabled={busy} onclick={remove}>{armed ? T.duel.confirmAgain : T.duel.delete}</button>
     {/if}
   </div>
