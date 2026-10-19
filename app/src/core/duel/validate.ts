@@ -10,6 +10,8 @@ const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFin
 const STATUSES: readonly DuelStatus[] = ['playing', 'waiting', 'done'];
 // Os tempos de um lado: até sete, cada um no formato do link.
 const isTimes = (v: unknown): boolean => Array.isArray(v) && v.length <= DUEL_SCRAMBLES && v.every(isDuelTime);
+// Os revelados de B (Duel.revealed): quando existem, um inteiro de 0 a sete.
+const isRevealed = (v: unknown): boolean => v === undefined || (Number.isInteger(v) && (v as number) >= 0 && (v as number) <= DUEL_SCRAMBLES);
 
 // Um desafio com todos os campos, como o link os aceita, e o id `${linkId}-${side}`.
 export function isDuel(v: unknown): v is Duel {
@@ -18,7 +20,7 @@ export function isDuel(v: unknown): v is Duel {
     v.id === `${v.linkId}-${v.side}` && typeof v.event === 'string' && EVENT_IDS.includes(v.event as EventId) &&
     Array.isArray(v.scrambles) && v.scrambles.length === DUEL_SCRAMBLES && v.scrambles.every(isDuelScramble) &&
     isTimes(v.mine) && (v.theirs === null || isTimes(v.theirs)) && isDuelName(v.myName) && isDuelName(v.theirName) &&
-    STATUSES.includes(v.status as DuelStatus) && isNum(v.createdAt) && isNum(v.updatedAt) && (v.deletedAt === null || isNum(v.deletedAt))
+    STATUSES.includes(v.status as DuelStatus) && isRevealed(v.revealed) && isNum(v.createdAt) && isNum(v.updatedAt) && (v.deletedAt === null || isNum(v.deletedAt))
   );
 }
 

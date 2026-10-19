@@ -3,8 +3,11 @@ import { decodeDuelLink, duelPayloadOf, encodeDuelLink } from '../../src/core/du
 import type { DuelLink, DuelTime, EventId, Penalty } from '../../src/core/types';
 import { openKlickDb } from '../../src/data/db';
 import { createRepository, type Repository } from '../../src/data/repository';
+import { createBackup } from '../../src/data/safety';
 import { createScrambleQueue } from '../../src/scramble/queue';
+import { T } from '../../src/strings';
 import { AppState } from '../../src/ui/state/app.svelte';
+import type { DuelState } from '../../src/ui/state/duel.svelte';
 import { appWithAccount, fakeApi, manualEnv } from './sync-account';
 import { FakeServer } from './sync-fakes';
 
@@ -14,7 +17,7 @@ const now = () => t;
 const ORIGIN = 'https://klick.test';
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 const tm = (ms: number, penalty: Penalty = null): DuelTime => ({ ms, penalty });
-const payloadOf = (url: string): string => duelPayloadOf(new URL(url).hash)!;
+const payloadOf = (url: string | null): string => duelPayloadOf(new URL(url!).hash)!;
 
 // Os tempos de A e os de B numa partida que B fecha no quinto: B, A, ninguém (empate no centésimo), B, B (contra um DNF).
 const A_TIMES = [tm(10_000), tm(12_000), tm(11_000), tm(15_000), tm(9_000, 'DNF'), tm(12_300), tm(13_080)];
@@ -62,7 +65,7 @@ async function device(o: { repo?: Repository; generate?: (ev: EventId) => Promis
 async function challenge(app: AppState, o: { times?: DuelTime[]; name?: string; event?: EventId } = {}): Promise<string> {
   await app.duel.start(o.event ?? '333');
   for (const x of o.times ?? A_TIMES) await app.duel.record(x);
-  return app.duel.challengeUrl(ORIGIN, o.name);
+  return (await app.duel.challengeUrl(ORIGIN, o.name))!;
 }
 
 // B joga estes solves, um por vez: o solve, "Ver o ponto" e "Próximo".
@@ -72,6 +75,15 @@ async function play(app: AppState, times: DuelTime[]): Promise<void> {
     await app.duel.reveal();
     app.duel.next();
   }
+}
+
+// Tudo o que se alcança de app.duel: os campos dele e o valor de cada getter.
+function reachable(duel: DuelState): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...duel };
+  for (const [key, d] of Object.entries(Object.getOwnPropertyDescriptors(Object.getPrototypeOf(duel)))) {
+    if (d.get) out[key] = (duel as unknown as Record<string, unknown>)[key];
+  }
+  return out;
 }
 
 // B aceita o desafio deste link num aparelho novo.
@@ -114,7 +126,7 @@ describe('o estado do desafio (spec do desafio, seções 3 a 6)', () => {
 
     // O nome editado na tela de mandar vai para os Ajustes e para o link; o desafio passa a esperar a resposta.
     const url = await app.duel.challengeUrl(ORIGIN, '  Ranielli ');
-    expect(url.startsWith(`${ORIGIN}/#desafio=`)).toBe(true);
+    expect(url?.startsWith(`${ORIGIN}/#desafio=`)).toBe(true);
     expect(await decodeDuelLink(payloadOf(url))).toEqual({
       v: 1,
       id: duel.linkId,
@@ -308,7 +320,8 @@ describe('o estado do desafio (spec do desafio, seções 3 a 6)', () => {
     expect(app.duel.phase).toBe('idle');
   });
 
-  // A revisão final 5.5: o desafio segura o sync de todas as abas, como o timer.
+  // A revisão final 5.5: o desafio segura o sync de todas as abas, como o timer. O solve em si já é do timerBusy (o Timer roda o desafio, na
+  // Task 6); o desafio segura o que vem depois dele, a confirmação e a revelação de B (a revisão da Task 5).
   it('duelRunning acompanha o solve', async () => {
     const net = fakeApi(new FakeServer());
     const env = manualEnv();
@@ -318,47 +331,59 @@ describe('o estado do desafio (spec do desafio, seções 3 a 6)', () => {
     await app.duel.openLink(await encodeDuelLink(LINK));
     expect(app.duelRunning).toBe(false); // o convite ainda não é jogo
     await app.duel.accept();
-    expect(app.duelRunning).toBe(true);
-    expect(told).toHaveBeenCalledTimes(1);
+    expect(app.duel.phase).toBe('solving');
+    expect(app.duelRunning).toBe(false); // esperando o solve: é do timer
+    expect(told).not.toHaveBeenCalled();
     await app.duel.record(tm(9_000));
     expect(app.duel.phase).toBe('confirm');
     expect(app.duelRunning).toBe(true);
+    expect(told).toHaveBeenCalledTimes(1);
     const syncs = vi.spyOn(net.api, 'sync');
     const round = app.account!.syncNow();
     await sleep(10);
-    expect(syncs).not.toHaveBeenCalled(); // o sync espera o desafio
+    expect(syncs).not.toHaveBeenCalled(); // o sync espera B conferir e ver o ponto
     await app.duel.reveal();
     expect(app.duelRunning).toBe(true);
-    const id = app.duel.current!.id;
     // A conta também se avisa sozinha (ao reler o próprio estado depois de um sync): conta-se só o que cada passo do desafio mudou.
     told.mockClear();
-    app.duel.exit(); // sair solta o sync
+    app.duel.next(); // o embaralhamento seguinte solta o sync
+    expect(app.duel.phase).toBe('solving');
     expect(app.duelRunning).toBe(false);
     expect(told).toHaveBeenCalledTimes(1);
     env.fireDelayed();
     await round;
     expect(syncs).toHaveBeenCalled();
-    // Continuar segura de novo; o ponto que fecha a partida solta.
-    await app.duel.resume(id);
+    // Sair no meio da confirmação também solta; continuar volta a segurar (a confirmação gravada).
+    await app.duel.record(B_TIMES[1]!);
     expect(app.duelRunning).toBe(true);
-    await play(app, B_TIMES.slice(1, 4));
+    const id = app.duel.current!.id;
+    told.mockClear();
+    app.duel.exit();
+    expect(app.duelRunning).toBe(false);
+    expect(told).toHaveBeenCalledTimes(1);
+    await app.duel.resume(id);
+    expect(app.duel.phase).toBe('confirm');
+    expect(app.duelRunning).toBe(true);
+    await app.duel.reveal();
+    app.duel.next();
+    await play(app, B_TIMES.slice(2, 4));
     await app.duel.record(B_TIMES[4]!);
     await app.duel.reveal();
     expect(app.duelRunning).toBe(true);
     told.mockClear();
-    app.duel.next();
+    app.duel.next(); // o ponto que fechou a partida: o resultado
     expect(app.duel.phase).toBe('finished');
     expect(app.duelRunning).toBe(false);
     expect(told).toHaveBeenCalledTimes(1);
 
-    // A: gerar não segura; jogar segura; os sete feitos soltam.
+    // A não tem confirmação nem revelação: o desafio dele nunca segura o sync além do timer.
     const A = await device();
-    const starting = A.app.duel.start('333');
-    expect(A.app.duelRunning).toBe(false);
-    await starting;
-    expect(A.app.duelRunning).toBe(true);
-    for (const x of A_TIMES) await A.app.duel.record(x);
-    expect(A.app.duelRunning).toBe(false);
+    await A.app.duel.start('333');
+    for (const x of A_TIMES) {
+      await A.app.duel.record(x);
+      expect(A.app.duelRunning).toBe(false);
+    }
+    expect(A.app.duel.phase).toBe('finished');
   });
 
   // Acrescentados ao verbatim: a maquete aprovada (o modo desafio do Timer).
@@ -526,5 +551,190 @@ describe('o estado do desafio (spec do desafio, seções 3 a 6)', () => {
     expect(app.duel.blocksOnboarding).toBe(false); // a apresentação fica para depois
     await app.duel.openLink('lixo!');
     expect(app.duel.blocksOnboarding).toBe(true); // o aviso do link torto também vem antes
+  });
+
+  // A revisão da Task 5: a tela grava o desafio inteiro a partir da cópia dela. A gravação só vale sobre o registro que ela leu; quando ele
+  // mudou por fora, a ação é largada e a tela volta ao que está gravado.
+  it('duas abas: a que ficou para trás não grava por cima da revelação da outra e volta ao ponto certo', async () => {
+    const one = await device();
+    const payload = await encodeDuelLink(LINK);
+    await one.app.duel.openLink(payload);
+    await one.app.duel.accept();
+    // O link tocado duas vezes: a segunda aba continua o mesmo lado B, joga o primeiro e vê o tempo de A.
+    const two = await device({ repo: one.repo });
+    expect(await two.app.duel.openLink(payload)).toBe('resume');
+    await two.app.duel.record(tm(20_000));
+    await two.app.duel.reveal();
+    expect(two.app.duel.phase).toBe('reveal');
+    // A primeira aba ainda acha que está no primeiro: o solve dela seria refazer o embaralhamento depois de ver o tempo de A.
+    expect(one.app.duel.phase).toBe('solving');
+    expect(one.app.duel.index).toBe(0);
+    await one.app.duel.record(tm(9_000));
+    const id = `${LINK.id}-b`;
+    expect(await one.repo.getDuel(id)).toMatchObject({ mine: [tm(20_000)], revealed: 1 });
+    expect(one.app.duel.phase).toBe('solving');
+    expect(one.app.duel.index).toBe(1);
+    expect(one.app.duel.current!.mine).toEqual([tm(20_000)]);
+    expect(one.app.duel.score!.perPoint).toEqual(['a']);
+
+    // A primeira aba joga o segundo e para na confirmação; a segunda, para trás, tenta uma penalidade e uma revelação: nada passa.
+    await one.app.duel.record(tm(9_500));
+    expect(two.app.duel.phase).toBe('reveal');
+    two.app.duel.next();
+    await two.app.duel.record(tm(30_000));
+    expect(await one.repo.getDuel(id)).toMatchObject({ mine: [tm(20_000), tm(9_500)], revealed: 1 });
+    expect(two.app.duel.phase).toBe('confirm'); // voltou ao gravado: o segundo da outra aba, esperando a confirmação
+    expect(two.app.duel.current!.mine).toEqual([tm(20_000), tm(9_500)]);
+
+    // A: uma aba descarta; a outra, no próximo solve, sai do desafio sem trazê-lo da lixeira.
+    const a1 = await device();
+    await a1.app.duel.start('333');
+    const aId = a1.app.duel.current!.id;
+    await a1.app.duel.record(tm(10_000));
+    const a2 = await device({ repo: a1.repo });
+    await a2.app.duel.resume(aId);
+    expect(await a2.app.duel.discard()).toBe(true);
+    await a1.app.duel.record(tm(11_000));
+    expect(a1.app.duel.phase).toBe('idle');
+    expect(a1.app.duel.current).toBeNull();
+    expect(await a1.repo.getDuel(aId)).toMatchObject({ mine: [tm(10_000)] });
+    expect((await a1.repo.getDuel(aId))!.deletedAt).not.toBeNull();
+  });
+
+  it('depois de apagar os dados do aparelho, o próximo solve não recria o desafio', async () => {
+    const { app, repo } = await device();
+    await app.duel.start('333');
+    const id = app.duel.current!.id;
+    await app.duel.record(tm(10_000));
+    await repo.wipeData();
+    await app.duel.record(tm(11_000));
+    expect(await repo.getDuel(id)).toBeNull();
+    expect(await repo.listDuels({ includeDeleted: true })).toEqual([]);
+    expect(app.duel.phase).toBe('idle');
+    expect(app.duel.current).toBeNull();
+  });
+
+  it('uma gravação do desafio que chega durante a restauração espera por ela e volta ao que a cópia trouxe', async () => {
+    const { app, repo } = await device();
+    await app.duel.start('333');
+    const id = app.duel.current!.id;
+    await app.duel.record(tm(10_000));
+    const backup = await createBackup(repo, 'manual', t);
+    await app.duel.record(tm(11_000));
+    let inside = false;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const replaceAll = repo.replaceAll.bind(repo);
+    repo.replaceAll = async (data) => {
+      inside = true;
+      await gate;
+      return replaceAll(data);
+    };
+    const saves = vi.spyOn(repo, 'saveDuel');
+    const restoring = app.restoreFromBackup(backup.id);
+    await vi.waitFor(() => expect(inside).toBe(true));
+    const recording = app.duel.record(tm(12_000)); // chega com a restauração no meio do replaceAll
+    await sleep(20); // tempo de sobra para já estar no banco (sem o portão)
+    expect(saves).not.toHaveBeenCalled();
+    release();
+    expect(await restoring).toBe(true);
+    await recording;
+    // A cópia tinha um solve: o registro é o dela, e a tela voltou a ele (o segundo embaralhamento), sem o solve que chegou no meio.
+    expect((await repo.getDuel(id))!.mine).toEqual([tm(10_000)]);
+    expect(app.duel.phase).toBe('solving');
+    expect(app.duel.index).toBe(1);
+  });
+
+  // A resposta só vale para o desafio daqui que espera por ela, com o mesmo conteúdo e a partida acabada.
+  it('a resposta de outro amigo não apaga a partida que já acabou: abre só para ver', async () => {
+    const A = await device();
+    const url = await challenge(A.app, { name: 'Ranielli' });
+    const aId = A.app.duel.current!.id;
+    const bia = await accepted(url);
+    await play(bia.app, B_TIMES);
+    const fromBia = await bia.app.duel.replyUrl(ORIGIN, 'Bia');
+    const leo = await accepted(url); // o mesmo link mandado a outra pessoa
+    await play(leo.app, [tm(20_000), tm(20_000), tm(20_000)]); // Léo perde 3 × 0
+    const fromLeo = await leo.app.duel.replyUrl(ORIGIN, 'Léo');
+    expect(await A.app.duel.openLink(payloadOf(fromBia))).toBe('reply');
+    const done = (await A.repo.getDuel(aId))!;
+    expect(await A.app.duel.openLink(payloadOf(fromLeo))).toBe('view');
+    expect(A.app.duel.phase).toBe('view');
+    expect(A.app.duel.current).toMatchObject({ theirName: 'Léo', theirs: [tm(20_000), tm(20_000), tm(20_000)] });
+    expect(await A.repo.getDuel(aId)).toEqual(done); // a partida com Bia fica como estava
+    expect(await A.app.duel.openLink(payloadOf(fromBia))).toBe('reply'); // e a de Bia segue abrindo como resposta, sem gravar
+    expect(await A.repo.getDuel(aId)).toEqual(done);
+  });
+
+  it('a resposta a um desafio descartado não o traz da lixeira', async () => {
+    const A = await device();
+    const url = await challenge(A.app);
+    const aId = A.app.duel.current!.id;
+    expect(await A.app.duel.discard()).toBe(true);
+    const trashed = (await A.repo.getDuel(aId))!;
+    const B = await accepted(url);
+    await play(B.app, B_TIMES);
+    expect(await A.app.duel.openLink(payloadOf(await B.app.duel.replyUrl(ORIGIN)))).toBe('view');
+    expect(await A.repo.getDuel(aId)).toEqual(trashed);
+    expect(await A.repo.listDuels()).toEqual([]);
+  });
+
+  it('uma resposta montada com outros embaralhamentos, outros tempos de A ou a partida pela metade só abre para ver', async () => {
+    const A = await device();
+    await challenge(A.app, { name: 'Ranielli' });
+    const waiting = A.app.duel.current!;
+    const base: DuelLink = { v: 1, id: waiting.linkId, event: waiting.event, scrambles: waiting.scrambles, a: { name: 'Ranielli', times: waiting.mine } };
+    const b = { name: 'Bia', times: B_TIMES };
+    const crafted: DuelLink[] = [
+      { ...base, scrambles: base.scrambles.map((x) => `${x} U`), b },
+      { ...base, event: '222', b },
+      { ...base, a: { name: 'Ranielli', times: A_TIMES.map((x) => ({ ...x, ms: x.ms - 1_000 })) }, b },
+      { ...base, b: { name: 'Bia', times: B_TIMES.slice(0, 3) } }, // ninguém chegou a 3 e faltam embaralhamentos
+    ];
+    for (const link of crafted) {
+      A.app.duel.exit();
+      expect(await A.app.duel.openLink(await encodeDuelLink(link))).toBe('view');
+      expect(A.app.duel.phase).toBe('view');
+      expect(await A.repo.getDuel(waiting.id)).toEqual(waiting);
+    }
+    // A de verdade, depois, ainda fecha a partida.
+    expect(await A.app.duel.openLink(await encodeDuelLink({ ...base, b }))).toBe('reply');
+    expect(await A.repo.getDuel(waiting.id)).toMatchObject({ status: 'done', theirs: B_TIMES });
+  });
+
+  it('na confirmação, nada que se alcança de app.duel mostra o tempo de A daquele embaralhamento', async () => {
+    const unique = [10_101, 20_202, 30_303, 40_404, 50_505, 60_606, 70_707].map((ms) => tm(ms));
+    const { app } = await device();
+    await app.duel.openLink(await encodeDuelLink({ ...LINK, a: { name: 'Ranielli', times: unique } }));
+    expect(JSON.stringify(reachable(app.duel))).not.toMatch(/10101|20202|30303|40404|50505|60606|70707/); // o convite
+    await app.duel.accept();
+    await play(app, [tm(9_000)]);
+    await app.duel.record(tm(9_000));
+    expect(app.duel.phase).toBe('confirm');
+    const seen = JSON.stringify(reachable(app.duel));
+    expect(seen).toContain('10101'); // o revelado aparece
+    expect(seen).not.toMatch(/20202|30303|40404|50505|60606|70707/);
+    expect(app.duel.current!.theirs).toEqual(unique.slice(0, 1));
+  });
+
+  it('o link do desafio só sai com o desafio gravado como esperando resposta', async () => {
+    const { app, repo } = await device();
+    await app.duel.start('333');
+    const id = app.duel.current!.id;
+    for (const x of A_TIMES) await app.duel.record(x);
+    const saveDuel = repo.saveDuel.bind(repo);
+    repo.saveDuel = async () => {
+      throw new Error('quota');
+    };
+    expect(await app.duel.challengeUrl(ORIGIN)).toBeNull();
+    expect(app.toast?.text).toBe(T.data.changeFailed);
+    expect(app.duel.current!.status).toBe('playing');
+    await app.duel.setPenalty('+2'); // nada saiu: o sétimo ainda pode mudar (e a gravação falha de novo, com o aviso)
+    repo.saveDuel = saveDuel;
+    const url = await app.duel.challengeUrl(ORIGIN);
+    expect(url).not.toBeNull();
+    expect(await repo.getDuel(id)).toMatchObject({ status: 'waiting' });
   });
 });

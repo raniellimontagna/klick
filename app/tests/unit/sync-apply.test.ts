@@ -680,7 +680,7 @@ describe('os desafios no sync', () => {
   it('um desafio válido entra; um com side ou tempos tortos é recusado', () => {
     const mine = duel('abcdefgh12345678', 'a');
     // O outro lado da mesma partida, com a resposta e um campo que esta versão não conhece (passa intacto).
-    const theirs = duel('abcdefgh12345678', 'b', { theirs: [{ ms: 8000, penalty: '+2' }, { ms: 0, penalty: 'DNF' }], status: 'done', extra: 'passa' });
+    const theirs = duel('abcdefgh12345678', 'b', { theirs: [{ ms: 8000, penalty: '+2' }, { ms: 0, penalty: 'DNF' }], status: 'done', revealed: 1, extra: 'passa' });
     const bad = [
       duel('abcdefgh00000001', 'c'), // um lado que não existe
       { ...duel('abcdefgh00000002', 'a'), id: 'abcdefgh00000002-b' }, // o id não bate com o lado
@@ -693,6 +693,12 @@ describe('os desafios no sync', () => {
       duel('abcdefgh00000008', 'a', { myName: 'x'.repeat(21) }),
       duel('abcdefgh00000009', 'a', { status: 'perdido' }),
       duel('abcdefgh00000010', 'a', { createdAt: 'ontem' }),
+      // Os revelados de B (a revisão da Task 5): um inteiro de 0 a 7, quando existe.
+      duel('abcdefgh00000018', 'b', { revealed: 8 }),
+      duel('abcdefgh00000019', 'b', { revealed: -1 }),
+      duel('abcdefgh00000020', 'b', { revealed: 1.5 }),
+      duel('abcdefgh00000021', 'b', { revealed: '2' }),
+      duel('abcdefgh00000022', 'b', { revealed: null }),
     ];
     expect(checkChange(mine)).toEqual({ ok: true, change: mine });
     const out = applyChanges(viewOf(), [mine, theirs, ...bad], { mode: 'server' });

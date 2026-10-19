@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { averageOf, bestSingle, currentStreak, solvesOnDay } from '../../src/core/stats';
 import type { Duel, DuelTime } from '../../src/core/types';
 import { openKlickDb, type KlickDB } from '../../src/data/db';
-import { createRepository, type ChangeKind, type Repository } from '../../src/data/repository';
+import { createRepository, DuelConflictError, type ChangeKind, type Repository } from '../../src/data/repository';
 import { parseKlickJson, toKlickJson } from '../../src/data/transfer';
 
 let n = 0;
@@ -65,6 +65,46 @@ describe('os desafios no repositório (spec do desafio, seção 7)', () => {
     // O que a tela recebe é uma cópia: mexer nela não mexe no que ela mandou gravar.
     replaced.mine.push(time(1));
     expect(next.mine).toHaveLength(4);
+  });
+
+  // A revisão da Task 5: a tela grava o desafio inteiro a partir da cópia dela. Com expectUpdatedAt, a gravação só acontece sobre o registro
+  // que a tela leu (conferido dentro da transação); outra aba, o sync, uma restauração ou um wipe que passaram na frente dão o conflito.
+  it('saveDuel e deleteDuel com expectUpdatedAt só gravam sobre o registro esperado', async () => {
+    const { repo } = await fresh();
+    const conflict = async (p: Promise<unknown>): Promise<DuelConflictError> => {
+      const err = await p.then(() => null, (e: unknown) => e);
+      expect(err).toBeInstanceOf(DuelConflictError);
+      return err as DuelConflictError;
+    };
+    const input = duel({ linkId: 'abcdefgh87654321' });
+    const created = await repo.saveDuel(input, { expectUpdatedAt: null }); // null: só cria
+    expect((await conflict(repo.saveDuel(input, { expectUpdatedAt: null }))).stored).toEqual(created);
+
+    t += 1_000;
+    const next = await repo.saveDuel({ ...input, mine: [...input.mine, time(8_000)] }, { expectUpdatedAt: created.updatedAt });
+    expect(next.updatedAt).toBe(t);
+    const heard: ChangeKind[] = [];
+    repo.onChange((k) => heard.push(k));
+
+    // Uma cópia velha (a data de antes) não grava, nem avisa: o erro traz o que está gravado.
+    t += 1_000;
+    expect((await conflict(repo.saveDuel({ ...input, mine: [] }, { expectUpdatedAt: created.updatedAt }))).stored).toEqual(next);
+    expect(await repo.getDuel(input.id)).toEqual(next);
+    await conflict(repo.deleteDuel(input.id, { expectUpdatedAt: created.updatedAt }));
+    expect((await repo.getDuel(input.id))!.deletedAt).toBeNull();
+    expect(heard).toEqual([]);
+
+    // A data certa apaga; depois disso, a cópia de antes da lixeira dá conflito com o registro apagado.
+    await repo.deleteDuel(input.id, { expectUpdatedAt: next.updatedAt });
+    const trashed = (await repo.getDuel(input.id))!;
+    expect(trashed.deletedAt).not.toBeNull();
+    expect((await conflict(repo.saveDuel(next, { expectUpdatedAt: next.updatedAt }))).stored).toEqual(trashed);
+
+    // Sumiu (purgado, apagado com os dados): conflito com null, e nada volta a existir.
+    expect((await conflict(repo.saveDuel(duel({ linkId: 'zzzzzzzz00000000' }), { expectUpdatedAt: 5 }))).stored).toBeNull();
+    expect(await repo.getDuel('zzzzzzzz00000000-a')).toBeNull();
+    expect((await conflict(repo.deleteDuel('zzzzzzzz00000000-a', { expectUpdatedAt: 5 }))).stored).toBeNull();
+    expect(heard).toEqual(['duels']);
   });
 
   it('listDuels traz os mais novos primeiro e esconde a lixeira', async () => {

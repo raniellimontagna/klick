@@ -4,10 +4,14 @@
 //
 // As ações que gravam andam numa fila, na ordem em que foram pedidas: cada uma lê o desafio que a anterior deixou. `epoch` sobe a cada
 // troca de desafio (sair, começar, continuar, abrir um link): o que termina depois disso grava, mas não mexe mais na tela.
+//
+// A tela grava o registro inteiro a partir da cópia dela, e só sobre o registro que leu (expectUpdatedAt, conferido na transação). Se ele
+// mudou por fora (outra aba, o sync, uma restauração, um wipe), a ação é largada e a tela volta ao que está gravado: uma aba que ficou
+// para trás não refaz um embaralhamento que a outra já revelou.
 import { decodeDuelLink, duelUrl, encodeDuelLink, isDuelScramble, newLinkId } from '../../core/duel/link';
 import { DUEL_SCRAMBLES, type DuelScore, scoreDuel } from '../../core/duel/score';
 import type { Duel, DuelLink, DuelSide, DuelTime, EventId, Penalty } from '../../core/types';
-import type { Repository } from '../../data/repository';
+import { DuelConflictError, type Repository } from '../../data/repository';
 import { generateScramble } from '../../scramble/cubing-loader';
 import { T } from '../../strings';
 
@@ -18,11 +22,12 @@ import { T } from '../../strings';
 // só para ver. invalid: o link não abre.
 export type DuelPhase = 'idle' | 'picking' | 'loading' | 'solving' | 'confirm' | 'reveal' | 'finished' | 'receive' | 'reply' | 'view' | 'invalid';
 // O que abrir um link deu. receive: um desafio novo. resume: o desafio que este aparelho aceitou, no ponto em que parou. own: o desafio
-// que este aparelho mandou. reply: a resposta ao desafio daqui, gravada. view: uma resposta sem o desafio daqui. invalid: não abre.
+// que este aparelho mandou. reply: a resposta ao desafio daqui, gravada. view: uma resposta que não fecha um desafio daqui (sem ele, outra
+// partida, outro conteúdo), só para ver. invalid: não abre.
 export type DuelOpened = 'receive' | 'resume' | 'own' | 'reply' | 'view' | 'invalid';
 
-// As fases em que o desafio corre: seguram o sync, como o timer (app.duelRunning).
-const RUNNING: readonly DuelPhase[] = ['solving', 'confirm', 'reveal'];
+// As fases que seguram o sync (app.duelRunning): a confirmação e a revelação de B. O solve em si já segura pelo timer (timerBusy).
+const RUNNING: readonly DuelPhase[] = ['confirm', 'reveal'];
 
 // O que o desafio usa do app.
 export interface DuelHost {
@@ -31,6 +36,7 @@ export interface DuelHost {
   duelName(): string; // o nome que vai nos links (Ajustes)
   setDuelName(name: string): Promise<void>; // limpa, grava e avisa se falhar
   running(busy: boolean): void; // app.duelRunning
+  settled(): Promise<void>; // o portão da restauração: uma gravação espera a troca acabar, como as dos solves e do treino
   showToast(text: string): void;
   now(): number;
 }
@@ -40,6 +46,8 @@ export interface DuelDeps {
 }
 
 type DuelDraft = Omit<Duel, 'createdAt' | 'updatedAt' | 'deletedAt'>;
+// O que uma gravação deu: o registro gravado; 'failed' (o aviso já saiu, nada mudou no banco); 'conflict' (o gravado mudou por fora).
+type Saved = Duel | 'failed' | 'conflict';
 
 // B: quantos tempos de A já apareceram. Sem o campo (ou fora do formato), todos os gravados; no máximo o último espera a revelação.
 function revealedOf(d: Duel): number {
@@ -102,12 +110,18 @@ function viewOf(link: DuelLink, b: NonNullable<DuelLink['b']>, side: DuelSide, a
 
 const sameTimes = (x: readonly DuelTime[] | null, y: readonly DuelTime[]): boolean =>
   x !== null && x.length === y.length && x.every((t, i) => t.ms === y[i]!.ms && t.penalty === y[i]!.penalty);
+const sameList = (x: readonly string[], y: readonly string[]): boolean => x.length === y.length && x.every((s, i) => s === y[i]);
+// O desafio daqui é o do link: fora da lixeira, com o mesmo evento, os mesmos embaralhamentos e os mesmos tempos de A.
+const sameChallenge = (a: Duel, link: DuelLink): boolean =>
+  a.deletedAt === null && a.event === link.event && sameList(a.scrambles, link.scrambles) && sameTimes(a.mine, link.a.times);
 
 export class DuelState {
   pickEvent = $state<EventId>('333'); // o evento marcado na folha "Desafiar"
   private stage = $state<DuelPhase>('idle');
-  private duel = $state.raw<Duel | null>(null); // o desafio aberto; trocado inteiro a cada mudança (nunca um proxy no saveDuel)
-  private offer = $state.raw<DuelLink | null>(null); // o link de 'receive', até aceitar ou recusar
+  // O desafio aberto e o link do convite guardam os sete tempos de A: ficam em campos privados de verdade (#), fora do alcance de quem lê
+  // app.duel. A tela lê `current`, `opponent`, `score` e `invite`, que só mostram o revelado. Trocados inteiros a cada mudança.
+  #duel = $state.raw<Duel | null>(null);
+  #offer = $state.raw<DuelLink | null>(null); // o link de 'receive', até aceitar ou recusar
   private failedScrambles = $state(false);
   private opening = $state(0); // links sendo lidos: a apresentação espera também por eles
   private epoch = 0;
@@ -124,14 +138,16 @@ export class DuelState {
     return this.stage;
   }
 
-  // O desafio aberto. Para B, `theirs` já traz os sete tempos de A: a tela lê `opponent`, que só tem os revelados.
+  // O desafio aberto. Para B, `theirs` vem cortado nos revelados: o tempo de A de um embaralhamento não conferido não aparece aqui.
   get current(): Duel | null {
-    return this.duel;
+    const d = this.#duel;
+    if (!d || d.side === 'a' || !d.theirs) return d;
+    return { ...d, theirs: d.theirs.slice(0, revealedOf(d)) };
   }
 
   // O convite de 'receive': o evento e quem desafiou ('' sem nome). Os tempos de A ficam de fora.
   get invite(): { event: EventId; name: string } | null {
-    const link = this.offer;
+    const link = this.#offer;
     return link ? { event: link.event, name: link.a.name } : null;
   }
 
@@ -142,7 +158,7 @@ export class DuelState {
 
   // O embaralhamento em jogo (de 0 a 6): o da vez em 'solving', o que acabou de ser resolvido em 'confirm' e 'reveal'; -1 fora do jogo.
   get index(): number {
-    const d = this.duel;
+    const d = this.#duel;
     if (!d) return -1;
     if (this.stage === 'solving') return d.mine.length;
     if (this.stage === 'confirm' || this.stage === 'reveal') return d.mine.length - 1;
@@ -151,20 +167,17 @@ export class DuelState {
 
   get scramble(): string {
     const i = this.index;
-    return i >= 0 ? (this.duel?.scrambles[i] ?? '') : '';
+    return i >= 0 ? (this.#duel?.scrambles[i] ?? '') : '';
   }
 
-  // Os tempos do outro lado que a tela pode mostrar: para B, só os revelados (o de um embaralhamento ainda não conferido não aparece em
-  // lugar nenhum); para A, os da resposta.
+  // Os tempos do outro lado que a tela pode mostrar: para B, só os revelados; para A, os da resposta.
   get opponent(): DuelTime[] {
-    const d = this.duel;
-    if (!d?.theirs) return [];
-    return d.side === 'a' ? d.theirs : d.theirs.slice(0, revealedOf(d));
+    return this.current?.theirs ?? [];
   }
 
   // O placar do que já foi revelado; null enquanto A não tem com quem comparar.
   get score(): DuelScore | null {
-    return this.duel ? scoreOf(this.duel) : null;
+    return this.#duel ? scoreOf(this.#duel) : null;
   }
 
   // Um link aberto (ou um desafio em jogo) vem antes da apresentação: a primeira visita por um link vai direto ao desafio.
@@ -180,7 +193,7 @@ export class DuelState {
 
   // "Desafiar de volta": a folha de novo, no evento da partida que acabou.
   rematch(): void {
-    this.pick(this.duel?.event ?? this.pickEvent);
+    this.pick(this.#duel?.event ?? this.pickEvent);
   }
 
   // "Sair" (e "Fechar", "Cancelar"): de volta ao Timer. O desafio fica como foi gravado; o jogando continua depois (resume).
@@ -218,7 +231,7 @@ export class DuelState {
     await this.serial(async () => {
       if (epoch !== this.epoch) return;
       const linkId = newLinkId();
-      const saved = await this.save({
+      const draft: DuelDraft = {
         id: `${linkId}-a`,
         linkId,
         side: 'a',
@@ -229,10 +242,11 @@ export class DuelState {
         myName: this.host.duelName(),
         theirName: '',
         status: 'playing',
-      });
-      if (epoch !== this.epoch) return;
-      if (saved) this.enter(saved);
-      else this.go('picking'); // o aviso de gravar já saiu; Começar tenta de novo
+      };
+      const saved = await this.save(draft, null, epoch); // null: só cria
+      if (epoch !== this.epoch || saved === 'conflict') return;
+      if (saved === 'failed') this.go('picking'); // o aviso de gravar já saiu; Começar tenta de novo
+      else this.enter(saved);
     });
   }
 
@@ -240,14 +254,14 @@ export class DuelState {
   // Se a gravação falha, o solve segue na memória e vai junto na próxima (o registro grava inteiro); a revelação de B só acontece gravada.
   record(t: DuelTime): Promise<void> {
     return this.serial(async () => {
-      const d = this.duel;
+      const d = this.#duel;
       if (this.stage !== 'solving' || !d || d.mine.length >= DUEL_SCRAMBLES) return;
       const epoch = this.epoch;
       const mine = [...d.mine, { ms: t.ms, penalty: t.penalty }];
       const next: Duel = d.side === 'b' ? { ...d, mine, revealed: revealedOf(d) } : { ...d, mine };
-      const saved = await this.save(next);
-      if (epoch !== this.epoch) return;
-      this.duel = saved ?? next;
+      const saved = await this.save(next, d.updatedAt, epoch);
+      if (epoch !== this.epoch || saved === 'conflict') return;
+      this.#duel = saved === 'failed' ? next : saved;
       if (d.side === 'b') this.go('confirm');
       else if (mine.length >= DUEL_SCRAMBLES) this.go('finished');
     });
@@ -257,7 +271,7 @@ export class DuelState {
   // confirmação; depois de ver o tempo de A, nunca (Review Focus 5). A de B grava junto com a revelação.
   setPenalty(p: Penalty): Promise<void> {
     return this.serial(async () => {
-      const d = this.duel;
+      const d = this.#duel;
       if (!d || d.mine.length === 0) return;
       const open =
         d.side === 'a' ? d.status === 'playing' && (this.stage === 'solving' || this.stage === 'finished') : this.stage === 'confirm';
@@ -265,12 +279,12 @@ export class DuelState {
       if (!open || d.mine[last]!.penalty === p) return;
       const next: Duel = { ...d, mine: d.mine.map((t, i) => (i === last ? { ...t, penalty: p } : t)) };
       if (d.side === 'b') {
-        this.duel = next;
+        this.#duel = next;
         return;
       }
       const epoch = this.epoch;
-      const saved = await this.save(next);
-      if (epoch === this.epoch) this.duel = saved ?? next;
+      const saved = await this.save(next, d.updatedAt, epoch);
+      if (epoch === this.epoch && saved !== 'conflict') this.#duel = saved === 'failed' ? next : saved;
     });
   }
 
@@ -278,20 +292,20 @@ export class DuelState {
   // tempo de A não aparece: recarregar não daria uma segunda chance a quem já o viu.
   reveal(): Promise<void> {
     return this.serial(async () => {
-      const d = this.duel;
+      const d = this.#duel;
       if (this.stage !== 'confirm' || !d || d.side !== 'b') return;
       const epoch = this.epoch;
       const shown: Duel = { ...d, revealed: d.mine.length };
-      const saved = await this.save(scoreOf(shown)?.over ? { ...shown, status: 'done' } : shown);
-      if (epoch !== this.epoch || !saved) return;
-      this.duel = saved;
+      const saved = await this.save(scoreOf(shown)?.over ? { ...shown, status: 'done' } : shown, d.updatedAt, epoch);
+      if (epoch !== this.epoch || typeof saved === 'string') return;
+      this.#duel = saved;
       this.go('reveal');
     });
   }
 
   // "Próximo": o embaralhamento seguinte, ou o resultado quando alguém chegou a 3 (ou os sete acabaram). O fim já foi gravado na revelação.
   next(): void {
-    const d = this.duel;
+    const d = this.#duel;
     if (this.stage !== 'reveal' || !d) return;
     this.go(scoreOf(d)?.over ? 'finished' : 'solving');
   }
@@ -314,17 +328,19 @@ export class DuelState {
     });
   }
 
-  // "Descartar o desafio" (só A): para a lixeira, e de volta ao Timer. B não descarta um desafio aceito (spec §3).
+  // "Descartar o desafio" (só A): para a lixeira, e de volta ao Timer. B não descarta um desafio aceito (spec §3). Só o registro que a
+  // tela leu: um que mudou por fora (a resposta chegou noutra aba, por exemplo) não vai para a lixeira, e a tela volta a ele.
   discard(): Promise<boolean> {
     return this.serial(async () => {
-      const d = this.duel;
+      const d = this.#duel;
       if (!d || d.side !== 'a') return false;
       const epoch = this.epoch;
+      await this.host.settled();
       try {
-        const repo = this.host.repo();
-        if (await repo.getDuel(d.id)) await repo.deleteDuel(d.id); // um desafio que nunca chegou a gravar não tem o que apagar
-      } catch {
-        this.host.showToast(T.data.changeFailed);
+        await this.host.repo().deleteDuel(d.id, { expectUpdatedAt: d.updatedAt });
+      } catch (err) {
+        if (err instanceof DuelConflictError) this.conflict(err.stored, epoch);
+        else this.host.showToast(T.data.changeFailed);
         return false;
       }
       if (epoch === this.epoch) this.leave('idle');
@@ -333,18 +349,19 @@ export class DuelState {
   }
 
   // "Mandar o desafio" (A, os sete feitos): o link com os sete tempos e o nome. `name` é o que a pessoa deixou no campo da tela: vai para os
-  // Ajustes antes. O desafio passa a esperar a resposta (e a penalidade do último não muda mais), gravado antes de o link sair.
-  challengeUrl(origin: string, name?: string): Promise<string> {
+  // Ajustes antes. O desafio passa a esperar a resposta (e a penalidade do último não muda mais); o link só sai com isso gravado. Sem
+  // gravar, null: nada saiu, o desafio segue como estava e Mandar tenta de novo.
+  challengeUrl(origin: string, name?: string): Promise<string | null> {
     return this.serial(async () => {
-      const d = this.duel;
+      const d = this.#duel;
       if (!d || d.side !== 'a' || d.mine.length < DUEL_SCRAMBLES) throw new Error('O desafio ainda não tem os sete tempos');
       const epoch = this.epoch;
       if (name !== undefined) await this.host.setDuelName(name);
       const sent: Duel = { ...d, myName: this.host.duelName(), status: d.status === 'playing' ? 'waiting' : d.status };
-      const changed = sent.myName !== d.myName || sent.status !== d.status;
-      const saved = changed ? await this.save(sent) : d;
-      if (epoch === this.epoch) this.duel = saved ?? sent;
-      return duelUrl(origin, await encodeDuelLink(linkOf(sent)));
+      const saved = sent.myName !== d.myName || sent.status !== d.status ? await this.save(sent, d.updatedAt, epoch) : d;
+      if (typeof saved === 'string') return null;
+      if (epoch === this.epoch) this.#duel = saved;
+      return duelUrl(origin, await encodeDuelLink(linkOf(saved)));
     });
   }
 
@@ -363,23 +380,25 @@ export class DuelState {
     });
   }
 
-  // "Mandar a resposta" (B, a partida acabou): o link com os dois lados. `name`, como em challengeUrl.
-  replyUrl(origin: string, name?: string): Promise<string> {
+  // "Mandar a resposta" (B, a partida acabou): o link com os dois lados. `name`, como em challengeUrl: o nome novo grava antes de o link
+  // sair, e sem gravar, null.
+  replyUrl(origin: string, name?: string): Promise<string | null> {
     return this.serial(async () => {
-      const d = this.duel;
+      const d = this.#duel;
       if (!d || d.side !== 'b' || !scoreOf(d)?.over) throw new Error('A partida ainda não acabou');
       const epoch = this.epoch;
       if (name !== undefined) await this.host.setDuelName(name);
       const named: Duel = { ...d, myName: this.host.duelName() };
-      const saved = named.myName !== d.myName ? await this.save(named) : d;
-      if (epoch === this.epoch) this.duel = saved ?? named;
-      return duelUrl(origin, await encodeDuelLink(linkOf(named)));
+      const saved = named.myName !== d.myName ? await this.save(named, d.updatedAt, epoch) : d;
+      if (typeof saved === 'string') return null;
+      if (epoch === this.epoch) this.#duel = saved;
+      return duelUrl(origin, await encodeDuelLink(linkOf(saved)));
     });
   }
 
   // Abre um `#desafio=` e decide pelo conteúdo e pelo que existe neste aparelho (Review Focus 1, 3 e 4). Sem a resposta: o desafio que
   // este aparelho aceitou continua (resume); o que ele mandou aparece (own); senão, o convite (receive), sem gravar nada. Com a resposta:
-  // o desafio daqui recebe os tempos de B e fecha (reply); sem ele, a partida só para ver (view). Torto: invalid, nada muda. Um desafio em
+  // ela fecha o desafio daqui que espera por ela (reply); qualquer outra só aparece (view). Torto: invalid, nada muda. Um desafio em
   // jogo fica como foi gravado. Nunca rejeita.
   async openLink(payload: string): Promise<DuelOpened> {
     this.leave('idle');
@@ -393,22 +412,14 @@ export class DuelState {
     }
   }
 
-  // "Aceitar": cria o registro de B e o Timer entra no primeiro embaralhamento. Se este aparelho já tem o lado B (outra aba aceitou),
-  // continua dele: aceitar de novo não zera nada.
+  // "Aceitar": cria o registro de B (só se ele não existe) e o Timer entra no primeiro embaralhamento. Se outra aba aceitou antes, a
+  // criação dá conflito e a tela continua do que ela jogou: aceitar de novo não zera nada.
   accept(): Promise<void> {
     return this.serial(async () => {
-      const link = this.offer;
+      const link = this.#offer;
       if (this.stage !== 'receive' || !link) return;
       const epoch = this.epoch;
-      const repo = this.host.repo();
-      let saved: Duel | null;
-      try {
-        saved = await repo.getDuel(`${link.id}-b`);
-      } catch {
-        this.host.showToast(T.data.readFailed);
-        return;
-      }
-      saved ??= await this.save({
+      const draft: DuelDraft = {
         id: `${link.id}-b`,
         linkId: link.id,
         side: 'b',
@@ -420,13 +431,16 @@ export class DuelState {
         theirName: link.a.name,
         status: 'playing',
         revealed: 0,
-      });
-      if (epoch !== this.epoch || !saved) return; // sem gravar, o convite fica: Aceitar tenta de novo
+      };
+      const saved = await this.save(draft, null, epoch);
+      if (epoch !== this.epoch || typeof saved === 'string') return; // sem gravar, o convite fica: Aceitar tenta de novo
       this.enter(saved);
     });
   }
 
-  private async opened(link: DuelLink | null, epoch: number): Promise<DuelOpened> {
+  // `again`: uma resposta cujo desafio mudou entre ler e gravar (outra aba abriu a mesma resposta) é decidida de novo, uma vez, pelo que
+  // ficou gravado.
+  private async opened(link: DuelLink | null, epoch: number, again = true): Promise<DuelOpened> {
     const live = (): boolean => epoch === this.epoch; // outro link (ou sair) passou na frente: a tela fica com ele
     if (!link) {
       if (live()) this.go('invalid');
@@ -449,19 +463,25 @@ export class DuelState {
       if (b) return this.show('resume', live, b);
       if (a) return this.show('own', live, a);
       if (live()) {
-        this.offer = link;
+        this.#offer = link;
         this.go('receive');
       }
       return 'receive';
     }
-    if (a) {
-      const done: Duel = { ...a, theirs: link.b.times, theirName: link.b.name, status: 'done' };
-      // A mesma resposta aberta de novo não grava outra vez. Se a gravação falha, a partida aparece mesmo assim, com o aviso.
-      const same = a.status === 'done' && a.theirName === done.theirName && sameTimes(a.theirs, link.b.times);
-      const saved = same ? a : await this.save(done);
-      return this.show('reply', live, saved ?? done, 'reply');
+    const reply = link.b;
+    // A resposta só fecha o desafio daqui que é o mesmo do link, esperando por ela, com a partida acabada. A mesma resposta de novo mostra
+    // a partida sem gravar. Qualquer outra (a de outro amigo, a de um desafio descartado, uma montada à mão) só aparece: nunca apaga uma
+    // partida nem traz um desafio da lixeira.
+    if (a && sameChallenge(a, link)) {
+      if (a.status === 'done' && a.theirName === reply.name && sameTimes(a.theirs, reply.times)) return this.show('reply', live, a, 'reply');
+      if (a.status === 'waiting' && scoreDuel(a.mine, reply.times).over) {
+        const done: Duel = { ...a, theirs: reply.times, theirName: reply.name, status: 'done' };
+        const saved = await this.save(done, a.updatedAt, epoch, () => undefined);
+        if (saved !== 'conflict') return this.show('reply', live, saved === 'failed' ? done : saved, 'reply'); // a falha mostra, com o aviso
+        if (again) return this.opened(link, epoch, false);
+      }
     }
-    return this.show('view', live, viewOf(link, link.b, b ? 'b' : 'a', this.host.now()), 'view');
+    return this.show('view', live, viewOf(link, reply, b ? 'b' : 'a', this.host.now()), 'view');
   }
 
   private show(outcome: DuelOpened, live: () => boolean, d: Duel, phase: DuelPhase = phaseOf(d)): DuelOpened {
@@ -470,17 +490,25 @@ export class DuelState {
   }
 
   private enter(d: Duel, phase: DuelPhase = phaseOf(d)): void {
-    this.duel = d;
-    this.offer = null;
+    this.#duel = d;
+    this.#offer = null;
     this.pickEvent = d.event;
     this.go(phase);
+  }
+
+  // O registro mudou por fora: a ação foi largada, e a tela volta ao que está gravado. Sem registro (um wipe, um descarte noutra aba, a
+  // lixeira), sai do desafio.
+  private conflict(stored: Duel | null, epoch: number): void {
+    if (epoch !== this.epoch) return;
+    if (stored && stored.deletedAt === null) this.enter(stored);
+    else this.exit();
   }
 
   // Larga o desafio aberto (o que estiver em voo termina sem mexer na tela) e vai para `phase`.
   private leave(phase: DuelPhase): void {
     this.epoch++;
-    this.duel = null;
-    this.offer = null;
+    this.#duel = null;
+    this.#offer = null;
     this.go(phase);
   }
 
@@ -490,13 +518,24 @@ export class DuelState {
     this.host.running(RUNNING.includes(phase));
   }
 
-  // Grava o desafio inteiro, como objeto simples (nunca o proxy da tela). null se falhou: o aviso já saiu.
-  private async save(d: DuelDraft): Promise<Duel | null> {
+  // Grava o desafio inteiro, como objeto simples (nunca o proxy da tela), só sobre o registro com a data `expect` (null: só cria), depois de
+  // uma restauração em curso. Num conflito, `onConflict` (por padrão, a tela volta ao gravado).
+  private async save(
+    d: DuelDraft,
+    expect: number | null,
+    epoch: number,
+    onConflict = (stored: Duel | null): void => this.conflict(stored, epoch),
+  ): Promise<Saved> {
+    await this.host.settled();
     try {
-      return await this.host.repo().saveDuel($state.snapshot(d));
-    } catch {
+      return await this.host.repo().saveDuel($state.snapshot(d), { expectUpdatedAt: expect });
+    } catch (err) {
+      if (err instanceof DuelConflictError) {
+        onConflict(err.stored);
+        return 'conflict';
+      }
       this.host.showToast(T.data.changeFailed);
-      return null;
+      return 'failed';
     }
   }
 

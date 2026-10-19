@@ -316,8 +316,8 @@ export class AppState {
     this.storage = deps.storage === undefined ? defaultStorage() : deps.storage;
     this.storageManager = deps.storageManager === undefined ? defaultStorageManager() : deps.storageManager;
     this.share = deps.share === undefined ? (isIOS() ? shareFile : null) : deps.share;
-    // O sync espera o timer, o espaço segurado antes da inspeção e o timer do treino (spec 6.2, decisão 14). As arrow functions: o motor
-    // usa o repositório atual (o reaberto, depois de o iOS derrubar a conexão).
+    // O sync espera o timer, o espaço segurado antes da inspeção, o timer do treino (spec 6.2, decisão 14) e o desafio (a confirmação e a
+    // revelação de B). As arrow functions: o motor usa o repositório atual (o reaberto, depois de o iOS derrubar a conexão).
     this.account = deps.account
       ? new AccountState(
           {
@@ -339,6 +339,9 @@ export class AppState {
         setDuelName: (name) => this.setDuelName(name),
         running: (busy) => {
           this.duelRunning = busy;
+        },
+        settled: async () => {
+          while (this.restoring) await this.restoring; // como a gravação de um solve: depois do replaceAll, não no meio
         },
         showToast: (text) => this.showToast(text),
         now: () => this.now(),
@@ -392,7 +395,7 @@ export class AppState {
     this.setBusy('busyTrainer', busy);
   }
 
-  // O desafio corre (o embaralhamento da vez, a confirmação e a revelação de B): segura o sync como o timer. Quem muda é o DuelState.
+  // B confere a penalidade ou vê o ponto (o solve em si já é do timerBusy): segura o sync como o timer. Quem muda é o DuelState.
   get duelRunning(): boolean {
     return this.busyDuel;
   }

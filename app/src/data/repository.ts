@@ -206,9 +206,11 @@ export interface Repository {
   listDuels(o?: { includeDeleted?: boolean }): Promise<Duel[]>; // os mais novos primeiro (pela criação)
   getDuel(id: string): Promise<Duel | null>; // também o da lixeira (deletedAt diz); null se não existe
   // Cria ou substitui pelo id, que tem de ser `${linkId}-${side}` (senão lança e nada grava). As datas são as do relógio do sync: a criação
-  // fica a do registro gravado, e um desafio da lixeira volta ativo, com uma marca nova.
-  saveDuel(d: Omit<Duel, 'createdAt' | 'updatedAt' | 'deletedAt'>): Promise<Duel>;
-  deleteDuel(id: string): Promise<void>; // para a lixeira, como um solve; lança se não existe
+  // fica a do registro gravado, e um desafio da lixeira volta ativo, com uma marca nova. Com `expectUpdatedAt`, só grava se o registro
+  // gravado tem essa data (null: só se ele não existe), conferido dentro da transação; senão lança DuelConflictError e nada grava.
+  saveDuel(d: Omit<Duel, 'createdAt' | 'updatedAt' | 'deletedAt'>, o?: { expectUpdatedAt?: number | null }): Promise<Duel>;
+  // Para a lixeira, como um solve; lança se não existe. `expectUpdatedAt`, como em saveDuel.
+  deleteDuel(id: string, o?: { expectUpdatedAt?: number }): Promise<void>;
   restoreDuel(id: string): Promise<void>; // volta da lixeira; lança se não existe
   close(): void; // fecha a conexão do banco e o canal; depois disso o repositório não responde mais (usado ao trocar pela conexão reaberta)
 }
@@ -386,6 +388,17 @@ export class AccountChangedError extends Error {
   constructor() {
     super('a conta mudou durante a rodada');
     this.name = 'AccountChangedError';
+  }
+}
+
+// saveDuel ou deleteDuel com `expectUpdatedAt`, e o registro gravado não é mais o que quem chama leu: outra aba, o sync, uma restauração ou
+// um wipe passaram na frente (a revisão da Task 5 do desafio). Nada foi gravado; `stored` é o que está gravado agora (null: não existe).
+export class DuelConflictError extends Error {
+  readonly stored: Duel | null;
+  constructor(stored: Duel | null) {
+    super('o desafio gravado mudou');
+    this.name = 'DuelConflictError';
+    this.stored = stored;
   }
 }
 
@@ -835,11 +848,12 @@ export function createRepository(
   }
 
   // Manda um desafio para a lixeira (`toTrash`) ou o traz de volta, como um solve: as três datas são a da escrita. Já no estado pedido, nada
-  // muda nem avisa; um que não existe lança.
-  async function trashDuel(id: string, toTrash: boolean): Promise<void> {
+  // muda nem avisa; um que não existe lança. Com `expect`, um registro com outra data (ou nenhum) é conflito.
+  async function trashDuel(id: string, toTrash: boolean, expect?: number): Promise<void> {
     const changed = await syncWrite(['duels'], async (tx, ctx) => {
       const store = tx.objectStore('duels');
       const duel = await store.get(id);
+      if (expect !== undefined && duel?.updatedAt !== expect) throw new DuelConflictError(duel ? bareDuel(duel) : null);
       if (!duel) throw new Error(`Desafio não encontrado: ${id}`);
       if ((duel.deletedAt !== null) === toTrash) return false;
       const at = ctx.stamp();
@@ -1877,11 +1891,15 @@ export function createRepository(
 
     // As datas vêm do relógio do sync (spec 5.4), como nos solves. Substituir não mexe na marca de exclusão: uma edição nunca desfaz a
     // exclusão feita noutro aparelho (D5). Só a volta de um desafio da lixeira ganha marca nova, como restoreDuel.
-    async saveDuel(d) {
+    async saveDuel(d, { expectUpdatedAt } = {}) {
       if (d.id !== `${d.linkId}-${d.side}`) throw new Error(`Id de desafio fora do formato: ${d.id}`);
       const saved = await syncWrite(['duels'], async (tx, ctx) => {
         const store = tx.objectStore('duels');
         const current = await store.get(d.id);
+        // A conferência na mesma transação que grava: nada passa entre ler o registro e gravar por cima dele.
+        if (expectUpdatedAt !== undefined && (current?.updatedAt ?? null) !== expectUpdatedAt) {
+          throw new DuelConflictError(current ? bareDuel(current) : null);
+        }
         const at = ctx.stamp();
         const record: StoredDuel = {
           ...d,
@@ -1898,8 +1916,8 @@ export function createRepository(
       return structuredClone(bareDuel(saved));
     },
 
-    deleteDuel(id) {
-      return trashDuel(id, true);
+    deleteDuel(id, { expectUpdatedAt } = {}) {
+      return trashDuel(id, true, expectUpdatedAt);
     },
 
     restoreDuel(id) {
