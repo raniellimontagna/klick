@@ -141,7 +141,9 @@ export interface CloudCopies {
   paused: CopiesPaused | null;
 }
 
-// Por que uma restauração foi recusada (decisões 1, 2, 3 e 6): sem espaço para a cópia de antes de restaurar (no-room), restaurações demais
-// no dia (restore-limit), sem operações do R2 no mês (r2-budget), uma conta maior que RESTORE_MAX_RECORDS ou mudanças que gravam mais linhas
-// que o orçamento de um dia inteiro (too-big), ou que o que sobra dele hoje (write-budget).
+// Por que uma restauração foi recusada (decisões 1, 2, 3 e 6, e as cópias grandes): sem espaço para a cópia de antes de restaurar (no-room),
+// restaurações demais no dia (restore-limit; também os objetos da cópia que o aparelho baixa, passados os do dia), sem operações do R2 no
+// mês (r2-budget), mais mudanças que RESTORE_MAX_RECORDS ou que o dia útil (too-big: só depois de ler a cópia, que as mudanças são o que
+// difere entre ela e a conta), ou mudanças que não cabem no que sobra hoje (write-budget). Os dois últimos só o app de antes recebe: o que
+// diz que restaura no aparelho ({ device: true }) ouve que a cópia vem para ele (worker/account-store.ts, restoreSnapshot).
 export type RestoreRefusal = 'no-room' | 'restore-limit' | 'r2-budget' | 'too-big' | 'write-budget';

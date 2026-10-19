@@ -48,8 +48,9 @@ export const COUNT_ACTIVE = 'SELECT store, count(*) AS n FROM records WHERE dele
 export const STORED_BYTES = 'SELECT coalesce(sum(length(CAST(data AS BLOB))), 0) AS n, count(*) AS rows FROM records';
 
 // O tamanho da conta em registros (sessões, solves, treino, desafios e ajustes; na lixeira e as marcas compactadas inclusive), contado pelo
-// índice até ?: a cópia do dia (SNAPSHOT_MAX_RECORDS) e a restauração (RESTORE_MAX_RECORDS) o conferem antes de ler a conta inteira (Task 12),
-// com o limite em uso + 1, o bastante para saber que ela passou dele, sem percorrer uma conta enorme inteira (revisão final).
+// índice até ?: a cópia do dia (SNAPSHOT_MAX_RECORDS, e COPY_PART_RECORDS para saber se sai em partes) o confere antes de ler a conta
+// inteira (Task 12), com o limite em uso + 1, o bastante para saber que ela passou dele, sem percorrer uma conta enorme inteira (revisão
+// final). A restauração não conta a conta: compara (account-store.ts, restoreSnapshot).
 export const COUNT_RECORDS = 'SELECT count(*) AS n FROM (SELECT 1 FROM records LIMIT ?)';
 
 // A cópia em partes (account-store.ts, writeCopy) lê a conta por páginas na ordem da chave (store, id), a ordem da tabela: os registros
@@ -59,6 +60,9 @@ export const COUNT_RECORDS = 'SELECT count(*) AS n FROM (SELECT 1 FROM records L
 // mesma página fechada em cima, depois de (?1, ?2) até (?3, ?4) inclusive, no máximo ?5: a faixa de uma parte, para a restauração.
 export const PAGE_AFTER = "SELECT * FROM records WHERE store <> 'prefs' AND (store, id) > (?, ?) ORDER BY store, id LIMIT ?";
 export const RANGE_AFTER = "SELECT * FROM records WHERE store <> 'prefs' AND (store, id) > (?, ?) AND (store, id) <= (?, ?) ORDER BY store, id LIMIT ?";
+// A página com que a restauração lê os registros de agora de uma faixa (PAGE_AFTER na última, RANGE_AFTER nas outras): a comparação
+// (diffSlice) os consome aos poucos, e para no meio de uma página quando as mudanças passam do limite.
+export const SLICE_PAGE = 1_000;
 // Os ajustes da conta (poucas dezenas de linhas): o perfil do manifesto.
 export const PREFS_ROWS = "SELECT * FROM records WHERE store = 'prefs'";
 

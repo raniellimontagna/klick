@@ -18,7 +18,7 @@ export interface Caps {
   mailDay: number;
   mailMonth: number;
   snapshotRecords: number; // acima disto (registros da conta), nenhuma cópia sai: CopiesPaused 'size'. Até aí, sai em partes (COPY_PART_RECORDS)
-  restoreRecords: number; // acima disto, a restauração no servidor é 'too-big', antes de ler o R2 (o que não cabe no dia, o aparelho restaura)
+  restoreRecords: number; // acima disto em mudanças (ou do dia útil), a restauração no servidor é 'too-big' (o app novo restaura no aparelho)
   rowsDay: number; // as linhas gravadas nos objetos das contas por dia UTC, somadas entre todas as contas do ambiente
 }
 
@@ -66,7 +66,7 @@ export const COPIES_CACHE_MS = 600_000; // a lista de cópias guardada (spec 7.1
 // medida, lidas do banco uma página por vez (a memória do objeto fica em torno de uma página, e não da conta), mais um manifesto gravado por
 // último; até ela, o arquivo só de sempre. Uma conta acima do dia útil (recordsPerDay) copia só a cada BIG_COPY_EVERY_DAYS dias: com a regra
 // de 30 dias do bucket, ficam umas 4 cópias por conta grande, e não 30 de 74 MB. COPY_PART_READS_PER_DAY são as partes que se leem por conta
-// por dia (as operações B do R2 que a cópia grande gasta ao voltar).
+// por dia (as operações B do R2 que a cópia grande gasta ao voltar pelo aparelho: copyPart, cada objeto da cópia que ele baixa).
 export const COPY_PART_RECORDS = 5_000;
 export const BIG_COPY_EVERY_DAYS = 7;
 export const COPY_PART_READS_PER_DAY = 200;
@@ -98,7 +98,7 @@ export function rowsOf(writes: number, compacted = 0): number {
 }
 
 // O máximo de registros que um pedido grava num dia (o dia útil): a exclusão de uma sessão com a cascata dela (acima disto, ela volta com a
-// cota) e a restauração (acima disto, ela é recusada antes de ler o R2). O dia é o menor entre o orçamento da conta (DAILY_WRITE_BUDGET) e o
+// cota) e a restauração (acima disto em mudanças, o servidor não a grava). O dia é o menor entre o orçamento da conta (DAILY_WRITE_BUDGET) e o
 // teto do ambiente (`rowsDay`, ROWS_WRITTEN_DAY_CAP): acima de um dia inteiro de qualquer um dos dois, o pedido ficaria para amanhã todo dia
 // (no beta, com 10 mil, uma cascata de uns 2.500 solves). Deixa no dia a compactação do alarme: rowsOf(o dia útil) mais
 // rowsOf(0, COMPACT_PER_DAY) cabem no dia. Sem essa folga, uma cascata perto do máximo perderia o dia para a compactação das 03:05 (ou

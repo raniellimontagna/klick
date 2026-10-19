@@ -272,6 +272,8 @@ describe('restaurar um dia (spec 8.3)', () => {
     const user = 'conta-meio';
     await sync(user, [session, solve('a', 1000)]);
     await stubOf(user).snapshot(T0);
+    // A restauração só grava o que muda (e só então guarda a cópia de antes): o `antes`, que a cópia não tem, vai para a lixeira.
+    await sync(user, [solve('antes')]);
     const gate = await holdUploads(user);
     const restore = call(`/api/snapshots/${dayOf(T0)}/restore`, postJson({}, as(user)), { deps: testDeps({ user, now: () => T0 + 1000 }) });
     await until(() => gate.started); // a cópia "antes de restaurar" está a caminho do R2
@@ -288,6 +290,7 @@ describe('restaurar um dia (spec 8.3)', () => {
     const all = new Map((await sync(user, [], 0)).changes.map((c) => [c.id, c]));
     expect(all.get('durante')!.deletedAt).toBeNull();
     expect(all.get('a')).toMatchObject({ deletedAt: null, data: { ms: 1000 } });
+    expect(all.get('antes')!.deletedAt).not.toBeNull();
   });
 });
 
@@ -378,6 +381,7 @@ describe('apagar a conta (spec 7.7)', () => {
     // A sessão falsa continua valendo: é o sync de outro aparelho que chega antes de as linhas do D1 sumirem.
     expect((await syncCall(user, [solve('depois')], 0, () => T0, 'd2')).status).toBe(401);
     expect((await call(`/api/snapshots/${dayOf(T0)}/restore`, postJson({}, as(user)), { deps: testDeps({ user }) })).status).toBe(401);
+    expect((await call(`/api/snapshots/${dayOf(T0)}/parts/0`, { headers: as(user) }, { deps: testDeps({ user }) })).status).toBe(401);
     expect(await stubOf(user).snapshot(Date.now())).toBe(false);
     expect(await alarmOf(user)).toBeNull();
     expect(await objectsOf(user)).toEqual([]);
@@ -434,6 +438,8 @@ describe('a conta que o aparelho espera (C1)', () => {
     expect((await call('/api/snapshots', {}, { deps })).status).toBe(400);
     expect((await call(`/api/snapshots/${dayOf(T0)}/restore`, postJson({}, wrong), { deps })).status).toBe(401);
     expect((await call(`/api/snapshots/${dayOf(T0)}/restore`, postJson({}), { deps })).status).toBe(400);
+    expect((await call(`/api/snapshots/${dayOf(T0)}/parts/0`, { headers: wrong }, { deps })).status).toBe(401);
+    expect((await call(`/api/snapshots/${dayOf(T0)}/parts/0`, {}, { deps })).status).toBe(400);
     const del = (headers: Record<string, string>) =>
       call('/api/account', { method: 'DELETE', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ email: `${user}@exemplo.com` }) }, { deps });
     expect((await del(wrong)).status).toBe(401);

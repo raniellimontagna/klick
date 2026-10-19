@@ -332,20 +332,22 @@ describe('o teto de linhas gravadas por dia do ambiente', () => {
     expect(await env.SNAPSHOTS.head(snapshotKey(user, dayOf(Date.now())))).not.toBeNull();
   });
 
-  it('a restauração sem linhas no teto para o mínimo dela volta write-budget antes de qualquer operação do R2', async () => {
+  // A restauração grava só o que muda (spec das cópias grandes, seção 3), e as mudanças só se sabem depois de ler a cópia: a conferência das
+  // linhas do teto vem depois do get, só lendo o D1, e a recusa não guarda a cópia de antes, não grava e não reserva nada.
+  it('a restauração sem linhas no teto para as mudanças dela volta write-budget depois de ler a cópia, sem gravar nem reservar nada', async () => {
     const now = at(18);
     const user = 'teto-restaura';
     await sync(user, [session(), solve('a'), solve('b')], { now: now - DAY });
     await env.SNAPSHOTS.put(snapshotKey(user, dayOf(now - DAY)), await gzipJson(exportFromRecords([session()], now - DAY)));
-    await setCap(user, '10000'); // o do beta: o dia útil deixa a conta passar (too-big), e o dia está cheio
+    await setCap(user, '10000'); // o do beta, e o dia está cheio
     await seedDay(now, 10_000);
     const before = await recordsOf(user);
     const r2 = await countR2(user);
     expect(await restore(user, dayOf(now - DAY), now)).toEqual({ status: 429, body: { error: 'write-budget' } });
-    expect(r2).toEqual({});
+    expect(r2).toEqual({ get: 1 }); // a cópia (a e b vão para a lixeira); nem a cópia de antes
     const opsB = await env.DB.prepare("SELECT count FROM r2_ops WHERE month = ? AND class = 'B'").bind(utcMonth(now)).first<{ count: number }>();
-    expect(opsB?.count ?? 0).toBe(0);
-    expect(await stateOf(user, 'attempts')).toBeNull(); // nem chegou ao R2
+    expect(opsB?.count ?? 0).toBe(2);
+    expect(await json(user, 'attempts')).toEqual({ day: utcDay(now), n: 1 });
     expect(await recordsOf(user)).toEqual(before);
     expect(await dayRow(now)).toBe(10_000);
   });
@@ -357,7 +359,7 @@ describe('o teto de linhas gravadas por dia do ambiente', () => {
     const name = dayOf(now - DAY);
     await env.SNAPSHOTS.put(snapshotKey(user, name), await gzipJson(exportFromRecords([session(), ...many('c', 40)], now - DAY)));
     await setCap(user, '10000');
-    await seedDay(now, 10_000 - rowsOf(2) - 10); // o mínimo (a sessão e o solve de agora) cabe; as 40 da cópia, não
+    await seedDay(now, 10_000 - rowsOf(2) - 10); // cabe uma restauração pequena; as 41 mudanças (os 40 da cópia e o a), não
     const before = await recordsOf(user);
     const r2 = await countR2(user);
     expect(await restore(user, name, now)).toEqual({ status: 429, body: { error: 'write-budget' } });
@@ -422,18 +424,26 @@ describe('o dia útil: o menor dos dois tetos', () => {
     expect((await json<ActiveCounts>(edge, 'active')).solves).toBe(0);
   });
 
-  it('no teto do beta, a restauração de uma conta acima do dia útil é too-big, antes do R2', async () => {
+  it('no teto do beta, a restauração com mais mudanças que o dia útil é too-big, sem gravar nada; com o dia útil, passa', async () => {
     const most = recordsPerDay(BETA);
     const now = at(34);
     const user = 'teto-dia-util-restaura';
     await sync(user, [session()], { now: now - DAY });
-    await seedSolves(user, 's1', most); // most + 1 registros
+    await seedSolves(user, 's1', most + 1); // a cópia só tem a sessão: most + 1 solves vão para a lixeira
     await env.SNAPSHOTS.put(snapshotKey(user, dayOf(now - DAY)), await gzipJson(exportFromRecords([session()], now - DAY)));
     await setCap(user, String(BETA));
+    const before = await recordsOf(user);
     const r2 = await countR2(user);
     expect(await restore(user, dayOf(now - DAY), now)).toEqual({ status: 413, body: { error: 'too-big' } });
-    expect(r2).toEqual({});
+    expect(r2).toEqual({ get: 1 }); // a cópia foi lida: decidiram as mudanças, não o tamanho da conta
+    expect(await recordsOf(user)).toEqual(before);
     expect(await dayRow(now)).toBe(0);
+    // Um solve a menos: most mudanças, que cabem no dia do beta.
+    await runInDurableObject(stubOf(user), (_o, state) => {
+      state.storage.sql.exec("DELETE FROM records WHERE store = 'solves' AND id = 'x1'");
+    });
+    expect((await restore(user, dayOf(now - DAY), now + 1000)).status).toBe(204);
+    expect(await dayRow(now)).toBe(rowsOf(most));
   });
 });
 
@@ -507,15 +517,17 @@ describe('o teto do ambiente: a revisão', () => {
     expect(await env.SNAPSHOTS.head(snapshotKey(user, dayOf(Date.now())))).not.toBeNull();
   });
 
-  it('o D1 que falha na reserva: a restauração volta write-budget, sem ir ao R2', async () => {
+  it('o D1 que falha na reserva: a restauração volta write-budget depois de ler a cópia, sem a cópia de antes e sem gravar nada', async () => {
     const now = at(42);
     const user = 'teto-d1-restaura';
     await sync(user, [session(), solve('a')], { now: now - DAY });
     await env.SNAPSHOTS.put(snapshotKey(user, dayOf(now - DAY)), await gzipJson(exportFromRecords([session()], now - DAY)));
     await failDay(user);
+    const before = await recordsOf(user);
     const r2 = await countR2(user);
     expect(await restore(user, dayOf(now - DAY), now)).toEqual({ status: 429, body: { error: 'write-budget' } });
-    expect(r2).toEqual({});
+    expect(r2).toEqual({ get: 1 });
+    expect(await recordsOf(user)).toEqual(before);
   });
 
   // As compactações das 03:05 (uma por conta) não podem comer o dia de todos: a compactação só reserva enquanto a reserva dela cabe na

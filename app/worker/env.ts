@@ -20,7 +20,7 @@ export interface Env {
   MAIL_PER_DAY: string; // códigos por e-mail enviados por dia UTC
   MAIL_PER_MONTH: string; // e por mês UTC
   SNAPSHOT_MAX_RECORDS: string; // acima destes registros, a conta não tem cópia (Task 12); até eles, as grandes saem em partes
-  RESTORE_MAX_RECORDS: string; // acima destes registros, a restauração no servidor é recusada (Task 12)
+  RESTORE_MAX_RECORDS: string; // acima destas mudanças, a restauração no servidor é recusada (Task 12; o aparelho restaura o que não cabe)
   ROWS_WRITTEN_DAY_CAP: string; // as linhas gravadas nos objetos das contas por dia UTC, somadas entre todas as contas deste ambiente
   BETTER_AUTH_SECRET: string; // segredo
   TURNSTILE_SECRET: string; // segredo; sem ele, a Cloudflare recusa todo token e nenhum código é pedido

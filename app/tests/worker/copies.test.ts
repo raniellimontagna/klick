@@ -16,6 +16,7 @@ import {
   BIG_COPY_EVERY_DAYS,
   capsOf,
   COPIES_CACHE_MS,
+  COPY_PART_READS_PER_DAY,
   COPY_PART_RECORDS,
   DAILY_READ_BUDGET,
   DAILY_WRITE_BUDGET,
@@ -28,9 +29,9 @@ import {
   utcDay,
   utcMonth,
 } from '../../worker/limits';
-import { COMPACTABLE, PAGE_AFTER, RANGE_AFTER, rowToChange, type Row } from '../../worker/records-sql';
+import { COMPACTABLE, PAGE_AFTER, RANGE_AFTER, rowToChange, SLICE_PAGE, type Row } from '../../worker/records-sql';
 import { dayOf, gunzipJson, gzipJson, partKey, preRestoreName, snapshotKey, snapshotPrefix } from '../../worker/snapshots';
-import { call, postJson, setState, stateOf, stubOf, T0, testDeps } from './helpers';
+import { call, ORIGIN, postJson, setState, stateOf, stubOf, T0, testDeps } from './helpers';
 
 const DAY = 86_400_000;
 const MONTH = utcMonth(T0);
@@ -53,10 +54,16 @@ const list = async (user: string, now = T0): Promise<{ status: number; body: unk
   const res = await call('/api/snapshots', { headers: { [ACCOUNT_HEADER]: user } }, { deps: testDeps({ user, now: () => now }) });
   return { status: res.status, body: await res.json() };
 };
-const restore = async (user: string, name: string, now: number): Promise<{ status: number; body: unknown }> => {
-  const res = await call(`/api/snapshots/${name}/restore`, postJson({}, { [ACCOUNT_HEADER]: user }), { deps: testDeps({ user, now: () => now }) });
+// O app de antes manda {}; `body` é o corpo do pedido de restaurar.
+const restore = async (user: string, name: string, now: number, body: unknown = {}): Promise<{ status: number; body: unknown }> => {
+  const res = await call(`/api/snapshots/${name}/restore`, postJson(body, { [ACCOUNT_HEADER]: user }), { deps: testDeps({ user, now: () => now }) });
   return { status: res.status, body: res.status === 204 ? null : await res.json() };
 };
+// O app novo: diz que restaura no aparelho o que o servidor não grava hoje (spec das cópias grandes, seção 5).
+const restoreDevice = (user: string, name: string, now: number) => restore(user, name, now, { device: true });
+// Uma parte da cópia `name` pelo Worker (o índice 0 é o objeto da cópia), com a conta que o aparelho espera.
+const part = (user: string, name: string, index: number | string, now = T0, headers: Record<string, string> = { [ACCOUNT_HEADER]: user }): Promise<Response> =>
+  call(`/api/snapshots/${name}/parts/${index}`, { headers }, { deps: testDeps({ user, now: () => now }) });
 
 const seedOps = (cls: 'A' | 'B', count: number) =>
   env.DB.prepare('INSERT INTO r2_ops (month, class, count) VALUES (?1, ?2, ?3) ON CONFLICT (month, class) DO UPDATE SET count = excluded.count')
@@ -137,6 +144,12 @@ async function restoreCount(user: string, name: string): Promise<number> {
   return restoreChanges(current, { sessions: copy.sessions, solves: copy.solves, practice, duels }, accountPrefsOf(copy.profile, current), T0 + DAY).length;
 }
 const objectsOf = async (user: string): Promise<string[]> => (await env.SNAPSHOTS.list({ prefix: snapshotPrefix(user) })).objects.map((o) => o.key);
+// As linhas do teto do ambiente no D1, no dia UTC de `t`.
+const dayRows = async (t: number): Promise<number> =>
+  (await env.DB.prepare('SELECT count FROM rows_day WHERE day = ?').bind(utcDay(t)).first<{ count: number }>())?.count ?? 0;
+// As linhas lidas no dia que o objeto de `user` contou (o orçamento de leituras: as do estado mais as que ainda estão na memória).
+const readsCounted = (user: string, now: number): Promise<number> =>
+  runInDurableObject(stubOf(user), (instance) => (instance as unknown as { readsOf(t: number): { n: number } }).readsOf(now).n);
 
 beforeEach(async () => {
   await env.DB.batch([env.DB.prepare('DELETE FROM r2_ops'), env.DB.prepare('DELETE FROM r2_storage')]);
@@ -337,30 +350,32 @@ describe('restaurar dentro do grátis (decisões 1, 2 e 3)', () => {
     expect((await restore(user, dayOf(T0), T0 + DAY)).status).toBe(204); // o dia seguinte (UTC) tem vaga
   });
 
-  // As conferências que não precisam do R2 vêm antes de ler a cópia (revisão final, I1): as linhas de hoje, pelo mínimo que a restauração
-  // grava (cada sessão e cada solve ativo de agora ganha uma mudança, volte da cópia ou vá para a lixeira), e o espaço e a operação A da cópia
-  // de antes, pelo tamanho da última cópia da conta. As de depois de ler a cópia continuam a autoridade.
-  it('sem linhas hoje para o mínimo da restauração, sem espaço ou sem operação A para a cópia de antes: a recusa vem sem tocar no R2', async () => {
+  // As conferências que não precisam do R2 vêm antes de ler a cópia (revisão final, I1): o espaço e a operação A da cópia de antes, pelo
+  // tamanho da última cópia da conta. As linhas de hoje dependem das mudanças, que só se sabem depois de ler a cópia (spec das cópias
+  // grandes, seção 3): sem lugar para elas, a recusa vem depois do get, sem a cópia de antes e sem gravar nada.
+  it('sem espaço ou sem operação A para a cópia de antes, a recusa vem sem tocar no R2; sem linhas hoje para as mudanças, depois de ler a cópia', async () => {
     const user = 'restaura-barata';
     await sync(user, [session, solve('a')]);
     expect(await stubOf(user).snapshot(T0)).toBe(true); // guarda o tamanho da cópia, a estimativa da cópia de antes
-    await sync(user, [solve('extra')]); // ativos agora: a sessão e dois solves
+    await sync(user, [solve('extra')]); // uma mudança: o extra vai para a lixeira
     const opsB = await opsOf('B');
     const r2 = await countR2(user);
-    await setState(user, 'writes', { day: utcDay(T0), n: DAILY_WRITE_BUDGET - rowsOf(3) + 1 });
     let account = await accountOf(user);
-    expect(await restore(user, dayOf(T0), T0 + 1000)).toEqual({ status: 429, body: { error: 'write-budget' } });
-    expect(await accountOf(user)).toEqual(account);
-    await setState(user, 'writes', { day: utcDay(T0), n: 0 });
-    account = await accountOf(user);
     await seedUsed(ROOM - 10);
     expect(await restore(user, dayOf(T0), T0 + 2000)).toEqual({ status: 409, body: { error: 'no-room' } });
     await seedUsed(0);
     await seedOps('A', caps.classAMonth);
     expect(await restore(user, dayOf(T0), T0 + 3000)).toEqual({ status: 503, body: { error: 'r2-budget' } });
     expect([r2, await opsOf('B'), await accountOf(user)]).toEqual([{}, opsB, account]);
-    // Com espaço e operações, a mesma restauração passa.
     await seedOps('A', 0);
+    // A uma linha de a mudança caber hoje: a cópia é lida, e nada mais (nem a cópia de antes, nem a gravação).
+    await setState(user, 'writes', { day: utcDay(T0), n: DAILY_WRITE_BUDGET - rowsOf(1) + 1 });
+    account = await accountOf(user);
+    expect(await restore(user, dayOf(T0), T0 + 1000)).toEqual({ status: 429, body: { error: 'write-budget' } });
+    expect([r2.get, r2.head, r2.put]).toEqual([1, undefined, undefined]);
+    expect(await accountOf(user)).toEqual(account);
+    // Com lugar para ela, a mesma restauração passa.
+    await setState(user, 'writes', { day: utcDay(T0), n: DAILY_WRITE_BUDGET - rowsOf(1) });
     expect((await restore(user, dayOf(T0), T0 + 4000)).status).toBe(204);
   });
 
@@ -462,7 +477,7 @@ describe('restaurar dentro do grátis (decisões 1, 2 e 3)', () => {
     await sync(small, [session, solve('a')]);
     await stubOf(small).snapshot(T0);
     // A restauração só grava o que muda: a sessão e o solve a, editados depois da cópia, voltam; o extra vai para a lixeira. Três mudanças,
-    // as mesmas que o mínimo (os registros ativos de agora) já conta, para o teste ficar no limite exato das linhas do dia.
+    // e as linhas do dia ficam no limite exato delas.
     await sync(small, [solve('extra'), { ...solve('a', 2000), updatedAt: T0 + 50 }, { ...session, data: { ...session.data as object, name: 'Renomeada' }, updatedAt: T0 + 50 }]);
     const n = await restoreCount(small, dayOf(T0)); // a sessão e o solve a de novo e o extra para a lixeira
     expect(n).toBe(3);
@@ -477,8 +492,9 @@ describe('restaurar dentro do grátis (decisões 1, 2 e 3)', () => {
 });
 
 // Os tamanhos que cabem (Task 12, na leitura de 30 s do limite de CPU dos Durable Objects): acima de SNAPSHOT_MAX_RECORDS registros, a
-// cópia do dia não sai; acima de RESTORE_MAX_RECORDS, a restauração é recusada antes de ler o R2. As duas são vars do wrangler.jsonc, e
-// uma var ausente ou torta vale 0: nenhuma cópia, nenhuma restauração.
+// cópia do dia não sai; acima de RESTORE_MAX_RECORDS mudanças (spec das cópias grandes: as da restauração, não os registros da conta), o
+// servidor não restaura, e só sabe depois de ler a cópia. As duas são vars do wrangler.jsonc, e uma var ausente ou torta vale 0: nenhuma
+// cópia, nenhuma restauração (essa, sem perguntar ao R2).
 describe('os tamanhos que cabem: a cópia e a restauração (Task 12)', () => {
   const SMALL_CAP = '50'; // o SNAPSHOT_MAX_RECORDS de um teste que precisa passar dele sem semear 250 mil registros
   it('acima de SNAPSHOT_MAX_RECORDS a cópia do dia não sai e o sync diz paused "size"', async () => {
@@ -500,42 +516,38 @@ describe('os tamanhos que cabem: a cópia e a restauração (Task 12)', () => {
     expect((await sync(user, [])).copiesPaused).toBe('size');
   });
 
-  it('acima de RESTORE_MAX_RECORDS, 413 too-big', async () => {
+  it('acima de RESTORE_MAX_RECORDS mudanças, 413 too-big depois de ler a cópia; com RESTORE_MAX_RECORDS, passa; o tamanho da conta não decide', async () => {
     const user = 'restaura-tamanho';
     await sync(user, [session, solve('a'), solve('gone')]);
     await stubOf(user).snapshot(T0);
+    await setVars(user, { RESTORE_MAX_RECORDS: '10' }); // um teto pequeno, só neste objeto
     // A restauração só conta o que muda. Depois da cópia, a sessão e o solve a são editados (voltam: 2 mudanças) e o `gone` some da conta,
-    // direto no SQLite (volta: 1 mudança): com os `x` semeados (uma mudança cada, para a lixeira), as mudanças passam do número de registros em 1.
+    // direto no SQLite (volta: 1 mudança): com 8 `x` semeados (uma mudança cada, para a lixeira), 11.
     await sync(user, [{ ...solve('a', 2000), updatedAt: T0 + 50 }, { ...session, data: { ...session.data as object, name: 'Renomeada' }, updatedAt: T0 + 50 }]);
     await runInDurableObject(stubOf(user), (_o, state) => {
       state.storage.sql.exec("DELETE FROM records WHERE store = 'solves' AND id = 'gone'");
     });
-    await seedSolves(user, caps.restoreRecords - 1);
-    expect(await recordCount(user)).toBe(caps.restoreRecords + 1);
+    await seedSolves(user, 8);
+    expect(await restoreCount(user, dayOf(T0))).toBe(11);
     const account = await accountOf(user);
-    const opsB = await opsOf('B');
     const r2 = await countR2(user);
     expect(await restore(user, dayOf(T0), T0 + 1000)).toEqual({ status: 413, body: { error: 'too-big' } });
-    expect(r2).toEqual({}); // um COUNT só: nem o R2, nem a cópia aberta
-    expect(await opsOf('B')).toBe(opsB); // nem as operações B do mês
+    expect([r2.get, r2.head, r2.put]).toEqual([1, undefined, undefined]); // a cópia foi lida; nem a cópia de antes
     expect(await accountOf(user)).toEqual(account);
-    // O COUNT confere o menor entre a var e RECORDS_PER_DAY (o que um pedido grava num dia com a compactação do alarme ao lado): no teto da
-    // var, a conta também volta sem ler o R2.
-    await dropSolves(user, 'x', caps.restoreRecords - 2);
-    expect(await recordCount(user)).toBe(caps.restoreRecords);
-    expect(await restore(user, dayOf(T0), T0 + 2000)).toEqual({ status: 413, body: { error: 'too-big' } });
-    expect(r2).toEqual({});
-    // Em RECORDS_PER_DAY registros, o COUNT passa e a cópia é lida; decide a conferência das mudanças, que contam também os ajustes da conta
-    // (revisão final, I1 c: mais que RECORDS_PER_DAY é too-big). Com as mudanças em RECORDS_PER_DAY, a restauração cabe no dia.
-    await dropSolves(user, 'x', RECORDS_PER_DAY - 2);
-    expect(await recordCount(user)).toBe(RECORDS_PER_DAY);
-    const over = (await restoreCount(user, dayOf(T0))) - RECORDS_PER_DAY;
-    expect(over).toBeGreaterThan(0);
-    expect(await restore(user, dayOf(T0), T0 + 3000)).toEqual({ status: 413, body: { error: 'too-big' } });
-    expect(r2.get).toBe(1);
-    await dropSolves(user, 'x', RECORDS_PER_DAY - 2 - over);
-    expect((await restore(user, dayOf(T0), T0 + 4000)).status).toBe(204);
-    expect(r2.get).toBe(2);
+    // No teto da var, cabe.
+    await dropSolves(user, 'x', 7);
+    expect(await restoreCount(user, dayOf(T0))).toBe(10);
+    expect((await restore(user, dayOf(T0), T0 + 2000)).status).toBe(204);
+
+    // Uma conta muito maior que a var, com uma mudança só, também passa: a var conta as mudanças, não os registros.
+    const big = 'restaura-tamanho-conta-grande';
+    await sync(big, [session, solve('a')]);
+    await seedSolves(big, 40);
+    await stubOf(big).snapshot(T0);
+    await setVars(big, { RESTORE_MAX_RECORDS: '10' });
+    await sync(big, [solve('novo')]);
+    expect(await recordCount(big)).toBeGreaterThan(10);
+    expect((await restore(big, dayOf(T0), T0 + 1000)).status).toBe(204);
   });
 
   it('sem as vars (ausentes ou tortas), nenhuma cópia sai ("size") e toda restauração é 413 too-big, sem perguntar ao R2', async () => {
@@ -857,7 +869,8 @@ describe('a cópia em partes e a cada 7 dias numa conta grande', () => {
 
 // Revisão final (resíduo, I1): o COUNT do tamanho da conta percorria a tabela inteira, antes de qualquer teto da restauração; a restauração
 // não olhava o orçamento de leituras; e, contado nele, um punhado de restaurações recusadas numa conta grande travava o sync do dia. O COUNT
-// para em (o limite em uso) + 1, e a restauração recusa com restore-limit antes dele quando o orçamento de leituras do dia acabou.
+// para em (o limite em uso) + 1, e a restauração recusa com restore-limit antes dele quando o orçamento de leituras do dia acabou. Desde as
+// cópias grandes, a restauração não conta a conta: a comparação para quando as mudanças passam do limite, e o que ela lê fica limitado igual.
 describe('a contagem limitada do tamanho da conta', () => {
   // As linhas que o SQLite do objeto de `user` leu nas consultas aos registros (o rowsRead de cada cursor, o que o grátis conta), desde agora.
   // Fora, a da compactação do alarme (um trabalho à parte dele, com o próprio teto).
@@ -894,13 +907,17 @@ describe('a contagem limitada do tamanho da conta', () => {
     expect((await sync(user, [])).copiesPaused).toBe('size');
   });
 
-  it('a restauração recusada de uma conta grande lê no máximo o limite + 1; passado o orçamento de leituras, restore-limit sem ler nada', async () => {
+  // A restauração por diferenças (spec das cópias grandes) não conta a conta: compara e para assim que as mudanças passam do limite. A
+  // leitura vai por páginas de SLICE_PAGE, então a recusa lê no máximo o limite + 1 registros e o resto da página em que parou.
+  it('a restauração recusada de uma conta grande lê no máximo o limite + 1 e uma página; passado o orçamento de leituras, restore-limit sem ler nada', async () => {
     const user = 'restaura-grande-limitada';
     await setState(user, 'userId', user);
     await seedSolves(user, 3 * most);
+    await env.SNAPSHOTS.put(snapshotKey(user, dayOf(T0)), await gzipJson(exportFromRecords([], T0))); // vazia: cada solve de agora é uma mudança
     const read = await rowsRead(user);
     expect(await restore(user, dayOf(T0), T0 + 1000)).toEqual({ status: 413, body: { error: 'too-big' } });
-    expect(read()).toBeLessThanOrEqual(most + 1);
+    expect(read()).toBeGreaterThan(most);
+    expect(read()).toBeLessThanOrEqual(most + 1 + SLICE_PAGE + 1); // e a linha em que o SQLite confere que o LIMIT acabou
     await setState(user, 'reads', { day: utcDay(T0), n: DAILY_READ_BUDGET });
     const before = read();
     const r2 = await countR2(user);
@@ -912,8 +929,9 @@ describe('a contagem limitada do tamanho da conta', () => {
     const user = 'restaura-grande-sync';
     await setState(user, 'userId', user);
     await seedSolves(user, 3 * most);
+    await env.SNAPSHOTS.put(snapshotKey(user, dayOf(T0)), await gzipJson(exportFromRecords([], T0)));
     const taps = 5;
-    await setState(user, 'reads', { day: utcDay(T0), n: DAILY_READ_BUDGET - taps * (most + 1) - 1 });
+    await setState(user, 'reads', { day: utcDay(T0), n: DAILY_READ_BUDGET - taps * (most + 1 + SLICE_PAGE) - 1 });
     for (let i = 1; i <= taps; i++) expect((await restore(user, dayOf(T0), T0 + i * 1000)).status).toBe(413);
     const res = await sync(user, []);
     expect(res.readsDeferred).toBeUndefined();
@@ -987,5 +1005,227 @@ describe('os desafios nas cópias na nuvem', () => {
     await env.SNAPSHOTS.put(snapshotKey(user, dayOf(T0 - 2 * DAY)), await gzipJson(withName));
     expect((await restore(user, dayOf(T0 - 2 * DAY), T0 + 2000)).status).toBe(204);
     expect(await nameOf()).toEqual([expect.objectContaining({ data: 'Bia', deletedAt: null })]);
+  });
+});
+
+// A restauração no servidor por diferenças, e a resposta "pelo aparelho" (spec das cópias grandes, seções 3 e 5): o servidor compara a cópia
+// com a conta, faixa a faixa (a cópia em partes, cada parte contra a faixa de chaves dela), e grava só o que muda. As mudanças contra o dia
+// (RESTORE_MAX_RECORDS e o dia útil, depois o que sobra hoje): quando não cabem, o app novo ({ device: true }) ouve que restaura no aparelho,
+// e o de antes ({}) recebe too-big ou write-budget, como sempre (Review Focus 1).
+describe('a restauração por diferenças e a resposta pelo aparelho', () => {
+  const prefsAna: Change = { store: 'prefs', id: 'duelName', data: 'Ana', updatedAt: T0, deletedAt: null, deletionStamp: T0 };
+  const writesOf = async (user: string): Promise<number> => (JSON.parse((await stateOf(user, 'writes')) ?? 'null') as { n: number } | null)?.n ?? 0;
+  const restoresOf = async (user: string): Promise<unknown> => JSON.parse((await stateOf(user, 'restores')) ?? 'null');
+  // Uma conta com a cópia do dia em duas partes: a sessão, o solve a e COPY_PART_RECORDS solves semeados (5.002 registros).
+  async function bigWithParts(user: string, extra: Change[] = []): Promise<void> {
+    await sync(user, [session, solve('a'), ...extra]);
+    await seedSolves(user, COPY_PART_RECORDS);
+    expect(await stubOf(user).snapshot(T0)).toBe(true);
+    expect(await objectsOf(user)).toEqual([snapshotKey(user, dayOf(T0)), partKey(user, dayOf(T0), 1), partKey(user, dayOf(T0), 2)]);
+  }
+
+  it('restaurar grava só as mudanças, e as linhas reservadas são as delas', async () => {
+    const user = 'diferencas-so-mudancas';
+    await sync(user, [session, solve('a', 1000), solve('b'), solve('c')]);
+    expect(await stubOf(user).snapshot(T0)).toBe(true);
+    await sync(user, [{ ...solve('a', 2000), updatedAt: T0 + 50 }, solve('d')]); // o a editado e o d novo: as duas mudanças
+    const before = new Map((await accountOf(user)).records.map((r) => [r.id as string, r]));
+    const [writes, day] = [await writesOf(user), await dayRows(T0 + 1000)];
+    expect(await restore(user, dayOf(T0), T0 + 1000)).toEqual({ status: 204, body: null });
+    const after = new Map((await accountOf(user)).records.map((r) => [r.id as string, r]));
+    expect([...after.keys()].filter((id) => after.get(id)!.rev !== before.get(id)!.rev).sort()).toEqual(['a', 'd']);
+    expect(JSON.parse(after.get('a')!.data as string)).toMatchObject({ ms: 1000 });
+    expect([after.get('a')!.deleted_at, after.get('d')!.deleted_at === null]).toEqual([null, false]);
+    expect([await writesOf(user), await dayRows(T0 + 1000)]).toEqual([writes + rowsOf(2), day + rowsOf(2)]);
+  });
+
+  it('conta grande, um dia ruim (uma sessão com 500 solves apagada): restaura no servidor, com a cópia de antes em partes', async () => {
+    const user = 'diferencas-dia-ruim';
+    const s2: Change = { ...session, id: 's2', data: { ...(session.data as object), name: 'Sessão 2', order: 1 } };
+    const ofS2 = Array.from({ length: 500 }, (_, i): Change => ({ ...solve(`b${i}`), data: { ...(solve('b').data as object), sessionId: 's2' } }));
+    await sync(user, [session, s2, solve('a')]);
+    for (let i = 0; i < ofS2.length; i += 250) await sync(user, ofS2.slice(i, i + 250));
+    await seedSolves(user, COPY_PART_RECORDS - 400);
+    expect(await recordCount(user)).toBe(COPY_PART_RECORDS + 103); // acima do dia útil e de uma parte
+    expect(await stubOf(user).snapshot(T0)).toBe(true);
+    expect(await objectsOf(user)).toContain(partKey(user, dayOf(T0), 2));
+    // O dia ruim: a sessão 2 apagada, e a cascata leva os 500 solves dela.
+    const bad = T0 + 100;
+    expect((await sync(user, [{ ...s2, updatedAt: bad, deletedAt: bad, deletionStamp: bad }], bad)).accepted).toBe(1);
+    const writes = await writesOf(user);
+    const at = T0 + 1000;
+    expect(await restore(user, dayOf(T0), at)).toEqual({ status: 204, body: null });
+    const back = await runInDurableObject(stubOf(user), (_o, state) =>
+      state.storage.sql.exec<{ n: number }>("SELECT count(*) AS n FROM records WHERE deleted_at IS NULL AND (id = 's2' OR parent = 's2')").one().n,
+    );
+    expect(back).toBe(501); // a sessão e os 500 solves dela, e só eles foram gravados
+    expect(await writesOf(user)).toBe(writes + rowsOf(501));
+    // A cópia de antes saiu em partes (a conta tem mais de COPY_PART_RECORDS registros), com o manifesto na lista.
+    const name = preRestoreName(at);
+    expect(await objectsOf(user)).toEqual(expect.arrayContaining([snapshotKey(user, name), partKey(user, name, 1), partKey(user, name, 2)]));
+    const solves = String(1 + COPY_PART_RECORDS - 400); // o a e os semeados: os da sessão 2 estavam apagados
+    expect((await env.SNAPSHOTS.head(snapshotKey(user, name)))!.customMetadata).toEqual({ kind: 'pre-restore', day: dayOf(at), solves, parts: '2' });
+  });
+
+  it('mudanças acima do limite, com device: 200 { restore: "device", parts }, nada gravado, restores + 1', async () => {
+    const user = 'diferencas-pelo-aparelho';
+    await bigWithParts(user);
+    await setVars(user, { RESTORE_MAX_RECORDS: '10' }); // o servidor grava no máximo 10 mudanças
+    await sync(user, Array.from({ length: 11 }, (_, i) => solve(`novo${i}`))); // 11 solves que a cópia não tem: 11 para a lixeira
+    const account = await accountOf(user);
+    const objects = await objectsOf(user);
+    const [opsA, opsB, writes, day] = [await opsOf('A'), await opsOf('B'), await writesOf(user), await dayRows(T0 + 1000)];
+    const r2 = await countR2(user);
+    expect(await restoreDevice(user, dayOf(T0), T0 + 1000)).toEqual({ status: 200, body: { restore: 'device', parts: 2 } });
+    // O manifesto e a parte 1: os novos estão na faixa dela, e as mudanças passam do limite ali, então a parte 2 nem é lida. Nenhuma cópia
+    // de antes. As operações B das partes são reservadas de uma vez, com o manifesto lido.
+    expect([r2.get, r2.head, r2.put]).toEqual([2, undefined, undefined]);
+    expect([await opsOf('A'), await opsOf('B')]).toEqual([opsA, opsB + 2 + 2]);
+    expect(await objectsOf(user)).toEqual(objects);
+    const after = await accountOf(user);
+    expect(after.records).toEqual(account.records);
+    expect(after.state.filter((r) => r.key !== 'restores')).toEqual(account.state);
+    expect(await restoresOf(user)).toEqual({ day: utcDay(T0), n: 1 });
+    expect([await writesOf(user), await dayRows(T0 + 1000)]).toEqual([writes, day]); // nenhuma linha reservada
+
+    // Uma cópia de um arquivo só: parts 0.
+    const small = 'diferencas-pelo-aparelho-arquivo';
+    await sync(small, [session, solve('a')]);
+    expect(await stubOf(small).snapshot(T0)).toBe(true);
+    await setVars(small, { RESTORE_MAX_RECORDS: '1' });
+    await sync(small, [solve('b'), solve('c')]);
+    const records = (await accountOf(small)).records;
+    expect(await restoreDevice(small, dayOf(T0), T0 + 1000)).toEqual({ status: 200, body: { restore: 'device', parts: 0 } });
+    expect((await accountOf(small)).records).toEqual(records);
+    expect(await restoresOf(small)).toEqual({ day: utcDay(T0), n: 1 });
+  });
+
+  it('mudanças acima do limite, sem device: 413 too-big; sem lugar hoje: 429 write-budget', async () => {
+    const user = 'diferencas-app-de-antes';
+    await sync(user, [session, solve('a')]);
+    expect(await stubOf(user).snapshot(T0)).toBe(true);
+    await sync(user, [solve('b'), solve('c'), solve('d')]); // três mudanças: b, c e d para a lixeira
+    await setVars(user, { RESTORE_MAX_RECORDS: '2' });
+    const account = await accountOf(user);
+    // O app de antes manda {}; um corpo sem `device: true`, ou que nem se lê, é o mesmo pedido, e nunca recebe a resposta nova.
+    expect(await restore(user, dayOf(T0), T0 + 1000)).toEqual({ status: 413, body: { error: 'too-big' } });
+    expect(await restore(user, dayOf(T0), T0 + 1100, { device: 'true' })).toEqual({ status: 413, body: { error: 'too-big' } });
+    const headers = { 'Content-Type': 'application/json', Origin: ORIGIN, [ACCOUNT_HEADER]: user };
+    const torn = await call(`/api/snapshots/${dayOf(T0)}/restore`, { method: 'POST', headers, body: 'não é json' }, { deps: testDeps({ user, now: () => T0 + 1200 }) });
+    expect([torn.status, await torn.json()]).toEqual([413, { error: 'too-big' }]);
+    expect(await accountOf(user)).toEqual(account); // nada gravado, e as recusas não contam como restaurações
+
+    // As três cabem no limite de novo, mas não no que sobra hoje: o app de antes recebe write-budget; o novo, a resposta do aparelho.
+    await setVars(user, { RESTORE_MAX_RECORDS: String(caps.restoreRecords) });
+    await setState(user, 'writes', { day: utcDay(T0), n: DAILY_WRITE_BUDGET - rowsOf(3) + 1 });
+    const full = await accountOf(user);
+    expect(await restore(user, dayOf(T0), T0 + 2000)).toEqual({ status: 429, body: { error: 'write-budget' } });
+    expect(await accountOf(user)).toEqual(full);
+    expect(await restoreDevice(user, dayOf(T0), T0 + 3000)).toEqual({ status: 200, body: { restore: 'device', parts: 0 } });
+    expect((await accountOf(user)).records).toEqual(full.records);
+    expect(await objectsOf(user)).toEqual([snapshotKey(user, dayOf(T0))]); // nenhuma cópia de antes
+    // Com lugar hoje, o app de antes restaura no servidor.
+    await setState(user, 'writes', { day: utcDay(T0), n: DAILY_WRITE_BUDGET - rowsOf(3) });
+    expect((await restore(user, dayOf(T0), T0 + 4000)).status).toBe(204);
+  });
+
+  it('cópia igual à conta: 204, nada gravado, sem cópia de antes', async () => {
+    const user = 'diferencas-igual';
+    await sync(user, [session, solve('a'), solve('b', 1000), prefsAna]);
+    expect(await stubOf(user).snapshot(T0)).toBe(true);
+    const account = await accountOf(user);
+    const objects = await objectsOf(user);
+    const [opsA, writes, day] = [await opsOf('A'), await writesOf(user), await dayRows(T0 + 1000)];
+    const r2 = await countR2(user);
+    expect(await restore(user, dayOf(T0), T0 + 1000)).toEqual({ status: 204, body: null });
+    expect(await restoreDevice(user, dayOf(T0), T0 + 2000)).toEqual({ status: 204, body: null }); // o app novo, igual
+    expect([r2.get, r2.head, r2.put]).toEqual([2, undefined, undefined]);
+    expect(await objectsOf(user)).toEqual(objects);
+    expect([await opsOf('A'), await writesOf(user), await dayRows(T0 + 1000)]).toEqual([opsA, writes, day]);
+    const after = await accountOf(user);
+    expect(after.records).toEqual(account.records);
+    expect(after.state.filter((r) => r.key !== 'restores')).toEqual(account.state);
+    expect(await restoresOf(user)).toEqual({ day: utcDay(T0), n: 2 });
+  });
+
+  it('parte que sumiu: 404, nada gravado', async () => {
+    const user = 'diferencas-parte-sumiu';
+    await bigWithParts(user);
+    await sync(user, [solve('novo')]);
+    expect((await list(user)).status).toBe(200); // a lista guardada, com a cópia
+    await env.SNAPSHOTS.delete(partKey(user, dayOf(T0), 2));
+    const account = await accountOf(user);
+    const objects = await objectsOf(user);
+    expect(await restore(user, dayOf(T0), T0 + 1000)).toEqual({ status: 404, body: { error: 'not-found' } });
+    expect(await accountOf(user)).toEqual(account);
+    expect(await objectsOf(user)).toEqual(objects);
+    expect(JSON.parse((await stateOf(user, 'copies'))!)).toMatchObject({ at: 0 }); // a lista se renova
+    // Uma parte torta, também com o app novo: o mesmo.
+    await env.SNAPSHOTS.put(partKey(user, dayOf(T0), 2), await gzipJson({ sessions: 'não', solves: [] }));
+    const torn = await objectsOf(user);
+    expect(await restoreDevice(user, dayOf(T0), T0 + 2000)).toEqual({ status: 404, body: { error: 'not-found' } });
+    expect(await accountOf(user)).toEqual(account);
+    expect(await objectsOf(user)).toEqual(torn);
+  });
+
+  it('a comparação lê cada registro de agora uma vez só', async () => {
+    const user = 'diferencas-leituras';
+    await bigWithParts(user, [prefsAna]);
+    await sync(user, [solve('novo')]);
+    // Sem lugar hoje: a resposta do aparelho, depois de comparar tudo e sem a cópia de antes (que leria a conta de novo).
+    await setState(user, 'writes', { day: utcDay(T0), n: DAILY_WRITE_BUDGET });
+    const records = await recordCount(user);
+    const reads = await readsCounted(user, T0 + 1000);
+    expect(await restoreDevice(user, dayOf(T0), T0 + 1000)).toEqual({ status: 200, body: { restore: 'device', parts: 2 } });
+    expect((await readsCounted(user, T0 + 1000)) - reads).toBe(records); // as faixas e os ajustes, cada registro uma vez
+  });
+
+  it('GET parts: o índice 0 é o objeto, 1..N as partes; o dia tem COPY_PART_READS_PER_DAY leituras; cada uma reserva uma B', async () => {
+    expect(COPY_PART_READS_PER_DAY).toBe(200);
+    const user = 'diferencas-partes-get';
+    await bigWithParts(user);
+    const day = dayOf(T0);
+    const bytes = async (key: string): Promise<Uint8Array> => new Uint8Array(await (await env.SNAPSHOTS.get(key))!.arrayBuffer());
+    for (const [i, key] of [[0, snapshotKey(user, day)], [1, partKey(user, day, 1)], [2, partKey(user, day, 2)]] as const) {
+      const res = await part(user, day, i);
+      expect(res.status, String(i)).toBe(200);
+      expect([res.headers.get('Content-Type'), res.headers.get('Cache-Control')]).toEqual(['application/octet-stream', 'no-store']);
+      expect(new Uint8Array(await res.arrayBuffer()), String(i)).toEqual(await bytes(key));
+    }
+    expect(isManifest(await gunzipJson(await (await part(user, day, 0)).arrayBuffer()))).toBe(true);
+    const past = await part(user, day, 3); // além das partes: o R2 não tem
+    expect([past.status, await past.json()]).toEqual([404, { error: 'not-found' }]);
+    expect(await opsOf('B')).toBe(5); // uma por leitura, a que não achou inclusive
+    expect(JSON.parse((await stateOf(user, 'partReads'))!)).toEqual({ day: utcDay(T0), n: 5 });
+
+    // O dia acaba em COPY_PART_READS_PER_DAY: a seguinte é 429, sem o R2 nem a operação B; no dia seguinte (UTC), volta.
+    await setState(user, 'partReads', { day: utcDay(T0), n: COPY_PART_READS_PER_DAY - 1 });
+    expect((await part(user, day, 1)).status).toBe(200);
+    const r2 = await countR2(user);
+    const over = await part(user, day, 1);
+    expect([over.status, await over.json()]).toEqual([429, { error: 'restore-limit' }]);
+    expect([{ ...r2 }, await opsOf('B')]).toEqual([{}, 6]);
+    expect((await part(user, day, 1, T0 + DAY)).status).toBe(200);
+    // Sem operações B no mês: 503, e a leitura não conta no dia.
+    await seedOps('B', caps.classBMonth);
+    const counted = await stateOf(user, 'partReads');
+    const broke = await part(user, day, 2, T0 + DAY);
+    expect([broke.status, await broke.json()]).toEqual([503, { error: 'r2-budget' }]);
+    expect(await stateOf(user, 'partReads')).toBe(counted);
+    await seedOps('B', 0);
+
+    // Uma cópia de um arquivo só: o índice 0 é o arquivo.
+    const small = 'diferencas-partes-get-arquivo';
+    await sync(small, [session, solve('a')]);
+    expect(await stubOf(small).snapshot(T0)).toBe(true);
+    const file = await part(small, day, 0);
+    expect(file.status).toBe(200);
+    expect(((await gunzipJson(await file.arrayBuffer())) as KlickExport).solves.map((s) => s.id)).toEqual(['a']);
+    // Um nome torto é 400; a conta de outra sessão, 401; sem a conta, 400; um índice fora da rota, 404.
+    expect((await part(small, '..%2Foutra', 0)).status).toBe(400);
+    expect((await part(small, day, 0, T0, { [ACCOUNT_HEADER]: 'outra-conta' })).status).toBe(401);
+    expect((await part(small, day, 0, T0, {})).status).toBe(400);
+    expect((await part(small, day, 1000)).status).toBe(404);
+    expect((await part(small, day, 'x')).status).toBe(404);
   });
 });

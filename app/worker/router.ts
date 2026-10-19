@@ -267,11 +267,33 @@ export async function handle(request: Request, env: Env, ctx: ExecutionContext, 
     const mismatch = accountGuard(request.headers.get(ACCOUNT_HEADER), user);
     if (mismatch) return mismatch;
     if (!(await env.API_BURST.limit({ key: user.id })).success) return fail(429, 'limited');
-    const outcome = await account.restoreSnapshot(name, deps.now());
-    log({ evt: 'restore', user: user.id, outcome });
+    // O app de antes manda {}: só `device: true` liga a resposta pelo aparelho. Um corpo que falta ou não se lê é o pedido de antes, e
+    // nunca recebe o 200 que aquele app não entende (Review Focus 1 das cópias grandes).
+    const body = await readJson(request);
+    const device = !(body instanceof Response) && isRec(body) && body.device === true;
+    const outcome = await account.restoreSnapshot(name, deps.now(), device);
+    log({ evt: 'restore', user: user.id, ...(typeof outcome === 'object' ? { outcome: 'device', parts: outcome.parts } : { outcome }) });
     if (outcome === 'deleted') return fail(401, 'auth');
     if (outcome === 'ok') return new Response(null, { status: 204 });
+    if (typeof outcome === 'object') return json({ restore: 'device', parts: outcome.parts });
     return outcome === 'not-found' ? fail(404, 'not-found') : fail(REFUSAL_STATUS[outcome], outcome);
+  }
+
+  // A cópia que restaura no aparelho (spec das cópias grandes, seção 5), um objeto por pedido: o 0 é o da cópia (o arquivo só ou o
+  // manifesto), e 1 a N, as partes. O gzip sai como está no R2; o app o abre. A mesma rajada das outras rotas das cópias: cada pedido custa
+  // uma operação B.
+  const part = /^\/api\/snapshots\/([^/]+)\/parts\/(\d{1,3})$/.exec(path);
+  if (part && request.method === 'GET') {
+    const name = copyName(part[1]);
+    if (name === null) return fail(400, 'bad-name');
+    const mismatch = accountGuard(request.headers.get(ACCOUNT_HEADER), user);
+    if (mismatch) return mismatch;
+    if (!(await env.API_BURST.limit({ key: user.id })).success) return fail(429, 'limited');
+    const got = await account.copyPart(name, Number(part[2]), deps.now());
+    if (got === 'deleted') return fail(401, 'auth');
+    if (got === 'not-found') return fail(404, 'not-found');
+    if (got === 'restore-limit' || got === 'r2-budget') return fail(REFUSAL_STATUS[got], got);
+    return new Response(got, { status: 200, headers: { 'Content-Type': 'application/octet-stream', 'Cache-Control': 'no-store' } });
   }
 
   // Apagar a conta (spec 7.7): o e-mail digitado confirma; somem na hora o objeto da conta, as cópias no R2 e as linhas no D1, com os
