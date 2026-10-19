@@ -41,6 +41,15 @@ describe('Centro', () => {
     expect(eyesFor({ state: 'reaction', result: 'good' })).toBe('open');
   });
 
+  // O desafio (a maquete do desafio, "O Centro no desafio"): ninguém pontua, os dois adesivos do meio em ocioso, como um "="; esperando o
+  // ponto (B confere a penalidade), o anel apagado. Os dois com os olhos abertos.
+  it('anel e olhos do desafio: ninguém pontua e esperando o ponto', () => {
+    expect(ringFor({ state: 'reaction', result: 'tie' })).toEqual([N, N, N, 'idle', N, N, N, 'idle']);
+    expect(ringFor({ state: 'reaction', result: 'wait' })).toEqual(Array(8).fill(N));
+    expect(eyesFor({ state: 'reaction', result: 'tie' })).toBe('open');
+    expect(eyesFor({ state: 'reaction', result: 'wait' })).toBe('open');
+  });
+
   it('olhos por estado', () => {
     expect(eyesFor({ state: 'idle' })).toBe('open');
     expect(eyesFor({ state: 'arming' })).toBe('half');

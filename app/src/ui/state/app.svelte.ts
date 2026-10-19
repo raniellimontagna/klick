@@ -51,7 +51,8 @@ export type Tab = 'timer' | 'evolucao' | 'trilha' | 'companion' | 'ajustes';
 // Onde a aba Trilha está (spec do sub-projeto 4, seção 8.2): o começo, a aula de uma etapa, um conjunto do treino ou a rodada dele.
 // Fica no AppState: a tela da Trilha só existe com a aba aberta, e a pessoa volta ao mesmo lugar.
 export type TrailView = { kind: 'home' } | { kind: 'lesson'; step: TrailStep } | { kind: 'set'; set: CaseSet } | { kind: 'round'; set: CaseSet };
-export type DialogId = 'sessions' | 'shortcuts' | 'onboarding' | 'export' | 'import' | 'backups' | 'trash' | 'install' | 'signin' | 'signout' | 'cloud' | 'deleteAccount';
+// 'duel': a folha da pílula do modo desafio (continuar, sair ou descartar).
+export type DialogId = 'sessions' | 'shortcuts' | 'onboarding' | 'export' | 'import' | 'backups' | 'trash' | 'install' | 'signin' | 'signout' | 'cloud' | 'deleteAccount' | 'duel';
 export interface Toast {
   text: string;
   action?: string;
@@ -1486,6 +1487,7 @@ export class AppState {
     this.unsubscribe?.();
     this.unsubscribe = this.repo.onChange((kind, origin, solveIds) => {
       this.account?.changed(kind, origin); // uma gravação daqui pede o sync; 'sync' relê o estado da conta
+      this.duel.changed(kind); // o desafio aberto confere o registro dele: a resposta que chegou, um wipe, uma restauração
       if (origin === 'local' || kind === 'sync') return;
       if (kind === 'solves' && solveIds) void this.refreshSolveIds(solveIds);
       else void this.refreshKinds(readsOf(kind));

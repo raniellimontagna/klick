@@ -3,14 +3,14 @@ import { createTimer } from '../../src/core/timer';
 import { createTouchArm } from '../../src/core/touch';
 import { createInputController } from '../../src/ui/timer/input';
 
-function setup(o: { coarse?: boolean; mode?: 'two' | 'one'; inspection?: boolean } = {}) {
+function setup(o: { coarse?: boolean; mode?: 'two' | 'one'; inspection?: boolean; canArm?: () => boolean } = {}) {
   let t = 0;
   const timer = createTimer({ now: () => t, holdMs: 300, inspection: o.inspection ?? false });
   const touch = createTouchArm({ press: () => timer.press(), release: () => timer.release(), cancel: () => timer.cancel(), getState: () => timer.state, getInspection: () => o.inspection ?? false, mode: o.mode ?? 'two' });
   const actions: string[] = [];
   let dialog = false;
   const ctl = createInputController(
-    { timer, touch, tabIsTimer: () => true, dialogOpen: () => dialog, onAction: (a) => actions.push(a), onWake: () => {} },
+    { timer, touch, tabIsTimer: () => true, dialogOpen: () => dialog, onAction: (a) => actions.push(a), onWake: () => {}, canArm: o.canArm },
     { coarse: () => o.coarse ?? false, armMode: () => o.mode ?? 'two' },
   );
   document.body.innerHTML = '<section data-screen="timer"><span data-time>0</span><div data-zones><div data-zone="left"></div><div data-zone="right"></div></div><button data-act="plus2">+2</button><input data-note /></section>';
@@ -52,6 +52,31 @@ describe('teclado', () => {
     s.key('keydown', 'KeyN', 'n');
     expect(s.timer.state).toBe('idle');
     expect(s.actions).toEqual([]);
+  });
+
+  // O desafio: B confere a penalidade e vê o ponto antes do próximo embaralhamento. O espaço não arma (e fica para o botão com o foco),
+  // mas P e D continuam valendo; qualquer tecla ainda para um timer que corre.
+  it('sem poder armar, o espaço não arma nem é segurado; os atalhos seguem', () => {
+    let can = false;
+    const s = setup({ canArm: () => can });
+    s.key('keydown', 'Space', ' ');
+    s.setT(400);
+    s.timer.tick();
+    s.key('keyup', 'Space', ' ');
+    expect(s.timer.state).toBe('idle');
+    s.key('keydown', 'KeyP', 'p');
+    s.key('keydown', 'KeyD', 'd');
+    expect(s.actions).toEqual(['plus2', 'dnf']);
+    can = true;
+    s.key('keydown', 'Space', ' ');
+    s.setT(800);
+    s.timer.tick();
+    s.key('keyup', 'Space', ' ');
+    expect(s.timer.state).toBe('running');
+    can = false;
+    s.setT(5000);
+    s.key('keydown', 'KeyA', 'a');
+    expect(s.timer.state).toBe('done');
   });
 
   it('auto-repeat de atalho é ignorado', () => {

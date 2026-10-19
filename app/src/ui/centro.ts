@@ -15,6 +15,9 @@ export type RingKey = 'U' | 'R' | 'F' | 'D' | 'L' | 'B' | 'idle' | 'sleep' | 're
 export type Ring = (RingKey | null)[];
 export type { Eyes } from './centro/face';
 export type CentroState = 'idle' | 'sleep' | 'inspect' | 'arming' | 'ready' | 'running' | 'reaction';
+// A reação ao solve, e as duas do desafio (a maquete do desafio, "O Centro no desafio"): 'tie' (ninguém pontua: os dois adesivos do meio
+// em ocioso, como um "=") e 'wait' (B confere a penalidade antes de ver o ponto: o anel apagado). As duas com os olhos abertos.
+export type CentroResult = ResultKind | 'tie' | 'wait';
 
 // O que a tela sabe agora; cada estado lê só o campo que lhe interessa.
 export interface CentroView {
@@ -22,7 +25,7 @@ export interface CentroView {
   orbit?: number | null; // parado: contador da órbita, o adesivo aceso é orbit % 8
   inspectElapsed?: number; // inspeção: ms desde o começo
   armProgress?: number; // armando: 0 a 1
-  result?: ResultKind; // reação: como foi o solve
+  result?: CentroResult; // reação: como foi o solve (ou o ponto do desafio)
 }
 
 export interface Palette {
@@ -82,7 +85,9 @@ function inspectRing(e: number): Ring {
   return first(lit, e < 8000 ? 'U' : e < 12000 ? 'amber' : 'orange');
 }
 
-function resultRing(kind: ResultKind | undefined): Ring {
+function resultRing(kind: CentroResult | undefined): Ring {
+  if (kind === 'wait') return empty();
+  if (kind === 'tie') return empty().map((_, k) => (k === 3 || k === 7 ? 'idle' : null));
   if (kind === 'dnf') return corners('red');
   if (kind === 'plus2') return first(2, 'amber');
   if (kind === 'pb') return [...PB_RING];

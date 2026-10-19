@@ -815,6 +815,59 @@ describe('o estado do desafio (spec do desafio, seções 3 a 6)', () => {
     expect(await B.repo.getDuel(B.id)).toEqual(gone);
   });
 
+  // A Task 6 (o que veio da Task 5): o estado ouve o aviso de mudança do repositório. A resposta que chega por fora (o sync, outra aba)
+  // atualiza o desafio aberto; o registro que some (um wipe, um descarte noutra aba) ou que uma restauração troca fecha o desafio.
+  it('a resposta que chega pelo sync atualiza o desafio aberto; apagar os dados, descartar noutra aba ou restaurar uma cópia o fecha', async () => {
+    const A = await device();
+    const url = await challenge(A.app, { name: 'Ranielli' });
+    expect(A.app.duel.phase).toBe('finished'); // esperando a resposta, na tela de mandar
+    const B = await accepted(url);
+    await play(B.app, B_TIMES);
+    const reply = await B.app.duel.replyUrl(ORIGIN, 'Bia');
+    // A resposta chega por fora: o outro aparelho de A (aqui, com o mesmo banco) a grava.
+    const other = await device({ repo: A.repo });
+    expect(await other.app.duel.openLink(payloadOf(reply))).toBe('reply');
+    await vi.waitFor(() => expect(A.app.duel.phase).toBe('reply'));
+    expect(A.app.duel.current).toMatchObject({ status: 'done', theirs: B_TIMES, theirName: 'Bia' });
+    expect(A.app.duel.score).toMatchObject({ over: true, winner: 'b' });
+
+    // Os dados do aparelho apagados com o desafio aberto: ele fecha na hora, sem esperar um solve.
+    const W = await device();
+    await W.app.duel.start('333');
+    await W.app.duel.record(tm(10_000));
+    await W.repo.wipeData();
+    await vi.waitFor(() => expect(W.app.duel.phase).toBe('idle'));
+    expect(W.app.duel.current).toBeNull();
+
+    // Outra aba descartou: esta sai do desafio na hora.
+    const one = await device();
+    await one.app.duel.start('333');
+    await one.app.duel.record(tm(10_000));
+    const two = await device({ repo: one.repo });
+    await two.app.duel.resume(one.app.duel.current!.id);
+    expect(await two.app.duel.discard()).toBe(true);
+    await vi.waitFor(() => expect(one.app.duel.phase).toBe('idle'));
+
+    // Uma restauração que troca o registro aberto também fecha.
+    const R = await device();
+    await R.app.duel.start('333');
+    await R.app.duel.record(tm(10_000));
+    const backup = await createBackup(R.repo, 'manual', t);
+    await R.app.duel.record(tm(11_000));
+    expect(await R.app.restoreFromBackup(backup.id)).toBe(true);
+    await vi.waitFor(() => expect(R.app.duel.phase).toBe('idle'));
+    expect((await R.repo.listDuels())[0]!.mine).toEqual([tm(10_000)]); // o desafio fica como a cópia trouxe, para continuar depois
+
+    // As gravações da própria tela (e uma mudança de B noutra aba, que a próxima gravação confere) não mexem nela.
+    const S = await device();
+    await S.app.duel.start('333');
+    await S.app.duel.record(tm(10_000));
+    await S.app.duel.setPenalty('+2');
+    await sleep(20);
+    expect(S.app.duel.phase).toBe('solving');
+    expect(S.app.duel.index).toBe(1);
+  });
+
   it('o current de B é o mesmo objeto enquanto o desafio não muda', async () => {
     const A = await device();
     const B = await accepted(await challenge(A.app));

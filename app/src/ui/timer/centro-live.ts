@@ -1,9 +1,8 @@
 // A ligação do Centro com o timer, fora da tela do Timer (spec do sub-projeto 3, seção 6.1): o estado do Centro a cada quadro, o parado
 // enquanto o solve grava, a reação depois dele (com o salto do recorde, a piscada da face de cima na virada e a penalidade que muda o
 // resultado no meio) e o sono depois de 5 min parado. Quem desenha é o animador; a tela repassa os eventos e chama paint() no laço dela.
-import type { ResultKind } from '../../core/stats';
 import type { TimerState } from '../../core/timer';
-import type { CentroView } from '../centro';
+import type { CentroResult, CentroView } from '../centro';
 import type { CentroAnimator } from '../centro/animator';
 
 // Números do protótipo: a reação começa meio segundo depois da gravação e dura 2,5 s.
@@ -22,18 +21,22 @@ export interface CentroLive {
   view(now: number): CentroView; // o estado do Centro neste instante (performance.now)
   paint(now: number): CentroView; // o mesmo, já entregue ao animador (com o salto e a piscada no começo da reação)
   hold(): void; // o solve parou e está gravando: o Centro fica parado (como no solve) até react() ou clearReaction()
-  react(result: ResultKind | null, t0: number, seasonEnd?: boolean): void; // a reação ao solve, de t0 + 0,5 s a t0 + 3 s
-  setResult(result: ResultKind | null): void; // uma penalidade no meio da reação: o anel e os olhos seguem, sem novo salto
-  seasonEnd(result: ResultKind | null, t0: number): void; // uma penalidade fechou a temporada: reage de novo já em t0, com a piscada e sem salto
-  clearReaction(): void; // tira a reação e o parado da gravação
+  react(result: CentroResult | null, t0: number, seasonEnd?: boolean): void; // a reação ao solve, de t0 + 0,5 s a t0 + 3 s
+  setResult(result: CentroResult | null): void; // uma penalidade no meio da reação: o anel e os olhos seguem, sem novo salto
+  seasonEnd(result: CentroResult | null, t0: number): void; // uma penalidade fechou a temporada: reage de novo já em t0, com a piscada e sem salto
+  // O desafio: B parou e confere a penalidade antes de ver o ponto. O Centro espera parado (o anel apagado, sem pedir quadro) até a reação
+  // ao ponto; false só tira a espera. A reação, o parado da gravação e clearReaction também a tiram.
+  wait(on: boolean): void;
+  clearReaction(): void; // tira a reação, a espera do desafio e o parado da gravação
   reacting(now: number): boolean; // a reação ainda está na tela (o laço precisa de quadro)
   wake(wallNow: number): void; // uma entrada da pessoa (Date.now): acorda e conta a inatividade de novo
   sleepIfIdle(wallNow: number): boolean; // dorme se ficou 5 min parado com o timer desligado; true se dormiu agora
 }
 
 export function createCentroLive(timer: TimerLike, animator: CentroAnimator, wallNow: number): CentroLive {
-  let reaction: { from: number; until: number; result: ResultKind | null; jump: boolean; seasonEnd: boolean; triggered: boolean } | null = null;
+  let reaction: { from: number; until: number; result: CentroResult | null; jump: boolean; seasonEnd: boolean; triggered: boolean } | null = null;
   let held = false; // gravando o solve: parado até a reação
+  let waiting = false; // o desafio: B confere a penalidade antes do ponto
   let sleeping = false;
   let lastInput = wallNow;
 
@@ -45,6 +48,7 @@ export function createCentroLive(timer: TimerLike, animator: CentroAnimator, wal
     if (held) return { state: 'running' }; // o solve ainda grava: o Centro segue como no solve
     if (reaction && now < reaction.from) return { state: 'running' }; // ainda imóvel: a reação vem depois
     if (reaction && now < reaction.until) return { state: 'reaction', result: reaction.result ?? undefined };
+    if (waiting) return { state: 'reaction', result: 'wait' };
     return { state: 'idle' };
   }
 
@@ -65,10 +69,12 @@ export function createCentroLive(timer: TimerLike, animator: CentroAnimator, wal
     },
     hold() {
       held = true;
+      waiting = false;
       reaction = null;
     },
     react(result, t0, seasonEnd = false) {
       held = false;
+      waiting = false;
       reaction = { from: t0 + REACTION_DELAY, until: t0 + REACTION_DELAY + REACTION_MS, result, jump: true, seasonEnd, triggered: false };
     },
     setResult(result) {
@@ -76,10 +82,18 @@ export function createCentroLive(timer: TimerLike, animator: CentroAnimator, wal
     },
     seasonEnd(result, t0) {
       held = false;
+      waiting = false;
       reaction = { from: t0, until: t0 + REACTION_MS, result, jump: false, seasonEnd: true, triggered: false }; // sem gravação a esperar
+    },
+    wait(on) {
+      waiting = on;
+      if (!on) return;
+      held = false;
+      reaction = null;
     },
     clearReaction() {
       held = false;
+      waiting = false;
       reaction = null;
     },
     reacting(now) {

@@ -17,6 +17,9 @@ export interface InputTarget {
   dialogOpen(): boolean;
   onAction(name: ActionName): void;
   onWake(): void;
+  // O espaço pode armar agora? Sem a função, sempre (o Timer de sempre). No desafio, B confere a penalidade e vê o ponto antes do próximo
+  // embaralhamento: o espaço não arma nem é segurado (fica para o botão com o foco), e os atalhos de letra seguem.
+  canArm?(): boolean;
 }
 
 export interface InputController {
@@ -95,7 +98,7 @@ export function createInputController(
     }
     if (typing(e)) return;
     if (e.code === 'Space') {
-      if (!t.tabIsTimer()) return;
+      if (!t.tabIsTimer() || t.canArm?.() === false) return;
       e.preventDefault();
       if (e.repeat) return;
       spaceHeld = true;

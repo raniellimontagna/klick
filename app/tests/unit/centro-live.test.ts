@@ -95,6 +95,29 @@ describe('o Centro no Timer', () => {
     expect(live.view(0).state).toBe('arming');
   });
 
+  // O desafio: B parou e confere a penalidade antes de ver o ponto. O Centro espera parado (sem pedir quadro), até a reação ao ponto.
+  it('esperando o ponto: o anel apagado e os olhos abertos, sem laço, até a reação ou até largar', () => {
+    const { animator } = fakeAnimator();
+    const timer = timerIn('done');
+    const live = createCentroLive(timer, animator, 0);
+    live.hold();
+    live.wait(true);
+    expect(live.view(100000)).toEqual({ state: 'reaction', result: 'wait' });
+    expect(live.reacting(100000)).toBe(false);
+    live.react('good', 1000);
+    expect(live.view(1000 + REACTION_DELAY)).toEqual({ state: 'reaction', result: 'good' });
+    expect(live.view(1000 + REACTION_DELAY + REACTION_MS).state).toBe('idle');
+    live.wait(true);
+    live.wait(false);
+    expect(live.view(0).state).toBe('idle');
+    live.wait(true);
+    live.clearReaction();
+    expect(live.view(0).state).toBe('idle');
+    live.wait(true);
+    timer.state = 'arming';
+    expect(live.view(0).state).toBe('arming');
+  });
+
   it('o timer manda: inspeção, armando, pronto e resolvendo passam por cima da reação', () => {
     const timer = timerIn('arming', { armProgress: 0.5 });
     const live = createCentroLive(timer, fakeAnimator().animator, 0);

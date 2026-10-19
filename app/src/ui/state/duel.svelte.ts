@@ -11,7 +11,7 @@
 import { decodeDuelLink, duelUrl, encodeDuelLink, isDuelScramble, newLinkId } from '../../core/duel/link';
 import { DUEL_SCRAMBLES, type DuelScore, scoreDuel } from '../../core/duel/score';
 import type { Duel, DuelLink, DuelSide, DuelTime, EventId, Penalty } from '../../core/types';
-import { DuelConflictError, type Repository } from '../../data/repository';
+import { type ChangeKind, DuelConflictError, type Repository } from '../../data/repository';
 import { generateScramble } from '../../scramble/cubing-loader';
 import { T } from '../../strings';
 
@@ -449,6 +449,30 @@ export class DuelState {
       const saved = await this.save(draft, null, epoch);
       if (epoch !== this.epoch || typeof saved === 'string') return; // sem gravar, o convite fica: Aceitar tenta de novo
       this.enter(saved);
+    });
+  }
+
+  // Um aviso de mudança do repositório (o AppState repassa todos): 'duels' (o sync, outra aba, a lixeira) ou 'all' (os dados apagados, uma
+  // restauração, uma importação, um aviso perdido). O desafio aberto é relido, na fila: o que esta tela gravou já está na memória quando a
+  // conferência roda, e só o que mudou por fora conta. A resposta que chegou ao desafio de A que esperava por ela abre a partida; o registro
+  // que sumiu ou foi para a lixeira fecha o desafio, e um 'all' que trocou o registro também (a restauração). Qualquer outra mudança fica para
+  // a próxima gravação, que confere (expectUpdatedAt) e volta ao gravado.
+  changed(kind: ChangeKind): void {
+    if ((kind !== 'duels' && kind !== 'all') || !this.#duel || this.readOnly) return;
+    const epoch = this.epoch;
+    void this.serial(async () => {
+      const d = this.#duel;
+      if (epoch !== this.epoch || !d || this.readOnly) return;
+      let stored: Duel | null;
+      try {
+        stored = await this.host.repo().getDuel(d.id);
+      } catch {
+        return; // sem ler, a tela fica como está: a próxima gravação confere
+      }
+      if (epoch !== this.epoch || this.#duel !== d || (stored !== null && stored.updatedAt === d.updatedAt)) return;
+      const found = alive(stored);
+      if (!found || kind === 'all') this.exit();
+      else if (d.side === 'a' && d.status !== 'done' && found.status === 'done') this.enter(found);
     });
   }
 
