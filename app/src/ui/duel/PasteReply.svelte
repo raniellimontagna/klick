@@ -27,7 +27,7 @@
     void readLink().then((read) => {
       if (destroyed) return;
       if (read !== null) {
-        open(read);
+        void open(read);
         return;
       }
       typing = true;
@@ -35,8 +35,8 @@
     });
   }
 
-  function open(value: string): void {
-    const payload = duelPayloadIn(value);
+  async function open(value: string): Promise<void> {
+    const payload = await duelPayloadIn(value);
     if (payload === null) {
       app.showToast(T.duel.pasteNotDuel);
       return;
@@ -47,7 +47,7 @@
 
   function submit(e: SubmitEvent): void {
     e.preventDefault();
-    open(text);
+    void open(text);
   }
 </script>
 

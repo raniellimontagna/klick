@@ -263,13 +263,29 @@ describe('o link do desafio (spec 4)', () => {
     expect(duelUrl('https://klick.ranimontagna.com', 'abc')).toBe('https://klick.ranimontagna.com/#desafio=abc');
   });
 
-  // "Colar a resposta" (a revisão final): o link copiado sozinho, ou a mensagem inteira da conversa, com o texto antes dele.
-  it('duelPayloadIn acha o link de desafio no que foi colado', () => {
-    expect(duelPayloadIn('https://klick.ranimontagna.com/#desafio=abc')).toBe('abc');
-    expect(duelPayloadIn('  https://klick.ranimontagna.com/#desafio=abc\n')).toBe('abc');
-    expect(duelPayloadIn('Bia respondeu ao seu desafio no Klick: 3×3. https://klick.ranimontagna.com/#desafio=abc')).toBe('abc');
-    for (const text of ['', 'abc', '#desafio=abc', 'desafio=abc', 'https://klick.ranimontagna.com/#outra=abc', 'https://klick.ranimontagna.com/']) {
-      expect(duelPayloadIn(text), text).toBeNull();
+  // "Colar a resposta" (a revisão final): o link copiado sozinho, ou a mensagem inteira da conversa, com texto antes e depois dele, a
+  // pontuação da frase colada no fim, e às vezes o desafio e a resposta juntos (a conversa copiada inteira): vale a resposta.
+  it('duelPayloadIn acha o link de desafio no que foi colado', async () => {
+    const SITE = 'https://klick.ranimontagna.com/#desafio=';
+    expect(await duelPayloadIn(`${SITE}abc`)).toBe('abc');
+    expect(await duelPayloadIn(`  ${SITE}abc\n`)).toBe('abc');
+    expect(await duelPayloadIn(`Bia respondeu ao seu desafio no Klick: 3×3. ${SITE}abc`)).toBe('abc');
+    // O link seguido de palavras, e a mensagem que começa com "Palavra:" (que, inteira, também é uma URL).
+    expect(await duelPayloadIn(`${SITE}abc obrigado`)).toBe('abc');
+    expect(await duelPayloadIn(`Resposta: ${SITE}abc`)).toBe('abc');
+    expect(await duelPayloadIn(`Resposta: ${SITE}abc valeu!`)).toBe('abc');
+    // A pontuação colada no fim do link sai.
+    for (const end of ['.', ',', ';', ')', '!', '?', '),', '.)']) expect(await duelPayloadIn(`(veja ${SITE}abc_-9${end}`), end).toBe('abc_-9');
+    // O desafio e a resposta juntos, em qualquer ordem: a resposta (com b).
+    const challenge = await encodeDuelLink(link());
+    const reply = await encodeDuelLink(link({ b: { name: 'Bia', times: times(3) } }));
+    expect(await duelPayloadIn(`Ana te desafiou: ${SITE}${challenge}\nBia respondeu: ${SITE}${reply}`)).toBe(reply);
+    expect(await duelPayloadIn(`${SITE}${reply} e o desafio: ${SITE}${challenge}`)).toBe(reply);
+    // Só o desafio: ele. Um link de desafio que não decodifica ainda é o link (abre o aviso de que não abre).
+    expect(await duelPayloadIn(`${SITE}${challenge} e ${SITE}abc`)).toBe(challenge);
+    // Lixo: nada.
+    for (const text of ['', 'abc', 'obrigado!', '#desafio=abc', 'desafio=abc', `${SITE}`, `${SITE}%%%`, `${SITE}a%20b`, 'https://klick.ranimontagna.com/#outra=abc']) {
+      expect(await duelPayloadIn(text), text).toBeNull();
     }
   });
 

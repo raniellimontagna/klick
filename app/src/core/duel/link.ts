@@ -165,20 +165,36 @@ export function duelPayloadOf(hash: string): string | null {
   return fragment.slice(PARAM.length) || null;
 }
 
-// O payload do link de desafio que a pessoa colou: o texto todo como URL, ou a primeira palavra dele que seja uma URL com `#desafio=` (a
-// mensagem inteira copiada da conversa traz o texto da resposta antes do link). null se não houver nenhum.
-export function duelPayloadIn(text: string): string | null {
-  for (const part of [text.trim(), ...text.split(/\s+/)]) {
+// Os payloads de link de desafio no que a pessoa colou, sem repetir, na ordem: cada palavra que é uma URL com `#desafio=` e, por último, o
+// texto todo (uma mensagem que começa com "Palavra:" também é uma URL inteira, com o resto da frase no fragmento). A pontuação da frase
+// colada no fim do link (o ponto, a vírgula, o parêntese) sai, e só vale um payload no alfabeto do base64url.
+function duelPayloadsIn(text: string): string[] {
+  const found: string[] = [];
+  for (const part of [...text.split(/\s+/), text.trim()]) {
     let hash: string;
     try {
       hash = new URL(part).hash;
     } catch {
       continue;
     }
-    const payload = duelPayloadOf(hash);
-    if (payload !== null) return payload;
+    const payload = duelPayloadOf(hash)?.replace(/[.,;:!?)\]}>'"]+$/, '');
+    if (payload && /^[A-Za-z0-9_-]+$/.test(payload) && !found.includes(payload)) found.push(payload);
   }
-  return null;
+  return found;
+}
+
+// O link que "Colar a resposta" abre (a mensagem inteira copiada da conversa traz o texto em volta, e às vezes o desafio e a resposta
+// juntos): entre os que abrem, o que traz a resposta (b); senão o primeiro que abre; senão o primeiro achado, que mostra o aviso de que o
+// link não abre. null se não houver nenhum.
+export async function duelPayloadIn(text: string): Promise<string | null> {
+  const found = duelPayloadsIn(text);
+  let first: string | null = null;
+  for (const payload of found) {
+    const link = await decodeDuelLink(payload);
+    if (link?.b) return payload;
+    if (link && first === null) first = payload;
+  }
+  return first ?? found[0] ?? null;
 }
 
 // 16 caracteres [a-z0-9]. Sem `rand`, vem do crypto, descartando os bytes que enviesariam o resto da divisão por 36.
