@@ -458,8 +458,11 @@ describe('restaurar dentro do grátis (decisões 1, 2 e 3)', () => {
     const small = 'restaura-orcamento';
     await sync(small, [session, solve('a')]);
     await stubOf(small).snapshot(T0);
-    await sync(small, [solve('extra')]);
-    const n = await restoreCount(small, dayOf(T0)); // a sessão e o solve a de novo, o extra para a lixeira e os ajustes da conta
+    // A restauração só grava o que muda: a sessão e o solve a, editados depois da cópia, voltam; o extra vai para a lixeira. Três mudanças,
+    // as mesmas que o mínimo (os registros ativos de agora) já conta, para o teste ficar no limite exato das linhas do dia.
+    await sync(small, [solve('extra'), { ...solve('a', 2000), updatedAt: T0 + 50 }, { ...session, data: { ...session.data as object, name: 'Renomeada' }, updatedAt: T0 + 50 }]);
+    const n = await restoreCount(small, dayOf(T0)); // a sessão e o solve a de novo e o extra para a lixeira
+    expect(n).toBe(3);
     await setState(small, 'writes', { day: utcDay(T0), n: DAILY_WRITE_BUDGET - rowsOf(n) + 1 });
     const before = await accountOf(small);
     expect(await restore(small, dayOf(T0), T0 + 1000)).toEqual({ status: 429, body: { error: 'write-budget' } });
@@ -494,8 +497,14 @@ describe('os tamanhos que cabem: a cópia e a restauração (Task 12)', () => {
 
   it('acima de RESTORE_MAX_RECORDS, 413 too-big', async () => {
     const user = 'restaura-tamanho';
-    await sync(user, [session, solve('a')]);
+    await sync(user, [session, solve('a'), solve('gone')]);
     await stubOf(user).snapshot(T0);
+    // A restauração só conta o que muda. Depois da cópia, a sessão e o solve a são editados (voltam: 2 mudanças) e o `gone` some da conta,
+    // direto no SQLite (volta: 1 mudança): com os `x` semeados (uma mudança cada, para a lixeira), as mudanças passam do número de registros em 1.
+    await sync(user, [{ ...solve('a', 2000), updatedAt: T0 + 50 }, { ...session, data: { ...session.data as object, name: 'Renomeada' }, updatedAt: T0 + 50 }]);
+    await runInDurableObject(stubOf(user), (_o, state) => {
+      state.storage.sql.exec("DELETE FROM records WHERE store = 'solves' AND id = 'gone'");
+    });
     await seedSolves(user, caps.restoreRecords - 1);
     expect(await recordCount(user)).toBe(caps.restoreRecords + 1);
     const account = await accountOf(user);
