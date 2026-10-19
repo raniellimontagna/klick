@@ -752,11 +752,11 @@ describe('os desafios no sync', () => {
     const back: Duel = { ...newDuel('abcdefgh87654321'), createdAt: t - 5_000, updatedAt: t - 5_000, deletedAt: null };
     const big = { ...newDuel('abcdefgh00000001'), createdAt: t - 5_000, updatedAt: t - 5_000, deletedAt: null, extra: 'x'.repeat(MAX_DATA_CHARS) };
     await repo.replaceAll({ ...file, duels: [back, big] });
-    expect((await keys(db)).filter((k) => !k.startsWith('prefs/'))).toEqual([`duels/${here.id}`, `duels/${back.id}`, `sessions/${s.id}`].sort());
+    expect((await keys(db)).filter((k) => !k.startsWith('prefs/'))).toEqual([`duels/${here.id}`, `duels/${back.id}`].sort()); // a sessão é igual à da cópia: não é regravada nem sobe
     expect(await repo.getDuel(here.id)).toMatchObject({ deletedAt: t, updatedAt: t }); // não está na cópia: vai para a lixeira
     expect(await repo.getDuel(back.id)).toMatchObject({ deletedAt: null, updatedAt: t });
     expect(await repo.getDuel(big.id)).toMatchObject({ deletedAt: null, updatedAt: t });
-    expect((await db.get('sessions', s.id))?.updatedAt).toBe(t); // a mesma data da restauração para tudo
+    expect((await db.get('sessions', s.id))?.updatedAt).toBeLessThan(t); // igual à da cópia: fica com a data que tinha
 
     // Importar: o desafio novo entra na fila; o grande demais para o sync fica de fora, contado em refused.
     const other = await fresh();

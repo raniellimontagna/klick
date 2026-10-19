@@ -240,7 +240,9 @@ describe('os desafios no repositório (spec do desafio, seção 7)', () => {
     const back = await target.listDuels({ includeDeleted: true });
     expect(back.map((d) => d.id)).toEqual([extra.id, gone.id, kept.id]);
     expect(back.map(strip)).toEqual([{ ...strip(extra), deletedAt: t }, strip(goneNow), strip(kept)]);
-    expect(back.every((d) => d.updatedAt === t)).toBe(true);
+    // Só o que muda ganha a data da restauração: o que sobrava (extra) e o que a cópia tem diferente (kept, editado depois); a lixeira
+    // igual à da cópia (gone) fica com a data que tinha.
+    expect(back.map((d) => [d.id, d.updatedAt === t])).toEqual([[extra.id, true], [gone.id, false], [kept.id, true]]);
     const { duels: _d, ...older } = file;
     const beforeOld = await target.listDuels({ includeDeleted: true });
     await target.replaceAll(older);

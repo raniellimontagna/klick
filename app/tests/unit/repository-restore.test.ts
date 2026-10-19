@@ -26,6 +26,13 @@ async function fresh(account: string | null = null): Promise<{ db: IDBPDatabase<
   return { db, repo };
 }
 
+// Uma conta que já tem todas as chaves gravadas (como uma depois de restaurar, ou de uma migração completa): só assim "igual à cópia"
+// vale também para as chaves da conta. Uma chave que não tem item não é igual: restaurar a grava, com a data nova, como sempre.
+async function withAllKeys(repo: Repository): Promise<void> {
+  await repo.replaceAll(await repo.exportAll());
+  t += 1000;
+}
+
 describe('a sessão padrão de um aparelho novo (spec 5.5)', () => {
   it('dois aparelhos novos criam a mesma "Sessão 1", com id fixo por evento', async () => {
     const ids: string[] = [];
@@ -84,28 +91,73 @@ describe('restaurar uma cópia é gravação (spec 5.5)', () => {
     expect((await repo.listSessions()).map((x) => x.id)).toEqual([s.id]);
   });
 
-  it('com conta, cada registro da cópia ganha data nova e tudo entra na fila, inclusive as chaves da conta', async () => {
+  it('com conta, só o que mudou ganha data nova e entra na fila: o que sobrou vira exclusão, as chaves da conta que diferem voltam, o resto fica', async () => {
     const { db, repo } = await fresh('conta-1');
     const s = await repo.createSession({ event: '333' });
     const kept = await repo.addSolve(ns(s.id, 1000));
     await repo.saveProfile({ trail: [true, false, false, false, false, false, false, false, false] });
+    await withAllKeys(repo);
     const backup = await createBackup(repo, 'manual', t);
+    const keptBefore = (await db.get('solves', kept.id))!;
     t += 1000;
     const extra = await repo.addSolve(ns(s.id, 2000));
     await repo.saveProfile({ trail: [true, true, false, false, false, false, false, false, false], lessonAt: { 3: 2 } });
     await db.clear('outbox');
     t += 60_000;
     await restoreBackup(repo, backup.id, t);
+    // O solve e a sessão que a cópia tem e a conta já tem iguais não são regravados nem entram na fila.
+    expect(await db.get('solves', kept.id)).toEqual(keptBefore);
+    const extraAfter = (await db.get('solves', extra.id))!;
+    expect(extraAfter.updatedAt).toBeGreaterThanOrEqual(t);
+    expect(extraAfter.deletedAt).toBe(extraAfter.updatedAt);
+    expect(extraAfter.deletionStamp).toBe(extraAfter.updatedAt);
+    const queued = (await db.getAllKeys('outbox')) as string[];
+    expect(queued.sort()).toEqual([`solves/${extra.id}`, 'prefs/lessonAt.3', 'prefs/trail.1'].sort());
+    expect(await db.get('prefs', 'trail.1')).toMatchObject({ value: false, updatedAt: extraAfter.updatedAt });
+    expect(await db.get('prefs', 'lessonAt.3')).toMatchObject({ value: null, updatedAt: extraAfter.updatedAt });
+    expect((await repo.getProfile()).trail.slice(0, 2)).toEqual([true, false]);
+  });
+
+  it('um registro que a cópia tem diferente do daqui volta com data nova e entra na fila', async () => {
+    const { db, repo } = await fresh('conta-1');
+    const s = await repo.createSession({ event: '333' });
+    const kept = await repo.addSolve(ns(s.id, 1000));
+    const other = await repo.addSolve(ns(s.id, 3000));
+    await withAllKeys(repo);
+    const backup = await createBackup(repo, 'manual', t);
+    t += 1000;
+    await repo.updateSolve(kept.id, { note: 'depois da cópia' });
+    await db.clear('outbox');
+    t += 60_000;
+    await restoreBackup(repo, backup.id, t);
     const restored = (await db.get('solves', kept.id))!;
-    expect(restored).toMatchObject({ deletedAt: null });
+    expect(restored).toMatchObject({ note: '', deletedAt: null });
     expect(restored.updatedAt).toBeGreaterThanOrEqual(t);
     expect(restored.deletionStamp).toBe(restored.updatedAt);
-    expect((await db.get('solves', extra.id))!.deletedAt).toBe(restored.updatedAt);
-    const queued = (await db.getAllKeys('outbox')) as string[];
-    expect(queued).toEqual(expect.arrayContaining([`solves/${kept.id}`, `solves/${extra.id}`, `sessions/${s.id}`, 'prefs/trail.1', 'prefs/lessonAt.3', 'prefs/finish']));
-    expect(await db.get('prefs', 'trail.1')).toMatchObject({ value: false });
-    expect(await db.get('prefs', 'lessonAt.3')).toMatchObject({ value: null });
-    expect((await repo.getProfile()).trail.slice(0, 2)).toEqual([true, false]);
+    expect((await db.get('solves', other.id))!.updatedAt).toBeLessThan(t);
+    expect((await db.getAllKeys('outbox')) as string[]).toEqual([`solves/${kept.id}`]);
+  });
+
+  it('restaurar uma cópia igual à conta não grava nem enfileira nada', async () => {
+    const { db, repo } = await fresh('conta-1');
+    const s = await repo.createSession({ event: '333' });
+    await repo.addSolve(ns(s.id, 1000));
+    await repo.addPractice({ id: 'p1', caseId: 'oll2-sune', ms: 2000, ok: true, helped: false, at: t });
+    await repo.saveProfile({ trail: [true, false, false, false, false, false, false, false, false] });
+    await withAllKeys(repo);
+    const backup = await createBackup(repo, 'manual', t);
+    await db.clear('outbox');
+    const snapshot = async () => ({
+      sessions: await db.getAll('sessions'),
+      solves: await db.getAll('solves'),
+      practice: await db.getAll('practice'),
+      prefs: await db.getAll('prefs'),
+    });
+    const before = await snapshot();
+    t += 60_000;
+    await restoreBackup(repo, backup.id, t);
+    expect(await snapshot()).toEqual(before);
+    expect(await db.getAllKeys('outbox')).toEqual([]);
   });
 });
 
@@ -384,16 +436,19 @@ describe('importar um perfil com valores da conta inválidos (spec 6.6)', () => 
 });
 
 describe('restaurar com conta põe na fila tudo o que grava, e só o que o servidor aceita (decisão 9, spec 6.6)', () => {
-  it('a fila fica com cada registro que a restauração gravou (os da cópia e as marcas de exclusão), e cada um passa no checkChange', async () => {
+  it('a fila fica com cada registro que a restauração gravou (o que mudou e as marcas de exclusão), e cada um passa no checkChange', async () => {
     const { db, repo } = await fresh('conta-1');
     const s = await repo.createSession({ event: '333' });
     const a = await repo.addSolve(ns(s.id, 1000));
     await repo.addPractice({ id: 'p1', caseId: 'oll2-sune', ms: 2000, ok: true, helped: false, at: t });
+    await withAllKeys(repo);
     const backup = await createBackup(repo, 'manual', t);
     t += 1000;
-    await repo.addSolve(ns(s.id, 2000));
-    await repo.createSession({ event: '222' });
+    const extra = await repo.addSolve(ns(s.id, 2000));
+    const other = await repo.createSession({ event: '222' });
     await repo.addPractice({ id: 'p2', caseId: 'oll2-sune', ms: 2500, ok: false, helped: false, at: t });
+    await repo.updateSolve(a.id, { note: 'depois da cópia' });
+    await repo.saveProfile({ trail: [false, true, false, false, false, false, false, false, false] });
     await db.clear('outbox');
     t += 1000;
     await restoreBackup(repo, backup.id, t);
@@ -403,7 +458,10 @@ describe('restaurar com conta põe na fila tudo o que grava, e só o que o servi
       for (const r of await db.getAll(store)) if (r.updatedAt === stamp) written.push(`${store}/${r.id}`);
     }
     for (const item of await db.getAll('prefs')) if (item.updatedAt === stamp) written.push(`prefs/${item.key}`);
-    expect(written).toHaveLength(6 + 15); // 2 sessões, 2 solves, 2 tentativas; as 15 chaves da conta (trilha, acabamento, tour, inspeção, meta, temporada, nome dos desafios)
+    // O solve editado volta (copy); o solve, a sessão e a tentativa de depois ganham a marca de exclusão; a chave da trilha que difere volta.
+    expect(written.sort()).toEqual(
+      [`solves/${a.id}`, `solves/${extra.id}`, `sessions/${other.id}`, 'practice/p2', 'prefs/trail.1'].sort(),
+    );
     expect(((await db.getAllKeys('outbox')) as string[]).sort()).toEqual(written.sort());
     expect(refusedBy(await pendingChanges(db))).toEqual([]);
   });
@@ -428,15 +486,17 @@ describe('restaurar com conta põe na fila tudo o que grava, e só o que o servi
         { ...data.solves[0], id: 'sem-sessao', sessionId: null as never },
       ],
     });
-    const stamp = (await db.get('solves', a.id))!.updatedAt;
+    const stamp = (await db.get('solves', 'apagado-com-fracao'))!.updatedAt;
+    expect(stamp).toBeGreaterThanOrEqual(t);
+    expect((await db.get('solves', a.id))!.updatedAt).toBeLessThan(t); // o solve e a sessão que a cópia tem iguais não são regravados
     expect(await db.get('solves', 'apagado-com-fracao')).toMatchObject({ deletedAt: 1_500 });
     expect(await db.get('solves', 'apagado-no-ano-3000')).toMatchObject({ deletedAt: stamp });
     expect(await db.get('solves', 'apagado-em-1e300')).toMatchObject({ deletedAt: stamp });
     expect((await repo.listSolves()).map((x) => x.id).sort()).toEqual([a.id, 'sem-sessao'].sort());
     const queued = (await db.getAllKeys('outbox')) as string[];
-    expect(queued).toEqual(
-      expect.arrayContaining([`solves/${a.id}`, 'solves/apagado-com-fracao', 'solves/apagado-no-ano-3000', 'solves/apagado-em-1e300', `sessions/${s.id}`]),
-    );
+    expect(queued).toEqual(expect.arrayContaining(['solves/apagado-com-fracao', 'solves/apagado-no-ano-3000', 'solves/apagado-em-1e300']));
+    expect(queued).not.toContain(`solves/${a.id}`);
+    expect(queued).not.toContain(`sessions/${s.id}`);
     expect(queued).not.toContain('solves/sem-sessao');
     expect(queued).not.toContain(`prefs/${unknown.key}`);
     expect(await db.get('prefs', unknown.key)).toEqual(unknown);

@@ -60,7 +60,11 @@ describe('a cópia diária no formato do export (spec 8.3)', () => {
     expect(out.get('solves/a')).toMatchObject({ updatedAt: stamp, deletedAt: null, data: { ms: 1000 } });
     expect(out.get('solves/extra')).toMatchObject({ deletedAt: stamp, deletionStamp: stamp });
     expect(out.get('prefs/trail.0')).toMatchObject({ data: false, updatedAt: stamp });
+    // Só as mudanças reais: a sessão é igual nos dois lados e não é regravada. A temporada da cópia (a do começo) difere da daqui, então é
+    // emitida, e o servidor (applyChanges) fica com a mais adiantada.
+    expect(out.has('sessions/s')).toBe(false);
     expect(out.get('prefs/season')).toMatchObject({ data: closed, updatedAt: stamp }); // a cópia tem a temporada do começo; a daqui fica
+    expect([...out.keys()].filter((k) => !k.startsWith('prefs/')).sort()).toEqual(['solves/a', 'solves/extra']);
   });
 
   // Os desafios (spec do desafio, seção 7): a cópia os leva com a lixeira, como os solves, e restaurá-la os troca pela regra de
@@ -89,12 +93,13 @@ describe('a cópia diária no formato do export (spec 8.3)', () => {
     const copy = { sessions: file.sessions, solves: file.solves, practice: file.practice ?? null, duels: file.duels ?? null };
     const out = new Map(applyChanges(new MapView(now), restoreChanges([...now.values()], copy, null, stamp), { mode: 'server' }).writes.map((c) => [syncKey(c.store, c.id), c]));
     expect(out.get('duels/bbbbbbbb-a')).toMatchObject({ updatedAt: stamp, deletedAt: null, data: { status: 'playing' } });
-    expect(out.get('duels/aaaaaaaa-a')).toMatchObject({ updatedAt: stamp, deletedAt: T0 + 5 });
+    expect(out.has('duels/aaaaaaaa-a')).toBe(false); // o da lixeira é igual nos dois lados: nada a regravar
+    expect(out.has('solves/a')).toBe(false);
     expect(out.get('duels/cccccccc-a')).toMatchObject({ updatedAt: stamp, deletedAt: stamp, deletionStamp: stamp });
 
     // Uma cópia de antes dos desafios não mexe nos daqui.
     const old = restoreChanges([...now.values()], { ...copy, duels: null }, null, stamp);
     expect(old.filter((c) => c.store === 'duels')).toEqual([]);
-    expect(old.filter((c) => c.store === 'solves').map((c) => c.id)).toEqual(['a']);
+    expect(old).toEqual([]); // o solve e a sessão são iguais à conta, e o treino e os desafios daqui ficam como estão
   });
 });
