@@ -74,7 +74,7 @@ describe('migração para a versão 3 (spec 5.6)', () => {
     const repo = createRepository(db, { now: () => T0, channel: null });
     expect(await repo.listSessions({ includeDeleted: true })).toEqual(data.sessions);
     expect(await repo.listSolves({ includeDeleted: true })).toEqual(data.solves);
-    expect(await repo.listTrash()).toEqual({ sessions: [data.sessions[1]], solves: [data.solves[3], data.solves[2]] });
+    expect(await repo.listTrash()).toEqual({ sessions: [data.sessions[1]], solves: [data.solves[3], data.solves[2]], duels: [] });
     expect(await repo.listPractice()).toEqual(data.practice);
     expect(await repo.getProfile()).toEqual(data.profile);
     expect(await repo.getMeta()).toMatchObject(data.meta);
@@ -115,7 +115,7 @@ describe('migração para a versão 3 (spec 5.6)', () => {
   it('um banco novo nasce na versão 3 sem cópia nenhuma', async () => {
     const db = await openKlickDb(`migracao-${++n}`);
     expect(await db.getAll('backups')).toEqual([]);
-    expect([...db.objectStoreNames].sort()).toEqual(['backups', 'meta', 'outbox', 'practice', 'prefs', 'profile', 'sessions', 'solves']);
+    expect([...db.objectStoreNames].sort()).toEqual(['backups', 'duels', 'meta', 'outbox', 'practice', 'prefs', 'profile', 'sessions', 'solves']);
   });
 
   it('não tem volta: a versão 2 do app não abre o banco migrado', async () => {

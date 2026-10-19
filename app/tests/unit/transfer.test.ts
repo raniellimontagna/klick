@@ -9,7 +9,7 @@ import {
 import type { CsTimerSession, CsTimerSolve } from '../../src/data/transfer';
 import { EVENT_IDS, eventInfo } from '../../src/core/events';
 import { defaultSettings } from '../../src/core/types';
-import type { EventId, Session, Solve } from '../../src/core/types';
+import type { Duel, DuelTime, EventId, Session, Solve } from '../../src/core/types';
 import type { KlickExport } from '../../src/data/repository';
 
 // Caminho relativo a este arquivo. Não usa `new URL(\`../fixtures/${name}\`, import.meta.url)`: no ambiente jsdom o Vite o
@@ -91,6 +91,54 @@ describe('formato Klick', () => {
   });
   it('o arquivo do csTimer não passa por arquivo do Klick (a tela tenta um e depois o outro)', () => {
     expect(() => parseKlickJson(fixture('cstimer-export.txt'))).toThrow(KLICK_INVALID);
+  });
+
+  it('arquivo com desafios entra; desafio inválido fica de fora; arquivo sem duels continua valendo', () => {
+    const times = (n: number): DuelTime[] => Array.from({ length: n }, (_, i) => ({ ms: 10_000 + i, penalty: i === 1 ? '+2' : i === 2 ? 'DNF' : null }));
+    const mkDuel = (over: Partial<Duel> = {}): Duel => ({
+      id: 'abcd1234efgh5678-a', linkId: 'abcd1234efgh5678', side: 'a', event: '333', scrambles: Array.from({ length: 7 }, (_, i) => `R U F${i}`),
+      mine: times(7), theirs: null, myName: 'Ana', theirName: '', status: 'waiting', createdAt: 2_000, updatedAt: 3_000, deletedAt: null, ...over,
+    });
+    const good = mkDuel();
+    const answered = mkDuel({ id: 'abcd1234efgh5678-b', side: 'b', mine: times(4), theirs: times(7), myName: '', theirName: 'Bia', status: 'done', deletedAt: 4_000 });
+    const extra = { ...mkDuel({ id: 'zzzz9999-a', linkId: 'zzzz9999', event: 'clock' }), tag: 'campo novo' }; // campo desconhecido passa intacto
+    const bad: unknown[] = [
+      null, 5, 'desafio', [],
+      mkDuel({ id: 'abcd1234efgh5678-b' }), // o id não é `${linkId}-${side}`
+      mkDuel({ id: 'abc-a', linkId: 'abc' }), // linkId curto demais
+      mkDuel({ id: 'ABCD1234-a', linkId: 'ABCD1234' }), // linkId com maiúsculas
+      mkDuel({ id: 'abcd1234efgh5678-c', side: 'c' as never }),
+      mkDuel({ event: 'xyz' as never }),
+      mkDuel({ scrambles: ['R'] }),
+      mkDuel({ scrambles: [...good.scrambles.slice(1), ''] }),
+      mkDuel({ scrambles: [...good.scrambles.slice(1), 5 as never] }),
+      mkDuel({ mine: times(8) }),
+      mkDuel({ mine: [{ ms: -1, penalty: null }] }),
+      mkDuel({ mine: [{ ms: 1.5, penalty: null }] }),
+      mkDuel({ mine: [{ ms: 1000, penalty: '+4' as never }] }),
+      mkDuel({ mine: undefined as never }),
+      mkDuel({ theirs: times(8) }),
+      mkDuel({ theirs: 'nada' as never }),
+      mkDuel({ myName: 'x'.repeat(21) }),
+      mkDuel({ theirName: 5 as never }),
+      mkDuel({ status: 'acabou' as never }),
+      mkDuel({ createdAt: '1' as never }),
+      mkDuel({ updatedAt: undefined as never }),
+      mkDuel({ deletedAt: '1' as never }),
+      { ...good, theirName: 'repetido' }, // mesmo id de um que já entrou: fica o primeiro
+    ];
+    const parsed = parseKlickJson(JSON.stringify({ ...fullExport(), duels: [good, ...bad.slice(0, 4), answered, ...bad.slice(4), extra] }));
+    expect(parsed.duels).toEqual([good, answered, extra]);
+    expect(parsed.solves).toEqual(fullExport().solves); // um desafio torto não recusa o arquivo
+
+    // Sem a lista (um arquivo de antes dos desafios), ou com algo que não é lista, o arquivo entra como veio.
+    const old = parseKlickJson(toKlickJson(fullExport()));
+    expect(old).toEqual(fullExport());
+    expect('duels' in old).toBe(false);
+    const odd = parseKlickJson(JSON.stringify({ ...fullExport(), duels: { 0: good } }));
+    expect(odd).toEqual(fullExport());
+    expect('duels' in odd).toBe(false);
+    expect(parseKlickJson(JSON.stringify({ ...fullExport(), duels: [] })).duels).toEqual([]);
   });
 
   // A importação aplica o perfil do arquivo por cima do daqui: um campo com tipo errado não pode chegar aos ajustes.

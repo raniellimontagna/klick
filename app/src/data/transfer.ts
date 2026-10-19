@@ -4,6 +4,7 @@
 // Nada some em silêncio. Um arquivo do Klick ou do csTimer (ou um registro dele) que não bate com o formato é recusado por inteiro,
 // com um erro claro. A migração da v1 não recusa: lê o que bate e conta o que ficou de fora (readV1Invalid), para a pessoa saber.
 // O que fica de fora por falta de dados (sessão sem evento) também volta contado no resultado.
+import { duelsFrom } from '../core/duel/validate';
 import { EVENT_IDS, eventFromCsTimer, eventInfo } from '../core/events';
 import { seasonFrom } from '../core/season';
 import { stampOf } from '../core/sync/records';
@@ -128,13 +129,16 @@ function profileOf(v: Record<string, unknown>): ProfilePatch {
 export function parseKlickJson(text: string): KlickExport {
   const data = tryParse(text);
   if (!isKlickExport(data)) throw new Error(T.transfer.klickInvalid);
-  const { practice, ...rest } = data;
+  const { practice, duels, ...rest } = data;
   const profile: unknown = rest.profile;
   const out: KlickExport = { ...rest, profile: isRecord(profile) ? profileOf(profile) : null };
   // O treino (spec do sub-projeto 4, seção 9.3): só as tentativas válidas, e o arquivo não é recusado por elas. Sem a lista (um arquivo de
   // antes do treino), o arquivo entra como veio.
   const list: unknown = practice;
   if (Array.isArray(list)) out.practice = practiceFrom(list);
+  // Os desafios (spec do desafio, seção 7), do mesmo jeito: só os válidos; sem a lista (um arquivo de antes deles), o arquivo entra como veio.
+  const duelList: unknown = duels;
+  if (Array.isArray(duelList)) out.duels = duelsFrom(duelList);
   return out;
 }
 

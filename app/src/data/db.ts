@@ -4,17 +4,18 @@ import { seasonFrom } from '../core/season';
 import { joinProfile, prefsFromProfile, profileFromPrefs, splitProfile } from '../core/sync/prefs';
 import { stampOf } from '../core/sync/records';
 import type { DeviceProfile, OutboxEntry, PrefItem, SyncState } from '../core/sync/types';
-import type { EventId, KlickExport, Meta, Practice, Profile, Session, Solve } from '../core/types';
+import type { Duel, EventId, KlickExport, Meta, Practice, Profile, Session, Solve } from '../core/types';
 import { newId } from './ids';
 
 export const DB_NAME = 'klick';
-export const DB_VERSION = 3;
+export const DB_VERSION = 4;
 
 // O que fica gravado a partir da versão 3 (spec 5.1): o registro da tela mais as datas do sync. O repositório tira essas datas antes de
-// devolver um registro, e a tela continua vendo Solve, Session e Practice.
+// devolver um registro, e a tela continua vendo Solve, Session, Practice e Duel.
 export type StoredSolve = Solve & { deletionStamp: number };
 export type StoredSession = Session & { deletionStamp: number };
 export type StoredPractice = Practice & { updatedAt: number; deletedAt: number | null; deletionStamp: number };
+export type StoredDuel = Duel & { deletionStamp: number };
 
 // Cópia de segurança guardada no próprio banco. `payload` é o KlickExport em JSON, ou comprimido com gzip em base64.
 export interface BackupRecord {
@@ -45,6 +46,8 @@ export interface KlickDB extends DBSchema {
   // Versão 3: os ajustes da conta, um item por chave, e a fila de saída do sync, na chave `${store}/${id}`.
   prefs: { key: string; value: PrefItem };
   outbox: { key: string; value: OutboxEntry; indexes: { byQueued: number } };
+  // Versão 4: os desafios (spec do desafio, seção 7), um registro por lado da partida, fora dos solves.
+  duels: { key: string; value: StoredDuel; indexes: { byCreated: number } };
 }
 
 // O que acontece com a conexão por causa de outras abas ou do navegador. Quem abre o banco decide o que mostrar.
@@ -175,6 +178,8 @@ export async function openKlickDb(
           });
         }
       }
+      // Versão 4: os desafios. Só cria a store: nada da versão 3 muda, e não há o que migrar (sem o aviso de `upgrading`).
+      if (oldVersion < 4 && target >= 4) db.createObjectStore('duels', { keyPath: 'id' }).createIndex('byCreated', 'createdAt');
     },
   });
   return opened;

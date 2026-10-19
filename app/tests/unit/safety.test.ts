@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { openKlickDb, type BackupRecord } from '../../src/data/db';
+import { DB_VERSION, openKlickDb, type BackupRecord } from '../../src/data/db';
 import { createRepository, type KlickExport, type NewSolve, type Repository } from '../../src/data/repository';
 import {
   BACKUP_KEEP, countSolveSaved, createBackup, createSaveQueue, decodeSnapshot, encodeSnapshot,
@@ -81,6 +81,26 @@ describe('cópias automáticas', () => {
     await restoreBackup(repo, b.id, t);
     expect((await repo.listSolves({ sessionId: s.id })).map((x) => x.ms)).toEqual([60000]);
     expect((await repo.listBackups()).some((r) => r.reason === 'pre-restore')).toBe(true);
+  });
+
+  it('a cópia automática leva os desafios e a restauração os devolve', async () => {
+    const side = (linkId: string) => ({
+      id: `${linkId}-a`, linkId, side: 'a' as const, event: '333' as const, scrambles: Array.from({ length: 7 }, (_, i) => `R U F${i}`),
+      mine: [{ ms: 9_000, penalty: null }], theirs: null, myName: 'Ana', theirName: '', status: 'waiting' as const,
+    });
+    const kept = await repo.saveDuel(side('copiado1'));
+    const backup = await createBackup(repo, 'auto50', t);
+    expect((await decodeSnapshot(backup)).duels).toEqual([kept]);
+    // Depois da cópia: o desafio dela vai para a lixeira e outro aparece. Restaurar devolve o dela e manda o outro para a lixeira.
+    await repo.deleteDuel(kept.id);
+    const later = await repo.saveDuel(side('depois01'));
+    t += 1000;
+    await restoreBackup(repo, backup.id, t);
+    expect(await repo.listDuels()).toEqual([{ ...kept, updatedAt: t }]);
+    expect((await repo.listTrash()).duels.map((d) => d.id)).toEqual([later.id]);
+    // A cópia 'pre-restore' guardou o estado de antes, com os dois.
+    const pre = (await repo.listBackups()).find((r) => r.reason === 'pre-restore')!;
+    expect((await decodeSnapshot(pre)).duels?.map((d) => [d.id, d.deletedAt === null])).toEqual([[kept.id, false], [later.id, true]]);
   });
 });
 
@@ -1146,7 +1166,7 @@ describe('cópias que a poda poupa', () => {
     await v2.put('sessions', { id: 's', name: 'S', event: '333', order: 0, createdAt: 1, updatedAt: 1, deletedAt: null } as never);
     await v2.put('solves', { id: 'a', sessionId: 's', event: '333', ms: 30_000, penalty: null, at: 2, scramble: 'R', note: '', createdAt: 2, updatedAt: 2, deletedAt: null } as never);
     v2.close();
-    return createRepository(await openKlickDb(name, {}, 3, () => MIGRATED_AT), { now, channel: null });
+    return createRepository(await openKlickDb(name, {}, DB_VERSION, () => MIGRATED_AT), { now, channel: null });
   }
   const v3Copy = async (repo: Repository) => (await repo.listBackups()).find((r) => r.label === 'v3');
 

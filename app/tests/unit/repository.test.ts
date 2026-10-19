@@ -1110,7 +1110,7 @@ describe('repositório: sessões, solves e lixeira', () => {
     expect((await repo.listTrash()).solves.map((x) => x.id)).toEqual([c.id, live.id, b.id]);
     t += 10_000;
     expect(await repo.purgeTrash(1000)).toBe(4); // b, c, live e a sessão
-    expect(await repo.listTrash()).toEqual({ sessions: [], solves: [] });
+    expect(await repo.listTrash()).toEqual({ sessions: [], solves: [], duels: [] });
   });
 
   it('purgeTrash só apaga o que foi excluído ANTES de now - olderThanMs: no limite exato ainda fica, um milissegundo depois vai', async () => {
@@ -1125,7 +1125,7 @@ describe('repositório: sessões, solves e lixeira', () => {
     expect(trash.sessions.map((x) => x.id)).toEqual([s.id]);
     t += 1;
     expect(await repo.purgeTrash(30 * day)).toBe(2);
-    expect(await repo.listTrash()).toEqual({ sessions: [], solves: [] });
+    expect(await repo.listTrash()).toEqual({ sessions: [], solves: [], duels: [] });
   });
 
   it('a lixeira lista também as sessões com a excluída mais recentemente primeiro, e desempata pela ordem de criação', async () => {
@@ -1416,7 +1416,7 @@ describe('repositório: exportar e importar', () => {
       expect(await repo.importAll(file)).toEqual({ sessionsAdded: 0, solvesAdded: 0, solvesUpdated: 1, skipped: 0 });
       expect((await repo.listSessions()).map((x) => x.id)).toEqual([s.id]);
       expect((await repo.listSolves({ sessionId: s.id })).map((x) => x.id)).toEqual([old.id]);
-      expect(await repo.listTrash()).toEqual({ sessions: [], solves: [] });
+      expect(await repo.listTrash()).toEqual({ sessions: [], solves: [], duels: [] });
     });
 
     it('solves que chegam todos excluídos deixam a sessão na lixeira', async () => {

@@ -6,7 +6,8 @@ import { DUEL_SCRAMBLES } from './score';
 export const MAX_DUEL_NAME = 20;
 export const MAX_DUEL_PAYLOAD = 12_000; // caracteres do payload; acima disso o link não abre
 export const MAX_DUEL_MS = 86_400_000; // teto de um tempo: 24 h
-const MAX_SCRAMBLE = 1_000; // caracteres por embaralhamento
+export const MAX_DUEL_SCRAMBLE = 1_000; // caracteres por embaralhamento
+export const DUEL_LINK_ID = /^[a-z0-9]{8,32}$/; // o id do link (newLinkId dá 16 caracteres)
 const MAX_JSON_BYTES = 64 * 1024; // teto do JSON descomprimido: o link de 12 000 caracteres não vira uma bomba de memória
 const PARAM = 'desafio=';
 const ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
@@ -74,7 +75,8 @@ function isPenalty(value: unknown): value is Penalty {
   return value === null || value === '+2' || value === 'DNF';
 }
 
-function isTime(value: unknown): value is DuelTime {
+// Um tempo do desafio: ms inteiro de 0 a 24 h e uma penalidade conhecida. O arquivo do Klick confere os desafios com ele (validate.ts).
+export function isDuelTime(value: unknown): value is DuelTime {
   return isRecord(value) && typeof value.ms === 'number' && Number.isInteger(value.ms) && value.ms >= 0 && value.ms <= MAX_DUEL_MS && isPenalty(value.penalty);
 }
 
@@ -89,17 +91,17 @@ function cleanName(value: unknown): string {
 function cleanSide(value: unknown, min: number): { name: string; times: DuelTime[] } | null {
   if (!isRecord(value) || !Array.isArray(value.times)) return null;
   const times: unknown[] = value.times;
-  if (times.length < min || times.length > DUEL_SCRAMBLES || !times.every(isTime)) return null;
+  if (times.length < min || times.length > DUEL_SCRAMBLES || !times.every(isDuelTime)) return null;
   return { name: cleanName(value.name), times: times.map((t) => ({ ms: t.ms, penalty: t.penalty })) };
 }
 
 function cleanLink(value: unknown): DuelLink | null {
   if (!isRecord(value) || value.v !== 1) return null;
-  if (typeof value.id !== 'string' || !/^[a-z0-9]{8,32}$/.test(value.id)) return null;
+  if (typeof value.id !== 'string' || !DUEL_LINK_ID.test(value.id)) return null;
   if (typeof value.event !== 'string' || !EVENT_IDS.includes(value.event as EventId)) return null;
   const scrambles: unknown = value.scrambles;
   if (!Array.isArray(scrambles) || scrambles.length !== DUEL_SCRAMBLES) return null;
-  if (!scrambles.every((s) => typeof s === 'string' && s.length > 0 && s.length <= MAX_SCRAMBLE)) return null;
+  if (!scrambles.every((s) => typeof s === 'string' && s.length > 0 && s.length <= MAX_DUEL_SCRAMBLE)) return null;
   const a = cleanSide(value.a, DUEL_SCRAMBLES);
   if (!a) return null;
   const link: DuelLink = { v: 1, id: value.id, event: value.event as EventId, scrambles: scrambles as string[], a };

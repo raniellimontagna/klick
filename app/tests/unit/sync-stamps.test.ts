@@ -4,7 +4,7 @@ import { checkChange } from '../../src/core/sync/shape';
 import type { Practice, Profile, Session, Solve } from '../../src/core/types';
 import { defaultSettings } from '../../src/core/types';
 import { defaultSeason } from '../../src/core/season';
-import { openKlickDb, type StoredPractice, type StoredSession, type StoredSolve } from '../../src/data/db';
+import { DB_VERSION, openKlickDb, type StoredPractice, type StoredSession, type StoredSolve } from '../../src/data/db';
 import { createRepository } from '../../src/data/repository';
 import { restoreBackup } from '../../src/data/safety';
 
@@ -221,7 +221,7 @@ describe('as datas que a migração grava são inteiros seguros >= 0 (shape.ts),
     };
     await v2.put('profile', profile as never, 'current');
     v2.close();
-    const db = await openKlickDb(name, {}, 3, () => 1_791_500_000_000);
+    const db = await openKlickDb(name, {}, DB_VERSION, () => 1_791_500_000_000);
     const repo = createRepository(db, { now, channel: null });
     const copy = (await repo.listBackups()).find((r) => r.label === 'v3')!;
     t += 1000;

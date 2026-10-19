@@ -269,7 +269,7 @@ describe('lixeira com sync (spec 5.5)', () => {
     await repo.restoreSolve(a.id);
     expect((await repo.listSessions()).map((x) => x.id)).toEqual([s.id]);
     expect((await repo.listSolves({ sessionId: s.id })).map((x) => x.id)).toEqual([a.id]);
-    expect(await repo.listTrash()).toEqual({ sessions: [], solves: [] });
+    expect(await repo.listTrash()).toEqual({ sessions: [], solves: [], duels: [] });
   });
 
   it('a sessão vencida fica enquanto um solve dela ainda não venceu, ou está ativo, mesmo fora da fila', async () => {

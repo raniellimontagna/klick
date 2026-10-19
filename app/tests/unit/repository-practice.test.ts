@@ -35,7 +35,7 @@ describe('banco versão 2: a migração cria o treino e não mexe no resto (spec
 
     const handle = await openKlickDb(db);
     expect(handle.version).toBe(DB_VERSION);
-    expect([...handle.objectStoreNames].sort()).toEqual(['backups', 'meta', 'outbox', 'practice', 'prefs', 'profile', 'sessions', 'solves']);
+    expect([...handle.objectStoreNames].sort()).toEqual(['backups', 'duels', 'meta', 'outbox', 'practice', 'prefs', 'profile', 'sessions', 'solves']);
     const repo = createRepository(handle, { now, channel: null });
     expect(await repo.listSolves()).toEqual([solve]);
     expect(await repo.listSessions()).toEqual([session]);

@@ -11,6 +11,7 @@
 //
 // Leitura: o que sai do IndexedDB já é cópia. Os padrões (perfil e meta) são montados novos a cada chamada, nunca compartilhados.
 import type { IDBPDatabase, IDBPObjectStore, IDBPTransaction, StoreNames } from 'idb';
+import { duelsFrom } from '../core/duel/validate';
 import { defaultSeason, finishUnlocked, moreAdvanced, seasonFrom } from '../core/season';
 import { applyChanges, sameChange, type ApplyOptions, type ApplyResult, type RecordView } from '../core/sync/apply';
 import { canonicalJson } from '../core/sync/merge';
@@ -32,12 +33,12 @@ import {
 } from '../core/sync/types';
 import { algChoiceFrom, lessonAtFrom, practiceFrom, trainOffFrom } from '../core/trail/validate';
 import { defaultSettings } from '../core/types';
-import type { EventId, KlickExport, Meta, Penalty, Practice, Profile, ProfilePatch, SeasonRecord, SeasonState, Session, Solve } from '../core/types';
+import type { Duel, EventId, KlickExport, Meta, Penalty, Practice, Profile, ProfilePatch, SeasonRecord, SeasonState, Session, Solve } from '../core/types';
 import { T } from '../strings';
-import type { BackupRecord, KlickDB, StoredPractice, StoredSession, StoredSolve } from './db';
+import type { BackupRecord, KlickDB, StoredDuel, StoredPractice, StoredSession, StoredSolve } from './db';
 import { defaultSessionId, newId } from './ids';
 
-export type ChangeKind = 'solves' | 'sessions' | 'profile' | 'meta' | 'practice' | 'sync' | 'all';
+export type ChangeKind = 'solves' | 'sessions' | 'profile' | 'meta' | 'practice' | 'duels' | 'sync' | 'all';
 // De onde veio o aviso: 'local' é desta aba (já está na memória de quem gravou); 'remote' é de outra aba (o canal) ou do servidor (o que o
 // sync acabou de juntar: a memória desta aba também precisa reler).
 export type ChangeOrigin = 'local' | 'remote';
@@ -72,8 +73,8 @@ export interface ImportReport {
   solvesAdded: number;
   solvesUpdated: number;
   skipped: number;
-  // Registros do arquivo (sessões, solves e tentativas) que o sync recusaria e ficaram de fora (spec 6.6): um id que não serve de chave, um
-  // solve cuja sessão não pode existir, um registro grande demais. Só aparece quando há algum.
+  // Registros do arquivo (sessões, solves, tentativas e desafios) que o sync recusaria e ficaram de fora (spec 6.6): um id que não serve de
+  // chave, um solve cuja sessão não pode existir, um registro grande demais, uma data torta. Só aparece quando há algum.
   refused?: number;
 }
 
@@ -90,11 +91,11 @@ export interface Repository {
   updateSolve(id: string, patch: { penalty?: Penalty; note?: string }): Promise<Solve>;
   deleteSolve(id: string): Promise<void>;
   restoreSolve(id: string): Promise<void>; // devolve o solve; se a sessão dele está na lixeira, devolve também o registro dela (só ele: os outros solves excluídos da sessão continuam na lixeira)
-  listTrash(): Promise<{ sessions: Session[]; solves: Solve[] }>; // o excluído mais recentemente primeiro, sessões e solves
+  listTrash(): Promise<{ sessions: Session[]; solves: Solve[]; duels: Duel[] }>; // o excluído mais recentemente primeiro, em cada lista
   // Apaga de vez o excluído antes de now - olderThanMs (no limite exato ainda fica), menos o que espera na fila de saída ou está só neste
   // aparelho (a lista dos recusados pela cota): a marca de exclusão só some depois que o servidor a tem (spec 5.5). Uma sessão só sai depois
-  // do último solve dela (fica enquanto algum sobrar, na fila, por vencer ou ativo). Devolve quantos itens (sessões e solves); as marcas do
-  // treino saem junto, sem contar.
+  // do último solve dela (fica enquanto algum sobrar, na fila, por vencer ou ativo). Devolve quantos itens (sessões, solves e desafios); as
+  // marcas do treino saem junto, sem contar.
   purgeTrash(olderThanMs: number): Promise<number>;
   getProfile(): Promise<Profile>; // padrão se ausente (e não grava o padrão)
   saveProfile(patch: ProfilePatch): Promise<Profile>; // settings faz merge raso, sound faz merge
@@ -186,11 +187,11 @@ export interface Repository {
   listBackups(): Promise<BackupRecord[]>; // mais recente primeiro
   getBackup(id: string): Promise<BackupRecord | undefined>;
   deleteBackup(id: string): Promise<void>;
-  exportAll(o?: { includeDeleted?: boolean }): Promise<KlickExport>; // includeDeleted padrão true
-  importAll(data: KlickExport): Promise<ImportReport>; // junta por id; fica o de updatedAt maior, em solves e sessões (spec 5.5). Sessão da lixeira que recebe solve ativo do arquivo volta (sem entrar no relatório; avisa sessions). O perfil do arquivo vale por cima do daqui (ver importAll). O treino junta pelo id, sem duplicar (fora do relatório). O que o sync recusaria fica de fora, contado em `refused`
+  exportAll(o?: { includeDeleted?: boolean }): Promise<KlickExport>; // includeDeleted padrão true (solves, sessões e desafios)
+  importAll(data: KlickExport): Promise<ImportReport>; // junta por id; fica o de updatedAt maior, em solves, sessões e desafios (spec 5.5). Sessão da lixeira que recebe solve ativo do arquivo volta (sem entrar no relatório; avisa sessions). O perfil do arquivo vale por cima do daqui (ver importAll). O treino junta pelo id, sem duplicar (fora do relatório, como os desafios). O que o sync recusaria fica de fora, contado em `refused`
   // Restaura a cópia como gravação (spec 5.5): cada registro dela é gravado de novo, com a data do relógio; o que existe aqui e não está nela
-  // vai para a lixeira; tudo entra na fila de saída. A temporada fica a mais adiantada (a daqui ou a da cópia). O treino troca junto, se a
-  // cópia o tiver.
+  // vai para a lixeira; tudo entra na fila de saída. A temporada fica a mais adiantada (a daqui ou a da cópia). O treino e os desafios trocam
+  // junto, se a cópia os tiver.
   replaceAll(data: KlickExport): Promise<void>;
   onChange(fn: ChangeListener): () => void; // mudanças locais e de outras abas, com a origem (e, nos solves, os ids que mudaram)
   getSolves(ids: readonly string[]): Promise<(Solve | undefined)[]>; // vários solves por id numa leitura; o que não existe vem undefined
@@ -199,11 +200,20 @@ export interface Repository {
   listPractice(f?: { caseId?: string }): Promise<Practice[]>; // em ordem de at; com caseId, só as daquele caso
   updatePractice(id: string, patch: { ok?: boolean }): Promise<Practice>;
   deletePractice(id: string): Promise<void>;
+  // Os desafios (spec do desafio, seção 7): um registro por lado da partida, fora dos solves (nada deles entra nas estatísticas). Cada
+  // escrita que muda algo avisa 'duels'.
+  listDuels(o?: { includeDeleted?: boolean }): Promise<Duel[]>; // os mais novos primeiro (pela criação)
+  getDuel(id: string): Promise<Duel | null>; // também o da lixeira (deletedAt diz); null se não existe
+  // Cria ou substitui pelo id, que tem de ser `${linkId}-${side}` (senão lança e nada grava). As datas são as do relógio do sync: a criação
+  // fica a do registro gravado, e um desafio da lixeira volta ativo, com uma marca nova.
+  saveDuel(d: Omit<Duel, 'createdAt' | 'updatedAt' | 'deletedAt'>): Promise<Duel>;
+  deleteDuel(id: string): Promise<void>; // para a lixeira, como um solve; lança se não existe
+  restoreDuel(id: string): Promise<void>; // volta da lixeira; lança se não existe
   close(): void; // fecha a conexão do banco e o canal; depois disso o repositório não responde mais (usado ao trocar pela conexão reaberta)
 }
 
 const CHANNEL_NAME = 'klick-data';
-const CHANGE_KINDS: readonly string[] = ['solves', 'sessions', 'profile', 'meta', 'practice', 'sync', 'all'];
+const CHANGE_KINDS: readonly string[] = ['solves', 'sessions', 'profile', 'meta', 'practice', 'duels', 'sync', 'all'];
 const TRAIL_LENGTH = 9;
 const DEFAULT_SESSION_STAMP = 1; // as datas da sessão padrão (createSession com `id`): fixas, iguais em todo aparelho e antes de qualquer ação
 
@@ -277,6 +287,7 @@ const composeProfile = (device: DeviceProfile | undefined, items: readonly PrefI
 const bareSolve = ({ deletionStamp: _d, ...solve }: StoredSolve): Solve => solve;
 const bareSession = ({ deletionStamp: _d, ...session }: StoredSession): Session => session;
 const barePractice = ({ updatedAt: _u, deletedAt: _x, deletionStamp: _d, ...practice }: StoredPractice): Practice => practice;
+const bareDuel = ({ deletionStamp: _d, ...duel }: StoredDuel): Duel => duel;
 
 // O deletionStamp de um solve ou sessão que vem de um arquivo importado. Num registro novo, como na migração (spec 5.6):
 // a marca de exclusão ou a criação. Num que já existe, o daqui quando o estado de exclusão não muda; quando muda, a data do arquivo
@@ -458,6 +469,7 @@ const compareText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 
 const bySessionOrder = (a: Session, b: Session): number => a.order - b.order || a.createdAt - b.createdAt || compareText(a.id, b.id);
 const bySolveTime = (a: Solve, b: Solve): number => a.at - b.at || compareText(a.id, b.id);
 const byPracticeTime = (a: Practice, b: Practice): number => a.at - b.at || compareText(a.id, b.id);
+const byDuelCreated = (a: Duel, b: Duel): number => a.createdAt - b.createdAt || compareText(a.id, b.id);
 const newestDeletedFirst = (a: { id: string; deletedAt: number | null }, b: { id: string; deletedAt: number | null }): number =>
   (b.deletedAt ?? 0) - (a.deletedAt ?? 0) || compareText(a.id, b.id);
 
@@ -797,6 +809,21 @@ export function createRepository(
     return bareSolve(solve);
   }
 
+  // Manda um desafio para a lixeira (`toTrash`) ou o traz de volta, como um solve: as três datas são a da escrita. Já no estado pedido, nada
+  // muda nem avisa; um que não existe lança.
+  async function trashDuel(id: string, toTrash: boolean): Promise<void> {
+    const changed = await syncWrite(['duels'], async (tx, ctx) => {
+      const store = tx.objectStore('duels');
+      const duel = await store.get(id);
+      if (!duel) throw new Error(`Desafio não encontrado: ${id}`);
+      if ((duel.deletedAt !== null) === toTrash) return false;
+      const at = ctx.stamp();
+      await store.put({ ...duel, deletedAt: toTrash ? at : null, updatedAt: at, deletionStamp: at });
+      return true;
+    });
+    if (changed) announce('duels');
+  }
+
   // O perfil gravado agora, dentro da transação (as duas stores).
   async function storedProfile(tx: WriteTx): Promise<Profile> {
     const [device, items] = await Promise.all([tx.objectStore('profile').get('current'), tx.objectStore('prefs').getAll()]);
@@ -1001,25 +1028,28 @@ export function createRepository(
     },
 
     async listTrash() {
-      const [sessions, solves] = await read(['sessions', 'solves'], (tx) =>
-        Promise.all([tx.objectStore('sessions').getAll(), tx.objectStore('solves').getAll()]),
+      const [sessions, solves, duels] = await read(['sessions', 'solves', 'duels'], (tx) =>
+        Promise.all([tx.objectStore('sessions').getAll(), tx.objectStore('solves').getAll(), tx.objectStore('duels').getAll()]),
       );
       return {
         sessions: sessions.filter((s) => s.deletedAt !== null).map(bareSession).sort(newestDeletedFirst),
         solves: solves.filter((s) => s.deletedAt !== null).map(bareSolve).sort(newestDeletedFirst),
+        duels: duels.filter((d) => d.deletedAt !== null).map(bareDuel).sort(newestDeletedFirst),
       };
     },
 
     async purgeTrash(olderThanMs) {
       const limit = now() - olderThanMs;
       const expired = ({ deletedAt }: { deletedAt: number | null }) => deletedAt !== null && deletedAt < limit;
-      const removed = await write(['sessions', 'solves', 'practice', 'outbox', 'meta'], async (tx) => {
+      const removed = await write(['sessions', 'solves', 'practice', 'duels', 'outbox', 'meta'], async (tx) => {
         const sessions = tx.objectStore('sessions');
         const solves = tx.objectStore('solves');
         const practice = tx.objectStore('practice');
+        const duels = tx.objectStore('duels');
         // A exclusão que a conta recusou (o teto de bytes) também espera: ela só existe aqui, e o servidor ainda não a tem.
         const waiting = new Set<string>([...(await tx.objectStore('outbox').getAllKeys()), ...(await heldOf(tx))]);
-        const gone = (store: SyncStore) => (r: { id: string; deletedAt: number | null }) => expired(r) && !waiting.has(syncKey(store, r.id));
+        const gone = (store: SyncStore | 'duels') => (r: { id: string; deletedAt: number | null }) =>
+          expired(r) && !waiting.has(syncKey(store, r.id));
         const allSolves = await solves.getAll();
         const oldSolves = allSolves.filter(gone('solves'));
         // Uma sessão só some depois do último solve dela: um que ainda espera na fila (a sessão pode ter subido antes, num lote seguinte
@@ -1029,14 +1059,17 @@ export function createRepository(
         const parents = new Set(allSolves.filter((s) => !leaving.has(s.id)).map((s) => s.sessionId));
         const oldSessions = (await sessions.getAll()).filter((s) => gone('sessions')(s) && !parents.has(s.id));
         const oldPractice = (await practice.getAll()).filter(gone('practice'));
+        const oldDuels = (await duels.getAll()).filter(gone('duels'));
         await each(oldSessions, (s) => sessions.delete(s.id));
         await each(oldSolves, (s) => solves.delete(s.id));
         await each(oldPractice, (p) => practice.delete(p.id));
-        return { sessions: oldSessions.length, solves: oldSolves.map((s) => s.id) };
+        await each(oldDuels, (d) => duels.delete(d.id));
+        return { sessions: oldSessions.length, solves: oldSolves.map((s) => s.id), duels: oldDuels.length };
       });
       if (removed.solves.length > 0) announceSolves(removed.solves);
       if (removed.sessions > 0) announce('sessions');
-      return removed.sessions + removed.solves.length;
+      if (removed.duels > 0) announce('duels');
+      return removed.sessions + removed.solves.length + removed.duels;
     },
 
     async getProfile() {
@@ -1521,14 +1554,15 @@ export function createRepository(
     },
 
     async exportAll({ includeDeleted = true } = {}) {
-      // Uma transação só, para sessões, solves, perfil e treino virem do mesmo instante.
-      const [sessions, solves, device, items, practice] = await read(['sessions', 'solves', 'profile', 'prefs', 'practice'], (tx) =>
+      // Uma transação só, para sessões, solves, perfil, treino e desafios virem do mesmo instante.
+      const [sessions, solves, device, items, practice, duels] = await read(['sessions', 'solves', 'profile', 'prefs', 'practice', 'duels'], (tx) =>
         Promise.all([
           tx.objectStore('sessions').getAll(),
           tx.objectStore('solves').getAll(),
           tx.objectStore('profile').get('current'),
           tx.objectStore('prefs').getAll(),
           tx.objectStore('practice').getAll(),
+          tx.objectStore('duels').getAll(),
         ]),
       );
       const kept = <V extends { deletedAt: number | null }>(list: V[]): V[] => (includeDeleted ? list : list.filter((x) => x.deletedAt === null));
@@ -1541,16 +1575,19 @@ export function createRepository(
         solves: kept(solves).map(bareSolve).sort(bySolveTime),
         profile: device || items.length > 0 ? composeProfile(device, items) : null,
         practice: practice.filter((p) => p.deletedAt === null).map(barePractice).sort(byPracticeTime),
+        // Os desafios têm lixeira, como os solves: vão com ela (ou sem), em ordem de criação.
+        duels: kept(duels).map(bareDuel).sort(byDuelCreated),
       };
     },
 
     async importAll(data) {
       const report: ImportReport = { sessionsAdded: 0, solvesAdded: 0, solvesUpdated: 0, skipped: 0 };
       let refused = 0;
-      const outcome = await syncWrite(['sessions', 'solves', 'profile', 'prefs', 'practice'], async (tx, ctx) => {
+      const outcome = await syncWrite(['sessions', 'solves', 'profile', 'prefs', 'practice', 'duels'], async (tx, ctx) => {
         const sessions = tx.objectStore('sessions');
         const solves = tx.objectStore('solves');
         const practice = tx.objectStore('practice');
+        const duels = tx.objectStore('duels');
         const limit = now() + IMPORT_FUTURE_MS;
 
         // Sessão por id, como o solve (spec 5.5): entra a nova (e conta), substitui a de updatedAt menor (renomear e excluir no outro
@@ -1676,10 +1713,32 @@ export function createRepository(
         }
         await each(newPractice, (p) => practice.put(p));
         await each(newPractice, (p) => ctx.track('practice', p.id));
-        return { profileSaved, sessionBack, practiceAdded: newPractice.length, sessionsWritten: sessionWrites.length };
+
+        // Os desafios juntam pelo id, como os solves (fora do relatório, como o treino): entra o que não existe, substitui o de updatedAt
+        // menor, e o resto fica como está. Um com uma data que não serve fica de fora, contado em refused.
+        const knownDuels = new Map<string, StoredDuel>();
+        for (const d of await duels.getAll()) knownDuels.set(d.id, d);
+        const duelWrites: StoredDuel[] = [];
+        for (const d of duelsFrom(data.duels)) {
+          if (!fileDatesOk(d, limit)) {
+            refused++;
+            continue;
+          }
+          const have = knownDuels.get(d.id);
+          if (have !== undefined && d.updatedAt <= have.updatedAt) continue;
+          duelWrites.push({ ...d, deletionStamp: importedStamp(have, d) });
+        }
+        await each(duelWrites, (d) => duels.put(d));
+        return {
+          profileSaved,
+          sessionBack,
+          practiceAdded: newPractice.length,
+          sessionsWritten: sessionWrites.length,
+          duelsWritten: duelWrites.length,
+        };
       });
       if (refused > 0) report.refused = refused;
-      const changed = outcome.sessionsWritten + report.solvesAdded + report.solvesUpdated + outcome.practiceAdded > 0;
+      const changed = outcome.sessionsWritten + report.solvesAdded + report.solvesUpdated + outcome.practiceAdded + outcome.duelsWritten > 0;
       if (outcome.profileSaved || changed) announce('all');
       if (outcome.sessionBack) announce('sessions');
       return report;
@@ -1690,13 +1749,16 @@ export function createRepository(
       // Uma cópia de antes do treino (sem `practice`, ou com algo que não é lista) não mexe no treino daqui; com a lista, mesmo vazia, o
       // treino é o dela.
       const practice = Array.isArray(data.practice) ? practiceFrom(data.practice) : null;
-      await syncWrite(['sessions', 'solves', 'profile', 'prefs', 'practice'], async (tx, ctx) => {
-        const [sessions, solves, practices, device, items] = await Promise.all([
+      // Os desafios, do mesmo jeito: uma cópia de antes deles não mexe nos daqui; com a lista, mesmo vazia, valem os dela.
+      const copyDuels = Array.isArray(data.duels) ? duelsFrom(data.duels) : null;
+      await syncWrite(['sessions', 'solves', 'profile', 'prefs', 'practice', 'duels'], async (tx, ctx) => {
+        const [sessions, solves, practices, device, items, duels] = await Promise.all([
           tx.objectStore('sessions').getAll(),
           tx.objectStore('solves').getAll(),
           tx.objectStore('practice').getAll(),
           tx.objectStore('profile').get('current'),
           tx.objectStore('prefs').getAll(),
+          tx.objectStore('duels').getAll(),
         ]);
         // A restauração fica com a temporada mais adiantada (spec 5.6), mesmo que a cópia não tenha perfil, e uma cópia sem perfil também
         // não tira o acabamento que a pessoa escolheu.
@@ -1735,6 +1797,22 @@ export function createRepository(
           changes.filter((c) => checkChange(c).ok),
           (c) => ctx.track(c.store, c.id),
         );
+        // Os desafios trocam pela regra de restoreChanges: cada um da cópia é gravado de novo com a data da restauração (a marca de exclusão
+        // dela nunca depois disso), e o ativo daqui que não está nela vai para a lixeira. Nada é apagado.
+        if (copyDuels) {
+          const at = ctx.stamp();
+          const inCopy = new Set(copyDuels.map((d) => d.id));
+          const restored: StoredDuel[] = copyDuels.map((d) => ({
+            ...d,
+            updatedAt: at,
+            deletedAt: d.deletedAt === null ? null : Math.min(stampOf(d.deletedAt), at),
+            deletionStamp: at,
+          }));
+          const left = duels
+            .filter((d) => d.deletedAt === null && !inCopy.has(d.id))
+            .map((d) => ({ ...d, updatedAt: at, deletedAt: at, deletionStamp: at }));
+          await each([...restored, ...left], (d) => tx.objectStore('duels').put(d));
+        }
         if (keepsProfile) await tx.objectStore('profile').put(split.device, 'current');
         else await tx.objectStore('profile').delete('current');
       });
@@ -1787,6 +1865,46 @@ export function createRepository(
         await ctx.track('practice', id);
       });
       announce('practice');
+    },
+
+    async listDuels({ includeDeleted = false } = {}) {
+      const all = (await db.getAllFromIndex('duels', 'byCreated')).reverse();
+      return all.filter((d) => includeDeleted || d.deletedAt === null).map(bareDuel);
+    },
+
+    async getDuel(id) {
+      const duel = await db.get('duels', id);
+      return duel ? bareDuel(duel) : null;
+    },
+
+    // As datas vêm do relógio do sync (spec 5.4), como nos solves. Substituir não mexe na marca de exclusão: uma edição nunca desfaz a
+    // exclusão feita noutro aparelho (D5). Só a volta de um desafio da lixeira ganha marca nova, como restoreDuel.
+    async saveDuel(d) {
+      if (d.id !== `${d.linkId}-${d.side}`) throw new Error(`Id de desafio fora do formato: ${d.id}`);
+      const saved = await syncWrite(['duels'], async (tx, ctx) => {
+        const store = tx.objectStore('duels');
+        const current = await store.get(d.id);
+        const at = ctx.stamp();
+        const record: StoredDuel = {
+          ...d,
+          createdAt: current?.createdAt ?? at,
+          updatedAt: at,
+          deletedAt: null,
+          deletionStamp: current && current.deletedAt === null ? current.deletionStamp : at,
+        };
+        await store.put(record);
+        return record;
+      });
+      announce('duels');
+      return structuredClone(bareDuel(saved));
+    },
+
+    deleteDuel(id) {
+      return trashDuel(id, true);
+    },
+
+    restoreDuel(id) {
+      return trashDuel(id, false);
     },
 
     onChange(fn) {

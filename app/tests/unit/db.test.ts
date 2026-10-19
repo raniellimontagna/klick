@@ -1,6 +1,7 @@
-import { openDB } from 'idb';
+import { openDB, type IDBPDatabase } from 'idb';
 import { describe, expect, it, vi } from 'vitest';
-import { DB_VERSION, openKlickDb } from '../../src/data/db';
+import { DB_VERSION, openKlickDb, type KlickDB } from '../../src/data/db';
+import { createRepository } from '../../src/data/repository';
 
 let n = 0;
 const fresh = (): string => `db-test-${++n}`;
@@ -68,6 +69,45 @@ describe('versão 3 do banco (spec 5.1)', () => {
     expect(db.objectStoreNames.contains('outbox')).toBe(false);
     expect(db.objectStoreNames.contains('practice')).toBe(true);
     db.close();
+  });
+});
+
+describe('versão 4 do banco (spec do desafio, seção 7)', () => {
+  it('a versão 4 cria duels sem mexer nos dados da v3', async () => {
+    const name = fresh();
+    // Um banco da versão 3 com de tudo, gravado pelo repositório de hoje (nada dele toca em duels), com conta: a fila também tem entradas.
+    const v3 = await openKlickDb(name, {}, 3);
+    expect(v3.objectStoreNames.contains('duels')).toBe(false);
+    let t = 1_791_500_000_000;
+    const repo = createRepository(v3, { now: () => (t += 1000), channel: null });
+    await repo.saveSyncState({ accountId: 'conta-1', signedIn: true });
+    const session = await repo.createSession({ event: '333' });
+    const solve = await repo.addSolve({ sessionId: session.id, event: '333', ms: 12_345, penalty: '+2', at: t, scramble: "R U R'" });
+    await repo.deleteSolve((await repo.addSolve({ sessionId: session.id, event: '333', ms: 9_000, penalty: null, at: t, scramble: 'F' })).id);
+    await repo.updateSolve(solve.id, { note: 'cruz' });
+    await repo.addPractice({ id: 'p1', caseId: 'oll2-sune', ms: 2_500, ok: true, helped: false, at: t });
+    await repo.saveProfile({ finish: 'fosco', settings: { dailyGoal: 40 } });
+    await repo.saveMeta({ solvesSinceBackup: 7 });
+    await repo.saveBackup({ id: 'b1', createdAt: t, reason: 'manual', solveCount: 1, encoding: 'json', payload: '{}' });
+    const stores = ['solves', 'sessions', 'profile', 'meta', 'backups', 'practice', 'prefs', 'outbox'] as const;
+    const read = async (db: IDBPDatabase<KlickDB>) =>
+      Promise.all(stores.map(async (store) => ({ store, keys: await db.getAllKeys(store), values: await db.getAll(store) })));
+    const before = await read(v3);
+    expect(before.find((s) => s.store === 'outbox')?.keys.length).toBeGreaterThan(0);
+    repo.close();
+
+    const upgrading = vi.fn();
+    const v4 = await openKlickDb(name, { upgrading });
+    expect(v4.version).toBe(4);
+    expect(DB_VERSION).toBe(4);
+    const duels = v4.transaction('duels').objectStore('duels');
+    expect(duels.keyPath).toBe('id');
+    expect([...duels.indexNames]).toEqual(['byCreated']);
+    expect(duels.index('byCreated').keyPath).toBe('createdAt');
+    expect(await v4.count('duels')).toBe(0);
+    expect(await read(v4)).toEqual(before); // nada da v3 muda, e nenhuma cópia nova
+    expect(upgrading).not.toHaveBeenCalled(); // só cria uma store: sem o aviso da migração demorada
+    v4.close();
   });
 });
 

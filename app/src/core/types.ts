@@ -142,6 +142,7 @@ export interface KlickExport {
   solves: Solve[];
   profile: ProfilePatch | null; // o export sai completo; o que vem de um arquivo pode faltar campo (quem grava junta com o perfil daqui)
   practice?: Practice[]; // o treino (spec do sub-projeto 4, seção 9.3); um arquivo de antes do treino não tem
+  duels?: Duel[]; // os desafios (spec do desafio, seção 7); um arquivo de antes deles não tem
 }
 
 // Congelado por inteiro, inclusive o grupo de sons: quem precisar alterar trabalha numa cópia (defaultSettings).
@@ -179,4 +180,24 @@ export interface DuelLink {
   scrambles: string[];
   a: { name: string; times: DuelTime[] };
   b?: { name: string; times: DuelTime[] };
+}
+
+export type DuelStatus = 'playing' | 'waiting' | 'done'; // jogando, esperando a resposta, terminado
+
+// Um desafio guardado neste aparelho (spec do desafio, seção 7): um registro por lado da partida, com o id `${linkId}-${side}` (desafiar a
+// si mesmo grava os dois lados sem colidir). Os tempos do desafio ficam só aqui, nunca em `solves`: nada dele entra nas estatísticas.
+export interface Duel {
+  id: string;
+  linkId: string; // o id do link (DuelLink.id)
+  side: DuelSide; // o lado deste aparelho
+  event: EventId;
+  scrambles: string[];
+  mine: DuelTime[]; // os tempos deste lado, na ordem dos embaralhamentos
+  theirs: DuelTime[] | null; // os do outro lado; null enquanto a resposta não chega
+  myName: string;
+  theirName: string;
+  status: DuelStatus;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt: number | null; // marca de exclusão (lixeira), como nos solves
 }
