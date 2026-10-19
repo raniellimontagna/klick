@@ -89,15 +89,17 @@ export function stampSteps(steps: readonly RestoreStep[], stamp: number): Change
 // `prefs`: as chaves da conta restaurada, todas (prefsFromProfile com withDefaults), ou null para não mexer nos itens da conta. Uma chave
 // que existe aqui e não está nelas (uma aula, uma escolha, um caso fora) volta ao valor padrão; uma que esta versão não conhece (de um
 // catálogo mais novo) fica como está, porque o padrão dela não seria aceito. Uma chave que já tem o valor que ficaria (nas duas regras)
-// não é regravada.
+// não é regravada, e uma sem item conta como já no padrão.
 export function prefsRestoreChanges(current: readonly Change[], prefs: ReadonlyMap<string, unknown> | null, stamp: number): Change[] {
   const out: Change[] = [];
   if (!prefs) return out;
   const now = new Map<string, Change>();
   for (const c of current) if (c.store === 'prefs') now.set(c.id, c);
   for (const [key, value] of prefs) {
+    // Uma chave sem item vale o padrão dela (é como o app a lê, e uma conta só guarda as chaves que alguém mudou): a cópia com o padrão
+    // não a grava.
     const have = now.get(key);
-    if (have && canonicalJson(have.data) === canonicalJson(value)) continue;
+    if (canonicalJson(have ? have.data : defaultPrefValue(key)) === canonicalJson(value)) continue;
     out.push({ store: 'prefs', id: key, data: value, updatedAt: stamp, deletedAt: null, deletionStamp: stamp });
   }
   for (const c of now.values()) {

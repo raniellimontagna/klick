@@ -59,7 +59,7 @@ describe('a cópia diária no formato do export (spec 8.3)', () => {
     const out = new Map(result.writes.map((c) => [syncKey(c.store, c.id), c]));
     expect(out.get('solves/a')).toMatchObject({ updatedAt: stamp, deletedAt: null, data: { ms: 1000 } });
     expect(out.get('solves/extra')).toMatchObject({ deletedAt: stamp, deletionStamp: stamp });
-    expect(out.get('prefs/trail.0')).toMatchObject({ data: false, updatedAt: stamp });
+    expect(out.has('prefs/trail.0')).toBe(false); // sem item agora e no padrão na cópia: nada a gravar
     // Só as mudanças reais: a sessão é igual nos dois lados e não é regravada. A temporada da cópia (a do começo) difere da daqui, então é
     // emitida, e o servidor (applyChanges) fica com a mais adiantada.
     expect(out.has('sessions/s')).toBe(false);

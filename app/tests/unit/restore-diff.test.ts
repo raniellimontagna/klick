@@ -134,15 +134,30 @@ describe('prefsRestoreChanges', () => {
       prefToChange({ key: 'lessonAt.4', value: null, updatedAt: T0 }), // já no padrão: fica
       prefToChange({ key: 'trainOff.caso-que-saiu', value: true, updatedAt: T0 }), // desconhecida: fica
     ];
-    const prefs = new Map<string, unknown>([['trail.0', true], ['trail.1', false], ['trail.2', false]]);
+    const prefs = new Map<string, unknown>([['trail.0', true], ['trail.1', false], ['trail.2', false]]); // trail.2 não tem item: já vale o padrão
     const out = prefsRestoreChanges(current, prefs, stamp);
-    expect(out.map((c) => `${c.id}=${JSON.stringify(c.data)}`).sort()).toEqual(['lessonAt.3=null', 'trail.1=false', 'trail.2=false']);
+    expect(out.map((c) => `${c.id}=${JSON.stringify(c.data)}`).sort()).toEqual(['lessonAt.3=null', 'trail.1=false']);
     for (const c of out) expect(c).toMatchObject({ store: 'prefs', updatedAt: stamp, deletedAt: null, deletionStamp: stamp });
   });
 
   it('um valor igual com as chaves em outra ordem não muda', () => {
     const current = [prefToChange({ key: 'season', value: { a: 1, b: { c: 2, d: 3 } }, updatedAt: T0 })];
     expect(prefsRestoreChanges(current, new Map([['season', { b: { d: 3, c: 2 }, a: 1 }]]), stamp)).toEqual([]);
+  });
+
+  it('chave ausente agora e padrão na cópia: nada', () => {
+    const prefs = new Map<string, unknown>([['trail.3', false], ['lessonAt.2', null], ['settings.dailyGoal', 20], ['finish', 'fosco'], ['duelName', '']]);
+    expect(prefsRestoreChanges([], prefs, stamp)).toEqual([]);
+  });
+
+  it('chave ausente agora e fora do padrão na cópia: uma mudança', () => {
+    const prefs = new Map<string, unknown>([['trail.3', true], ['finish', 'fosco']]);
+    expect(prefsRestoreChanges([], prefs, stamp)).toEqual([{ store: 'prefs', id: 'trail.3', data: true, updatedAt: stamp, deletedAt: null, deletionStamp: stamp }]);
+  });
+
+  it('chave presente agora e diferente, com o padrão na cópia, volta ao padrão', () => {
+    const current = [prefToChange({ key: 'trail.3', value: true, updatedAt: T0 })];
+    expect(prefsRestoreChanges(current, new Map([['trail.3', false]]), stamp).map((c) => [c.id, c.data])).toEqual([['trail.3', false]]);
   });
 
   it('prefs null não mexe em nada', () => {

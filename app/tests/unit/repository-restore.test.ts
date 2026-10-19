@@ -26,13 +26,6 @@ async function fresh(account: string | null = null): Promise<{ db: IDBPDatabase<
   return { db, repo };
 }
 
-// Uma conta que já tem todas as chaves gravadas (como uma depois de restaurar, ou de uma migração completa): só assim "igual à cópia"
-// vale também para as chaves da conta. Uma chave que não tem item não é igual: restaurar a grava, com a data nova, como sempre.
-async function withAllKeys(repo: Repository): Promise<void> {
-  await repo.replaceAll(await repo.exportAll());
-  t += 1000;
-}
-
 describe('a sessão padrão de um aparelho novo (spec 5.5)', () => {
   it('dois aparelhos novos criam a mesma "Sessão 1", com id fixo por evento', async () => {
     const ids: string[] = [];
@@ -96,7 +89,6 @@ describe('restaurar uma cópia é gravação (spec 5.5)', () => {
     const s = await repo.createSession({ event: '333' });
     const kept = await repo.addSolve(ns(s.id, 1000));
     await repo.saveProfile({ trail: [true, false, false, false, false, false, false, false, false] });
-    await withAllKeys(repo);
     const backup = await createBackup(repo, 'manual', t);
     const keptBefore = (await db.get('solves', kept.id))!;
     t += 1000;
@@ -123,7 +115,6 @@ describe('restaurar uma cópia é gravação (spec 5.5)', () => {
     const s = await repo.createSession({ event: '333' });
     const kept = await repo.addSolve(ns(s.id, 1000));
     const other = await repo.addSolve(ns(s.id, 3000));
-    await withAllKeys(repo);
     const backup = await createBackup(repo, 'manual', t);
     t += 1000;
     await repo.updateSolve(kept.id, { note: 'depois da cópia' });
@@ -144,7 +135,6 @@ describe('restaurar uma cópia é gravação (spec 5.5)', () => {
     await repo.addSolve(ns(s.id, 1000));
     await repo.addPractice({ id: 'p1', caseId: 'oll2-sune', ms: 2000, ok: true, helped: false, at: t });
     await repo.saveProfile({ trail: [true, false, false, false, false, false, false, false, false] });
-    await withAllKeys(repo);
     const backup = await createBackup(repo, 'manual', t);
     await db.clear('outbox');
     const snapshot = async () => ({
@@ -441,7 +431,6 @@ describe('restaurar com conta põe na fila tudo o que grava, e só o que o servi
     const s = await repo.createSession({ event: '333' });
     const a = await repo.addSolve(ns(s.id, 1000));
     await repo.addPractice({ id: 'p1', caseId: 'oll2-sune', ms: 2000, ok: true, helped: false, at: t });
-    await withAllKeys(repo);
     const backup = await createBackup(repo, 'manual', t);
     t += 1000;
     const extra = await repo.addSolve(ns(s.id, 2000));
