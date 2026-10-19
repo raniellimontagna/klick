@@ -4,10 +4,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { decodeDuelLink, duelPayloadOf, encodeDuelLink } from '../../src/core/duel/link';
 import type { DuelLink, DuelTime, EventId, Penalty } from '../../src/core/types';
 import { openKlickDb } from '../../src/data/db';
-import { createRepository } from '../../src/data/repository';
+import { createRepository, type Repository } from '../../src/data/repository';
 import { createScrambleQueue } from '../../src/scramble/queue';
 import { T } from '../../src/strings';
 import { AppState } from '../../src/ui/state/app.svelte';
+import { mockMedia } from './media';
+import { appWithAccount, fakeApi, manualEnv } from './sync-account';
+import { FakeServer } from './sync-fakes';
 
 // A tela do desafio (a maquete aprovada, docs/design/2026-10-19-desafio-maquete.html): um modo do Timer, as folhas e as telas de fim. A
 // casca monta com um estado pronto, como em app-dialogs.test.ts; o link é aberto direto por openLink (o #desafio= é da Task 7).
@@ -27,8 +30,8 @@ const LINK: DuelLink = { v: 1, id: 'abcdefgh12345678', event: '333', scrambles: 
 const A_SHOWN = ['12.34', '13.45', '14.56', '15.67', '16.78', '17.89', '18.91'];
 
 // Um aparelho com o app aberto: sem inspeção e sem tempo de armar (o solve pelo teclado fica síncrono), o tour já visto.
-async function device(o: { onboarded?: boolean; name?: string } = {}) {
-  const repo = createRepository(await openKlickDb(`dz-${++dbn}`), { channel: null });
+async function device(o: { onboarded?: boolean; name?: string; repo?: Repository } = {}) {
+  const repo = o.repo ?? createRepository(await openKlickDb(`dz-${++dbn}`), { channel: null });
   if (o.onboarded !== false) await repo.saveProfile({ onboarded: true });
   let k = 0;
   const a = new AppState({
@@ -75,6 +78,31 @@ async function solveDuel(a: AppState, ms: number): Promise<void> {
   solveIn(ms);
   await waitFor(() => expect(a.duel.current!.mine).toHaveLength(before + 1));
   await tick();
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+// O botão de mandar com o link pronto (preparado antes do toque: o compartilhar só abre dentro do gesto).
+async function readyButton(name: string): Promise<HTMLButtonElement> {
+  const button = await screen.findByRole('button', { name }, { timeout: 3000 });
+  await waitFor(() => expect(button).toBeEnabled());
+  return button as HTMLButtonElement;
+}
+
+// A desafiou (os sete e o link mandado) e B, noutro aparelho, respondeu: 3 × 0 para B no terceiro.
+async function answered(A: AppState): Promise<string> {
+  await A.duel.start('333');
+  for (const t of A_TIMES) await A.duel.record(t);
+  const url = (await A.duel.challengeUrl('https://klick.test'))!;
+  const B = await device();
+  await B.a.duel.openLink(duelPayloadOf(new URL(url).hash)!);
+  await B.a.duel.accept();
+  for (const t of [tm(10_000), tm(10_000), tm(10_000)]) {
+    await B.a.duel.record(t);
+    await B.a.duel.reveal();
+    B.a.duel.next();
+  }
+  return (await B.a.duel.replyUrl('https://klick.test', 'Bia'))!;
 }
 
 const timeText = (): string => document.querySelector('[data-screen="timer"] [data-time]')?.textContent ?? '';
@@ -165,8 +193,9 @@ describe('a tela do desafio (a maquete aprovada)', () => {
       }
     }
 
-    // 4: os sete tempos, o nome dos Ajustes e "Mandar o desafio".
+    // 4: os sete tempos, o nome dos Ajustes e "Mandar o desafio". O sétimo também é anunciado (o Timer já saiu do modo).
     await waitFor(() => expect(a.duel.phase).toBe('finished'));
+    await waitFor(() => expect(liveText()).toBe('Tempo final: 0:16.00.'));
     await tick();
     expect(screen.getByText(T.duel.readyLabel)).toBeInTheDocument();
     expect(screen.getByText(T.duel.readyCoach)).toBeInTheDocument();
@@ -183,16 +212,21 @@ describe('a tela do desafio (a maquete aprovada)', () => {
 
     const share = vi.fn(async (_data: ShareData) => {});
     stubShare(share);
+    await readyButton(T.duel.send);
     await fireEvent.input(name, { target: { value: 'Rani' } });
     expect(screen.getByText('4/20')).toBeInTheDocument();
-    await fireEvent.click(screen.getByRole('button', { name: T.duel.send }));
-    await waitFor(() => expect(share).toHaveBeenCalledTimes(1));
+    // O nome mudou: o link é preparado de novo (depois de uma pausa na digitação), e até lá o botão espera.
+    expect(screen.getByRole('button', { name: T.duel.preparing })).toBeDisabled();
+    const send = await readyButton(T.duel.send);
+    expect(a.profile.duelName).toBe('Rani'); // o nome grava ao preparar, não no toque
+    // O toque chama a folha do sistema na hora, sem esperar nada antes (o gesto da pessoa vale só ali).
+    send.click();
+    expect(share).toHaveBeenCalledTimes(1);
     const data = share.mock.calls[0]![0];
     expect(data.text).toBe('Rani te desafiou no Klick: 3×3, sete embaralhamentos, primeiro a 3 pontos.');
     const link = await decodeDuelLink(duelPayloadOf(new URL(data.url!).hash)!);
     expect(link).toMatchObject({ event: '333', a: { name: 'Rani', times: [10_000, 11_000, 12_000, 13_000, 14_000, 15_000, 16_000].map((ms) => tm(ms)) } });
-    expect(a.profile.duelName).toBe('Rani');
-    expect(a.duel.current).toMatchObject({ status: 'waiting' });
+    await waitFor(() => expect(a.duel.current).toMatchObject({ status: 'waiting' })); // mandado: o desafio espera a resposta
     expect(a.toast).toBeNull(); // a folha do sistema abriu: nada de aviso de cópia
   });
 
@@ -204,6 +238,7 @@ describe('a tela do desafio (a maquete aprovada)', () => {
     const invite = await screen.findByRole('dialog', { name: 'Ranielli te desafiou' });
     expect(within(invite).getByRole('heading', { name: 'Ranielli te desafiou' })).toBeInTheDocument();
     expect(within(invite).getByText(T.duel.noAccount)).toBeInTheDocument();
+    expect(within(invite).getByText(T.duel.localOnly)).toBeInTheDocument(); // sem conta: só neste aparelho
     expect(within(invite).getByText(T.duel.chipTarget)).toBeInTheDocument();
     for (const shown of A_SHOWN) expect(everything()).not.toContain(shown);
     await fireEvent.click(within(invite).getByRole('button', { name: T.duel.accept }));
@@ -218,6 +253,7 @@ describe('a tela do desafio (a maquete aprovada)', () => {
     await waitFor(() => expect(timeText()).toBe('0:10.00'));
     expect(screen.getByText(T.duel.scramble(1))).toBeInTheDocument();
     expect(screen.getByText(T.duel.checkPenalty)).toBeInTheDocument();
+    expect(document.querySelector('.t-hints')).toHaveTextContent(T.duel.hintsConfirm); // o espaço não arma aqui
     for (const shown of A_SHOWN) expect(everything()).not.toContain(shown);
     // O Centro espera o ponto: o anel apagado.
     await waitFor(() => expect(litRing()).toBe(0));
@@ -227,9 +263,16 @@ describe('a tela do desafio (a maquete aprovada)', () => {
     await waitFor(() => expect(timeText()).toBe('0:12.00+'));
     for (const shown of A_SHOWN) expect(everything()).not.toContain(shown);
 
-    // 6b: "Ver o ponto" revela o tempo de A daquele embaralhamento, o selo e o placar; o seguinte continua escondido.
-    await fireEvent.click(screen.getByRole('button', { name: T.duel.seePoint }));
+    // 6b: "Ver o ponto" revela o tempo de A daquele embaralhamento, o selo e o placar; o seguinte continua escondido. Dois toques seguidos
+    // revelam uma vez: a reação e o anúncio não recomeçam.
+    const announce = vi.spyOn(b.a, 'announce');
+    const see = screen.getByRole('button', { name: T.duel.seePoint });
+    see.click();
+    see.click();
     await waitFor(() => expect(b.a.duel.phase).toBe('reveal'));
+    await sleep(50);
+    expect(announce.mock.calls.filter(([text]) => text.startsWith('Ranielli: '))).toHaveLength(1);
+    expect(document.querySelector('.t-hints')).toHaveTextContent(T.duel.hintsReveal);
     await tick();
     const reveal = document.querySelector('[data-duel-reveal]') as HTMLElement;
     expect(reveal).toHaveTextContent(T.duel.pointMine);
@@ -295,7 +338,7 @@ describe('a tela do desafio (a maquete aprovada)', () => {
       ['5–7', T.duel.notPlayed(3)],
     ]);
     expect(document.querySelector('.dz-match tbody tr td.w')).toHaveTextContent('0:10.00');
-    expect(screen.getByRole('button', { name: T.duel.sendReply })).toBeInTheDocument();
+    expect(await readyButton(T.duel.sendReply)).toBeInTheDocument();
     expect(screen.getByText(T.duel.replyNote('Ranielli'))).toBeInTheDocument();
     // A pílula do modo segue; o Timer de sempre, não.
     expect(document.querySelector('[data-screen="timer"]')).toHaveAttribute('hidden');
@@ -319,29 +362,112 @@ describe('a tela do desafio (a maquete aprovada)', () => {
     const writeText = vi.fn(async (_text: string) => {});
     stubShare(undefined, writeText);
     await fireEvent.input(await screen.findByRole('textbox', { name: T.duel.nameLabel }), { target: { value: 'Bia' } });
-    await fireEvent.click(screen.getByRole('button', { name: T.duel.sendReply }));
-    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    // Sem a folha do sistema, o próprio toque copia (dentro do gesto, sem esperar nada antes).
+    (await readyButton(T.duel.sendReply)).click();
+    expect(writeText).toHaveBeenCalledTimes(1);
     const link = await decodeDuelLink(duelPayloadOf(new URL(writeText.mock.calls[0]![0]).hash)!);
     expect(link).toMatchObject({ id: LINK.id, b: { name: 'Bia', times: [tm(10_000), tm(10_000), tm(10_000)] } });
     await waitFor(() => expect(b.a.toast?.text).toBe(T.duel.copied));
     expect(document.querySelector('.toast')).toHaveTextContent(T.duel.copied);
   });
 
-  it('sem gravar, o link não sai: o aviso honesto e nada compartilhado', async () => {
+  it('o link saiu mas não deu para guardar que saiu: o aviso honesto, a penalidade não muda mais e mandar de novo grava', async () => {
     const { a, repo } = await device();
     await mount(a);
     await a.duel.start('333');
     for (let i = 0; i < 7; i++) await a.duel.record(tm(10_000 + i));
-    await waitFor(() => expect(screen.getByRole('button', { name: T.duel.send })).toBeInTheDocument());
+    const send = await readyButton(T.duel.send);
     const share = vi.fn(async (_data: ShareData) => {});
     stubShare(share);
+    const saveDuel = repo.saveDuel.bind(repo);
     repo.saveDuel = async () => {
       throw new Error('quota');
     };
-    await fireEvent.click(screen.getByRole('button', { name: T.duel.send }));
-    await waitFor(() => expect(a.toast?.text).toBe(T.duel.linkFailed));
-    expect(share).not.toHaveBeenCalled();
+    send.click();
+    expect(share).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(a.toast?.text).toBe(T.duel.sentNotSaved));
     expect(a.duel.current).toMatchObject({ status: 'playing' });
+    // O link já saiu com estes tempos: +2 e DNF somem da tela.
+    expect(screen.queryByRole('group', { name: T.duel.lastPenalty(7) })).toBeNull();
+    repo.saveDuel = saveDuel;
+    (await readyButton(T.duel.send)).click();
+    await waitFor(() => expect(a.duel.current).toMatchObject({ status: 'waiting' }));
+    expect(share).toHaveBeenCalledTimes(2);
+  });
+
+  it('no toque, A põe DNF no sétimo na tela de mandar, e o link leva o DNF; mandado, P e D não fazem nada', async () => {
+    const restore = mockMedia(['(pointer: coarse)']);
+    try {
+      const { a } = await device();
+      await mount(a);
+      await a.duel.start('333');
+      for (let i = 0; i < 7; i++) await a.duel.record(tm(10_000 + i * 1000));
+      const group = await screen.findByRole('group', { name: T.duel.lastPenalty(7) });
+      expect(screen.getByText(T.duel.lastPenalty(7))).toBeInTheDocument();
+      await fireEvent.click(within(group).getByRole('button', { name: /DNF/ }));
+      await waitFor(() => expect(a.duel.current!.mine[6]).toEqual(tm(16_000, 'DNF')));
+      expect(within(group).getByRole('button', { name: /DNF/ })).toHaveAttribute('aria-pressed', 'true');
+      await waitFor(() => expect(document.querySelectorAll('[data-duel-times] li')[6]).toHaveTextContent('7DNF'));
+      const share = vi.fn(async (_data: ShareData) => {});
+      stubShare(share);
+      (await readyButton(T.duel.send)).click();
+      const link = await decodeDuelLink(duelPayloadOf(new URL(share.mock.calls[0]![0].url!).hash)!);
+      expect(link!.a.times[6]).toEqual(tm(16_000, 'DNF'));
+      // Mandado: os botões somem, e P e D não mudam nada nem anunciam.
+      await waitFor(() => expect(a.duel.current).toMatchObject({ status: 'waiting' }));
+      await waitFor(() => expect(screen.queryByRole('group', { name: T.duel.lastPenalty(7) })).toBeNull());
+      const announce = vi.spyOn(a, 'announce');
+      key('keydown', 'KeyP', 'p');
+      key('keydown', 'KeyD', 'd');
+      await sleep(50);
+      expect(a.duel.current!.mine[6]).toEqual(tm(16_000, 'DNF'));
+      expect(announce).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  it('a folha do sistema recusou: "Copiar o link" copia no próprio toque', async () => {
+    const { a } = await device();
+    await mount(a);
+    await a.duel.start('333');
+    for (let i = 0; i < 7; i++) await a.duel.record(tm(10_000 + i));
+    const writeText = vi.fn(async (_text: string) => {});
+    stubShare(async () => {
+      throw new DOMException('sem o gesto', 'NotAllowedError');
+    }, writeText);
+    (await readyButton(T.duel.send)).click();
+    const copy = await screen.findByRole('button', { name: T.duel.copyLink });
+    expect(writeText).not.toHaveBeenCalled();
+    copy.click();
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText.mock.calls[0]![0]).toMatch(/#desafio=/);
+    await waitFor(() => expect(a.toast?.text).toBe(T.duel.copied));
+    await waitFor(() => expect(a.duel.current).toMatchObject({ status: 'waiting' }));
+  });
+
+  it('com o link ainda sendo preparado, o botão fica desligado', async () => {
+    const { a } = await device();
+    // O nome grava ao preparar o link: segurado, o link não fica pronto.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const setDuelName = a.setDuelName.bind(a);
+    a.setDuelName = async (name) => {
+      await gate;
+      return setDuelName(name);
+    };
+    await mount(a);
+    await a.duel.start('333');
+    for (let i = 0; i < 7; i++) await a.duel.record(tm(10_000 + i));
+    const share = vi.fn(async (_data: ShareData) => {});
+    stubShare(share);
+    const waiting = await screen.findByRole('button', { name: T.duel.preparing });
+    expect(waiting).toBeDisabled();
+    waiting.click();
+    expect(share).not.toHaveBeenCalled();
+    release();
+    (await readyButton(T.duel.send)).click();
+    expect(share).toHaveBeenCalledTimes(1);
   });
 
   it('link torto mostra o aviso e nada mais', async () => {
@@ -408,6 +534,8 @@ describe('a barra do topo e a pílula do modo', () => {
     const meta = document.querySelector('.topbar .meta')!;
     const pills = () => [...meta.querySelectorAll('button.pill')].map((b) => b.textContent?.trim());
     expect(pills()).toEqual([T.duel.challenge, T.session.pill('3×3', a.activeSession!.name)]);
+    // O nome da sessão encolhe com reticências; a pílula fica numa linha.
+    expect(meta.querySelector('[data-session-pill] .pill-name')).toHaveTextContent(a.activeSession!.name);
     screen.getAllByRole('button', { name: 'Evolução' })[0]!.click();
     await tick();
     expect(screen.queryByRole('button', { name: T.duel.challenge })).toBeNull();
@@ -604,6 +732,28 @@ describe('a barra do topo e a pílula do modo', () => {
     expect(screen.queryByRole('button', { name: T.duel.send })).toBeNull();
     expect(screen.queryByRole('textbox', { name: T.duel.nameLabel })).toBeNull();
     expect(screen.getByRole('button', { name: T.duel.close })).toBeInTheDocument();
+  });
+
+  it('o convite diz onde ficam os tempos: com conta, no aparelho e na conta', async () => {
+    const { app } = await appWithAccount(fakeApi(new FakeServer()).api, { signedIn: true, env: manualEnv().env });
+    await mount(app);
+    await app.duel.openLink(await encodeDuelLink(LINK));
+    const invite = await screen.findByRole('dialog', { name: 'Ranielli te desafiou' });
+    expect(within(invite).getByText(T.duel.localAndAccount)).toBeInTheDocument();
+    expect(within(invite).queryByText(T.duel.localOnly)).toBeNull();
+  });
+
+  it('a resposta chega com A na tela de mandar: o foco vai para o resultado, e ele é anunciado', async () => {
+    const A = await device({ name: 'Ranielli' });
+    await mount(A.a);
+    const reply = await answered(A.a);
+    await waitFor(() => expect(screen.getByRole('button', { name: T.duel.send })).toBeInTheDocument());
+    // O outro aparelho de A (aqui, o mesmo banco) abre a resposta: a tela de mandar vira a partida.
+    const other = await device({ repo: A.repo });
+    expect(await other.a.duel.openLink(duelPayloadOf(new URL(reply).hash)!)).toBe('reply');
+    const heading = await screen.findByRole('heading', { name: 'Bia venceu 3 × 0' });
+    await waitFor(() => expect(document.activeElement).toBe(heading));
+    await waitFor(() => expect(liveText()).toBe('Bia venceu 3 × 0. Bia fechou no embaralhamento 3.'));
   });
 
   it('a primeira visita por um link não mostra a apresentação antes do desafio', async () => {

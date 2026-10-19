@@ -868,6 +868,27 @@ describe('o estado do desafio (spec do desafio, seções 3 a 6)', () => {
     expect(S.app.duel.index).toBe(1);
   });
 
+  // A revisão da Task 6: o link fica pronto antes do toque (a folha do sistema só abre dentro do gesto), sem dar o desafio por mandado.
+  it('challengeLink prepara o link com o nome, sem dar o desafio por mandado; a penalidade do sétimo ainda muda', async () => {
+    const { app, repo } = await device();
+    await app.duel.start('333');
+    const id = app.duel.current!.id;
+    for (const x of A_TIMES) await app.duel.record(x);
+    const early = await app.duel.challengeLink(ORIGIN, ' Rani ');
+    expect(app.profile.duelName).toBe('Rani');
+    expect(await repo.getDuel(id)).toMatchObject({ status: 'playing' });
+    expect(await decodeDuelLink(payloadOf(early))).toMatchObject({ a: { name: 'Rani', times: A_TIMES } });
+    await app.duel.setPenalty('+2');
+    const prepared = await app.duel.challengeLink(ORIGIN);
+    expect((await decodeDuelLink(payloadOf(prepared)))!.a.times[6]).toEqual(tm(13_080, '+2'));
+    // Dar por mandado devolve o mesmo link, e a penalidade para.
+    expect(await app.duel.challengeUrl(ORIGIN)).toBe(prepared);
+    expect(await repo.getDuel(id)).toMatchObject({ status: 'waiting' });
+    // B não tem desafio para preparar.
+    const B = await accepted(prepared!);
+    expect(await B.app.duel.challengeLink(ORIGIN)).toBeNull();
+  });
+
   it('o current de B é o mesmo objeto enquanto o desafio não muda', async () => {
     const A = await device();
     const B = await accepted(await challenge(A.app));

@@ -335,6 +335,19 @@
   color: var(--dec);
 }
 
+/* +2 e DNF do sétimo, na tela de mandar, debaixo da lista (os mesmos botões do Timer). */
+.dz-last {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  text-align: center;
+}
+
+.dz-last .t-actions {
+  margin-top: 0;
+}
+
 .dz-end .row {
   display: flex;
   flex-wrap: wrap;

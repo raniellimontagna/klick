@@ -99,6 +99,9 @@ export const T = Object.freeze({
     defaultName: (n: number) => `Sessão ${n}`,
     // A pílula do topo: "3×3 · Sessão 1 ▾".
     pill: (event: string, name: string) => `${event} · ${name} ▾`,
+    // As partes dela, para o nome encolher com reticências: "3×3 · " + o nome + " ▾" (o mesmo texto de pill).
+    pillEvent: (event: string) => `${event} · `,
+    pillCaret: ' ▾',
     // O N de um nome no formato acima; null para qualquer outro nome.
     defaultNameNumber: (name: string): number | null => {
       const m = /^Sessão (\d+)$/.exec(name);
@@ -614,6 +617,9 @@ export const T = Object.freeze({
     card: (event: string): string => `Desafio · ${event}`,
     now: 'agora',
     hints: 'espaço armar · qualquer tecla para · P +2 · D DNF · os tempos do desafio não entram nas médias',
+    // B confere a penalidade e vê o ponto: o espaço não arma (só os atalhos que valem ali).
+    hintsConfirm: 'P +2 · D DNF · os tempos do desafio não entram nas médias',
+    hintsReveal: 'os tempos do desafio não entram nas médias',
     // A pílula do modo (3b)
     menuLabel: 'Desafio',
     menuTitle: (event: string): string => `Desafio · ${event}`,
@@ -631,11 +637,15 @@ export const T = Object.freeze({
     nameHint: 'Só quem receber este link vê. Fica guardado nos Ajustes.',
     nameHintReply: (them: string): string => `${them} vê na resposta. Fica guardado nos Ajustes.`,
     nameCount: (n: number, max: number): string => `${n}/${max}`,
+    // A penalidade do sétimo, na tela de mandar, até o link sair (como o "+2 e DNF valem para o 2" do Timer).
+    lastPenalty: (n: number): string => `+2 e DNF valem para o ${n}.`,
     send: 'Mandar o desafio',
+    preparing: 'Preparando o link…', // o link é preparado antes do toque: a folha do sistema só abre dentro dele
     sendNote: 'Abre o compartilhar do aparelho. Sem ele, o link é copiado.',
+    copyLink: 'Copiar o link',
     copied: 'Link copiado. Cole na conversa.',
     copyFailed: 'Não consegui copiar o link. Tente de novo.',
-    linkFailed: 'Não consegui preparar o link. Tente de novo.',
+    sentNotSaved: 'O link saiu, mas não consegui guardar que o desafio foi mandado. Mande de novo.',
     // O texto que vai com o link: sem nome, o "Alguém te desafiou" do convite.
     shareText: (name: string, event: string): string => `${name || 'Alguém'} te desafiou no Klick: ${event}, sete embaralhamentos, primeiro a 3 pontos.`,
     replyText: (name: string, event: string): string => `${name || 'Alguém'} respondeu ao seu desafio no Klick: ${event}, a partida inteira, ponto a ponto.`,
@@ -648,6 +658,7 @@ export const T = Object.freeze({
       `Um por vez, sem refazer: depois de cada solve, aparece o tempo de ${name || 'quem desafiou'} naquele embaralhamento e quem levou o ponto.`,
     noAccount: 'Sem conta e sem instalar nada.',
     localOnly: 'Seus tempos ficam só neste aparelho.',
+    localAndAccount: 'Seus tempos ficam neste aparelho e na sua conta.', // quem tem conta: o desafio sobe no sync
     accept: 'Aceitar',
     notNow: 'Agora não',
     // A penalidade antes do ponto (6a) e a revelação (6b)
@@ -696,6 +707,7 @@ export const T = Object.freeze({
     rematch: 'Desafiar de volta',
     // A abre a resposta (8)
     replyLabel: 'Resposta do desafio',
+    replyArrived: (title: string, closed: string): string => `${title}. ${closed}`, // o anúncio da resposta que chegou com a tela aberta
     seeAll: 'Ver em Desafios',
     close: 'Fechar',
     // Link inválido (10)

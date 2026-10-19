@@ -268,7 +268,17 @@ import SyncIndicator from './SyncIndicator.svelte';
           {#if challengeShown}
             <button type="button" class="pill" data-desafiar aria-haspopup="dialog" onclick={() => app?.duel.pick()}>{T.duel.challenge}</button>
           {/if}
-          <button type="button" class="pill" data-session-pill aria-haspopup="dialog" onclick={() => openDialog('sessions')}>{T.session.pill(eventInfo(app.event).short, app.activeSession?.name ?? '')}</button>
+          <!-- Numa linha só: o nome da sessão encolhe com reticências (o texto, e o nome acessível, seguem inteiros). -->
+          <button
+            type="button"
+            class="pill"
+            data-session-pill
+            aria-haspopup="dialog"
+            onclick={() => openDialog('sessions')}
+            ><span class="pill-fixed">{T.session.pillEvent(eventInfo(app.event).short)}</span><span class="pill-name"
+              >{app.activeSession?.name ?? ''}</span
+            ><span class="pill-fixed">{T.session.pillCaret}</span></button
+          >
         {/if}
         <span data-date>{dateLabel(Date.now())}</span>
         <SyncIndicator {app} />

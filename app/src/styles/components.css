@@ -80,6 +80,30 @@
   font-size: 13px;
   font-weight: 500;
   color: var(--ink);
+  white-space: nowrap;
+}
+
+/* A pílula da sessão fica numa linha: num topo apertado (o celular estreito, com "Desafiar" e o indicador do sync), o nome da sessão
+   encolhe com reticências; o evento e a seta ficam inteiros. */
+.topbar .meta {
+  min-width: 0;
+}
+
+.pill[data-session-pill] {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.pill-fixed {
+  flex: none;
+  white-space: pre;
+}
+
+.pill-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Cartões, chips, botões */

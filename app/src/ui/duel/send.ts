@@ -1,23 +1,36 @@
-// Mandar o link do desafio (spec do desafio, seção 4): pela folha de compartilhar do sistema (Web Share, com o texto e a URL); sem ela, ou
-// se o navegador a recusar, o link vai para a área de transferência. Quem chama mostra o aviso de cada resultado: 'shared' (a folha abriu),
-// 'cancelled' (a pessoa fechou a folha), 'copied' (o link foi copiado) ou 'failed' (nem uma coisa nem outra).
-export type SendOutcome = 'shared' | 'cancelled' | 'copied' | 'failed';
-
+// Mandar o link do desafio (spec do desafio, seção 4): pela folha de compartilhar do sistema (Web Share, com o texto e a URL); sem ela, a
+// área de transferência. As duas só valem dentro do gesto da pessoa (no iPhone, um await antes as recusa): cada função chama a API do
+// navegador na hora, sem esperar nada antes, e devolve depois como foi. O link já vem pronto (DuelEnd o prepara antes do toque).
 type SendNav = Partial<Pick<Navigator, 'share' | 'clipboard'>>;
 
-export async function sendLink(text: string, url: string, nav: SendNav = navigator): Promise<SendOutcome> {
-  if (typeof nav.share === 'function') {
-    try {
-      await nav.share({ text, url });
-      return 'shared';
-    } catch (err) {
-      // NotAllowedError (o gesto da pessoa expirou enquanto o link era gravado) e afins: a cópia ainda serve.
-      if (err instanceof DOMException && err.name === 'AbortError') return 'cancelled';
-    }
+// A folha do sistema existe? Sem ela, o toque copia.
+export const canShare = (nav: SendNav = navigator): boolean => typeof nav.share === 'function';
+
+// 'shared' (a folha abriu e a pessoa mandou), 'cancelled' (fechou a folha) ou 'failed' (o navegador recusou: aí a cópia, num toque novo).
+export function shareLink(text: string, url: string, nav: SendNav = navigator): Promise<'shared' | 'cancelled' | 'failed'> {
+  let started: Promise<void>;
+  try {
+    started = nav.share!({ text, url });
+  } catch {
+    return Promise.resolve('failed');
   }
+  return started.then(
+    () => 'shared' as const,
+    (err: unknown) => (err instanceof DOMException && err.name === 'AbortError' ? ('cancelled' as const) : ('failed' as const)),
+  );
+}
+
+// 'copied' ou 'failed' (sem área de transferência, ou recusada).
+export function copyLink(url: string, nav: SendNav = navigator): Promise<'copied' | 'failed'> {
   const clipboard = nav.clipboard;
-  if (!clipboard || typeof clipboard.writeText !== 'function') return 'failed';
-  return clipboard.writeText(url).then(
+  if (!clipboard || typeof clipboard.writeText !== 'function') return Promise.resolve('failed');
+  let started: Promise<void>;
+  try {
+    started = clipboard.writeText(url);
+  } catch {
+    return Promise.resolve('failed');
+  }
+  return started.then(
     () => 'copied' as const,
     () => 'failed' as const,
   );

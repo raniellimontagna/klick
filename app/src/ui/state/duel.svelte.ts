@@ -377,6 +377,21 @@ export class DuelState {
     });
   }
 
+  // O link do desafio de A como está agora (os sete tempos e o nome), sem dar o desafio por mandado: a tela o prepara antes do toque, e o
+  // toque o compartilha na hora (a folha do sistema só abre dentro do gesto da pessoa). Depois de compartilhado, challengeUrl o dá por
+  // mandado. `name`, como em challengeUrl, vai para os Ajustes antes. null de uma visualização, ou sem o desafio de A com os sete.
+  challengeLink(origin: string, name?: string): Promise<string | null> {
+    return this.serial(async () => {
+      const d = this.#duel;
+      if (this.readOnly || !d || d.side !== 'a' || d.mine.length < DUEL_SCRAMBLES) return null;
+      const epoch = this.epoch;
+      if (name !== undefined) await this.host.setDuelName(name);
+      const now = this.#duel;
+      if (epoch !== this.epoch || !now) return null;
+      return duelUrl(origin, await encodeDuelLink(linkOf({ ...now, myName: this.host.duelName() })));
+    });
+  }
+
   // "Mandar de novo": o mesmo link de um desafio de A que espera resposta; null para qualquer outro.
   resend(id: string, origin: string): Promise<string | null> {
     return this.serial(async () => {

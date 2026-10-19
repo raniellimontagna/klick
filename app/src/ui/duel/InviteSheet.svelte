@@ -36,7 +36,8 @@
       <span class="chip">{T.duel.chipTarget}</span>
     </div>
     <p>{T.duel.inviteText(invite.name)}</p>
-    <p><b>{T.duel.noAccount}</b> <span class="muted">{T.duel.localOnly}</span></p>
+    <!-- Com conta, o desafio sobe no sync com o resto: os tempos ficam também na conta. -->
+    <p><b>{T.duel.noAccount}</b> <span class="muted">{app.account?.signedIn ? T.duel.localAndAccount : T.duel.localOnly}</span></p>
     <div class="row">
       <button type="button" class="btn primary" onclick={() => app.duel.accept()}>{T.duel.accept}</button>
       <button type="button" class="btn" onclick={() => app.duel.decline()}>{T.duel.notNow}</button>

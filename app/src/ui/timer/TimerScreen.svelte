@@ -77,6 +77,10 @@
   const reveal = $derived(duelPhase === 'reveal' && duel && app.duel.score ? revealOf(duel, app.duel.score, app.duel.index) : null);
   const revealTime = $derived(reveal ? splitTime(reveal.time) : null);
   const wide = wideLayout(); // no desktop, o placar do desafio vai para a coluna da direita
+  // A dica de teclado do desktop. Na confirmação e na revelação o espaço não arma: fica só o que vale ali.
+  const hint = $derived(
+    !duelOn ? T.timer.hints : duelPhase === 'confirm' ? T.duel.hintsConfirm : duelPhase === 'reveal' ? T.duel.hintsReveal : T.duel.hints,
+  );
   // O espaço e o toque só armam no Timer de sempre e no embaralhamento da vez do desafio (o timer que corre ainda para com qualquer toque).
   const armable = (): boolean => app.duel.phase === 'idle' || app.duel.phase === 'solving';
 
@@ -442,8 +446,12 @@
     live.clearReaction();
     if (app.duel.phase === 'confirm') live.wait(true);
     showResult = t !== undefined && timer.state === 'done';
-    if (t && timer.state === 'done') {
-      const after = app.duel.phase === 'confirm' ? ` ${T.duel.checkPenalty}` : app.duel.phase === 'solving' ? ` ${T.duel.scramble(app.duel.index + 1)}.` : '';
+    // O tempo final é sempre anunciado (o sétimo de A também: a tela de mandar já tirou o Timer do modo, e ele voltou ao parado). O que vem
+    // depois, só com o resultado na tela.
+    if (t) {
+      const done = timer.state === 'done';
+      const after =
+        done && app.duel.phase === 'confirm' ? ` ${T.duel.checkPenalty}` : done && app.duel.phase === 'solving' ? ` ${T.duel.scramble(app.duel.index + 1)}.` : '';
       app.announce(`${T.aria.final(duelTime(t))}${after}`);
     }
     kick();
@@ -456,7 +464,10 @@
     const t = d?.mine.at(-1);
     if (!d || !t || penalizing) return;
     const phase = app.duel.phase;
-    const open = d.side === 'a' ? (phase === 'solving' && showResult && timer.state === 'done') || phase === 'finished' : phase === 'confirm';
+    const open =
+      d.side === 'a'
+        ? (phase === 'solving' && showResult && timer.state === 'done') || (phase === 'finished' && d.status === 'playing')
+        : phase === 'confirm';
     if (!open) return;
     penalizing = true;
     try {
@@ -464,30 +475,38 @@
     } finally {
       penalizing = false;
     }
+    // Só uma troca de verdade é anunciada (o link que já saiu não muda, e nada é dito).
     const now = app.duel.current?.mine.at(-1);
-    if (now) app.announce(T.aria.final(duelTime(now)));
+    if (now && now.penalty !== t.penalty) app.announce(T.aria.final(duelTime(now)));
     kick();
   }
 
   // "Ver o ponto" (B): a revelação gravada, o Centro reage ao ponto (seu: 6 verdes; do oponente: 3 em âmbar; ninguém: o "="), o anúncio e
   // o foco em "Próximo" (o botão que tinha o foco sumiu).
+  // Um toque por vez: o segundo, com a revelação ainda gravando, não recomeça a reação nem anuncia de novo.
+  let seeing = false;
   async function seePoint(): Promise<void> {
     const id = app.duel.current?.id;
     const phase = app.duel.phase;
-    if (phase !== 'confirm' || !id) return;
-    const refocus = focusLost() || (screenEl?.contains(document.activeElement) ?? false);
-    await app.duel.reveal();
-    const d = app.duel.current;
-    const score = app.duel.score;
-    if (destroyed || app.duel.phase !== 'reveal' || d?.id !== id || !score) return;
-    const shown = revealOf(d, score, app.duel.index);
-    if (!shown) return;
-    live.react(shown.centro, performance.now());
-    app.announce(shown.aria);
-    kick();
-    if (!refocus) return;
-    await tick();
-    if (!destroyed) screenEl?.querySelector<HTMLElement>('[data-duel-next]')?.focus({ preventScroll: true });
+    if (seeing || phase !== 'confirm' || !id) return;
+    seeing = true;
+    try {
+      const refocus = focusLost() || (screenEl?.contains(document.activeElement) ?? false);
+      await app.duel.reveal();
+      const d = app.duel.current;
+      const score = app.duel.score;
+      if (destroyed || app.duel.phase !== 'reveal' || d?.id !== id || !score) return;
+      const shown = revealOf(d, score, app.duel.index);
+      if (!shown) return;
+      live.react(shown.centro, performance.now());
+      app.announce(shown.aria);
+      kick();
+      if (!refocus) return;
+      await tick();
+      if (!destroyed) screenEl?.querySelector<HTMLElement>('[data-duel-next]')?.focus({ preventScroll: true });
+    } finally {
+      seeing = false;
+    }
   }
 
   // "Próximo": o embaralhamento seguinte (ou o resultado). O botão some: o foco vai para a tela, como quando uma ação do Timer some.
@@ -1120,7 +1139,7 @@
   {/if}
 
   <Zones bind:el={zonesEl} one={app.profile.settings.mobileArm === 'one'} hidden={reviewing} />
-  <p class="t-hints fade muted">{duelOn ? T.duel.hints : T.timer.hints}</p>
+  <p class="t-hints fade muted">{hint}</p>
 </section>
 
 {#if duelEnd && app.tab === 'timer'}
