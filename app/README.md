@@ -106,8 +106,10 @@ Antes do beta:
    `{evt:'cleanup', storage:N}` nos logs.
 7. **Sonda de CPU:** a cópia e a restauração de uma conta de teste com alguns milhares de solves, conferindo a CPU nos Workers Logs. Se
    valer a leitura de 10 ms, as duas vars (`SNAPSHOT_MAX_RECORDS` e `RESTORE_MAX_RECORDS`) vão a `"0"`, e a cascata de apagar uma sessão
-   ganha um teto no código.
-8. **Sonda do apagar a conta** (`deleteAll`): apagar uma conta de teste e conferir no painel as linhas gravadas.
+   ganha um teto no código. **Feita em 19/10 no beta** (conta de 4.006 registros): a cópia do alarme gastou 54 ms de CPU e a restauração
+   283 ms, as duas sem erro no plano gratuito. Vale a leitura de 30 s; as vars ficam como estão.
+8. **Sonda do apagar a conta** (`deleteAll`): apagar uma conta de teste e conferir no painel as linhas gravadas. **Feita em 19/10:**
+   apagar a conta de 4.006 registros gravou 14 linhas (o `deleteAll` não conta por registro).
 
 Antes da raiz:
 
