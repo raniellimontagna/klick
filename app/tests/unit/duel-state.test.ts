@@ -47,12 +47,13 @@ function fakeGenerate(fail: (call: number) => boolean = () => false) {
 }
 
 // Um aparelho com o app aberto. `repo` reaproveita o banco de outro: é a página recarregada.
-async function device(o: { repo?: Repository; generate?: (ev: EventId) => Promise<string> } = {}) {
-  const repo = o.repo ?? createRepository(await openKlickDb(`duel-${++n}`), { now, channel: null });
+async function device(o: { repo?: Repository; generate?: (ev: EventId) => Promise<string>; now?: () => number } = {}) {
+  const clock = o.now ?? now;
+  const repo = o.repo ?? createRepository(await openKlickDb(`duel-${++n}`), { now: clock, channel: null });
   const app = new AppState({
     repo,
     queue: createScrambleQueue({ generate: async (ev) => `${ev}-timer` }),
-    now,
+    now: clock,
     storage: null,
     storageManager: null,
     duel: { generate: o.generate ?? fakeGenerate().generate },
@@ -736,5 +737,95 @@ describe('o estado do desafio (spec do desafio, seções 3 a 6)', () => {
     const url = await app.duel.challengeUrl(ORIGIN);
     expect(url).not.toBeNull();
     expect(await repo.getDuel(id)).toMatchObject({ status: 'waiting' });
+  });
+
+  // A revisão da Task 5, rodada 2: uma visualização não é de ninguém. A data dela nunca bate com a de um registro gravado, e nada grava a
+  // partir dela.
+  it('uma visualização nunca grava: nem descartar, nem mandar, nem trocar o nome', async () => {
+    // O relógio do aparelho à frente do relógio do sync: a gravação leva exatamente a hora de agora, a mesma que a visualização teria.
+    let at = t;
+    const A = await device({ now: () => at });
+    at += 60_000;
+    const done = await A.repo.saveDuel({
+      id: `${LINK.id}-a`,
+      linkId: LINK.id,
+      side: 'a',
+      event: LINK.event,
+      scrambles: LINK.scrambles,
+      mine: A_TIMES,
+      theirs: B_TIMES,
+      myName: 'Ranielli',
+      theirName: 'Bia',
+      status: 'done',
+    });
+    expect(done.updatedAt).toBe(at);
+    // A resposta de outro amigo, aberta no mesmo milissegundo: só para ver.
+    const fromLeo: DuelLink = { ...LINK, b: { name: 'Léo', times: [tm(20_000), tm(20_000), tm(20_000)] } };
+    expect(await A.app.duel.openLink(await encodeDuelLink(fromLeo))).toBe('view');
+    expect(A.app.duel.current!.updatedAt).toBe(-1);
+    expect(await A.app.duel.discard()).toBe(false);
+    expect(await A.app.duel.challengeUrl(ORIGIN, 'Outro nome')).toBeNull();
+    expect(A.app.duel.phase).toBe('view');
+    expect(await A.repo.getDuel(done.id)).toEqual(done);
+    expect(A.app.profile.duelName).toBe('');
+
+    // B abrindo a própria resposta: mandar de novo dali não troca o nome nem grava.
+    const Ad = await device();
+    const B = await accepted(await challenge(Ad.app));
+    await play(B.app, B_TIMES);
+    const reply = await B.app.duel.replyUrl(ORIGIN, 'Bia');
+    const kept = await B.repo.getDuel(B.id);
+    expect(await B.app.duel.openLink(payloadOf(reply))).toBe('view');
+    expect(await B.app.duel.replyUrl(ORIGIN, 'Outro nome')).toBeNull();
+    expect(B.app.duel.phase).toBe('view');
+    expect(await B.repo.getDuel(B.id)).toEqual(kept);
+    expect(B.app.profile.duelName).toBe('Bia');
+  });
+
+  it('um desafio da lixeira conta como ausente: o link abre só para ver, e continuar não o traz de volta', async () => {
+    const A = await device();
+    const url = await challenge(A.app);
+    const aId = A.app.duel.current!.id;
+    expect(await A.app.duel.discard()).toBe(true);
+    const trashed = (await A.repo.getDuel(aId))!;
+    // O link do desafio descartado: só para ver, sem mandar de novo e sem sair da lixeira.
+    expect(await A.app.duel.openLink(payloadOf(url))).toBe('view');
+    expect(A.app.duel.phase).toBe('view');
+    expect(A.app.duel.current).toMatchObject({ side: 'a', mine: A_TIMES });
+    expect(await A.app.duel.challengeUrl(ORIGIN, 'Ranielli')).toBeNull();
+    expect(await A.app.duel.resend(aId, ORIGIN)).toBeNull();
+    expect(await A.app.duel.resume(aId)).toBe(false);
+    expect(A.app.duel.phase).toBe('idle');
+    expect(await A.repo.getDuel(aId)).toEqual(trashed);
+
+    // B apagou a partida em andamento (Evolução): o link de novo não a continua nem deixa aceitar outra vez.
+    const B = await accepted(url);
+    await play(B.app, B_TIMES.slice(0, 1));
+    await B.app.duel.record(B_TIMES[1]!); // o segundo, ainda sem ver o tempo de A
+    B.app.duel.exit();
+    await B.repo.deleteDuel(B.id);
+    const gone = (await B.repo.getDuel(B.id))!;
+    expect(await B.app.duel.openLink(payloadOf(url))).toBe('view');
+    expect(B.app.duel.phase).toBe('view');
+    expect(B.app.duel.current!.theirs).toEqual(A_TIMES.slice(0, 1)); // só o revelado, como sempre
+    await B.app.duel.accept();
+    await B.app.duel.record(tm(8_000));
+    await B.app.duel.reveal();
+    expect(await B.app.duel.resume(B.id)).toBe(false);
+    expect(await B.repo.getDuel(B.id)).toEqual(gone);
+  });
+
+  it('o current de B é o mesmo objeto enquanto o desafio não muda', async () => {
+    const A = await device();
+    const B = await accepted(await challenge(A.app));
+    await B.app.duel.record(tm(9_000));
+    const first = B.app.duel.current;
+    expect(B.app.duel.current).toBe(first);
+    expect(B.app.duel.opponent).toBe(B.app.duel.opponent);
+    await B.app.duel.reveal();
+    const shown = B.app.duel.current;
+    expect(shown).not.toBe(first);
+    expect(shown!.theirs).toEqual(A_TIMES.slice(0, 1));
+    expect(B.app.duel.current).toBe(shown);
   });
 });

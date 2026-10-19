@@ -87,6 +87,9 @@ function linkOf(d: Duel): DuelLink {
   return { ...base, a: { name: d.theirName, times: d.theirs ?? [] }, b: { name: d.myName, times: d.mine.slice(0, revealedOf(d)) } };
 }
 
+// A data de uma visualização: nenhum registro gravado tem data negativa, então nenhuma conferência (expectUpdatedAt) bate com ela.
+const VIEW_STAMP = -1;
+
 // Uma resposta vista sem guardar: a partida inteira, do lado de `side`. Nada disto vai para o banco.
 function viewOf(link: DuelLink, b: NonNullable<DuelLink['b']>, side: DuelSide, at: number): Duel {
   const [me, them] = side === 'a' ? [link.a, b] : [b, link.a];
@@ -103,10 +106,13 @@ function viewOf(link: DuelLink, b: NonNullable<DuelLink['b']>, side: DuelSide, a
     status: 'done',
     ...(side === 'b' ? { revealed: b.times.length } : {}),
     createdAt: at,
-    updatedAt: at,
+    updatedAt: VIEW_STAMP,
     deletedAt: null,
   };
 }
+
+// Um registro da lixeira conta como ausente: continuar dele o traria de volta (saveDuel revive o que grava). Ele só aparece para ver.
+const alive = (d: Duel | null): Duel | null => (d && d.deletedAt === null ? d : null);
 
 const sameTimes = (x: readonly DuelTime[] | null, y: readonly DuelTime[]): boolean =>
   x !== null && x.length === y.length && x.every((t, i) => t.ms === y[i]!.ms && t.penalty === y[i]!.penalty);
@@ -122,6 +128,12 @@ export class DuelState {
   // app.duel. A tela lê `current`, `opponent`, `score` e `invite`, que só mostram o revelado. Trocados inteiros a cada mudança.
   #duel = $state.raw<Duel | null>(null);
   #offer = $state.raw<DuelLink | null>(null); // o link de 'receive', até aceitar ou recusar
+  // O desafio que a tela vê: para B, `theirs` cortado nos revelados. Derivado, é a mesma referência enquanto o desafio não muda.
+  #shown = $derived.by((): Duel | null => {
+    const d = this.#duel;
+    if (!d || d.side === 'a' || !d.theirs) return d;
+    return { ...d, theirs: d.theirs.slice(0, revealedOf(d)) };
+  });
   private failedScrambles = $state(false);
   private opening = $state(0); // links sendo lidos: a apresentação espera também por eles
   private epoch = 0;
@@ -140,9 +152,7 @@ export class DuelState {
 
   // O desafio aberto. Para B, `theirs` vem cortado nos revelados: o tempo de A de um embaralhamento não conferido não aparece aqui.
   get current(): Duel | null {
-    const d = this.#duel;
-    if (!d || d.side === 'a' || !d.theirs) return d;
-    return { ...d, theirs: d.theirs.slice(0, revealedOf(d)) };
+    return this.#shown;
   }
 
   // O convite de 'receive': o evento e quem desafiou ('' sem nome). Os tempos de A ficam de fora.
@@ -322,8 +332,9 @@ export class DuelState {
         if (epoch === this.epoch) this.host.showToast(T.data.readFailed);
         return false;
       }
-      if (!d || epoch !== this.epoch) return false;
-      this.enter(d);
+      const found = alive(d);
+      if (!found || epoch !== this.epoch) return false;
+      this.enter(found);
       return true;
     });
   }
@@ -333,7 +344,7 @@ export class DuelState {
   discard(): Promise<boolean> {
     return this.serial(async () => {
       const d = this.#duel;
-      if (!d || d.side !== 'a') return false;
+      if (!d || d.side !== 'a' || this.readOnly) return false;
       const epoch = this.epoch;
       await this.host.settled();
       try {
@@ -353,6 +364,7 @@ export class DuelState {
   // gravar, null: nada saiu, o desafio segue como estava e Mandar tenta de novo.
   challengeUrl(origin: string, name?: string): Promise<string | null> {
     return this.serial(async () => {
+      if (this.readOnly) return null;
       const d = this.#duel;
       if (!d || d.side !== 'a' || d.mine.length < DUEL_SCRAMBLES) throw new Error('O desafio ainda não tem os sete tempos');
       const epoch = this.epoch;
@@ -375,8 +387,9 @@ export class DuelState {
         this.host.showToast(T.data.readFailed);
         return null;
       }
-      if (!d || d.side !== 'a' || d.status !== 'waiting') return null;
-      return duelUrl(origin, await encodeDuelLink(linkOf(d)));
+      const found = alive(d);
+      if (!found || found.side !== 'a' || found.status !== 'waiting') return null;
+      return duelUrl(origin, await encodeDuelLink(linkOf(found)));
     });
   }
 
@@ -384,6 +397,7 @@ export class DuelState {
   // sair, e sem gravar, null.
   replyUrl(origin: string, name?: string): Promise<string | null> {
     return this.serial(async () => {
+      if (this.readOnly) return null;
       const d = this.#duel;
       if (!d || d.side !== 'b' || !scoreOf(d)?.over) throw new Error('A partida ainda não acabou');
       const epoch = this.epoch;
@@ -460,8 +474,14 @@ export class DuelState {
       return 'invalid';
     }
     if (!link.b) {
-      if (b) return this.show('resume', live, b);
-      if (a) return this.show('own', live, a);
+      const accepted = alive(b);
+      const sent = alive(a);
+      if (accepted) return this.show('resume', live, accepted);
+      if (sent) return this.show('own', live, sent);
+      // Na lixeira: o desafio aparece só para ver (B só com o revelado, como sempre). Aceitar de novo seria refazer; mandar de novo, ou
+      // continuar, o traria de volta.
+      const trashed = b ?? a;
+      if (trashed) return this.show('view', live, { ...trashed, updatedAt: VIEW_STAMP }, 'view');
       if (live()) {
         this.#offer = link;
         this.go('receive');
@@ -482,6 +502,11 @@ export class DuelState {
       }
     }
     return this.show('view', live, viewOf(link, reply, b ? 'b' : 'a', this.host.now()), 'view');
+  }
+
+  // Uma visualização não é de ninguém: nada grava a partir dela.
+  private get readOnly(): boolean {
+    return this.stage === 'view';
   }
 
   private show(outcome: DuelOpened, live: () => boolean, d: Duel, phase: DuelPhase = phaseOf(d)): DuelOpened {
@@ -526,6 +551,7 @@ export class DuelState {
     epoch: number,
     onConflict = (stored: Duel | null): void => this.conflict(stored, epoch),
   ): Promise<Saved> {
+    if (this.readOnly) return 'failed'; // de uma visualização, nunca (cada ação já para antes; esta é a última trava)
     await this.host.settled();
     try {
       return await this.host.repo().saveDuel($state.snapshot(d), { expectUpdatedAt: expect });
