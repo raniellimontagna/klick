@@ -3,7 +3,7 @@ import { DB_VERSION, openKlickDb, type BackupRecord } from '../../src/data/db';
 import { createRepository, type KlickExport, type NewSolve, type Repository } from '../../src/data/repository';
 import {
   BACKUP_KEEP, countSolveSaved, createBackup, createSaveQueue, decodeSnapshot, encodeSnapshot,
-  planAfterSolve, planOnOpen, PRE_SYNC_KEEP_MS, PRE_SYNC_PINNED, requestPersistence, restoreBackup, storageStatus, V3_COPY_KEEP_MS, type SaveQueue,
+  planAfterSolve, planOnOpen, PRE_SYNC_KEEP_MS, PRE_SYNC_PINNED, requestPersistence, restoreBackup, restoreExport, storageStatus, V3_COPY_KEEP_MS, type SaveQueue,
 } from '../../src/data/safety';
 import type { Meta, Solve } from '../../src/core/types';
 
@@ -81,6 +81,18 @@ describe('cópias automáticas', () => {
     await restoreBackup(repo, b.id, t);
     expect((await repo.listSolves({ sessionId: s.id })).map((x) => x.ms)).toEqual([60000]);
     expect((await repo.listBackups()).some((r) => r.reason === 'pre-restore')).toBe(true);
+  });
+
+  it('restoreExport guarda o estado de agora como pre-restore e aplica a cópia que veio de fora', async () => {
+    const s = await repo.createSession({ event: '333' });
+    const keep = await repo.addSolve({ sessionId: s.id, event: '333', ms: 60000, penalty: null, at: 1, scramble: '' });
+    const copy = await repo.exportAll();
+    await repo.addSolve({ sessionId: s.id, event: '333', ms: 70000, penalty: null, at: 2, scramble: '' });
+    t += 1000;
+    await restoreExport(repo, copy, t);
+    expect((await repo.listSolves({ sessionId: s.id })).map((x) => x.id)).toEqual([keep.id]);
+    const pre = (await repo.listBackups()).find((r) => r.reason === 'pre-restore')!;
+    expect((await decodeSnapshot(pre)).solves).toHaveLength(2); // o estado de antes, com os dois
   });
 
   it('a cópia automática leva os desafios e a restauração os devolve', async () => {

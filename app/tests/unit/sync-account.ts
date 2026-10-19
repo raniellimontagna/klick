@@ -4,7 +4,7 @@ import { openKlickDb } from '../../src/data/db';
 import { defaultSessionId } from '../../src/data/ids';
 import { createRepository, type ChannelLike, type Repository } from '../../src/data/repository';
 import { createScrambleQueue } from '../../src/scramble/queue';
-import { ApiError, type CloudCopy, type Health, type SyncApi } from '../../src/sync/api';
+import { ApiError, type CloudCopy, type Health, type RestoreAnswer, type SyncApi } from '../../src/sync/api';
 import type { AuthClientLike, PasskeyInfo, SendResult } from '../../src/sync/auth';
 import type { Captcha } from '../../src/sync/captcha';
 import { createServerClock, type ServerClock } from '../../src/sync/engine';
@@ -46,10 +46,13 @@ export function manualEnv() {
 
 // A API falsa: /api/health e /api/sync, com o servidor falso de uma conta, e as cópias na nuvem e o apagar da conta (`cloud` anota o que
 // foi restaurado e apagado; `paused` é a pausa que a lista traz; `deleteError` é o erro que o apagar devolve: o 400 do e-mail que não
-// confere e o 401 da sessão vencida ou da conta já apagada). Depois de apagada, a conta responde 401 ao sync e às cópias, como o objeto marcado da Task 17.
+// confere e o 401 da sessão vencida ou da conta já apagada; `answer` é o que a restauração responde, e `partBytes` os objetos que o aparelho baixa
+// na restauração pelo aparelho, pelo índice, com `partCalls` anotando os pedidos). Depois de apagada, a conta responde 401 ao sync e às cópias, como o objeto marcado da Task 17.
 export function fakeApi(server: FakeServer, health: Health | null = { accounts: true, turnstileSiteKey: '1x00000000000000000000BB' }) {
   let failure: Error | null = null;
-  const cloud = { copies: [] as CloudCopy[], paused: null as CopiesPaused | null, restored: [] as string[], deleted: [] as string[], deleteError: null as ApiError | null };
+  const cloud = { copies: [] as CloudCopy[], paused: null as CopiesPaused | null, restored: [] as string[], deleted: [] as string[], deleteError: null as ApiError | null,
+    answer: { restore: 'server' } as RestoreAnswer, partBytes: [] as ArrayBuffer[], partCalls: [] as number[],
+  };
   const check = (): void => {
     if (failure) throw failure;
     if (cloud.deleted.length > 0) throw new ApiError('auth', 401);
@@ -67,6 +70,14 @@ export function fakeApi(server: FakeServer, health: Health | null = { accounts: 
     restoreCloudCopy: async (name) => {
       check();
       cloud.restored.push(name);
+      return cloud.answer;
+    },
+    copyPart: async (_name, index) => {
+      check();
+      cloud.partCalls.push(index);
+      const bytes = cloud.partBytes[index];
+      if (!bytes) throw new ApiError('client', 404);
+      return bytes.slice(0);
     },
     deleteAccount: async (email) => {
       if (cloud.deleteError) throw cloud.deleteError;

@@ -875,7 +875,7 @@ export const T = Object.freeze({
     protect: 'Proteger na nuvem',
     // Cópias na nuvem e apagar a conta (spec 7.7, 8.3 e 9.1)
     cloud: 'Cópias na nuvem',
-    cloudHint: 'Uma por dia, por 30 dias. Restaurar troca a conta inteira pelo dia escolhido, em todos os aparelhos.',
+    cloudHint: 'Uma por dia (numa conta muito grande, uma por semana), por 30 dias. Restaurar troca a conta inteira pelo dia escolhido, em todos os aparelhos.',
     cloudView: 'Ver cópias na nuvem',
     cloudTitle: 'Cópias na nuvem',
     cloudIntro: 'Restaurar grava antes uma cópia de agora, então nada se perde. A restauração chega a todos os aparelhos pelo sync.',
@@ -885,6 +885,8 @@ export const T = Object.freeze({
     cloudRestore: 'Restaurar este dia',
     cloudRestoreAria: (day: string): string => `Restaurar a cópia de ${day}`,
     cloudRestored: 'Restaurado. Os aparelhos recebem pelo sync.',
+    cloudRestoredHere: 'Restaurado neste aparelho. Os outros recebem nos próximos dias, pelo sync.',
+    cloudBig: 'Esta conta é grande: a restauração chega a este aparelho na hora e aos outros nos próximos dias.',
     cloudRestoreFailed: 'Não consegui restaurar agora. Tudo continua como estava.',
     cloudGone: 'Esta cópia não existe mais. A lista foi atualizada.',
     // As cópias pausadas e as recusas da restauração (endurecimento 4.2 e decisões 1, 2, 3 e 6): cada uma diz por quê, e nada muda aqui.

@@ -1,7 +1,8 @@
 <script lang="ts">
   // As cópias na nuvem (spec 8.3 e 9.1): os últimos 30 dias, com o número de solves de cada um. Restaurar pede um segundo clique: troca a
   // conta inteira, em todos os aparelhos. A cópia que não existe mais (passou dos 30 dias) avisa e a lista relê. As cópias pausadas dizem
-  // por quê no topo, e cada recusa da restauração tem a mensagem dela, sem nada mudar (endurecimento 4.2 e decisões 1, 2, 3 e 6).
+  // por quê no topo, e cada recusa da restauração tem a mensagem dela, sem nada mudar (endurecimento 4.2 e decisões 1, 2, 3 e 6). Uma cópia em partes (conta grande)
+  // avisa, no primeiro clique, que a restauração chega primeiro a este aparelho; 'device' (a restauração foi feita aqui) tem o toast dele.
   import type { CopiesPaused, RestoreRefusal } from '../../core/sync/types';
   import { T } from '../../strings';
   import { ApiError, type CloudCopy } from '../../sync/api';
@@ -75,8 +76,8 @@
     busy = true;
     try {
       const outcome = await account.restoreCloudCopy(c.name);
-      if (outcome === 'ok') {
-        app.showToast(T.conta.cloudRestored);
+      if (outcome === 'ok' || outcome === 'device') {
+        app.showToast(outcome === 'ok' ? T.conta.cloudRestored : T.conta.cloudRestoredHere);
         dialogEl?.close();
       } else if (outcome === 'gone') {
         app.showToast(T.conta.cloudGone);
@@ -103,7 +104,10 @@
       {#each copies as c (c.name)}
         {@const label = T.conta.cloudDay(c.day, c.kind)}
         <li class="setting">
-          <span>{label}<small>{T.backupsDialog.solves(c.solves)}</small></span>
+          <span
+            >{label}<small>{T.backupsDialog.solves(c.solves)}</small>
+            {#if asking === c.name && c.parts > 0}<small data-cloud-big>{T.conta.cloudBig}</small>{/if}</span
+          >
           <button
             type="button"
             class="btn{asking === c.name ? ' danger' : ''}"

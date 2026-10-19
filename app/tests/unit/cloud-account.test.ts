@@ -1,8 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RestoreRefusal, SyncRequest, SyncResponse } from '../../src/core/sync/types';
+import { gzipJson } from '../../src/core/gzip';
+import type { CopyManifest, CopyPart } from '../../src/core/sync/copy-parts';
 import { openKlickDb } from '../../src/data/db';
-import { type ChangeKind, createRepository, defaultSyncState } from '../../src/data/repository';
+import { type ChangeKind, createRepository, defaultSyncState, type KlickExport } from '../../src/data/repository';
 import { T } from '../../src/strings';
 import { ApiError, createSyncApi } from '../../src/sync/api';
 import type { LocksLike } from '../../src/sync/triggers';
@@ -413,6 +415,172 @@ describe('o repositório esquece a conta (spec 7.7)', () => {
   });
 });
 
+// A restauração pelo aparelho (conta grande): o servidor diz "restaure aí", e o aparelho sincroniza, baixa, guarda a cópia local, aplica
+// só as diferenças e deixa o sync subir o resto. Antes da gravação local, nada do aparelho muda (Review Focus 2).
+describe('a restauração pelo aparelho', () => {
+  const manifestOf = (copy: KlickExport, n: number): CopyManifest => ({
+    format: 'klick-parts', version: 1, exportedAt: copy.exportedAt, day: '2026-10-20', profile: copy.profile, solves: copy.solves.length,
+    parts: Array.from({ length: n }, (_, i) => ({ last: ['solves', `p${i + 1}`] as const, records: 1 })),
+  });
+  const partOf = (solves: KlickExport['solves'], sessions: KlickExport['sessions'] = []): CopyPart => ({ sessions, solves, practice: [], duels: [] });
+
+  // O aparelho com a sessão e dois solves (A e B), e a cópia em partes: tem o A e um C que o aparelho não tem (o B ficou de fora).
+  async function setup() {
+    const net = fakeApi(new FakeServer());
+    net.cloud.answer = { restore: 'device', parts: 2 };
+    const { app, repo } = await appWithAccount(net.api, { signedIn: true });
+    await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
+    await app.addSolve({ ms: 9000, penalty: null, at: Date.now() });
+    await app.addSolve({ ms: 8000, penalty: null, at: Date.now() });
+    await app.account!.syncNow();
+    const here = await repo.exportAll();
+    const [a, b] = [...here.solves].sort((x, y) => x.ms - y.ms).reverse();
+    const c = { ...b, id: 'solve-so-da-copia', ms: 7000 };
+    const copy: KlickExport = { ...here, solves: [a, c] };
+    const parts = [partOf([a], here.sessions), partOf([c])];
+    net.cloud.partBytes = [await gzipJson(manifestOf(copy, 2)), await gzipJson(parts[0]), await gzipJson(parts[1])];
+    return { net, app, repo, a, b, c };
+  }
+
+  it('resposta device: sincroniza, baixa, guarda a cópia local e grava só as diferenças', async () => {
+    const { net, app, repo, a, b, c } = await setup();
+    const events: string[] = [];
+    const sync = vi.spyOn(app.account!, 'syncNow').mockImplementation(async () => void events.push('sync'));
+    const part = net.api.copyPart;
+    net.api.copyPart = async (name, index, account) => {
+      events.push(`parte:${index}`);
+      return part(name, index, account);
+    };
+    const backups = (await repo.listBackups()).length;
+    const untouched = (await repo.listSolves()).find((s) => s.id === a.id)!;
+    expect(await app.account!.restoreCloudCopy('2026-10-15')).toBe('device');
+    // Sincronizou antes de baixar, baixou o objeto 0 e as partes 1..N em ordem, e sincronizou de novo depois de gravar.
+    expect(events).toEqual(['sync', 'parte:0', 'parte:1', 'parte:2', 'sync']);
+    expect(sync).toHaveBeenCalledTimes(2);
+    // A cópia local 'pre-restore' foi guardada, com o estado de antes (A e B).
+    const after = await repo.listBackups();
+    expect(after).toHaveLength(backups + 1);
+    expect(after.some((r) => r.reason === 'pre-restore')).toBe(true);
+    // O A, igual dos dois lados, não foi tocado (nem a data de alteração); o C entrou; o B, que a cópia não tem, foi para a lixeira.
+    const solves = await repo.listSolves();
+    expect(solves.find((s) => s.id === a.id)).toEqual(untouched);
+    expect(solves.map((s) => s.id).sort()).toEqual([a.id, c.id].sort());
+    expect((await repo.listTrash()).solves.map((s) => s.id)).toEqual([b.id]);
+    expect(net.cloud.restored).toEqual(['2026-10-15']);
+  });
+
+  it('o objeto 0 que é uma cópia inteira (arquivo só): grava sem pedir partes', async () => {
+    const { net, app, repo, a, c } = await setup();
+    const whole: KlickExport = { ...(await repo.exportAll()), solves: [a, c] };
+    net.cloud.answer = { restore: 'device', parts: 0 };
+    net.cloud.partBytes = [await gzipJson(whole)];
+    expect(await app.account!.restoreCloudCopy('2026-10-15')).toBe('device');
+    expect(net.cloud.partCalls).toEqual([0]);
+    expect((await repo.listSolves()).map((s) => s.id).sort()).toEqual([a.id, c.id].sort());
+  });
+
+  it('download que falha no meio: failed, nenhuma cópia local nova, nada gravado', async () => {
+    const { net, app, repo } = await setup();
+    await app.account!.syncNow();
+    const solves = await repo.listSolves();
+    const trash = await repo.listTrash();
+    const backups = (await repo.listBackups()).map((r) => r.id);
+    const sync = vi.spyOn(app.account!, 'syncNow');
+    net.api.copyPart = async (_name, index) => {
+      if (index === 2) throw new ApiError('offline', 0); // a rede cai na última parte
+      return net.cloud.partBytes[index].slice(0);
+    };
+    expect(await app.account!.restoreCloudCopy('2026-10-15')).toBe('failed');
+    expect((await repo.listBackups()).map((r) => r.id)).toEqual(backups);
+    expect(await repo.listSolves()).toEqual(solves);
+    expect(await repo.listTrash()).toEqual(trash);
+    expect(sync).toHaveBeenCalledTimes(1); // a de antes; a de depois não houve
+  });
+
+  it('parte torta, manifesto torto ou arquivo que não é do Klick: failed, sem gravar nada', async () => {
+    const { net, app, repo } = await setup();
+    await app.account!.syncNow();
+    const solves = await repo.listSolves();
+    const backups = (await repo.listBackups()).map((r) => r.id);
+    const good = [...net.cloud.partBytes];
+    for (const bad of [
+      [good[0], await gzipJson({ sessions: 'x' }), good[2]], // a parte não é uma parte
+      [await gzipJson({ format: 'klick-parts', version: 1 }), good[1], good[2]], // o manifesto não é um manifesto
+      [await gzipJson({ format: 'outra-coisa' })], // nem manifesto nem cópia inteira
+      [good[0], new TextEncoder().encode('não é gzip').buffer as ArrayBuffer, good[2]], // bytes que não abrem
+    ]) {
+      net.cloud.partBytes = bad;
+      expect(await app.account!.restoreCloudCopy('2026-10-15')).toBe('failed');
+    }
+    expect((await repo.listBackups()).map((r) => r.id)).toEqual(backups);
+    expect(await repo.listSolves()).toEqual(solves);
+  });
+
+  it('parte 404: gone, e nada gravado', async () => {
+    const { net, app, repo } = await setup();
+    await app.account!.syncNow();
+    const solves = await repo.listSolves();
+    const backups = (await repo.listBackups()).map((r) => r.id);
+    net.cloud.partBytes = [net.cloud.partBytes[0], net.cloud.partBytes[1]]; // a parte 2 sumiu (a regra do bucket)
+    expect(await app.account!.restoreCloudCopy('2026-10-15')).toBe('gone');
+    net.cloud.partBytes = []; // e o objeto 0 também
+    expect(await app.account!.restoreCloudCopy('2026-10-15')).toBe('gone');
+    expect((await repo.listBackups()).map((r) => r.id)).toEqual(backups);
+    expect(await repo.listSolves()).toEqual(solves);
+  });
+
+  it('resposta server: ok, como hoje (sem baixar nada, e o sync pede a mudança depois)', async () => {
+    const net = fakeApi(new FakeServer());
+    const { app } = await appWithAccount(net.api, { signedIn: true });
+    const sync = vi.spyOn(app.account!, 'syncNow');
+    expect(await app.account!.restoreCloudCopy('2026-10-15')).toBe('ok');
+    expect(net.cloud.partCalls).toEqual([]);
+    expect(sync).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('o diálogo das cópias grandes', () => {
+  it('cópia com parts: o primeiro clique mostra o aviso de conta grande; sem parts, não', async () => {
+    const net = fakeApi(new FakeServer());
+    net.cloud.copies = [
+      { name: '2026-10-15', day: '2026-10-15', kind: 'daily', solves: 90_000, parts: 3 },
+      { name: '2026-10-14', day: '2026-10-14', kind: 'daily', solves: 10, parts: 0 },
+    ];
+    const { app } = await appWithAccount(net.api, { signedIn: true });
+    render(AjustesScreen, { app });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Ver cópias na nuvem' }));
+    await screen.findByText('90000 solves');
+    expect(document.querySelector('[data-cloud-big]')).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Restaurar a cópia de 2026-10-14' }));
+    expect(document.querySelector('[data-cloud-big]')).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Restaurar a cópia de 2026-10-15' }));
+    const big = document.querySelectorAll('[data-cloud-big]');
+    expect(big).toHaveLength(1);
+    expect(big[0]).toHaveTextContent(T.conta.cloudBig);
+    expect(big[0].closest('li')).toHaveTextContent('90000 solves');
+    expect(net.cloud.restored).toEqual([]); // o primeiro clique só arma
+  });
+
+  it('device mostra o toast de restaurado neste aparelho e fecha', async () => {
+    const net = fakeApi(new FakeServer());
+    net.cloud.copies = [{ name: '2026-10-15', day: '2026-10-15', kind: 'daily', solves: 5, parts: 1 }];
+    net.cloud.answer = { restore: 'device', parts: 1 };
+    const { app, repo } = await appWithAccount(net.api, { signedIn: true });
+    const whole: KlickExport = { ...(await repo.exportAll()), solves: [] };
+    net.cloud.partBytes = [await gzipJson(whole)];
+    render(AjustesScreen, { app });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Ver cópias na nuvem' }));
+    await screen.findByText('5 solves');
+    fakeClock();
+    await fireEvent.click(screen.getByRole('button', { name: 'Restaurar a cópia de 2026-10-15' }));
+    later();
+    await fireEvent.click(screen.getByRole('button', { name: 'Tem certeza? Clique de novo' }));
+    await vi.waitFor(() => expect(app.toast?.text).toBe(T.conta.cloudRestoredHere));
+    expect(T.conta.cloudRestoredHere).toBe('Restaurado neste aparelho. Os outros recebem nos próximos dias, pelo sync.');
+    await vi.waitFor(() => expect(screen.queryByRole('heading', { name: 'Cópias na nuvem' })).toBeNull());
+  });
+});
+
 // C1: as rotas da conta levam a conta deste aparelho (meta.sync.accountId), para o Worker recusar a sessão de outra conta.
 describe('a conta deste aparelho nas rotas da conta (C1)', () => {
   it('listar, restaurar e apagar a conta mandam a conta daqui; fora de qualquer conta, nada sai', async () => {
@@ -422,7 +590,10 @@ describe('a conta deste aparelho nas rotas da conta (C1)', () => {
       sent.push(`copies:${account}`);
       return { copies: [], paused: null };
     };
-    net.api.restoreCloudCopy = async (name, account) => void sent.push(`restore:${name}:${account}`);
+    net.api.restoreCloudCopy = async (name, account) => {
+      sent.push(`restore:${name}:${account}`);
+      return { restore: 'server' };
+    };
     net.api.deleteAccount = async (email, account) => void sent.push(`delete:${email}:${account}`);
     const { app, repo } = await appWithAccount(net.api, { signedIn: true });
     const account = app.account!;
@@ -463,6 +634,57 @@ describe('cliente HTTP das cópias e da conta (Task 17)', () => {
       body: JSON.stringify({ email: EMAIL }),
     });
     for (const init of seen.map((s) => s.init)) expect(init?.signal).toBeInstanceOf(AbortSignal); // com prazo
+  });
+
+  it('restaurar manda { device: true }; 204 é o servidor, 200 com parts inteiro de 0 a 999 é o aparelho; o resto é erro do servidor', async () => {
+    const seen: { url: string; init?: RequestInit }[] = [];
+    const answering = (res: () => Response) =>
+      createSyncApi(async (url, init) => {
+        seen.push({ url, init });
+        return res();
+      });
+    expect(await answering(() => new Response(null, { status: 204 })).restoreCloudCopy('d', 'conta-1')).toEqual({ restore: 'server' });
+    expect(seen[0].init?.body).toBe(JSON.stringify({ device: true }));
+    expect(await answering(() => Response.json({ restore: 'device', parts: 3 })).restoreCloudCopy('d', 'conta-1')).toEqual({ restore: 'device', parts: 3 });
+    expect(await answering(() => Response.json({ restore: 'device', parts: 0 })).restoreCloudCopy('d', 'conta-1')).toEqual({ restore: 'device', parts: 0 });
+    expect(await answering(() => Response.json({ restore: 'device', parts: 999 })).restoreCloudCopy('d', 'conta-1')).toEqual({ restore: 'device', parts: 999 });
+  });
+
+  it('api: 200 torto vira ApiError server', async () => {
+    const crooked: (() => Response)[] = [
+      () => Response.json({ restore: 'device', parts: 1000 }),
+      () => Response.json({ restore: 'device', parts: -1 }),
+      () => Response.json({ restore: 'device', parts: 1.5 }),
+      () => Response.json({ restore: 'device', parts: '3' }),
+      () => Response.json({ restore: 'device' }),
+      () => Response.json({ restore: 'server' }),
+      () => Response.json({}),
+      () => Response.json(null),
+      () => new Response('<!doctype html>', { status: 200 }), // o index.html do vite preview, sem o Worker
+      () => new Response(null, { status: 200 }),
+    ];
+    for (const res of crooked) {
+      await expect(createSyncApi(async () => res()).restoreCloudCopy('d', 'conta-1')).rejects.toMatchObject({ kind: 'server', status: 200 });
+    }
+  });
+
+  it('copyPart baixa o objeto da parte com a conta daqui; 404 e os limites chegam como ApiError', async () => {
+    const seen: { url: string; init?: RequestInit }[] = [];
+    const bytes = await gzipJson({ a: 1 });
+    const api = createSyncApi(async (url, init) => {
+      seen.push({ url, init });
+      if (url.includes('/parts/9')) return Response.json({ error: 'not-found' }, { status: 404 });
+      if (url.includes('/parts/8')) return Response.json({ error: 'restore-limit' }, { status: 429 });
+      return new Response(bytes, { headers: { 'Content-Type': 'application/octet-stream' } });
+    });
+    const got = await api.copyPart('2026-10-14T21-03-00Z-antes', 2, 'conta-1');
+    expect(new Uint8Array(got)).toEqual(new Uint8Array(bytes));
+    expect(seen[0].url).toBe('/api/snapshots/2026-10-14T21-03-00Z-antes/parts/2');
+    expect(seen[0].init?.method ?? 'GET').toBe('GET');
+    expect(seen[0].init).toMatchObject({ credentials: 'same-origin', headers: { 'x-klick-account': 'conta-1' } });
+    expect(seen[0].init?.signal).toBeInstanceOf(AbortSignal);
+    await expect(api.copyPart('d', 9, 'conta-1')).rejects.toMatchObject({ kind: 'client', status: 404 });
+    await expect(api.copyPart('d', 8, 'conta-1')).rejects.toMatchObject({ status: 429, code: 'restore-limit' });
   });
 
   it('a cópia sem parts (um Worker de antes das partes) vale 0; parts torto tira a cópia da lista', async () => {

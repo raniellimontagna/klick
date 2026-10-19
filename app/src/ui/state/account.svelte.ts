@@ -6,11 +6,12 @@
 import type { RestoreRefusal, SyncState } from '../../core/sync/types';
 import { newId } from '../../data/ids';
 import { defaultSyncState, LocalOnlyError, PendingChangesError, type ChangeKind, type ChangeOrigin, type ChannelLike, type Repository } from '../../data/repository';
-import { createBackup } from '../../data/safety';
+import { createBackup, restoreExport } from '../../data/safety';
 import { T } from '../../strings';
-import { ApiError, type CloudCopies, type Health, type SyncApi } from '../../sync/api';
+import { ApiError, type CloudCopies, type Health, type RestoreAnswer, type SyncApi } from '../../sync/api';
 import { type AuthClientLike, type AuthUser, loadAuthClient, type PasskeyInfo, type SendResult, type VerifyResult } from '../../sync/auth';
 import { type Captcha, CaptchaError, turnstile } from '../../sync/captcha';
+import { downloadCopy } from '../../sync/cloud-restore';
 import { type Account, createServerClock, createSyncEngine, idleStatus, type ServerClock, type SyncEngine, type SyncStatus } from '../../sync/engine';
 import { acquireLeadership, browserTriggerEnv, type LocksLike, startTriggers, type TriggerEnv, type Triggers } from '../../sync/triggers';
 import { lookForUpdate } from './update.svelte';
@@ -622,17 +623,36 @@ export class AccountState {
   // Restaurar um dia (spec 8.3): o servidor grava antes a cópia "antes de restaurar" e troca a conta inteira. A mudança chega aqui pelo sync
   // normal, pedido à líder, com a cópia 'pre-sync' da spec 6.6 quando o lote apaga muitos solves daqui. 'gone': a cópia não existe mais (a
   // regra do bucket apaga as de mais de 30 dias); um RestoreRefusal: o servidor recusou e disse por quê (o código do erro); 'failed': sem
-  // rede ou outro erro. Fora do 'ok', nada mudou e nada sincroniza.
-  async restoreCloudCopy(name: string): Promise<'ok' | 'gone' | 'failed' | RestoreRefusal> {
+  // rede ou outro erro. Fora do 'ok' e do 'device', nada mudou e nada sincroniza.
+  //
+  // 'device': a conta é grande e o servidor não cabe a troca hoje, então a restauração é daqui (spec das cópias grandes, seção 5): uma rodada
+  // de sync para o que está na fila não se perder, a cópia inteira baixada pelo Worker, a cópia local 'pre-restore' e só as diferenças
+  // gravadas (replaceAll); o sync sobe o resto no ritmo do orçamento, e os outros aparelhos recebem pelo sync de sempre. Antes de
+  // restoreExport nada deste aparelho muda: um download que falha (ou uma cópia torta) é 'failed', e o 404 de qualquer objeto, 'gone'.
+  async restoreCloudCopy(name: string): Promise<'ok' | 'device' | 'gone' | 'failed' | RestoreRefusal> {
+    let answer: RestoreAnswer;
+    let account: string;
     try {
-      await this.deps.api.restoreCloudCopy(name, await this.accountId());
+      account = await this.accountId();
+      answer = await this.deps.api.restoreCloudCopy(name, account);
     } catch (err) {
       if (!(err instanceof ApiError)) return 'failed';
       if (err.status === 404) return 'gone';
       return isRefusal(err.code) ? err.code : 'failed';
     }
+    if (answer.restore === 'server') {
+      void this.syncNow();
+      return 'ok';
+    }
+    try {
+      await this.syncNow();
+      const data = await downloadCopy(this.deps.api, name, account);
+      await restoreExport(this.host.repo(), data, this.host.now());
+    } catch (err) {
+      return err instanceof ApiError && err.status === 404 ? 'gone' : 'failed';
+    }
     void this.syncNow();
-    return 'ok';
+    return 'device';
   }
 
   // Apagar a conta (spec 7.7): o e-mail digitado confirma, sem diferença de maiúsculas nem de espaços nas pontas. Antes do servidor, o sync

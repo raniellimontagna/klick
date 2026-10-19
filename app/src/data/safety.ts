@@ -119,7 +119,7 @@ export async function encodeSnapshot(data: KlickExport): Promise<Snapshot> {
 }
 
 // Só aceita o que o Klick escreveu: um JSON de outra coisa (ou de uma versão futura) não pode virar "a cópia" e apagar os dados.
-function isKlickExport(value: unknown): value is KlickExport {
+export function isKlickExport(value: unknown): value is KlickExport {
   if (typeof value !== 'object' || value === null) return false;
   const v = value as Record<string, unknown>;
   return v.format === 'klick' && v.version === 1 && Array.isArray(v.sessions) && Array.isArray(v.solves);
@@ -200,6 +200,13 @@ export async function restoreBackup(repo: Repository, id: string, now: number): 
   if (!record) throw new Error(`Cópia não encontrada: ${id}`);
   const data = await decodeSnapshot(record);
   await createBackup(repo, 'pre-restore', now, id);
+  await repo.replaceAll(data);
+}
+
+// A restauração de uma cópia que não veio do banco daqui (a que o aparelho baixou da nuvem, já conferida por quem chama): o estado de agora
+// vai antes para uma cópia 'pre-restore' e então replaceAll aplica só as diferenças. Se a cópia local falha, rejeita sem gravar a troca.
+export async function restoreExport(repo: Repository, data: KlickExport, now: number): Promise<void> {
+  await createBackup(repo, 'pre-restore', now);
   await repo.replaceAll(data);
 }
 

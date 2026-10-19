@@ -1,5 +1,6 @@
 // O cliente HTTP do servidor do Klick (spec 6.1 e 8.1): mesma origem, com o cookie da sessão. Os erros viram tipos que o motor e as telas
 // entendem; nada aqui guarda estado.
+import { MAX_PARTS } from '../core/sync/copy-parts';
 import {
   ACCOUNT_HEADER,
   isCopiesPaused,
@@ -36,6 +37,10 @@ export interface Health {
   turnstileSiteKey: string | null;
 }
 
+// A resposta do servidor a um pedido de restauração: ele mesmo restaurou (204), ou diz para o aparelho restaurar (`parts`: quantas partes o
+// servidor conta na cópia; o aparelho confere no manifesto que baixa).
+export type RestoreAnswer = { restore: 'server' } | { restore: 'device'; parts: number };
+
 export interface SyncApi {
   health(): Promise<Health | null>; // null: sem servidor (sem rede, ou o app servido sem o Worker, como no vite preview)
   sync(req: SyncRequest): Promise<SyncResponse>;
@@ -43,8 +48,11 @@ export interface SyncApi {
   // As cópias dos últimos 30 dias, a mais nova primeiro (spec 8.3), com a pausa das cópias (endurecimento 4.2). Sem operações do R2 no
   // mês e sem lista guardada: ApiError com o código 'r2-budget'.
   cloudCopies(account: string): Promise<CloudCopies>;
-  // A cópia que não existe mais: ApiError com status 404. Uma restauração recusada: ApiError com o RestoreRefusal no código.
-  restoreCloudCopy(name: string, account: string): Promise<void>;
+  // A cópia que não existe mais: ApiError com status 404. Uma restauração recusada: ApiError com o RestoreRefusal no código. Pede ao servidor
+  // que, se as mudanças não couberem hoje, mande o aparelho restaurar ({ device: true }); uma resposta fora das duas formas é ApiError 'server'.
+  restoreCloudCopy(name: string, account: string): Promise<RestoreAnswer>;
+  // Um objeto da cópia, em gzip: o 0 é o arquivo inteiro ou o manifesto, e de 1 a N as partes. Não existe (mais): ApiError com status 404.
+  copyPart(name: string, index: number, account: string): Promise<ArrayBuffer>;
   deleteAccount(email: string, account: string): Promise<void>; // spec 7.7: o e-mail digitado confirma
 }
 
@@ -157,7 +165,27 @@ export function createSyncApi(
       return { copies: list.copies.flatMap((c) => cloudCopy(c) ?? []), paused: pausedOf(list.paused) };
     },
     async restoreCloudCopy(name, account) {
-      await post(`/api/snapshots/${encodeURIComponent(name)}/restore`, {}, timeouts.sync, { [ACCOUNT_HEADER]: account });
+      const res = await post(`/api/snapshots/${encodeURIComponent(name)}/restore`, { device: true }, timeouts.sync, { [ACCOUNT_HEADER]: account });
+      if (res.status === 204) return { restore: 'server' };
+      let body: unknown;
+      try {
+        body = await res.json();
+      } catch {
+        body = null; // o index.html do vite preview, sem o Worker
+      }
+      const answer = body as { restore?: unknown; parts?: unknown } | null;
+      if (res.status === 200 && answer?.restore === 'device' && Number.isInteger(answer.parts) && (answer.parts as number) >= 0 && (answer.parts as number) <= MAX_PARTS) {
+        return { restore: 'device', parts: answer.parts as number };
+      }
+      throw new ApiError('server', res.status);
+    },
+    async copyPart(name, index, account) {
+      const res = await call(`/api/snapshots/${encodeURIComponent(name)}/parts/${index}`, timeouts.sync, { headers: { [ACCOUNT_HEADER]: account } });
+      try {
+        return await res.arrayBuffer();
+      } catch {
+        throw new ApiError('server', res.status); // o corpo parou no meio, até o prazo
+      }
     },
     async deleteAccount(email, account) {
       const headers = { 'Content-Type': 'application/json', [ACCOUNT_HEADER]: account };
