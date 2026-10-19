@@ -55,6 +55,8 @@ describe('Ajustes: "Conta e sync" (spec 9.1)', () => {
     await app.addSolve({ ms: 9000, penalty: null, at: Date.now() });
     render(AjustesScreen, { app });
     await fireEvent.click(await screen.findByRole('button', { name: /^Sair$/ }));
+    // O que apagar leva, os desafios inclusive (wipeData os limpa).
+    expect(screen.getByText('Solves, sessões, treino, desafios e cópias deste aparelho. Na conta, tudo continua.')).toBeInTheDocument();
     await fireEvent.click(document.querySelector('[data-erase]')!);
     await fireEvent.click(screen.getAllByRole('button', { name: /^Sair$/ }).at(-1)!);
     expect(await screen.findByRole('alert')).toHaveTextContent('ainda não');

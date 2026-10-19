@@ -652,7 +652,7 @@ export const T = Object.freeze({
     signOutTitle: 'Sair da conta',
     signOutText: 'Os dados ficam neste aparelho, que volta a funcionar só aqui. O que ainda não subiu sobe quando você entrar de novo nesta conta.',
     eraseHere: 'Apagar os dados deste aparelho',
-    eraseHint: 'Solves, sessões, treino e cópias deste aparelho. Na conta, tudo continua.',
+    eraseHint: 'Solves, sessões, treino, desafios e cópias deste aparelho. Na conta, tudo continua.',
     pendingBlock: (n: number): string =>
       `${n.toLocaleString('pt-BR')} ${n === 1 ? 'mudança ainda não subiu' : 'mudanças ainda não subiram'}. Sincronize antes de apagar os dados deste aparelho.`,
     // O que o servidor recusaria (um registro antigo, com o id ou a data torta) nunca vai para a conta: só existe aqui.

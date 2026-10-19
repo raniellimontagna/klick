@@ -174,6 +174,25 @@ describe('o link do desafio (spec 4)', () => {
     expect((await decodeDuelLink(payloadOf(raw)))?.a.name).toBe('y'.repeat(MAX_DUEL_NAME));
   });
 
+  // O JSON escreve um caractere de controle (e a metade solta de um par UTF-16) como \uXXXX, seis caracteres: sete embaralhamentos assim
+  // passariam do tamanho que o sync aceita, e o desafio salvo ficaria só neste aparelho. O link que os traz não abre (revisão da Task 3).
+  it('caracteres de controle no embaralhamento recusam o link; no nome, o nome vira vazio', async () => {
+    const crafted = link({ scrambles: Array.from({ length: 7 }, () => '\u0001'.repeat(1_000)) });
+    const payload = await encodeDuelLink(crafted);
+    expect(payload.length).toBeLessThan(MAX_DUEL_PAYLOAD); // comprime bem: só a regra dos caracteres o recusa
+    expect(await decodeDuelLink(payload)).toBeNull();
+    const last = (text: string) => link({ scrambles: [...link().scrambles.slice(0, 6), text] });
+    for (const ch of ['\u0000', '\t', '\r', '\u001f', '\u007f', '\ud800', '\udc00']) {
+      expect(await decodeDuelLink(payloadOf(last(`R U${ch} F`))), JSON.stringify(ch)).toBeNull();
+    }
+    // A quebra de linha do megaminx e um par UTF-16 inteiro continuam valendo.
+    expect((await decodeDuelLink(payloadOf(last('R++ D--\nU'))))?.scrambles[6]).toBe('R++ D--\nU');
+    expect((await decodeDuelLink(payloadOf(last('R U 🧊'))))?.scrambles[6]).toBe('R U 🧊');
+    const named = await decodeDuelLink(payloadOf(link({ a: { name: 'Ana\u0000', times: times() }, b: { name: 'B\u0007ia', times: times(1) } })));
+    expect([named?.a.name, named?.b?.name]).toEqual(['', '']);
+    expect((await decodeDuelLink(payloadOf(link({ a: { name: 'Ana 🧊', times: times() } }))))?.a.name).toBe('Ana 🧊');
+  });
+
   it('duelPayloadOf lê #desafio= e ignora outros fragmentos', () => {
     expect(duelPayloadOf('#desafio=abc_-123')).toBe('abc_-123');
     expect(duelPayloadOf('desafio=abc')).toBe('abc');

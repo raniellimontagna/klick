@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { MAX_DUEL_MS, MAX_DUEL_NAME, MAX_DUEL_SCRAMBLE } from '../../src/core/duel/link';
+import { isDuel } from '../../src/core/duel/validate';
 import { defaultSeason } from '../../src/core/season';
 import { applyChanges, sameChange, type RecordView } from '../../src/core/sync/apply';
+import { canonicalJson } from '../../src/core/sync/merge';
 import { ACCOUNT_LIMITS, QUOTA_REASON, type ActiveCounts } from '../../src/core/sync/limits';
-import { compacted, sessionOfChange } from '../../src/core/sync/records';
-import { checkChange } from '../../src/core/sync/shape';
+import { compacted, fromChange, sessionOfChange, type StampedRecord } from '../../src/core/sync/records';
+import { checkChange, MAX_DATA_CHARS } from '../../src/core/sync/shape';
 import { syncKey, type Change, type SyncStore } from '../../src/core/sync/types';
 import type { SeasonProgress, SeasonRecord } from '../../src/core/types';
 import { MapView } from './sync-fakes';
@@ -697,5 +700,46 @@ describe('os desafios no sync', () => {
     expect(out.writes[1].data).toMatchObject({ extra: 'passa' });
     expect(out.rejected).toEqual(bad.map((c) => ({ store: 'duels', id: c.id, reason: 'desafio inválido' })));
     expect(out.activeDelta.duels).toBe(2);
+  });
+
+  // O link e o arquivo contam caracteres, e o sync mede o JSON: um caractere de controle vira \uXXXX, seis caracteres. Um desafio assim
+  // passaria pelo link e seria recusado pelo sync para sempre, só neste aparelho (revisão da Task 3). Os caracteres de controle ficam de
+  // fora; o maior desafio que sobra cabe no sync.
+  it('um desafio com caracteres de controle é recusado; um 7×7 de verdade e o maior que o link aceita cabem no sync', () => {
+    const asRecord = (c: Change) => {
+      const { deletionStamp: _d, ...rec } = fromChange<StampedRecord>(c);
+      return rec;
+    };
+    const control = duel('abcdefgh00000011', 'a', { scrambles: Array.from({ length: 7 }, () => '\u0001'.repeat(MAX_DUEL_SCRAMBLE)) });
+    const one = duel('abcdefgh00000012', 'a', { scrambles: [...SCRAMBLES.slice(0, 6), 'R U\u0000 F'] });
+    const lone = duel('abcdefgh00000013', 'a', { scrambles: [...SCRAMBLES.slice(0, 6), 'R U \ud800'] });
+    const named = duel('abcdefgh00000014', 'b', { theirName: 'Bia\u0007' });
+    for (const c of [control, one, lone, named]) expect(isDuel(asRecord(c)), c.id).toBe(false);
+    expect(checkChange(control)).toEqual({ ok: false, reason: 'grande demais' }); // o caso da revisão: o tamanho já o recusava no sync
+    for (const c of [one, lone, named]) expect(checkChange(c), c.id).toEqual({ ok: false, reason: 'desafio inválido' });
+
+    // Um 7×7 de verdade: 100 giros, com camadas largas (3Rw', Lw2).
+    const rnd = seeded(77);
+    const faces = ['U', 'D', 'L', 'R', 'F', 'B'];
+    const turn = (): string => `${rnd() < 0.3 ? 2 + Math.floor(rnd() * 2) : ''}${faces[Math.floor(rnd() * 6)]}${rnd() < 0.6 ? 'w' : ''}${['', "'", '2'][Math.floor(rnd() * 3)]}`;
+    const big = Array.from({ length: 7 }, () => Array.from({ length: 100 }, turn).join(' '));
+    expect(JSON.stringify(big).length).toBeGreaterThan(2_400);
+    const seven = duel('abcdefgh00000015', 'a', { event: '777', scrambles: big, mine: Array.from({ length: 7 }, () => ({ ms: 360_000, penalty: null })) });
+    expect(checkChange(seven)).toEqual({ ok: true, change: seven });
+
+    // O pior caso que o link aceita: cada caractere vira dois no JSON (a barra, as aspas, a quebra de linha do megaminx), os nomes no teto e
+    // os quatorze tempos no maior.
+    const worst = duel('abcdefgh00000016', 'b', {
+      scrambles: ['\\', '"', '\n', '\\', '"', '\n', '\\'].map((ch) => ch.repeat(MAX_DUEL_SCRAMBLE)),
+      mine: Array.from({ length: 7 }, () => ({ ms: MAX_DUEL_MS, penalty: '+2' })),
+      theirs: Array.from({ length: 7 }, () => ({ ms: MAX_DUEL_MS, penalty: null })),
+      myName: '"'.repeat(MAX_DUEL_NAME),
+      theirName: '\\'.repeat(MAX_DUEL_NAME),
+      status: 'waiting',
+      createdAt: Number.MAX_SAFE_INTEGER,
+    });
+    expect(isDuel(asRecord(worst))).toBe(true);
+    expect(checkChange(worst)).toEqual({ ok: true, change: worst });
+    expect(canonicalJson(worst.data).length).toBeLessThan(MAX_DATA_CHARS);
   });
 });

@@ -8,6 +8,14 @@ export const MAX_DUEL_PAYLOAD = 12_000; // caracteres do payload; acima disso o 
 export const MAX_DUEL_MS = 86_400_000; // teto de um tempo: 24 h
 export const MAX_DUEL_SCRAMBLE = 1_000; // caracteres por embaralhamento
 export const DUEL_LINK_ID = /^[a-z0-9]{8,32}$/; // o id do link (newLinkId dá 16 caracteres)
+// Caracteres de controle (menos a quebra de linha, que separa as linhas do megaminx) e metades soltas de um par UTF-16. Não cabem num
+// embaralhamento nem num nome, e o JSON escreve quase todos como \uXXXX, seis caracteres: o link conta um, o sync mede o JSON (shape.ts), e
+// sete embaralhamentos assim passariam do tamanho que o sync aceita. O desafio ficaria só neste aparelho (revisão da Task 3).
+const UNPRINTABLE = /[\u0000-\u0009\u000b-\u001f\u007f]|\p{Cs}/u;
+export const isDuelText = (text: string): boolean => !UNPRINTABLE.test(text);
+// Um embaralhamento do desafio: texto de 1 a MAX_DUEL_SCRAMBLE caracteres, sem caracteres de controle.
+export const isDuelScramble = (value: unknown): value is string =>
+  typeof value === 'string' && value.length > 0 && value.length <= MAX_DUEL_SCRAMBLE && isDuelText(value);
 const MAX_JSON_BYTES = 64 * 1024; // teto do JSON descomprimido: o link de 12 000 caracteres não vira uma bomba de memória
 const PARAM = 'desafio=';
 const ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
@@ -82,11 +90,11 @@ export function isDuelTime(value: unknown): value is DuelTime {
   return isRecord(value) && typeof value.ms === 'number' && Number.isInteger(value.ms) && value.ms >= 0 && value.ms <= MAX_DUEL_MS && isPenalty(value.penalty);
 }
 
-// Nome fora do formato (não string, comprido demais) vira vazio: o link continua valendo.
+// Nome fora do formato (não string, comprido demais, com caracteres de controle) vira vazio: o link continua valendo.
 function cleanName(value: unknown): string {
   if (typeof value !== 'string') return '';
   const name = value.trim();
-  return name.length > MAX_DUEL_NAME ? '' : name;
+  return name.length > MAX_DUEL_NAME || !isDuelText(name) ? '' : name;
 }
 
 // Os tempos de um lado: de `min` a sete, todos válidos; senão null.
@@ -103,7 +111,7 @@ function cleanLink(value: unknown): DuelLink | null {
   if (typeof value.event !== 'string' || !EVENT_IDS.includes(value.event as EventId)) return null;
   const scrambles: unknown = value.scrambles;
   if (!Array.isArray(scrambles) || scrambles.length !== DUEL_SCRAMBLES) return null;
-  if (!scrambles.every((s) => typeof s === 'string' && s.length > 0 && s.length <= MAX_DUEL_SCRAMBLE)) return null;
+  if (!scrambles.every(isDuelScramble)) return null;
   const a = cleanSide(value.a, DUEL_SCRAMBLES);
   if (!a) return null;
   const link: DuelLink = { v: 1, id: value.id, event: value.event as EventId, scrambles: scrambles as string[], a };

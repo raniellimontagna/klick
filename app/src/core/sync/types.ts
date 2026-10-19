@@ -18,9 +18,10 @@ export interface Change {
 
 // Sobe quando o formato do pedido ou da resposta muda: o servidor responde 426 a uma versão que não conhece. O 2 veio com a cota e o
 // orçamento do dia (endurecimento 4.1): um app de antes leria "cota" e o resto adiado como uma recusa comum e tiraria da fila o que só
-// existe nele. O 3 veio com a store `duels` (spec do desafio, seção 7): um app de antes ignoraria cada desafio que chega (store
-// desconhecida), e o desafio feito no outro aparelho nunca apareceria nele, sem aviso; com o 426, ele mostra "Atualize o Klick" e guarda a
-// fila.
+// existe nele. O 3 veio com a store `duels` (spec do desafio, seção 7). Sem ele, um app de antes recusaria cada desafio que chega (store
+// desconhecida) e marcaria refusedBuild: os desafios do outro aparelho faltariam nele sem aviso, e depois de atualizar ele baixaria a conta
+// inteira de novo (restartAfterUpdate). Com o 426, ele mostra "Atualize o Klick" em vez da falta calada, guarda a fila e, atualizado,
+// continua do cursor de antes, sem baixar a conta de novo.
 export const SYNC_PROTOCOL = 3;
 // Mudanças por pedido que o app manda: o que o servidor lê de uma vez (MAX_WRITES_PER_REQUEST, worker/limits.ts, Task 12). A página de
 // volta é do servidor (PULL_PAGE), e `more` e o cursor cobrem qualquer tamanho dela.
