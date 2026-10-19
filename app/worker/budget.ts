@@ -1,7 +1,8 @@
-// Os tetos do grátis contados no D1 (spec 4 e 7): as operações do R2 por mês, o espaço das cópias e os e-mails. Cada reserva (takeOps,
-// reserveStorage, reserveMail) é um lote do D1, que roda como uma transação: um INSERT que garante a linha e um UPDATE com a condição na
-// própria cláusula WHERE (count + n <= teto). O D1 escreve numa fila só, e o UPDATE confere e soma no mesmo passo: pedidos em paralelo não
-// passam do teto, e o `meta.changes` diz se passou. Recusado, nada é somado. O teto vem de limits.ts (capOf/capsOf), onde uma var torta já
+// Os tetos do grátis contados no D1 (spec 4 e 7): as operações do R2 por mês, o espaço das cópias, os e-mails e as linhas gravadas por dia
+// nos objetos das contas. Cada reserva (takeOps, reserveStorage, reserveMail) é um lote do D1, que roda como uma transação: um INSERT que
+// garante a linha e um UPDATE com a condição na própria cláusula WHERE (count + n <= teto); a das linhas (reserveRows) é uma instrução só,
+// um upsert com a mesma condição. O D1 escreve numa fila só, e a instrução confere e soma no mesmo passo: pedidos em paralelo não passam
+// do teto, e o `meta.changes` diz se passou. Recusado, nada é somado. O teto vem de limits.ts (capOf/capsOf), onde uma var torta já
 // vale 0: com o teto 0, nada passa. Além das reservas: countOps conta sem recusar (o que já foi feito), releaseStorage devolve uma reserva
 // de espaço que não virou cópia, reserveCopy junta o espaço e a operação A de um put, copyRoom confere os dois sem reservar (antes de ler a
 // conta), e recountStorage lista snap/ no R2 (cada página, uma operação A reservada antes) e troca o espaço contado pelo que existe.
@@ -108,6 +109,30 @@ export async function recountStorage(env: Env, now: number): Promise<number | nu
   } while (cursor);
   await setStorage(env.DB, total, now, seen);
   return total;
+}
+
+// Reserva `n` linhas gravadas nos objetos das contas no dia UTC de `now`, somadas entre todas as contas do ambiente, se couberem no teto
+// (ROWS_WRITTEN_DAY_CAP). Uma instrução: a linha do dia nasce com `n`, ou soma `n` à que existe, só com count + n <= teto (o WHERE do SELECT
+// também separa o ON CONFLICT do upsert de um JOIN, para o SQLite). false: recusado, nada foi contado.
+export async function reserveRows(db: D1Database, n: number, now: number, cap: number): Promise<boolean> {
+  if (!isCount(n) || !isCount(cap)) return false;
+  const taken = await db
+    .prepare(
+      `INSERT INTO rows_day (day, count) SELECT ?1, ?2 WHERE ?2 <= ?3
+         ON CONFLICT (day) DO UPDATE SET count = rows_day.count + excluded.count WHERE rows_day.count + excluded.count <= ?3`,
+    )
+    .bind(utcDay(now), n, cap)
+    .run();
+  return taken.meta.changes > 0;
+}
+
+// Soma `n` linhas sem recusar: as que um objeto gravou além do que tinha reservado (account-store.ts, spendRows), que já estão gravadas.
+export async function countRows(db: D1Database, n: number, now: number): Promise<void> {
+  if (!isCount(n) || n === 0) return;
+  await db
+    .prepare('INSERT INTO rows_day (day, count) VALUES (?1, ?2) ON CONFLICT (day) DO UPDATE SET count = count + excluded.count')
+    .bind(utcDay(now), n)
+    .run();
 }
 
 // Reserva um e-mail no dia e no mês UTC, juntos ou nenhum: o UPDATE confere as duas linhas antes de somar nas duas (as subconsultas não

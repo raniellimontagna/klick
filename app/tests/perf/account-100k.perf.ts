@@ -300,6 +300,7 @@ function fakeEnv(r2: FakeR2): Env {
     MAIL_PER_MONTH: '2500',
     SNAPSHOT_MAX_RECORDS: '1000000',
     RESTORE_MAX_RECORDS: '1000000',
+    ROWS_WRITTEN_DAY_CAP: '1000000000', // o teto de linhas do dia do ambiente: a reserva no D1 falso sempre passa
   } as unknown as Env;
 }
 
@@ -352,7 +353,7 @@ interface Inside {
   renewCopies(): void;
   deleted(): boolean;
   exclusive<T>(fn: () => Promise<T>): Promise<T>;
-  compact(now: number): number;
+  compact(now: number): Promise<number>;
 }
 const inside = (store: AccountStore): Inside => store as unknown as Inside;
 

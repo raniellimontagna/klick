@@ -94,13 +94,15 @@ e os números vêm de `docs/superpowers/measurements/2026-10-17-conta-100k.md`.
 Antes do beta:
 
 1. **As correções da revisão final** do endurecimento no ramo que vai ser publicado.
-2. **A migração 0003 nos dois D1 remotos** (`klick-auth-beta` e `klick-auth`), antes de qualquer deploy deste código:
-   `npx wrangler d1 migrations apply DB --remote` (e `--env production`). Sem ela, pedir o código por e-mail falha no beta (o teto de
-   e-mails lê a tabela nova), e o Cron da raiz loga `recount-failed` todo dia.
+2. **As migrações 0003 e 0004 nos dois D1 remotos** (`klick-auth-beta` e `klick-auth`), antes de qualquer deploy deste código:
+   `npx wrangler d1 migrations apply DB --remote` (e `--env production`). Sem a 0003, pedir o código por e-mail falha no beta (o teto de
+   e-mails lê a tabela nova), e o Cron da raiz loga `recount-failed` todo dia. Sem a 0004 (`rows_day`, o teto de linhas gravadas por dia
+   somado entre as contas), todo sync que grava falha com 500 (só receber continua), e a restauração e o alarme de uma conta com o que
+   compactar também.
 3. **A maior conta do beta:** conferir o tamanho dela. Até 10 mil solves cabe mesmo na leitura de 10 ms do limite de CPU (o primeiro
    despertar de cada conta do beta, uma vez, depois do deploy).
 4. **Publicar o beta** (`pnpm run deploy:beta`) e conferir as vars novas na saída do deploy (`SNAPSHOT_MAX_RECORDS` em `4747`,
-   `RESTORE_MAX_RECORDS` em `5000`).
+   `RESTORE_MAX_RECORDS` em `5000`, `ROWS_WRITTEN_DAY_CAP` em `10000`).
 5. **Quem usa o beta vê "Atualize o Klick"** até recarregar (o protocolo do sync subiu); a fila de cada aparelho fica guardada.
 6. **Teste de fumaça:** o código por e-mail, o sync e a lista das cópias na nuvem. No dia seguinte, a cópia do alarme e a linha
    `{evt:'cleanup', storage:N}` nos logs.
@@ -116,7 +118,8 @@ Antes da raiz:
 9. **A conta da Cloudflare continua no Workers Free.**
 10. **O uso dos outros projetos da conta**, no painel: as operações A e B do R2, e Durable Objects, D1 e Workers.
 11. **As decisões do Ranielli:** um orçamento de linhas gravadas por dia somado entre todas as contas, e uma regra de rate limit do WAF
-    em `/api/*`.
+    em `/api/*`. O orçamento foi aprovado e está no código (`ROWS_WRITTEN_DAY_CAP`: 10 mil no beta e 60 mil na raiz; a migração 0004);
+    falta a regra do WAF.
 12. **`ACCOUNTS_ENABLED` em `"true"` na raiz** (`wrangler.jsonc`, `env.production`) e publicar (`pnpm run deploy:production`).
 
 ## Por que o cubing.js é empacotado à parte

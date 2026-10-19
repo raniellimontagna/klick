@@ -16,6 +16,11 @@
 // teto no código (worker/limits.ts). SNAPSHOT_MAX_RECORDS fica em 4747, o que o app consegue restaurar (RECORDS_PER_DAY, worker/limits.ts):
 // a memória deixaria copiar até ~55 mil, mas uma cópia que nunca pode voltar só ocuparia o espaço gratuito das cópias de todas as contas
 // (uma de 50 mil solves grava ~74 MB em 30 dias). Subir esta var espera uma restauração em partes, e é decisão do Ranielli.
+// O teto de linhas gravadas por dia (ROWS_WRITTEN_DAY_CAP; decisão 6 e o portão 11 do README): as 100 mil linhas que os Durable Objects
+// do grátis gravam por dia são da conta inteira (o beta, a raiz e os outros projetos), e passadas elas toda gravação de todo objeto falha
+// até a virada do dia UTC. Cada ambiente soma as linhas de todas as contas dele no próprio D1 e para no teto: 10 mil no beta e 60 mil na
+// raiz, 70% do dia juntos; o resto do lote sobe no dia seguinte, e os 30% ficam para os outros projetos e para o que o teto não conta (o
+// estado das cópias, o alarme, apagar a conta).
 // Para subir um teto, mude a var e publique. Uma var ausente, vazia ou que não seja um inteiro maior que 0 vale 0: nada passa.
 {
   "name": "klick-app-beta",
@@ -57,7 +62,8 @@
     "MAIL_PER_DAY": "10",
     "MAIL_PER_MONTH": "250",
     "SNAPSHOT_MAX_RECORDS": "4747",
-    "RESTORE_MAX_RECORDS": "5000"
+    "RESTORE_MAX_RECORDS": "5000",
+    "ROWS_WRITTEN_DAY_CAP": "10000"
   },
   "env": {
     "production": {
@@ -86,7 +92,8 @@
         "MAIL_PER_DAY": "80",
         "MAIL_PER_MONTH": "2500",
         "SNAPSHOT_MAX_RECORDS": "4747",
-        "RESTORE_MAX_RECORDS": "5000"
+        "RESTORE_MAX_RECORDS": "5000",
+        "ROWS_WRITTEN_DAY_CAP": "60000"
       }
     }
   }

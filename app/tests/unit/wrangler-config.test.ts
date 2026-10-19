@@ -120,6 +120,14 @@ describe('wrangler.jsonc', () => {
     }
   });
 
+  // Decisão 6 e o portão 11 do README: as 100 mil linhas gravadas por dia nos Durable Objects do grátis são da conta da Cloudflare inteira
+  // (o beta, a raiz e os outros projetos). Cada ambiente tem o próprio teto, somado entre todas as contas dele; os dois juntos param em 70%
+  // do dia, e o resto fica para os outros projetos e para as gravações que o teto não conta.
+  it('o teto de linhas gravadas por dia fica na configuração, por ambiente, e os dois somados param em 70% do grátis', () => {
+    expect([config.vars.ROWS_WRITTEN_DAY_CAP, config.env.production.vars.ROWS_WRITTEN_DAY_CAP]).toEqual(['10000', '60000']);
+    expect(Number(config.vars.ROWS_WRITTEN_DAY_CAP) + Number(config.env.production.vars.ROWS_WRITTEN_DAY_CAP)).toBeLessThanOrEqual(70_000);
+  });
+
   it('somados, os dois ambientes ficam abaixo do grátis do Resend e do R2', () => {
     const sum = (name: (typeof CAPS)[number]) => Number(config.vars[name]) + Number(config.env.production.vars[name]);
     expect(sum('MAIL_PER_DAY')).toBeLessThanOrEqual(100);

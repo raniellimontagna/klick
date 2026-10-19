@@ -1,7 +1,7 @@
 // Os tetos do Worker (spec 4, 7.1, 7.6 e 7.7). Os que mudam por ambiente (o espaço das cópias, as operações do R2 por mês, os e-mails por
-// dia e por mês, e os tamanhos de conta que a cópia do dia e a restauração aceitam) são vars do wrangler.jsonc, lidas por capOf/capsOf; os
-// que valem para todos são as constantes daqui. Uma var ausente, vazia ou que não seja um inteiro maior que 0 vale 0 (falha fechada: nada
-// passa) e vai para o log, nunca "sem teto".
+// dia e por mês, os tamanhos de conta que a cópia do dia e a restauração aceitam, e as linhas gravadas por dia somadas entre todas as
+// contas) são vars do wrangler.jsonc, lidas por capOf/capsOf; os que valem para todos são as constantes daqui. Uma var ausente, vazia ou
+// que não seja um inteiro maior que 0 vale 0 (falha fechada: nada passa) e vai para o log, nunca "sem teto".
 //
 // Os tamanhos vêm da medição de uma conta de 100 mil solves (docs/superpowers/measurements/2026-10-17-conta-100k.md, Task 11) e das
 // decisões da Task 12. A cópia do dia, a restauração e a cascata de apagar uma sessão seguem a leitura de 30 s do limite de CPU de um
@@ -20,6 +20,7 @@ export interface Caps {
   mailMonth: number;
   snapshotRecords: number; // acima disto (registros da conta), a cópia do dia não sai: CopiesPaused 'size'
   restoreRecords: number; // acima disto, a restauração é 'too-big', antes de ler o R2
+  rowsDay: number; // as linhas gravadas nos objetos das contas por dia UTC, somadas entre todas as contas do ambiente
 }
 
 export type CapName =
@@ -29,11 +30,16 @@ export type CapName =
   | 'MAIL_PER_DAY'
   | 'MAIL_PER_MONTH'
   | 'SNAPSHOT_MAX_RECORDS'
-  | 'RESTORE_MAX_RECORDS';
+  | 'RESTORE_MAX_RECORDS'
+  | 'ROWS_WRITTEN_DAY_CAP';
 
 // O orçamento do dia (decisão 6) conta linhas gravadas no SQLite do objeto, o que o grátis conta (100 mil por dia, somadas entre todas as
 // contas): 20 mil por conta por dia UTC, 20% do dia de todas. A chave do estado continua 'writes' ({ day, n }), agora em linhas (rowsOf).
 export const DAILY_WRITE_BUDGET = 20_000;
+// O teto do dia somado entre todas as contas do ambiente (ROWS_WRITTEN_DAY_CAP, a var; a tabela rows_day do D1): cada objeto reserva as
+// linhas no D1 antes de gravar, em blocos de ROWS_CHUNK, e gasta a sobra do bloco nas gravações seguintes do mesmo dia sem voltar ao D1
+// (account-store.ts, ensureRows). Um bloco por vez, não uma reserva por pedido: o D1 também conta as linhas que grava.
+export const ROWS_CHUNK = 2_000;
 // O orçamento de leituras do dia (revisão final, I2 c): as linhas que os pedidos de uma conta leem no SQLite do objeto por dia UTC (a página do
 // sync, as mudanças do lote, a cascata, a cópia do dia e a restauração). O grátis tem 5 milhões por dia somadas entre todas as contas; pedir
 // sempre do cursor 0 lê uma página inteira por pedido, e na rajada uma conta só as esvaziaria em horas. Folgado: o primeiro sync inteiro de
@@ -115,5 +121,6 @@ export function capsOf(env: Env): Caps {
     mailMonth: capOf(env, 'MAIL_PER_MONTH'),
     snapshotRecords: capOf(env, 'SNAPSHOT_MAX_RECORDS'),
     restoreRecords: capOf(env, 'RESTORE_MAX_RECORDS'),
+    rowsDay: capOf(env, 'ROWS_WRITTEN_DAY_CAP'),
   };
 }

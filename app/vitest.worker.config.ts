@@ -17,6 +17,10 @@ export default defineConfig(async () => {
             TEST_MIGRATIONS: migrations,
             BETTER_AUTH_SECRET: 'segredo-so-dos-testes-0123456789abcdef',
             TURNSTILE_SECRET: '1x0000000000000000000000000000000AA', // a chave de teste da Cloudflare (sempre passa); os testes trocam o verificador
+            // O teto de linhas gravadas por dia soma todas as contas, e os testes gravam dezenas delas no mesmo dia (o relógio deles é fixo):
+            // aqui ele nunca enche. Os testes do teto trocam o do objeto de cada conta (tests/worker/rows-cap.test.ts); o wrangler.jsonc tem
+            // os de verdade (tests/unit/wrangler-config.test.ts).
+            ROWS_WRITTEN_DAY_CAP: '1000000000',
           },
         },
       }),
