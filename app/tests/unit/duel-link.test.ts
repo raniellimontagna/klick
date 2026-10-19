@@ -1,6 +1,6 @@
 import { deflateRawSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
-import { MAX_DUEL_NAME, MAX_DUEL_PAYLOAD, decodeDuelLink, duelPayloadOf, duelUrl, encodeDuelLink, newLinkId } from '../../src/core/duel/link';
+import { MAX_DUEL_MS, MAX_DUEL_NAME, MAX_DUEL_PAYLOAD, decodeDuelLink, duelPayloadOf, duelUrl, encodeDuelLink, newLinkId } from '../../src/core/duel/link';
 import type { DuelLink, DuelTime } from '../../src/core/types';
 
 const times = (n = 7): DuelTime[] => Array.from({ length: n }, (_, i) => ({ ms: 9_000 + i * 837 + 13, penalty: i === 2 ? '+2' : i === 5 ? 'DNF' : null }));
@@ -130,6 +130,29 @@ describe('o link do desafio (spec 4)', () => {
     await bad(mut((o) => (o.b = 'B')));
   });
 
+  it('bomba de descompressão: um JSON válido com 100 KB de espaços não passa do teto de 64 KiB', async () => {
+    const json = JSON.stringify(link()) + ' '.repeat(100_000); // JSON.parse aceita o espaço no fim: só o teto recusa
+    const payload = deflateRawSync(Buffer.from(json)).toString('base64url');
+    expect(payload.length).toBeLessThan(MAX_DUEL_PAYLOAD); // cabe no limite do payload, então o teto é o único freio
+    expect(await decodeDuelLink(payload)).toBeNull();
+    // o mesmo link sem o excesso abre
+    expect(await decodeDuelLink(payloadOf(link()))).toEqual(link());
+  });
+
+  it('o tempo tem teto de 24 h: acima disso o link não abre', async () => {
+    expect(MAX_DUEL_MS).toBe(86_400_000);
+    const edit = (ms: number) => {
+      const o = JSON.parse(JSON.stringify(link())) as Record<string, any>;
+      o.a.times[0].ms = ms;
+      return o;
+    };
+    expect((await decodeDuelLink(payloadOf(edit(MAX_DUEL_MS))))?.a.times[0]?.ms).toBe(MAX_DUEL_MS);
+    expect(await decodeDuelLink(payloadOf(edit(MAX_DUEL_MS + 1)))).toBeNull();
+    const o = JSON.parse(JSON.stringify(link({ b: { name: 'B', times: times(1) } }))) as Record<string, any>;
+    o.b.times[0].ms = MAX_DUEL_MS + 1;
+    expect(await decodeDuelLink(payloadOf(o))).toBeNull();
+  });
+
   it('nome comprido ou não string vira vazio sem recusar o link', async () => {
     expect(MAX_DUEL_NAME).toBe(20);
     const long = 'x'.repeat(MAX_DUEL_NAME + 1);
@@ -165,6 +188,7 @@ describe('o link do desafio (spec 4)', () => {
   it('newLinkId: 16 caracteres [a-z0-9], com sorteio injetado ou criptográfico', () => {
     expect(newLinkId(() => 0)).toBe('aaaaaaaaaaaaaaaa');
     expect(newLinkId(() => 0.999999)).toBe('9999999999999999');
+    expect(newLinkId(() => 1)).toBe('9999999999999999'); // um sorteio que devolve 1 não sai do alfabeto
     for (const id of [newLinkId(), newLinkId()]) expect(id).toMatch(/^[a-z0-9]{16}$/);
     expect(newLinkId()).not.toBe(newLinkId());
   });

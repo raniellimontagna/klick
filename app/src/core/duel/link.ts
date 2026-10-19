@@ -5,6 +5,7 @@ import { DUEL_SCRAMBLES } from './score';
 
 export const MAX_DUEL_NAME = 20;
 export const MAX_DUEL_PAYLOAD = 12_000; // caracteres do payload; acima disso o link não abre
+export const MAX_DUEL_MS = 86_400_000; // teto de um tempo: 24 h
 const MAX_SCRAMBLE = 1_000; // caracteres por embaralhamento
 const MAX_JSON_BYTES = 64 * 1024; // teto do JSON descomprimido: o link de 12 000 caracteres não vira uma bomba de memória
 const PARAM = 'desafio=';
@@ -74,7 +75,7 @@ function isPenalty(value: unknown): value is Penalty {
 }
 
 function isTime(value: unknown): value is DuelTime {
-  return isRecord(value) && typeof value.ms === 'number' && Number.isInteger(value.ms) && value.ms >= 0 && isPenalty(value.penalty);
+  return isRecord(value) && typeof value.ms === 'number' && Number.isInteger(value.ms) && value.ms >= 0 && value.ms <= MAX_DUEL_MS && isPenalty(value.penalty);
 }
 
 // Nome fora do formato (não string, comprido demais) vira vazio: o link continua valendo.
@@ -139,7 +140,7 @@ export function newLinkId(rand?: () => number): string {
   const n = ID_ALPHABET.length;
   let id = '';
   if (rand) {
-    while (id.length < 16) id += ID_ALPHABET[Math.floor(rand() * n)];
+    while (id.length < 16) id += ID_ALPHABET[Math.min(n - 1, Math.floor(rand() * n))];
     return id;
   }
   const limit = 256 - (256 % n);
