@@ -5,8 +5,8 @@
 // ambiente (spec 8.4), o motor não roda: nenhum pedido sai além de /api/health (spec 4.1).
 import type { RestoreRefusal, SyncState } from '../../core/sync/types';
 import { newId } from '../../data/ids';
-import { defaultSyncState, LocalOnlyError, PendingChangesError, type ChangeKind, type ChangeOrigin, type ChannelLike, type Repository } from '../../data/repository';
-import { createBackup, restoreExport } from '../../data/safety';
+import { defaultSyncState, LocalOnlyError, PendingChangesError, type ChangeKind, type ChangeOrigin, type ChannelLike, type KlickExport, type Repository } from '../../data/repository';
+import { createBackup } from '../../data/safety';
 import { T } from '../../strings';
 import { ApiError, type CloudCopies, type Health, type RestoreAnswer, type SyncApi } from '../../sync/api';
 import { type AuthClientLike, type AuthUser, loadAuthClient, type PasskeyInfo, type SendResult, type VerifyResult } from '../../sync/auth';
@@ -51,6 +51,7 @@ export interface AccountHost {
   now(): number;
   announce(text: string): void; // a região aria-live
   afterWipe(): Promise<void>; // os dados deste aparelho foram apagados: o app relê e cria a sessão padrão
+  restoreExport(data: KlickExport): Promise<boolean>; // a restauração da cópia da nuvem, pelo portão da cópia local; false: o portão a segurou (o aviso já saiu)
 }
 
 // O que as abas dizem umas às outras pelo canal.
@@ -628,8 +629,10 @@ export class AccountState {
   // 'device': a conta é grande e o servidor não cabe a troca hoje, então a restauração é daqui (spec das cópias grandes, seção 5): uma rodada
   // de sync para o que está na fila não se perder, a cópia inteira baixada pelo Worker, a cópia local 'pre-restore' e só as diferenças
   // gravadas (replaceAll); o sync sobe o resto no ritmo do orçamento, e os outros aparelhos recebem pelo sync de sempre. Antes de
-  // restoreExport nada deste aparelho muda: um download que falha (ou uma cópia torta) é 'failed', e o 404 de qualquer objeto, 'gone'.
-  async restoreCloudCopy(name: string): Promise<'ok' | 'device' | 'gone' | 'failed' | RestoreRefusal> {
+  // restoreExport nada deste aparelho muda: um download que falha (ou uma cópia torta) é 'failed', e o 404 de qualquer objeto, 'gone'. A
+  // gravação passa pelo portão da cópia local (host.restoreExport: a importação em curso, a fila de gravação, o prazo): se ele a segura,
+  // 'held' (o aviso já saiu, nada sincroniza); passando do prazo ela ainda termina, e o sync de depois sobe o que ela gravar.
+  async restoreCloudCopy(name: string): Promise<'ok' | 'device' | 'held' | 'gone' | 'failed' | RestoreRefusal> {
     let answer: RestoreAnswer;
     let account: string;
     try {
@@ -644,13 +647,15 @@ export class AccountState {
       void this.syncNow();
       return 'ok';
     }
+    let applied: boolean;
     try {
       await this.syncNow();
       const data = await downloadCopy(this.deps.api, name, account);
-      await restoreExport(this.host.repo(), data, this.host.now());
+      applied = await this.host.restoreExport(data);
     } catch (err) {
       return err instanceof ApiError && err.status === 404 ? 'gone' : 'failed';
     }
+    if (!applied) return 'held';
     void this.syncNow();
     return 'device';
   }

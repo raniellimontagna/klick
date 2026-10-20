@@ -585,6 +585,43 @@ describe('estado do app: robustez (brief 9b)', () => {
     await expect(app.restoreFromBackup('nao-existe')).rejects.toThrow('Cópia não encontrada');
   });
 
+  // A restauração da cópia da nuvem (conta grande) passa pelo mesmo portão da cópia local.
+  it('restoreFromCloud com solve que não foi gravado recusa com aviso, devolve false e não mexe no banco', async () => {
+    const { app, repo } = await setup();
+    await app.addSolve(newSolve(61000));
+    const copy = await repo.exportAll();
+    repo.addSolve = async () => { throw new Error('quota'); };
+    await app.addSolve(newSolve(62000, t + 1));
+    expect(app.savePending).toBe(1);
+    const backups = (await repo.listBackups()).length;
+    expect(await app.restoreFromCloud({ ...copy, solves: [] })).toBe(false);
+    expect(app.toast?.text).toBe(T.data.restoreBlocked);
+    expect((await repo.listSolves()).map((x) => x.ms)).toEqual([61000]);
+    expect((await repo.listBackups()).length).toBe(backups); // nem a cópia local 'pre-restore'
+    expect(app.savePending).toBe(1);
+  });
+
+  it('restoreFromCloud sem pendentes guarda a cópia local, aplica a cópia, recarrega o estado e devolve true', async () => {
+    const { app, repo } = await setup();
+    await app.addSolve(newSolve(60000));
+    const copy = await repo.exportAll();
+    await app.addSolve(newSolve(61000, t + 1));
+    expect(app.solves).toHaveLength(2);
+    expect(await app.restoreFromCloud(copy)).toBe(true);
+    expect(app.solves.map((x) => x.ms)).toEqual([60000]);
+    expect((await repo.listSolves()).map((x) => x.ms)).toEqual([60000]);
+    expect((await repo.listBackups()).some((r) => r.reason === 'pre-restore')).toBe(true);
+  });
+
+  it('restoreFromCloud propaga o erro da troca e abre o portão', async () => {
+    const { app, repo } = await setup();
+    const copy = await repo.exportAll();
+    const replaceAll = vi.spyOn(repo, 'replaceAll').mockRejectedValueOnce(new Error('disco cheio'));
+    await expect(app.restoreFromCloud(copy)).rejects.toThrow('disco cheio');
+    replaceAll.mockRestore();
+    expect(await app.restoreFromCloud(copy)).toBe(true); // o portão abriu: a próxima passa
+  });
+
   // Regra 9: sobras da revisão da 9a.
   it('apagar a sessão atual zera o embaralhamento antes de gravar, como trocar de sessão', async () => {
     const { app } = await setup();

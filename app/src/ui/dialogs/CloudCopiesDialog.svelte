@@ -77,14 +77,10 @@
     try {
       const outcome = await account.restoreCloudCopy(c.name);
       if (outcome === 'ok' || outcome === 'device') {
-        // A restauração pelo aparelho grava no banco daqui como uma gravação local, que o app não relê sozinho (a pelo servidor chega pelo
-        // sync, que relê): sem isto, a tela segue mostrando o que havia antes até recarregar. A cópia pode trazer outra sessão: novo embaralhamento.
-        if (outcome === 'device') {
-          await app.reload();
-          await app.nextScramble();
-        }
         app.showToast(outcome === 'ok' ? T.conta.cloudRestored : T.conta.cloudRestoredHere);
         dialogEl?.close();
+      } else if (outcome === 'held') {
+        dialogEl?.close(); // o app já avisou por quê (importação, gravação presa ou prazo); nenhum aviso daqui
       } else if (outcome === 'gone') {
         app.showToast(T.conta.cloudGone);
         void load();

@@ -24,6 +24,7 @@ import {
   type PersistResult,
   requestPersistence,
   restoreBackup,
+  restoreExport,
   type SafetyPlan,
   type SaveQueue,
   type StorageLike,
@@ -334,6 +335,7 @@ export class AppState {
             now: () => this.now(),
             announce: (text) => this.announce(text),
             afterWipe: () => this.afterWipe(),
+            restoreExport: (data) => this.restoreFromCloud(data),
           },
           deps.account,
         )
@@ -759,17 +761,29 @@ export class AppState {
   // troca usa o repositório que ela devolver) e a fila precisa estar vazia: um solve que ainda não foi gravado ficaria de fora da
   // troca, e uma gravação presa nunca termina, então com ela a troca é recusada direto.
   async restoreFromBackup(id: string): Promise<boolean> {
+    return this.restoreGuarded(() => this.replaceFromBackup(id));
+  }
+
+  // A restauração de uma cópia baixada da nuvem (a conta grande: o servidor não cabe a troca e ela é daqui). Passa pelo mesmo portão da
+  // cópia local: espera a importação, confere a fila, fecha as gravações durante a troca e tem o prazo. Devolve false quando ele a
+  // segurou (o aviso já saiu; passando do prazo, a troca ainda termina).
+  restoreFromCloud(data: KlickExport): Promise<boolean> {
+    return this.restoreGuarded(() => this.replaceFromCloud(data));
+  }
+
+  private async restoreGuarded(replace: () => Promise<void>): Promise<boolean> {
     // Enquanto uma corre, ou o portão ainda está fechado por uma troca que passou do prazo, a chamada sai com false.
     if (this.restoreBusy || this.restoring) return false;
     this.restoreBusy = true;
     try {
-      return await this.restoreNow(id);
+      return await this.restoreWith(replace);
     } finally {
       this.restoreBusy = false;
     }
   }
 
-  private async restoreNow(id: string): Promise<boolean> {
+  // O portão de toda troca do banco inteiro (a cópia local e a da nuvem): `replace` é a troca em si.
+  private async restoreWith(replace: () => Promise<void>): Promise<boolean> {
     if (this.reopening) await this.reopening;
     // Uma importação que já está gravando termina antes da troca: a cópia de segurança (a pre-restore) leva o que ela trouxe, e o
     // replaceAll não cai no meio dela. Imports que chegam agora são recusados (importJob).
@@ -797,7 +811,7 @@ export class AppState {
         ownsStall = false;
       }
     };
-    const section = this.replaceFromBackup(id);
+    const section = replace();
     let deadline: ReturnType<typeof setTimeout> | undefined;
     const expired = new Promise<'expired'>((resolve) => {
       deadline = setTimeout(() => resolve('expired'), RESTORE_DEADLINE_MS);
@@ -834,6 +848,13 @@ export class AppState {
   // A troca em si: lê a cópia, grava por cima de tudo e recarrega. Lê o repositório atual no momento da chamada.
   private async replaceFromBackup(id: string): Promise<void> {
     await restoreBackup(this.repo, id, this.now());
+    await this.reload();
+    await this.checkSeason();
+  }
+
+  // A troca pela cópia da nuvem: a cópia local 'pre-restore' e só as diferenças (restoreExport), e então recarrega, como a da cópia local.
+  private async replaceFromCloud(data: KlickExport): Promise<void> {
+    await restoreExport(this.repo, data, this.now());
     await this.reload();
     await this.checkSeason();
   }

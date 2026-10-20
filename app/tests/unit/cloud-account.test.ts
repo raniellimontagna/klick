@@ -469,6 +469,17 @@ describe('a restauração pelo aparelho', () => {
     expect(net.cloud.restored).toEqual(['2026-10-15']);
   });
 
+  it('o portão da cópia local segura a troca: held, o aviso é do app e o sync de depois não sai', async () => {
+    const { app, repo } = await setup();
+    const solves = await repo.listSolves();
+    const held = vi.spyOn(app, 'restoreFromCloud').mockResolvedValue(false);
+    const sync = vi.spyOn(app.account!, 'syncNow');
+    expect(await app.account!.restoreCloudCopy('2026-10-15')).toBe('held');
+    expect(held).toHaveBeenCalledTimes(1);
+    expect(sync).toHaveBeenCalledTimes(1); // a de antes de baixar; a de depois não houve
+    expect(await repo.listSolves()).toEqual(solves);
+  });
+
   it('o objeto 0 que é uma cópia inteira (arquivo só): grava sem pedir partes', async () => {
     const { net, app, repo, a, c } = await setup();
     const whole: KlickExport = { ...(await repo.exportAll()), solves: [a, c] };
@@ -578,6 +589,25 @@ describe('o diálogo das cópias grandes', () => {
     await vi.waitFor(() => expect(app.toast?.text).toBe(T.conta.cloudRestoredHere));
     expect(T.conta.cloudRestoredHere).toBe('Restaurado neste aparelho. Os outros recebem nos próximos dias, pelo sync.');
     await vi.waitFor(() => expect(screen.queryByRole('heading', { name: 'Cópias na nuvem' })).toBeNull());
+  });
+
+  it('held (o portão da cópia local segurou a troca) fecha o diálogo sem aviso próprio', async () => {
+    const net = fakeApi(new FakeServer());
+    net.cloud.copies = [{ name: '2026-10-15', day: '2026-10-15', kind: 'daily', solves: 5, parts: 1 }];
+    net.cloud.answer = { restore: 'device', parts: 1 };
+    const { app, repo } = await appWithAccount(net.api, { signedIn: true });
+    const whole: KlickExport = { ...(await repo.exportAll()), solves: [] };
+    net.cloud.partBytes = [await gzipJson(whole)];
+    vi.spyOn(app, 'restoreFromCloud').mockResolvedValue(false);
+    render(AjustesScreen, { app });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Ver cópias na nuvem' }));
+    await screen.findByText('5 solves');
+    fakeClock();
+    await fireEvent.click(screen.getByRole('button', { name: 'Restaurar a cópia de 2026-10-15' }));
+    later();
+    await fireEvent.click(screen.getByRole('button', { name: 'Tem certeza? Clique de novo' }));
+    await vi.waitFor(() => expect(screen.queryByRole('heading', { name: 'Cópias na nuvem' })).toBeNull());
+    expect(app.toast).toBeNull();
   });
 });
 
