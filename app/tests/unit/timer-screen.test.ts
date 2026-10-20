@@ -785,3 +785,33 @@ describe('tela do Timer: enquanto um solve é excluído', () => {
     expect(document.querySelector('[data-actions]')).not.toHaveAttribute('hidden');
   });
 });
+
+// O modo Digitar não vale no desafio (Review Focus 1): o cronômetro segue como sempre.
+describe('tela do Timer: o modo Digitar e o desafio', () => {
+  it('no desafio, o modo Digitar não aparece e o cronômetro segue', async () => {
+    const repo = createRepository(await openKlickDb(`ts-${++n}`), { channel: null });
+    let k = 0;
+    const a = new AppState({
+      repo,
+      queue: createScrambleQueue({ generate: async (ev) => `${ev} R U` }),
+      storage: null,
+      storageManager: null,
+      duel: { generate: async (ev) => `${ev} D L${++k}` },
+    });
+    await a.init();
+    await a.updateSettings({ entry: 'typing', inspection: false, holdMs: 0 });
+    render(TimerScreen, { app: a });
+    // Fora do desafio, o campo de digitar está na tela e o tempo grande não.
+    expect(await screen.findByLabelText(T.timer.typedLabel)).toBeInTheDocument();
+    expect(document.querySelector('[data-time]')).toBeNull();
+    await a.duel.start('333');
+    await waitFor(() => expect(a.duel.phase).toBe('solving'));
+    // No desafio: sem campo, o tempo grande de volta, as zonas de toque na tela, e o espaço arma e cronometra.
+    await waitFor(() => expect(screen.queryByLabelText(T.timer.typedLabel)).toBeNull());
+    expect(document.querySelector('[data-time]')).not.toBeNull();
+    expect(document.querySelector('[data-zones]')).not.toHaveAttribute('hidden');
+    await solveByKeys();
+    await waitFor(() => expect(a.duel.current!.mine).toHaveLength(1));
+    expect(a.solves).toHaveLength(0); // o solve é do desafio, nunca dos solves
+  });
+});

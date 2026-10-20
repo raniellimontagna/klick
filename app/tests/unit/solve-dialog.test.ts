@@ -342,6 +342,48 @@ describe('o detalhe de um solve', () => {
   });
 });
 
+// O DNF digitado (ms 0): não há tempo, então OK e +2 não existem (a maquete aprovada, estado 3b).
+describe('o detalhe de um DNF digitado', () => {
+  it('no detalhe de um DNF digitado, OK e +2 ficam indisponíveis', async () => {
+    const a = await app();
+    const [s] = await seed(a, [[0, 'DNF']]);
+    render(SolveDialog, { app: a });
+    a.openSolve(s!.id);
+    const pen = await screen.findByRole('group', { name: T.historico.penalty });
+    const ok = within(pen).getByRole('button', { name: T.historico.penaltyOk });
+    const plus2 = within(pen).getByRole('button', { name: T.actions.plus2 });
+    const dnf = within(pen).getByRole('button', { name: T.actions.dnf });
+    const why = sheet().querySelector('.tc-why') as HTMLElement;
+    expect(why.textContent).toBe(T.timer.typedDnfLocked);
+    for (const b of [ok, plus2]) {
+      expect(b).toHaveAttribute('aria-disabled', 'true');
+      expect(b).toHaveAttribute('aria-describedby', why.id);
+      expect(b).not.toBeDisabled(); // aria-disabled: fica no Tab, e o motivo se lê
+    }
+    expect(dnf).toHaveAttribute('aria-pressed', 'true');
+    expect(dnf).not.toHaveAttribute('aria-disabled');
+    // Não fazem nada.
+    await fireEvent.click(ok);
+    await fireEvent.click(plus2);
+    await sleep(30);
+    expect(live(a, s!.id)).toMatchObject({ ms: 0, penalty: 'DNF' });
+    // Sem a linha do tempo cru: não há tempo ("contado como DNF" não diz nada).
+    expect(sheet().querySelector('.hx-raw')).toBeNull();
+  });
+
+  it('um DNF com tempo (do cronômetro) mantém OK e +2 ligados', async () => {
+    const a = await app();
+    const [s] = await seed(a, [[15_000, 'DNF']]);
+    render(SolveDialog, { app: a });
+    a.openSolve(s!.id);
+    const pen = await screen.findByRole('group', { name: T.historico.penalty });
+    expect(within(pen).getByRole('button', { name: T.historico.penaltyOk })).not.toHaveAttribute('aria-disabled');
+    expect(sheet().querySelector('.tc-why')).toBeNull();
+    await fireEvent.click(within(pen).getByRole('button', { name: T.historico.penaltyOk }));
+    await waitFor(() => expect(live(a, s!.id).penalty).toBeNull());
+  });
+});
+
 describe('copiar para a área de transferência', () => {
   it('copyText diz se copiou, sem área de transferência ou com a recusa', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);

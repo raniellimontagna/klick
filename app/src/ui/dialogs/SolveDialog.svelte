@@ -10,6 +10,7 @@
   import { untrack } from 'svelte';
   import { eventInfo } from '../../core/events';
   import { effectiveMs, formatMs, formatSolve, RECORD_SIZES } from '../../core/stats';
+  import { isTypedDnf } from '../../core/typed';
   import type { Penalty } from '../../core/types';
   import { T } from '../../strings';
   import { copyText } from '../clipboard';
@@ -85,8 +86,10 @@
   const spoken = $derived(
     !solve ? '' : solve.penalty === '+2' ? T.historico.plus2Spoken(formatMs(effectiveMs(solve))) : solve.penalty === 'DNF' ? T.actions.dnf : shown,
   );
+  // O DNF digitado (ms 0): sem tempo por trás, OK e +2 não existem, e a linha do tempo cru ("contado como DNF") não diria nada.
+  const typedDnf = $derived(solve ? isTypedDnf(solve) : false);
   const raw = $derived(
-    !solve || solve.penalty === null ? '' : solve.penalty === '+2' ? T.historico.rawPlus2(formatMs(solve.ms)) : T.historico.rawDnf(formatMs(solve.ms)),
+    !solve || solve.penalty === null || typedDnf ? '' : solve.penalty === '+2' ? T.historico.rawPlus2(formatMs(solve.ms)) : T.historico.rawDnf(formatMs(solve.ms)),
   );
   // "seg, 19 out, 21:30 · 3×3 · Principal": de outro ano, a data leva o ano. Uma sessão que já não existe fica de fora.
   const meta = $derived.by(() => {
@@ -127,7 +130,7 @@
   }
 
   function setPenalty(penalty: Penalty): void {
-    if (!solve || solve.penalty === penalty) return;
+    if (!solve || solve.penalty === penalty || (typedDnf && penalty !== 'DNF')) return;
     void app.setPenalty(solve.id, penalty);
   }
 
@@ -216,9 +219,17 @@
       <div class="label" id="{uid}-p">{T.historico.penalty}</div>
       <div class="seg hx-pen" role="group" aria-labelledby="{uid}-p">
         {#each PENALTIES as p (p.label)}
-          <button type="button" aria-pressed={solve.penalty === p.value ? 'true' : 'false'} onclick={() => setPenalty(p.value)}>{p.label}</button>
+          {@const locked = typedDnf && p.value !== 'DNF'}
+          <button
+            type="button"
+            aria-pressed={solve.penalty === p.value ? 'true' : 'false'}
+            aria-disabled={locked ? 'true' : undefined}
+            aria-describedby={locked ? `${uid}-why` : undefined}
+            onclick={() => setPenalty(p.value)}>{p.label}</button
+          >
         {/each}
       </div>
+      {#if typedDnf}<p class="tc-why" id="{uid}-why">{T.timer.typedDnfLocked}</p>{/if}
     </div>
 
     <div class="hx-sec chips">

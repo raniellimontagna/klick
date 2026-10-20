@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
-import { fresh, importHistory } from './helpers';
+import { T } from '../../src/strings';
+import { fresh, importHistory, typingMode } from './helpers';
 
 const TABS = [
   { tab: 'Timer', screen: 'timer' },
@@ -131,5 +132,48 @@ for (const scheme of ['light', 'dark'] as const) {
     await expect(dialog.getByRole('button', { name: /^Principal/ })).toContainText('40 solves');
     await expect(dialog.getByRole('button', { name: /^Principal/ })).toBeFocused();
     await expect(page.locator('.toast')).toContainText('Sessões juntadas: 10 solves passaram para Principal');
+  });
+}
+
+// O modo Digitar (a maquete aprovada, estados 2a–2f, 3a, 3b e 8): o campo com rótulo, o erro, o DNF digitado com o motivo e o detalhe dele.
+for (const scheme of ['light', 'dark'] as const) {
+  test(`digitar o tempo, sem violações sérias no tema ${scheme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await fresh(page);
+    await typingMode(page);
+    const serious = async (where: string) => {
+      const r = await new AxeBuilder({ page }).analyze();
+      return r.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${where}: ${v.id}`);
+    };
+    const field = page.getByLabel(T.timer.typedLabel);
+    await expect(field).toHaveAttribute('inputmode', 'decimal');
+    expect(await serious('vazio')).toEqual([]);
+    await field.fill('12.3.4');
+    await field.press('Enter');
+    await expect(page.getByText(T.timer.typedError)).toBeVisible();
+    await expect(field).toHaveAttribute('aria-invalid', 'true');
+    expect(await serious('erro')).toEqual([]);
+    await field.fill('1:02:03.45');
+    await field.press('Enter');
+    await expect(page.getByText(T.timer.typedTooLong)).toBeVisible();
+    await field.fill('1234');
+    await field.press('Enter');
+    await expect(page.locator('[data-actions]')).toBeVisible();
+    await expect(page.locator('.tc-last')).toHaveText('0:12.34');
+    expect(await serious('salvo')).toEqual([]);
+    await field.fill('dnf');
+    await field.press('Enter');
+    await expect(page.locator('.tc-last')).toHaveText('DNF');
+    const why = page.getByText(T.timer.typedDnfLocked);
+    await expect(why).toBeVisible();
+    await expect(page.locator('[data-act="plus2"]')).toHaveAttribute('aria-disabled', 'true');
+    expect(await serious('DNF digitado')).toEqual([]);
+    // O detalhe do DNF digitado, na Evolução.
+    await page.getByRole('button', { name: 'Evolução', exact: true }).first().click();
+    await page.locator('.hx-row', { hasText: 'DNF' }).first().click();
+    const sheet = page.getByRole('dialog', { name: /^Solve #/ });
+    await expect(sheet.getByText(T.timer.typedDnfLocked)).toBeVisible();
+    await expect(sheet.getByRole('button', { name: T.historico.penaltyOk })).toHaveAttribute('aria-disabled', 'true');
+    expect(await serious('detalhe do DNF digitado')).toEqual([]);
   });
 }

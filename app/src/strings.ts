@@ -49,6 +49,7 @@ export const T = Object.freeze({
     idleInspThumb: 'Quando quiser. Toque num polegar para começar a inspeção.', // dois polegares: só as áreas de polegar
     idleTouch: 'Quando quiser. Segure com os dois polegares.',
     idleOne: 'Quando quiser. Toque e segure para armar.',
+    idleTyped: 'Quando quiser. Resolva no seu timer e digite o tempo.', // o modo Digitar: não há o que armar
     inspect: 'Inspeção. Segure para armar quando estiver pronto.',
     arming: 'Armando…',
     ready: 'Solte para começar.',
@@ -483,6 +484,18 @@ export const T = Object.freeze({
     dnf: 'DNF',
     plus2: '+2',
     plus2Suffix: '+',
+    // O modo Digitar (o tempo vem de um timer de fora): o campo, a linha embaixo dele (a dica, como o tempo fica ou o erro) e o motivo do
+    // DNF digitado ter OK e +2 desligados.
+    hintsTyped: 'Enter salva · Esc solta o campo e volta aos atalhos (P, D, M, ⌫, N, Z) · ? atalhos',
+    typedLabel: 'Seu tempo',
+    typedSave: 'Salvar',
+    typedHint: 'Só os números: 1234 vira 12.34.',
+    typedHintLong: 'Só os números (1234 vira 12.34), ou 12.34 e 1:02.34. Um + no fim é +2; DNF é DNF.',
+    typedFica: 'Fica',
+    typedFicaPlus2: (raw: string) => `: ${raw} mais 2 s de penalidade.`,
+    typedError: 'Esse tempo não parece certo. Tente 12.34, 1:02.34 ou só os números.',
+    typedTooLong: 'Até 59:59.99: tempos de uma hora ou mais não entram.',
+    typedDnfLocked: 'Digitado sem tempo: não vira OK nem +2.',
   },
   // Fases do solve (marcadas por toque no cronômetro): os nomes do CFOP (4 fases no 3×3) e o genérico dos outros casos.
   fases: {

@@ -132,6 +132,93 @@ body.solving .centro * {
   }
 }
 
+/* O modo Digitar (a maquete aprovada, estados 2a–2f): o campo do tempo no lugar do tempo grande. O número no peso e na largura fixa do
+   tempo; o vazio mostra "0:00.00" na cor do decimal. Salvar ao lado, da mesma altura. Embaixo, uma linha: a dica, como o tempo vai ficar,
+   ou o erro. */
+.tc-entry {
+  margin: 14px 0 0;
+  max-width: 460px;
+}
+
+.tc-entry > .label {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.tc-field {
+  display: flex;
+  gap: 8px;
+}
+
+.tc-input {
+  flex: 1;
+  min-width: 0;
+  height: 96px;
+  padding: 0 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--surface);
+  color: var(--ink);
+  font: 600 64px/1 var(--font);
+  letter-spacing: -0.05em;
+  font-variant-numeric: tabular-nums;
+  box-shadow: var(--inner);
+  user-select: text; /* o .timer não deixa selecionar, mas o campo é de texto */
+  -webkit-user-select: text;
+}
+
+.tc-input::placeholder {
+  color: var(--dec);
+  opacity: 1;
+}
+
+.tc-input:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+  border-radius: var(--r-card);
+}
+
+.tc-input[aria-invalid='true'] {
+  border-color: var(--arm);
+}
+
+.tc-field .btn {
+  padding: 0 22px;
+}
+
+.tc-msg {
+  margin-top: 8px;
+  min-height: 1.5em;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.tc-msg b {
+  color: var(--ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.tc-msg.err {
+  color: var(--arm-ink);
+}
+
+/* O último solve embaixo do campo: o tempo do detalhe (.hx-time) e, como hoje, os chips e as ações. */
+.hx-time.tc-last {
+  margin-top: 16px; /* .hx-time (mais abaixo) zera a margem: a classe junta ganha dela */
+}
+
+.tc-last + .t-chips {
+  margin-top: 8px;
+}
+
+/* O motivo de um botão desligado, logo abaixo dele. */
+.tc-why {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
 .t-coach {
   display: grid;
   grid-template-columns: 112px 1fr;
@@ -1002,6 +1089,13 @@ body:has(.hx-bulk) .toast {
   .time { order: 3; margin: 4px 0; font-size: 21vw; }
   .t-chips { order: 4; justify-content: center; }
   .t-actions { order: 5; justify-content: center; margin-top: 0; }
+  /* O modo Digitar: tudo centrado como o tempo; o campo menor, o texto no meio. O campo e o último solve ficam onde o tempo grande ficava. */
+  .tc-entry { order: 3; margin: 4px 0 0; max-width: none; }
+  .tc-input { height: 72px; padding: 0 12px; font-size: 44px; text-align: center; }
+  .tc-field .btn { padding: 0 18px; }
+  .hx-time.tc-last { order: 3; margin-top: 6px; }
+  .tc-last + .t-chips { margin-top: 0; }
+  .tc-why { order: 5; margin-top: 0; }
   .t-note { order: 6; margin: 0 auto; width: 100%; }
   .t-coachtext .label { display: none; }
   .coach { order: 7; min-height: 2.9em; margin: 0; text-align: center; }

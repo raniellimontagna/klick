@@ -6,6 +6,9 @@
   // (app.duel.record), nunca para os solves. No modo, o embaralhamento diz "N de 7", o progresso (A) ou o placar (B) fica no topo (no
   // desktop, no cartão "Desafio" da coluna da direita, no lugar da constância), os chips viram a lista dos tempos, os tiles de média somem e
   // só +2 e DNF ficam (N e ⌫ não fazem nada). B confere a penalidade e vê o ponto antes do próximo: aí o Timer não arma.
+  //
+  // O modo Digitar (settings.entry === 'typing', fora do desafio) é o outro jeito de o tempo entrar: o campo (TypedEntry) no lugar do tempo
+  // grande, sem zonas e sem armar. Salvar passa pelo mesmo finishSolve do cronômetro (resultado, chips, Centro e coach iguais), sem inspeção.
   import { tick, untrack } from 'svelte';
   import { type CoachMessage, type CoachSeason, pickCoachMessage, type SeasonEnd, seasonEndMessage } from '../../core/coach';
   import { eventInfo } from '../../core/events';
@@ -26,8 +29,9 @@
     solvesOnDay,
   } from '../../core/stats';
   import { createTimer, type Timer, type TimerResult, type TimerState } from '../../core/timer';
+  import { isTypedDnf } from '../../core/typed';
   import { createTouchArm } from '../../core/touch';
-  import type { EventId, SeasonState, Solve } from '../../core/types';
+  import type { EventId, Penalty, SeasonState, Solve } from '../../core/types';
   import { T } from '../../strings';
   import DuelBoard from '../duel/DuelBoard.svelte';
   import Bidi from '../duel/Bidi.svelte';
@@ -45,6 +49,7 @@
   import CentroView from './CentroView.svelte';
   import ResultActions from './ResultActions.svelte';
   import ScrambleBlock from './ScrambleBlock.svelte';
+  import TypedEntry from './TypedEntry.svelte';
   import Zones from './Zones.svelte';
   import { type ActionName, createInputController, type InputController } from './input';
   import { createTimeLoop, paintTime } from './TimeDisplay';
@@ -77,13 +82,18 @@
   const duelLast = $derived(duelOn ? (duel?.mine.at(-1) ?? null) : null); // o último tempo deste lado
   const reveal = $derived(duelPhase === 'reveal' && duel && app.duel.score ? revealOf(duel, app.duel.score, app.duel.index) : null);
   const revealTime = $derived(reveal ? splitTime(reveal.time) : null);
+  // O modo Digitar (o tempo vem de um timer de fora): o campo no lugar do tempo grande, sem zonas e sem armar. Não vale no desafio.
+  const typingOn = $derived(app.profile.settings.entry === 'typing' && !duelOn);
   const wide = wideLayout(); // no desktop, o placar do desafio vai para a coluna da direita
   // A dica de teclado do desktop. Na confirmação e na revelação o espaço não arma: fica só o que vale ali.
   const hint = $derived(
-    !duelOn ? T.timer.hints : duelPhase === 'confirm' ? T.duel.hintsConfirm : duelPhase === 'reveal' ? T.duel.hintsReveal : T.duel.hints,
+    !duelOn ? (typingOn ? T.timer.hintsTyped : T.timer.hints) : duelPhase === 'confirm' ? T.duel.hintsConfirm : duelPhase === 'reveal' ? T.duel.hintsReveal : T.duel.hints,
   );
   // O espaço e o toque só armam no Timer de sempre e no embaralhamento da vez do desafio (o timer que corre ainda para com qualquer toque).
-  const armable = (): boolean => app.duel.phase === 'idle' || app.duel.phase === 'solving';
+  // No modo Digitar não há o que armar.
+  const armable = (): boolean => (app.duel.phase === 'idle' || app.duel.phase === 'solving') && !typingOn;
+  // O solve gravado está na tela como resultado: o timer parou nele, ou (no modo Digitar) o timer está parado e o tempo veio do campo.
+  const resting = (): boolean => timer.state === 'done' || (typingOn && timer.state === 'idle');
 
   // Os solves da lista antes do solve dado (a lista vem em ordem de tempo).
   const before = (list: Solve[], solve: Solve | null): Solve[] => {
@@ -118,9 +128,10 @@
   let screenEl = $state<HTMLElement>();
   let zonesEl = $state<HTMLElement>();
   let noteInput = $state<HTMLInputElement>();
-  let timeEl: HTMLElement | undefined;
+  let timeEl = $state<HTMLElement>(); // o tempo grande (sai da tela no modo Digitar)
   let lastId = $state<string | null>(null); // o solve que a tela mostra; null = o último da sessão
   let showResult = $state(false); // o solve está gravado e a pessoa ainda pode agir sobre ele
+  let typedPending = $state<string | null>(null); // o tempo digitado que está gravando (ou na fila): aparece no lugar do último solve
   let saving = $state(false); // gravação em voo: o tempo mostra o resultado do timer e os chips somem
   let unstored = $state<number | null>(null); // a gravação falhou: o instante (at) do solve que ficou na fila; o tempo segue o timer até ele entrar nos dados
   let deleting = $state(false);
@@ -230,6 +241,7 @@
 
   // No celular, o modo dois polegares só responde nas áreas de polegar; no modo um toque, a tela inteira responde.
   function idleText(): string {
+    if (typingOn) return T.coach.idleTyped;
     if (!coarseMq) return inspectionOn() ? T.coach.idleInsp : T.coach.idle;
     const one = app.profile.settings.mobileArm === 'one';
     if (inspectionOn()) return one ? T.coach.idleInspTouch : T.coach.idleInspThumb;
@@ -247,7 +259,7 @@
   }
 
   // O resultado que o timer acabou de dar, antes de o solve entrar na lista (+2 soma os 2 s).
-  function resultText(r: TimerResult): string {
+  function resultText(r: Pick<TimerResult, 'ms' | 'penalty'>): string {
     if (r.penalty === 'DNF') return T.timer.dnf;
     return formatMs(r.ms + (r.penalty === '+2' ? 2000 : 0)) + (r.penalty === '+2' ? T.timer.plus2Suffix : '');
   }
@@ -279,7 +291,7 @@
     const view = live.paint(now);
     const body = document.body;
     body.dataset.cview = view.state;
-    body.dataset.result = !duelOn && timer.state === 'done' && showResult && kind ? kind : '';
+    body.dataset.result = !duelOn && resting() && showResult && kind ? kind : '';
     const e = timer.inspectElapsed;
     body.dataset.insp = timer.state === 'inspect' ? (e > 15000 ? 'over' : e >= 12000 ? '12' : e >= 8000 ? '8' : '') : '';
     if (timeEl) paintTime(timeEl, timeText());
@@ -310,8 +322,10 @@
     };
   }
 
-  // Uma tecla ou toque que para o timer chega aqui. A gravação acontece antes de qualquer reação.
-  async function finishSolve({ ms, penalty }: TimerResult): Promise<void> {
+  // Uma tecla ou toque que para o timer chega aqui (ou, no modo Digitar, o Salvar do campo: `typed`, sem timer parado no resultado). A
+  // gravação acontece antes de qualquer reação.
+  async function finishSolve({ ms, penalty }: Pick<TimerResult, 'ms' | 'penalty'>, typed = false): Promise<void> {
+    const settled = (): boolean => typed || timer.state === 'done'; // o resultado ainda é o desta tela (a pessoa não armou de novo)
     const mine = ++solveSeq;
     const now = Date.now();
     const sessionAtStart = app.activeSession?.id ?? null;
@@ -359,13 +373,14 @@
     lastId = solve.id;
     // A pessoa já armou de novo: o solve está gravado (e aparece nos dados), mas a reação não entra por cima. O tempo final
     // ainda é anunciado.
-    if (timer.state !== 'done') {
+    if (!settled()) {
       release();
       app.announce(T.aria.final(formatSolve(solve)));
       kick();
       return;
     }
     showResult = true;
+    typedPending = null;
     kick();
     // O resultado e as ações já estão na tela. Os marcos e o coach vêm numa macrotarefa depois, para a conta não atrasar o quadro;
     // se a pessoa armou de novo ou outro solve tomou a tela nesse intervalo, a reação não entra.
@@ -374,7 +389,7 @@
       release();
       return;
     }
-    if (timer.state !== 'done') {
+    if (!settled()) {
       release();
       app.announce(T.aria.final(formatSolve(solve)));
       kick();
@@ -410,7 +425,7 @@
     clearTimeout(chordTimer);
     if (kind === 'pb') {
       chordTimer = setTimeout(() => {
-        if (live.reacting(performance.now()) && kind === 'pb' && timer.state === 'done') sound.chord();
+        if (live.reacting(performance.now()) && kind === 'pb' && settled()) sound.chord();
       }, REACTION_DELAY);
     }
     app.announce(`${T.aria.final(formatSolve(solve))}${msg ? ` ${msg.text}` : ''}`);
@@ -418,6 +433,24 @@
     await tick();
     popToday();
   }
+
+  // O Salvar do campo (Enter ou o botão): o mesmo caminho do solve cronometrado, sem inspeção. Até o solve entrar nos dados, o tempo
+  // digitado fica no lugar do último (como o resultado do timer, na gravação).
+  function saveTyped(t: { ms: number; penalty: Penalty }): void {
+    if (!typingOn) return;
+    typedPending = resultText(t);
+    void finishSolve(t, true);
+  }
+
+  // O tempo embaixo do campo: o que está gravando ou na fila, ou o último solve; nada antes do primeiro.
+  const typedShown = $derived<string | null>((saving || holding) && typedPending !== null ? typedPending : last ? formatSolve(last) : null);
+  // "0:12" e ".34+" (o decimal menor, como no tempo grande); o DNF não tem ponto e vai inteiro.
+  const typedParts = $derived.by(() => {
+    const text = typedShown;
+    if (text === null) return null;
+    const cut = text.indexOf('.');
+    return cut < 0 ? { int: text, dec: '' } : { int: text.slice(0, cut), dec: text.slice(cut) };
+  });
 
   // Um solve do desafio: vai para o desafio aberto (app.duel.record), nunca para os solves, e não passa pelas contas do Timer (médias,
   // recordes, marcos, coach). O Centro fica parado enquanto grava; depois, o de A volta ao parado (os pontos são de B) e o de B espera o
@@ -549,7 +582,7 @@
   async function penalize(p: '+2' | 'DNF'): Promise<void> {
     const solve = last;
     // Uma troca por vez: um segundo toque com a primeira ainda gravando leria a penalidade antiga (e mostraria a virada duas vezes).
-    if (!solve || timer.state !== 'done' || !showResult || deleting || penalizing) return;
+    if (!solve || !resting() || !showResult || deleting || penalizing || isTypedDnf(solve)) return; // o DNF digitado não tem tempo: não vira OK nem +2
     penalizing = true;
     try {
       const listBefore = app.solves;
@@ -565,7 +598,7 @@
       // como depois de um solve: o fim de temporada no coach e a piscada da face de cima, mas sem novo salto e sem a espera de 0,5 s (não
       // há gravação a esperar). A conta vem numa macrotarefa depois, para não atrasar o quadro que mostra a penalidade.
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
-      const still = !destroyed && lastId === solve.id && timer.state === 'done';
+      const still = !destroyed && lastId === solve.id && resting();
       const end = still ? seasonEndOf(updated, seasonAtStart, app.solvesBefore(listBefore, updated, solve)) : null;
       let msg: CoachMessage | null = null;
       if (end) {
@@ -584,7 +617,7 @@
 
   async function removeLast(): Promise<void> {
     const solve = last;
-    if (!solve || timer.state !== 'done' || !showResult || deleting) return;
+    if (!solve || !resting() || !showResult || deleting) return;
     const hadFocus = focusInside(); // as ações vão sumir: se o foco estava nelas, ele volta para a tela do Timer
     deleting = true;
     live.clearReaction();
@@ -610,7 +643,7 @@
 
   async function openNote(): Promise<void> {
     const solve = last;
-    if (!solve || timer.state !== 'done' || !showResult || deleting) return;
+    if (!solve || !resting() || !showResult || deleting) return;
     noteId = solve.id;
     noteValue = solve.note;
     noteOpen = true;
@@ -746,6 +779,7 @@
     lastId = null;
     showResult = false;
     unstored = null;
+    typedPending = null;
     closeNote();
     live.clearReaction();
     coach = null;
@@ -779,7 +813,8 @@
     untrack(() => {
       lastId = entrou.id;
       unstored = null;
-      showResult = timer.state === 'done';
+      showResult = resting();
+      typedPending = null;
       kick();
     });
   });
@@ -789,6 +824,7 @@
   $effect(() => {
     void timeText();
     void idleText();
+    void typingOn; // o tempo grande volta (ou sai) com o ajuste: um quadro novo o pinta
     void kind;
     void showResult;
     untrack(() => kick());
@@ -868,6 +904,20 @@
     untrack(() => {
       if (key === duelSeen) return;
       duelSeen = key;
+      controller?.abandonHold();
+      resetForSession();
+    });
+  });
+
+  // Ligar ou desligar o modo Digitar zera a tela, como trocar de sessão (o resultado de um modo não é o do outro). A primeira passada só
+  // lembra: na montagem não há o que zerar.
+  let typingSeen: boolean | null = null;
+  $effect(() => {
+    const on = typingOn;
+    untrack(() => {
+      const prev = typingSeen;
+      typingSeen = on;
+      if (prev === null || prev === on) return;
       controller?.abandonHold();
       resetForSession();
     });
@@ -1030,7 +1080,15 @@
         <button type="button" class="btn" onclick={exportNow}>{T.data.exportNow}</button>
       </div>
     {/if}
-    <div class="time" data-time aria-hidden="true" bind:this={timeEl}></div>
+    {#if typingOn}
+      <TypedEntry onSave={saveTyped} closeKeyboard={coarseMq} />
+      {#if typedParts}
+        <!-- O último solve embaixo do campo (a maquete, 2d): o tempo do detalhe, e depois os chips e as ações de sempre. -->
+        <div class="tc-last hx-time" aria-hidden="true"><span class="int">{typedParts.int}</span><span class="dec">{typedParts.dec}</span></div>
+      {/if}
+    {:else}
+      <div class="time" data-time aria-hidden="true" bind:this={timeEl}></div>
+    {/if}
     <!-- No desafio, B não tem chips (o placar é o dele): a linha some, sem deixar o vão. -->
     <div class="chips t-chips fade" data-chips hidden={duelOn && duelChips.length === 0}>
       {#if duelOn}
@@ -1065,6 +1123,7 @@
       onDelete={() => removeLast()}
       onNoteSave={(text) => saveNote(text)}
       onNoteClose={closeNoteAndFocus}
+      typedDnf={!duelOn && last !== null && isTypedDnf(last)}
       penaltiesOnly={duelOn}
     />
     {#if duelOn && duelPhase === 'confirm'}
@@ -1139,7 +1198,7 @@
     </div>
   {/if}
 
-  <Zones bind:el={zonesEl} one={app.profile.settings.mobileArm === 'one'} hidden={reviewing} />
+  <Zones bind:el={zonesEl} one={app.profile.settings.mobileArm === 'one'} hidden={reviewing || typingOn} />
   <p class="t-hints fade muted">{hint}</p>
 </section>
 

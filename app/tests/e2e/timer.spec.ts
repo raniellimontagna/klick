@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { waitForScramble } from './helpers';
+import { fresh, typingMode, waitForScramble } from './helpers';
 
 async function start(page: Page) {
   await page.clock.install();
@@ -61,4 +61,22 @@ test('celular: dois polegares armam e o primeiro que sai larga', async ({ page, 
   await page.clock.runFor(400);
   await zones.nth(0).dispatchEvent('pointerup', { pointerId: 11, pointerType: 'touch', isPrimary: true });
   await expect(page.locator('body')).toHaveClass(/solving/);
+});
+
+// Digitar o tempo (desktop e celular): grava, mostra o último solve com as ações e sobrevive a recarregar; no celular, Salvar fecha o teclado.
+test('digitar: Salvar grava o tempo, o campo fica pronto e o solve sobrevive a recarregar', async ({ page, isMobile }) => {
+  await fresh(page);
+  await typingMode(page);
+  const field = page.getByLabel('Seu tempo');
+  await field.fill('1234');
+  await expect(page.getByText('Fica 0:12.34.')).toBeVisible();
+  await page.getByRole('button', { name: 'Salvar', exact: true }).click();
+  await expect(page.locator('.tc-last')).toHaveText('0:12.34');
+  await expect(page.locator('[data-actions]')).toBeVisible();
+  await expect(field).toHaveValue('');
+  if (isMobile) await expect(field).not.toBeFocused(); // o teclado fecha
+  else await expect(field).toBeFocused(); // no desktop, o foco fica para o próximo
+  await page.reload();
+  await page.getByRole('button', { name: 'Evolução', exact: true }).first().click();
+  await expect(page.locator('.hx-row')).toHaveCount(1);
 });

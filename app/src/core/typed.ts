@@ -54,3 +54,7 @@ export function previewTyped(text: string): string | null {
   if (parsed.penalty === 'DNF') return 'DNF';
   return formatMs(parsed.ms) + (parsed.penalty === '+2' ? '+' : '');
 }
+
+// O DNF digitado: ms 0 e DNF, sem tempo nenhum por trás. Não há tempo para mostrar, então OK e +2 não existem para ele (o Timer e o detalhe
+// desligam os dois); um DNF do cronômetro guarda o tempo cru e volta a OK ou a +2 quando se quer.
+export const isTypedDnf = (s: { ms: number; penalty: Penalty }): boolean => s.penalty === 'DNF' && s.ms === 0;

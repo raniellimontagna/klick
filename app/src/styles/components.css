@@ -192,6 +192,13 @@
   color: var(--ink);
 }
 
+/* Desligado, mas no Tab: aria-disabled (e não disabled) deixa o leitor ler o motivo (aria-describedby). */
+.btn[aria-disabled='true'],
+.seg button[aria-disabled='true'] {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .btn kbd,
 .key {
   font-size: 11px;
