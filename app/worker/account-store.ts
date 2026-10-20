@@ -841,7 +841,14 @@ export class AccountStore extends DurableObject<Env> {
       this.setCopies({ ...this.copies(), gz: gz.byteLength });
       return paused;
     }
-    await this.env.SNAPSHOTS.put(snapshotKey(userId, name), gz, { customMetadata: { ...meta, solves: String(activeSolves(data)) } });
+    try {
+      await this.env.SNAPSHOTS.put(snapshotKey(userId, name), gz, { customMetadata: { ...meta, solves: String(activeSolves(data)) } });
+    } catch (error) {
+      // O put que falha devolve o espaço reservado na hora (a recontagem do Cron só o acharia no dia seguinte), e o erro segue para quem
+      // chamou (o alarme o pega). A operação A fica contada, como nas partes: a mais, nunca a menos.
+      await releaseStorage(this.env.DB, gz.byteLength).catch(() => undefined); // o erro que importa é o do put
+      throw error;
+    }
     return { gz: gz.byteLength, parts: 0 };
   }
 

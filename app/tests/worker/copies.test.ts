@@ -217,6 +217,32 @@ describe('a cópia do dia dentro do teto (endurecimento 4.2)', () => {
     expect(await opsOf('A')).toBe(caps.classAMonth);
     expect((await sync(user, [])).copiesPaused).toBeNull();
   });
+
+  // O acabamento (A3): a cópia de um arquivo só reserva o espaço antes do put. Um put que falha devolve o espaço na hora (antes, ele ficava
+  // reservado até a recontagem do Cron) e o erro segue para quem chamou (o alarme o pega); a operação A fica contada, como nas partes.
+  it('um put que falha na cópia de um arquivo só devolve o espaço reservado, e o erro segue', async () => {
+    const user = 'copia-put-falha';
+    await sync(user, [session, solve('a')]);
+    await seedUsed(1000);
+    await runInDurableObject(stubOf(user), (instance) => {
+      const o = instance as unknown as { env: Env };
+      const failing = new Proxy(o.env.SNAPSHOTS, {
+        get(target, key) {
+          const value = Reflect.get(target, key) as unknown;
+          if (typeof value !== 'function') return value;
+          if (key === 'put') return async () => Promise.reject(new Error('R2: falha no put'));
+          return (value as (...a: unknown[]) => unknown).bind(target);
+        },
+      });
+      o.env = { ...o.env, SNAPSHOTS: failing };
+    });
+    const failed = await stubOf(user).snapshot(T0).then(() => null, (error: unknown) => error);
+    expect(String(failed)).toContain('R2: falha no put');
+    expect(await objectsOf(user)).toEqual([]);
+    expect(await storageUsed(env.DB)).toBe(1000); // o espaço da cópia voltou
+    expect(await opsOf('A')).toBe(1); // a do put fica contada (a lista, depois dele, nem chegou)
+    expect(await stateOf(user, 'snapshotRev')).toBeNull();
+  });
 });
 
 // Revisão final (I5 b): pausada por espaço ou por operações, a cópia do dia não lê nem comprime a conta inteira todo dia para descobrir que
