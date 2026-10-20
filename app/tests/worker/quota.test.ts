@@ -15,6 +15,7 @@ import {
   capsOf,
   COMPACT_PER_DAY,
   COPY_PART_READS_PER_DAY,
+  COPY_READS_EXTRA,
   COPY_PART_RECORDS,
   DAILY_READ_BUDGET,
   DAILY_WRITE_BUDGET,
@@ -389,7 +390,7 @@ describe('os tamanhos que cabem (Task 12)', () => {
     // 150 mil (a revisão final, I3): uma conta de 100 mil solves com a lixeira e as sessões, até o tempo de relógio ser medido no beta.
     const caps = capsOf(env as unknown as Env);
     expect([caps.snapshotRecords, caps.restoreRecords]).toEqual([150_000, 5_000]);
-    expect([COPY_PART_RECORDS, BIG_COPY_EVERY_DAYS, COPY_PART_READS_PER_DAY]).toEqual([5_000, 7, 200]);
+    expect([COPY_PART_RECORDS, BIG_COPY_EVERY_DAYS, COPY_PART_READS_PER_DAY, COPY_READS_EXTRA]).toEqual([5_000, 7, 200, 10_000]);
   });
 
   it('rowsOf: 4 linhas por registro gravado, 1 por solve compactado, e as 5 do estado quando o pedido grava; só receber não conta', () => {

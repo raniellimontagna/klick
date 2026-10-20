@@ -20,6 +20,7 @@ import {
   COPIES_CACHE_MS,
   COPY_PART_READS_PER_DAY,
   COPY_PART_RECORDS,
+  COPY_READS_EXTRA,
   DAILY_READ_BUDGET,
   DAILY_WRITE_BUDGET,
   RECORDS_PER_DAY,
@@ -840,6 +841,55 @@ describe('a cópia em partes e a cada 7 dias numa conta grande', () => {
     } finally {
       out.mockRestore();
     }
+  });
+
+  // A revisão final (I4): um erro no meio da cópia (o R2 que falha num put) não sai do alarme. Lançado, o runtime repetiria o alarme, e cada
+  // repetição regravaria as partes; ele vai para o log, a cópia fica para o alarme de amanhã, e o de amanhã é marcado.
+  it('um put que falha no meio das partes: o alarme termina, marca o de amanhã, e nenhuma parte nem espaço ficam', async () => {
+    const user = 'partes-alarme-falha';
+    await accountWith(user, COPY_PART_RECORDS + 1);
+    await runInDurableObject(stubOf(user), async (instance, state) => {
+      const o = instance as unknown as { env: Env };
+      let puts = 0;
+      const failing = new Proxy(o.env.SNAPSHOTS, {
+        get(target, key) {
+          const value = Reflect.get(target, key) as unknown;
+          if (typeof value !== 'function') return value;
+          if (key === 'put' && ++puts === 2) return async () => Promise.reject(new Error('R2: falha no put'));
+          return (value as (...a: unknown[]) => unknown).bind(target);
+        },
+      });
+      o.env = { ...o.env, SNAPSHOTS: failing };
+      await state.storage.setAlarm(Date.now() + 3_600_000); // no futuro: só runDurableObjectAlarm o dispara
+    });
+    const out = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      expect(await runDurableObjectAlarm(stubOf(user))).toBe(true);
+      const logged = out.mock.calls.map(([line]) => JSON.parse(String(line)) as Record<string, unknown>);
+      expect(logged).toContainEqual({ evt: 'copy-failed', user, error: 'R2: falha no put' });
+    } finally {
+      out.mockRestore();
+    }
+    const next = await runInDurableObject(stubOf(user), (_o, state) => state.storage.getAlarm());
+    expect(next).toBeGreaterThan(Date.now());
+    expect(await objectsOf(user)).toEqual([]);
+    expect(await storageUsed(env.DB)).toBe(0);
+    expect(await stateOf(user, 'snapshotRev')).toBeNull(); // a cópia fica para amanhã
+    expect(await readsCounted(user, Date.now())).toBeGreaterThan(COPY_PART_RECORDS); // o que ela leu continua contado
+  });
+
+  it('a cópia grande que passaria do orçamento de leituras do dia fica para depois, sem pausa', async () => {
+    const user = 'partes-sem-leituras';
+    await accountWith(user, COPY_PART_RECORDS + 1);
+    // O que ela leria (as páginas, COPY_PART_RECORDS + 1, mais COPY_READS_EXTRA) não cabe no que sobra hoje: volta sem copiar nem pausar.
+    await setState(user, 'reads', { day: utcDay(T0), n: DAILY_READ_BUDGET - COPY_READS_EXTRA });
+    const r2 = await countR2(user);
+    expect(await stubOf(user).snapshot(T0)).toBe(false);
+    expect([r2.put, await objectsOf(user), await stateOf(user, 'snapshotRev')]).toEqual([undefined, [], null]);
+    expect((await sync(user, [], T0)).copiesPaused).toBeNull();
+    // Com folga no dia, a mesma cópia sai.
+    await setState(user, 'reads', { day: utcDay(T0), n: DAILY_READ_BUDGET - 2 * COPY_READS_EXTRA - 2 * COPY_PART_RECORDS });
+    expect(await stubOf(user).snapshot(T0)).toBe(true);
   });
 
   it('conta grande copia só a cada BIG_COPY_EVERY_DAYS dias', async () => {

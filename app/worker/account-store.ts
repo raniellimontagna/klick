@@ -34,6 +34,7 @@ import {
   COPIES_CACHE_MS,
   COPY_PART_READS_PER_DAY,
   COPY_PART_RECORDS,
+  COPY_READS_EXTRA,
   DAILY_READ_BUDGET,
   DAILY_WRITE_BUDGET,
   DEVICE_TOUCH_MS,
@@ -672,13 +673,21 @@ export class AccountStore extends DurableObject<Env> {
 
   // Uma vez por dia (spec 8.3): a compactação e depois a cópia do dia, só se a conta mudou desde a última. Uma conta apagada (ou sem dono)
   // não marca o próximo. A limpeza dos pedidos de código e dos códigos vencidos (spec 10) é do Cron Trigger do Worker (worker/index.ts): ela
-  // não pode depender de uma conta viva nem da cópia no R2 dar certo.
+  // não pode depender de uma conta viva nem da cópia no R2 dar certo. Um erro da cópia (o R2 que falha no meio das partes) não sai do
+  // alarme (a revisão final, I4): lançado, o runtime repetiria o alarme, e cada repetição leria e regravaria as partes. Ele vai para o log
+  // ({evt:'copy-failed'}), a cópia já limpou o que gravou (writeParts) e não marcou snapshotRev, e o alarme de amanhã é marcado sempre.
   async alarm(): Promise<void> {
     await this.exclusive(async () => {
-      if (this.deleted() || this.getState('userId') === null) return;
+      if (this.deleted()) return;
+      const userId = this.getState('userId');
+      if (userId === null) return;
       const now = Date.now();
       await this.compact(now);
-      await this.takeSnapshot(now);
+      try {
+        await this.takeSnapshot(now);
+      } catch (error) {
+        console.log(JSON.stringify({ evt: 'copy-failed', user: userId, error: error instanceof Error ? error.message : String(error) }));
+      }
       this.saveReads(now);
       await this.ctx.storage.setAlarm(nextSnapshotAt(now));
     });
@@ -744,6 +753,9 @@ export class AccountStore extends DurableObject<Env> {
     if (records > caps.snapshotRecords) return this.pauseCopies(userId, 'size');
     if (records > useful) {
       if (!this.bigCopyDue(now)) return false;
+      // A cópia grande que passaria do orçamento de leituras do dia (as páginas, pelo teto da conta, e o resto: COPY_READS_EXTRA) fica para
+      // o alarme de amanhã, sem pausa (a revisão final, I4): parada no meio, ela já teria lido, e o sync da conta esperaria a virada do dia.
+      if (this.readsOf(now).n + this.recordsBound(now) + COPY_READS_EXTRA > DAILY_READ_BUDGET) return false;
       records = this.recordCount(caps.snapshotRecords, now);
       if (records > caps.snapshotRecords) return this.pauseCopies(userId, 'size');
     }
