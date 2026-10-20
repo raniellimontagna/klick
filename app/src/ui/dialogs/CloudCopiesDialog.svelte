@@ -84,7 +84,8 @@
       } else if (outcome === 'gone') {
         app.showToast(T.conta.cloudGone);
         void load();
-      } else app.showToast(outcome === 'failed' ? T.conta.cloudRestoreFailed : REFUSED[outcome]);
+      } else if (outcome === 'stale') app.showToast(T.conta.cloudSyncFirst); // a rodada de antes não terminou limpa: nada mudou
+      else app.showToast(outcome === 'failed' ? T.conta.cloudRestoreFailed : REFUSED[outcome]);
     } finally {
       busy = false;
       asking = null;

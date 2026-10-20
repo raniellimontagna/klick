@@ -888,6 +888,7 @@ export const T = Object.freeze({
     cloudRestoredHere: 'Restaurado neste aparelho. Os outros recebem nos próximos dias, pelo sync.',
     cloudBig: 'Esta conta é grande: a restauração chega a este aparelho na hora e aos outros nos próximos dias.',
     cloudRestoreFailed: 'Não consegui restaurar agora. Tudo continua como estava.',
+    cloudSyncFirst: 'Não consegui sincronizar este aparelho antes de restaurar. Confira a conexão e tente de novo. Tudo continua como estava.',
     cloudGone: 'Esta cópia não existe mais. A lista foi atualizada.',
     // As cópias pausadas e as recusas da restauração (endurecimento 4.2 e decisões 1, 2, 3 e 6): cada uma diz por quê, e nada muda aqui.
     cloudPaused: (why: CopiesPaused): string =>

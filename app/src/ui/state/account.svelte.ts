@@ -24,6 +24,13 @@ const STOP_WAIT_MS = 10_000;
 // BUSY_BEAT_MS; a que fica BUSY_STALE_MS sem avisar (fechou ou travou no meio do solve) deixa de contar: a espera nunca vira bloqueio.
 export const BUSY_BEAT_MS = 5_000;
 export const BUSY_STALE_MS = 15_000;
+// Quanto uma aba que não lidera espera a rodada da líder antes de restaurar pelo aparelho (freshSync). Sem resposta, a restauração não segue.
+export const FRESH_WAIT_MS = 60_000;
+
+// A rodada terminou limpa depois de `since`: sem erro, sem nada por receber e sem o orçamento de leituras do dia (que para a rodada com
+// a conta pela metade). lastSyncAt é da última volta juntada, no relógio do aparelho (host.now, o mesmo de `since`).
+const cleanSince = (s: SyncStatus, since: number): boolean =>
+  s.phase === 'idle' && s.error === null && s.notice !== 'reads' && s.lastSyncAt !== null && s.lastSyncAt >= since;
 
 export interface AccountDeps {
   api: SyncApi;
@@ -115,6 +122,8 @@ export class AccountState {
   private failing = false; // a região aria-live já disse que o sync parou: só volta a falar quando ele voltar
   private heard = false; // esta aba (que não lidera) já recebeu um estado da líder: o primeiro é só o ponto de partida, não uma mudança
   private readonly waits = new Map<string, () => void>(); // as paradas pedidas à líder, à espera da resposta
+  // As esperas de freshSync numa aba que não lidera: cada estado da líder passa por elas; null, a aba fechou (não segue).
+  private readonly watchers = new Set<(s: SyncStatus | null) => void>();
   // O primeiro login e a volta da conta pedidos à líder e ainda sem resposta. Se a líder some antes de atender (fechando, ou soltando o lock),
   // o pedido não se perde: a aba que passa a liderar o refaz. O login fica em todas as abas que o viram passar (a que assume pode não ser a
   // que pediu) até o estado gravado mostrar a conta, dentro (o aviso 'sync' do começo dele); a volta, nesta aba, até a líder responder
@@ -304,6 +313,39 @@ export class AccountState {
     await this.started;
     if (this.leader) await this.tick();
     else this.post({ type: 'now' });
+  }
+
+  // Uma rodada que começou depois de `since` e terminou limpa (cleanSince)? A restauração pelo aparelho só compara com a cópia depois dela (a
+  // revisão final das cópias grandes, I2): sem ela, a comparação correria contra o que este aparelho tinha antes, e gravaria por cima do que
+  // a conta já recebeu de outro. Na líder, pede uma rodada ao motor (uma rodada em andamento faz a pedida esperar por ela, e a pedida começa
+  // depois) e olha o fim dela. Numa aba que não lidera, pede pelo canal e olha os estados da líder: o primeiro fim limpo depois de `since`
+  // vale; um fim com erro (ou sem rede, ou parado) depois de a rodada aparecer, não; um fim de antes de `since` (a rodada que já corria) é
+  // esperado até a seguinte. Sem resposta em FRESH_WAIT_MS (a líder suspensa, ou sem canal), não.
+  async freshSync(since: number): Promise<boolean> {
+    await this.started;
+    if (this.leader) {
+      const status = await this.tick();
+      return status !== null && cleanSince(status, since);
+    }
+    if (!this.channel) return false;
+    return new Promise<boolean>((resolve) => {
+      let started = false;
+      let cancel: () => void = () => undefined;
+      const done = (ok: boolean): void => {
+        cancel();
+        this.watchers.delete(watch);
+        resolve(ok);
+      };
+      const watch = (s: SyncStatus | null): void => {
+        if (s === null) done(false);
+        else if (s.phase === 'syncing') started = true;
+        else if (s.phase === 'idle' && s.error === null && s.lastSyncAt !== null && s.lastSyncAt >= since) done(s.notice !== 'reads');
+        else if (s.phase !== 'idle' && started) done(false);
+      };
+      this.watchers.add(watch);
+      cancel = this.env.schedule(() => done(false), FRESH_WAIT_MS);
+      this.post({ type: 'now' });
+    });
   }
 
   // O primeiro login (spec 6.5) ou juntar à outra conta (spec 7.6): roda na líder. A promessa resolve quando a rodada da líder terminou
@@ -627,12 +669,14 @@ export class AccountState {
   // rede ou outro erro. Fora do 'ok' e do 'device', nada mudou e nada sincroniza.
   //
   // 'device': a conta é grande e o servidor não cabe a troca hoje, então a restauração é daqui (spec das cópias grandes, seção 5): uma rodada
-  // de sync para o que está na fila não se perder, a cópia inteira baixada pelo Worker, a cópia local 'pre-restore' e só as diferenças
-  // gravadas (replaceAll); o sync sobe o resto no ritmo do orçamento, e os outros aparelhos recebem pelo sync de sempre. Antes de
-  // restoreExport nada deste aparelho muda: um download que falha (ou uma cópia torta) é 'failed', e o 404 de qualquer objeto, 'gone'. A
-  // gravação passa pelo portão da cópia local (host.restoreExport: a importação em curso, a fila de gravação, o prazo): se ele a segura,
-  // 'held' (o aviso já saiu, nada sincroniza); passando do prazo ela ainda termina, e o sync de depois sobe o que ela gravar.
-  async restoreCloudCopy(name: string): Promise<'ok' | 'device' | 'held' | 'gone' | 'failed' | RestoreRefusal> {
+  // de sync que começou depois do clique e terminou limpa (freshSync; senão 'stale', sem baixar nem gravar nada: a comparação correria contra
+  // uma vista velha da conta), a cópia inteira baixada pelo Worker, a cópia local 'pre-restore' e só as diferenças gravadas (replaceAll); o
+  // sync sobe o resto no ritmo do orçamento, e os outros aparelhos recebem pelo sync de sempre. Antes de restoreExport nada deste aparelho
+  // muda: um download que falha (ou uma cópia torta) é 'failed', e o 404 de qualquer objeto, 'gone'. A gravação passa pelo portão da cópia
+  // local (host.restoreExport: a importação em curso, a fila de gravação, o prazo): se ele a segura, 'held' (o aviso já saiu, nada
+  // sincroniza); passando do prazo ela ainda termina, e o sync de depois sobe o que ela gravar.
+  async restoreCloudCopy(name: string): Promise<'ok' | 'device' | 'stale' | 'held' | 'gone' | 'failed' | RestoreRefusal> {
+    const since = this.host.now(); // o clique: a rodada que vale para a restauração pelo aparelho começa depois dele
     let answer: RestoreAnswer;
     let account: string;
     try {
@@ -647,9 +691,9 @@ export class AccountState {
       void this.syncNow();
       return 'ok';
     }
+    if (!(await this.freshSync(since))) return 'stale';
     let applied: boolean;
     try {
-      await this.syncNow();
       const data = await downloadCopy(this.deps.api, name, account);
       applied = await this.host.restoreExport(data);
     } catch (err) {
@@ -708,6 +752,7 @@ export class AccountState {
     for (const off of this.unlisten) off();
     this.unlisten = [];
     for (const done of [...this.waits.values()]) done();
+    for (const watch of [...this.watchers]) watch(null);
     if (this.channel) this.channel.onmessage = null;
     if (this.ownsChannel) this.channel?.close?.();
   }
@@ -715,9 +760,10 @@ export class AccountState {
   // Um gatilho ou "Sincronizar agora": roda o motor se a conta está ligada e este aparelho está nela. Num aparelho que está numa conta, se
   // /api/health ficou sem resposta (sem rede ao abrir), pergunta de novo antes: com a conta desligada no ambiente, o sync não sai (spec 8.4).
   // Sem conta, a pergunta é uma por abertura.
-  private async tick(): Promise<void> {
+  // Devolve o estado do fim da rodada, ou null quando nenhuma rodou.
+  private async tick(): Promise<SyncStatus | null> {
     if (this.health === null && this.signedIn) await this.checkHealth();
-    if (this.available && this.signedIn) await this.engine.run();
+    return this.available && this.signedIn ? this.engine.run() : null;
   }
 
   private publish(next: SyncStatus): void {
@@ -777,6 +823,7 @@ export class AccountState {
             this.failing = m.status.error !== null;
           }
           this.show(m.status);
+          for (const watch of [...this.watchers]) watch(m.status);
         }
         break;
       case 'stop':

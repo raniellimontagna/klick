@@ -10,7 +10,7 @@ import { ApiError, createSyncApi } from '../../src/sync/api';
 import type { LocksLike } from '../../src/sync/triggers';
 import AjustesScreen from '../../src/ui/ajustes/AjustesScreen.svelte';
 import { CONFIRM_DELAY_MS } from '../../src/ui/confirm';
-import { appWithAccount, bus, fakeApi } from './sync-account';
+import { appWithAccount, bus, fakeApi, manualEnv } from './sync-account';
 import { FakeServer } from './sync-fakes';
 
 const EMAIL = 'ranielli@exemplo.com';
@@ -445,6 +445,12 @@ describe('a restauração pelo aparelho', () => {
   it('resposta device: sincroniza, baixa, guarda a cópia local e grava só as diferenças', async () => {
     const { net, app, repo, a, b, c } = await setup();
     const events: string[] = [];
+    const account = app.account!;
+    const fresh = account.freshSync.bind(account);
+    vi.spyOn(account, 'freshSync').mockImplementation(async (since) => {
+      events.push('rodada');
+      return fresh(since);
+    });
     const sync = vi.spyOn(app.account!, 'syncNow').mockImplementation(async () => void events.push('sync'));
     const part = net.api.copyPart;
     net.api.copyPart = async (name, index, account) => {
@@ -454,9 +460,9 @@ describe('a restauração pelo aparelho', () => {
     const backups = (await repo.listBackups()).length;
     const untouched = (await repo.listSolves()).find((s) => s.id === a.id)!;
     expect(await app.account!.restoreCloudCopy('2026-10-15')).toBe('device');
-    // Sincronizou antes de baixar, baixou o objeto 0 e as partes 1..N em ordem, e sincronizou de novo depois de gravar.
-    expect(events).toEqual(['sync', 'parte:0', 'parte:1', 'parte:2', 'sync']);
-    expect(sync).toHaveBeenCalledTimes(2);
+    // Uma rodada limpa antes de baixar (I2), o objeto 0 e as partes 1..N em ordem, e o sync de depois de gravar.
+    expect(events).toEqual(['rodada', 'parte:0', 'parte:1', 'parte:2', 'sync']);
+    expect(sync).toHaveBeenCalledTimes(1);
     // A cópia local 'pre-restore' foi guardada, com o estado de antes (A e B).
     const after = await repo.listBackups();
     expect(after).toHaveLength(backups + 1);
@@ -476,7 +482,7 @@ describe('a restauração pelo aparelho', () => {
     const sync = vi.spyOn(app.account!, 'syncNow');
     expect(await app.account!.restoreCloudCopy('2026-10-15')).toBe('held');
     expect(held).toHaveBeenCalledTimes(1);
-    expect(sync).toHaveBeenCalledTimes(1); // a de antes de baixar; a de depois não houve
+    expect(sync).not.toHaveBeenCalled(); // o sync de depois não houve
     expect(await repo.listSolves()).toEqual(solves);
   });
 
@@ -505,7 +511,75 @@ describe('a restauração pelo aparelho', () => {
     expect((await repo.listBackups()).map((r) => r.id)).toEqual(backups);
     expect(await repo.listSolves()).toEqual(solves);
     expect(await repo.listTrash()).toEqual(trash);
-    expect(sync).toHaveBeenCalledTimes(1); // a de antes; a de depois não houve
+    expect(sync).not.toHaveBeenCalled(); // o sync de depois não houve
+  });
+
+  // A revisão final (I2): o aparelho só compara com a cópia depois de uma rodada que começou depois do clique e terminou limpa (sem erro, sem
+  // nada por receber, sem o orçamento de leituras do dia). Senão, 'stale': nada baixado, nada gravado.
+  it('a rodada de antes de baixar não termina limpa (erro, mais por receber, leituras do dia): stale, nada baixado nem gravado', async () => {
+    const { net, app, repo } = await setup();
+    const solves = await repo.listSolves();
+    const backups = (await repo.listBackups()).map((r) => r.id);
+    const real = net.api.sync;
+    const modes: [string, (req: SyncRequest) => Promise<SyncResponse>][] = [
+      ['erro', async () => {
+        throw new ApiError('server', 500);
+      }],
+      ['mais', async (req) => ({ ...(await real(req)), more: true, cursor: req.cursor })], // mais por receber, e o cursor não anda
+      ['leituras', async (req) => ({ accepted: 0, rejected: [], changes: [], cursor: req.cursor, more: false, serverTime: Date.now(), retryAt: Date.now() + 3_600_000, readsDeferred: true, copiesPaused: null })],
+    ];
+    for (const [mode, sync] of modes) {
+      net.api.sync = sync;
+      expect(await app.account!.restoreCloudCopy('2026-10-15'), mode).toBe('stale');
+    }
+    expect(net.cloud.partCalls).toEqual([]);
+    expect((await repo.listBackups()).map((r) => r.id)).toEqual(backups);
+    expect(await repo.listSolves()).toEqual(solves);
+    // Com a rodada limpa de novo, a mesma restauração segue.
+    net.api.sync = real;
+    expect(await app.account!.restoreCloudCopy('2026-10-15')).toBe('device');
+  });
+
+  it('numa aba que não lidera: espera a rodada da líder pedida depois do clique; limpa, segue; com erro ou sem resposta, stale', async () => {
+    const net = fakeApi(new FakeServer());
+    net.cloud.answer = { restore: 'device', parts: 0 };
+    const name = `restaura-abas-${++dbs}`;
+    const data = bus();
+    const make = bus();
+    const locks = firstWins();
+    const env = manualEnv();
+    const first = await appWithAccount(net.api, { signedIn: true, locks, channel: make(), repo: createRepository(await openKlickDb(name), { channel: data() }) });
+    const second = await appWithAccount(net.api, { signedIn: true, locks, channel: make(), env: env.env, repo: createRepository(await openKlickDb(name), { channel: data() }) });
+    expect([first.app.account!.leader, second.app.account!.leader]).toEqual([true, false]);
+    await vi.waitFor(() => expect(first.app.account!.status.phase).toBe('idle'));
+    await first.app.addSolve({ ms: 9000, penalty: null, at: Date.now() });
+    await first.app.account!.syncNow();
+    net.cloud.partBytes = [await gzipJson({ ...(await first.repo.exportAll()), solves: [] })];
+    const syncs = vi.spyOn(net.api, 'sync');
+
+    // A líder roda a rodada pedida pela outra aba, e só depois dela a outra baixa.
+    expect(await second.app.account!.restoreCloudCopy('2026-10-15')).toBe('device');
+    expect(syncs).toHaveBeenCalled();
+    expect(await second.repo.listSolves()).toEqual([]);
+
+    // A rodada da líder falha: stale, sem baixar.
+    net.cloud.partCalls.length = 0;
+    const real = net.api.sync;
+    net.api.sync = async () => {
+      throw new ApiError('server', 500);
+    };
+    expect(await second.app.account!.restoreCloudCopy('2026-10-15')).toBe('stale');
+    expect(net.cloud.partCalls).toEqual([]);
+
+    // A líder não responde (a aba dela está suspensa): passado o prazo, stale.
+    net.api.sync = real;
+    const leaderChannel = (first.app.account as unknown as { channel: Parameters<typeof make.mute>[0] }).channel;
+    make.mute(leaderChannel);
+    const waiting = second.app.account!.restoreCloudCopy('2026-10-15');
+    await vi.waitFor(() => expect(env.pending()).toBeGreaterThan(0));
+    env.fireDelayed();
+    expect(await waiting).toBe('stale');
+    expect(net.cloud.partCalls).toEqual([]);
   });
 
   it('parte torta, manifesto torto ou arquivo que não é do Klick: failed, sem gravar nada', async () => {
@@ -589,6 +663,27 @@ describe('o diálogo das cópias grandes', () => {
     await vi.waitFor(() => expect(app.toast?.text).toBe(T.conta.cloudRestoredHere));
     expect(T.conta.cloudRestoredHere).toBe('Restaurado neste aparelho. Os outros recebem nos próximos dias, pelo sync.');
     await vi.waitFor(() => expect(screen.queryByRole('heading', { name: 'Cópias na nuvem' })).toBeNull());
+  });
+
+  it('stale (a rodada de antes não terminou limpa) avisa para sincronizar antes, e nada muda', async () => {
+    const net = fakeApi(new FakeServer());
+    net.cloud.copies = [{ name: '2026-10-15', day: '2026-10-15', kind: 'daily', solves: 5, parts: 1 }];
+    net.cloud.answer = { restore: 'device', parts: 1 };
+    const { app } = await appWithAccount(net.api, { signedIn: true });
+    render(AjustesScreen, { app });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Ver cópias na nuvem' }));
+    await screen.findByText('5 solves');
+    net.api.sync = async () => {
+      throw new ApiError('offline', 0);
+    };
+    fakeClock();
+    await fireEvent.click(screen.getByRole('button', { name: 'Restaurar a cópia de 2026-10-15' }));
+    later();
+    await fireEvent.click(screen.getByRole('button', { name: 'Tem certeza? Clique de novo' }));
+    await vi.waitFor(() => expect(app.toast?.text).toBe(T.conta.cloudSyncFirst));
+    expect(T.conta.cloudSyncFirst).toBe('Não consegui sincronizar este aparelho antes de restaurar. Confira a conexão e tente de novo. Tudo continua como estava.');
+    expect(net.cloud.partCalls).toEqual([]);
+    expect(screen.getByRole('heading', { name: 'Cópias na nuvem' })).toBeInTheDocument();
   });
 
   it('held (o portão da cópia local segurou a troca) fecha o diálogo sem aviso próprio', async () => {
