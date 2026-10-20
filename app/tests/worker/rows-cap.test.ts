@@ -58,8 +58,9 @@ async function sync(user: string, changes: Change[], o: { now: number; device?: 
   expect(res.status).toBe(200);
   return (await res.json()) as SyncResponse;
 }
-const restore = async (user: string, name: string, now: number): Promise<{ status: number; body: unknown }> => {
-  const res = await call(`/api/snapshots/${name}/restore`, postJson({}, { [ACCOUNT_HEADER]: user }), { deps: testDeps({ user, now: () => now }) });
+// O app de antes manda {}; o novo, { device: true }.
+const restore = async (user: string, name: string, now: number, body: unknown = {}): Promise<{ status: number; body: unknown }> => {
+  const res = await call(`/api/snapshots/${name}/restore`, postJson(body, { [ACCOUNT_HEADER]: user }), { deps: testDeps({ user, now: () => now }) });
   return { status: res.status, body: res.status === 204 ? null : await res.json() };
 };
 
@@ -100,7 +101,7 @@ async function countDay(user: string): Promise<{ n: number }> {
 
 // O D1 do objeto de `user` passa a falhar nas instruções do dia do teto (rows_day), como um D1 fora do ar; as outras seguem. Cada tentativa
 // é contada.
-async function failDay(user: string): Promise<{ n: number }> {
+async function failDay(user: string, fails: (query: string) => boolean = (q) => q.includes('rows_day')): Promise<{ n: number }> {
   const tried = { n: 0 };
   await runInDurableObject(stubOf(user), (instance) => {
     const o = instance as unknown as { env: Env };
@@ -109,7 +110,7 @@ async function failDay(user: string): Promise<{ n: number }> {
         const value = Reflect.get(target, key) as unknown;
         if (key !== 'prepare') return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
         return (query: string) => {
-          if (!query.includes('rows_day')) return target.prepare(query);
+          if (!fails(query)) return target.prepare(query);
           tried.n++;
           throw new Error('D1_ERROR: Network connection lost.');
         };
@@ -530,6 +531,22 @@ describe('o teto do ambiente: a revisão', () => {
     const r2 = await countR2(user);
     expect(await restore(user, dayOf(now - DAY), now)).toEqual({ status: 429, body: { error: 'write-budget' } });
     expect(r2).toEqual({ get: 1 });
+    expect(await recordsOf(user)).toEqual(before);
+    // A revisão final (M2): um D1 que falha não é "não cabe hoje", e o app novo também ouve write-budget, nunca a resposta do aparelho
+    // (que o faria regravar a conta inteira daqui por causa de uma falha de rede do servidor).
+    expect(await restore(user, dayOf(now - DAY), now + 1000, { device: true })).toEqual({ status: 429, body: { error: 'write-budget' } });
+    expect(await recordsOf(user)).toEqual(before);
+  });
+
+  it('o D1 que falha só na reserva, com a cópia de antes já guardada: write-budget nos dois apps', async () => {
+    const now = at(43);
+    const user = 'teto-d1-reserva';
+    await sync(user, [session(), solve('a')], { now: now - DAY });
+    await env.SNAPSHOTS.put(snapshotKey(user, dayOf(now - DAY)), await gzipJson(exportFromRecords([session()], now - DAY)));
+    await failDay(user, (q) => q.startsWith('INSERT INTO rows_day')); // a conferência (só lê) passa; a reserva falha
+    const before = await recordsOf(user);
+    expect(await restore(user, dayOf(now - DAY), now)).toEqual({ status: 429, body: { error: 'write-budget' } });
+    expect(await restore(user, dayOf(now - DAY), now + 1000, { device: true })).toEqual({ status: 429, body: { error: 'write-budget' } });
     expect(await recordsOf(user)).toEqual(before);
   });
 

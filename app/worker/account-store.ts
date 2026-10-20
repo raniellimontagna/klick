@@ -357,20 +357,21 @@ export class AccountStore extends DurableObject<Env> {
   }
 
   // Sem reservar (a restauração, antes de ir ao R2 e antes da cópia de antes, quando ainda não grava): o dia mais `rows` linhas cabe no teto
-  // do ambiente? Só lê; a reserva de depois (reserveDay) continua a autoridade. Um D1 que falha conta como sem linhas, e vai para o log.
-  private async dayRoom(rows: number, now: number, op: RowsOp): Promise<boolean> {
-    if (rows <= 0) return true;
+  // do ambiente? Só lê; a reserva de depois (reserveDay) continua a autoridade. Como a reserva: 'ok', cabe; 'full', o dia acabou; 'error', o
+  // D1 falhou (vai para o log), e quem chama não grava. A restauração distingue os dois: um D1 que falha não é "não cabe hoje" (M2).
+  private async dayRoom(rows: number, now: number, op: RowsOp): Promise<Reserved> {
+    if (rows <= 0) return 'ok';
     const day = this.dayCount('writes', now).day;
     const cap = capsOf(this.env).rowsDay;
-    if (this.refusedBefore(day, cap, rows)) return false;
+    if (this.refusedBefore(day, cap, rows)) return 'full';
     try {
-      if (await rowsRoom(this.env.DB, rows, Date.parse(day), cap)) return true;
+      if (await rowsRoom(this.env.DB, rows, Date.parse(day), cap)) return 'ok';
     } catch {
       console.log(JSON.stringify({ evt: 'rows-cap-error', user: this.getState('userId'), op }));
-      return false;
+      return 'error';
     }
     this.refuse(day, cap, rows, op);
-    return false;
+    return 'full';
   }
 
   private refusedBefore(day: string, cap: number, rows: number): boolean {
@@ -985,7 +986,9 @@ export class AccountStore extends DurableObject<Env> {
   // A resposta pelo aparelho (`device`: o app que sabe restaurar no aparelho diz que sabe; o de antes manda {} e nunca a recebe): onde o
   // app de antes ouve too-big ou write-budget pelas mudanças (o limite, o que sobra hoje, a reserva), este ouve { parts }, as partes da
   // cópia (0 num arquivo só), e baixa a cópia pelo Worker (copyPart). Nada é gravado na conta nem reservado, e a restauração conta no dia,
-  // como uma que deu certo. Só na recusa da reserva a cópia de antes já está no R2, e fica, como a de um clique duplo.
+  // como uma que deu certo. Só na recusa da reserva a cópia de antes já está no R2, e fica, como a de um clique duplo. Um D1 que falha (na
+  // conferência das linhas ou na reserva) é write-budget também para este (a revisão final, M2). As leituras de hoje sem lugar para a
+  // comparação (I5 b) e a segunda cópia de antes em partes do dia (I6 b) dão a mesma resposta, e restore-limit ao de antes.
   async restoreSnapshot(name: string, now: number, device = false): Promise<'ok' | { parts: number } | 'not-found' | 'deleted' | RestoreRefusal> {
     type Outcome = 'ok' | { parts: number } | 'not-found' | 'deleted' | RestoreRefusal;
     const outcome = await this.exclusive(async (): Promise<Outcome> => {
@@ -1054,8 +1057,12 @@ export class AccountStore extends DurableObject<Env> {
         this.raiseFloor(stamp); // mas o que espera nas filas, de antes dela, perde como numa restauração que gravou
         return 'ok';
       }
+      // Sem linhas hoje, a resposta do aparelho (o app novo) ou write-budget; um D1 que falha (na conferência ou na reserva, abaixo) é
+      // write-budget nos dois (a revisão final, M2): não é a conta que não cabe, e o aparelho não deve regravar a conta por uma falha da rede.
+      const unfit = (why: Reserved): Outcome => (why === 'full' && device ? onDevice() : 'write-budget');
       const rows = rowsOf(changes.length);
-      if (rows > DAILY_WRITE_BUDGET - this.dayCount('writes', now).n || !(await this.dayRoom(rows, now, 'restore'))) return device ? onDevice() : 'write-budget';
+      const room = rows > DAILY_WRITE_BUDGET - this.dayCount('writes', now).n ? 'full' : await this.dayRoom(rows, now, 'restore');
+      if (room !== 'ok') return unfit(room);
       // A cópia de antes (a revisão final, I6: elas ocupam o espaço que todas as contas dividem). Quando a última cópia do dia já é a conta
       // de agora (snapshotRev igual à revisão), ela guarda o estado de antes, e não sai outra (vai para o log). Uma segunda restauração no
       // mesmo segundo (o clique duplo) acha a cópia de antes da primeira, que já guarda o estado de antes: ela fica como está, e não precisa
@@ -1076,7 +1083,8 @@ export class AccountStore extends DurableObject<Env> {
       }
       // A reserva das linhas vem por último, com a cópia de antes já guardada (que não custa linhas): a cópia recusada, ou um R2 que falha
       // nela, não gasta o dia do ambiente. Recusada aqui, nada é gravado, e a cópia de antes fica no R2, como a de um clique duplo.
-      if ((await this.reserveDay(rows, now, 'restore')) !== 'ok') return device ? onDevice() : 'write-budget';
+      const reserved = await this.reserveDay(rows, now, 'restore');
+      if (reserved !== 'ok') return unfit(reserved);
       const wrote = this.ctx.storage.transactionSync(() => {
         const usage = this.usage(now);
         const batch = this.batch();
