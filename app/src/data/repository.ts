@@ -108,7 +108,7 @@ export interface Repository {
   // lixeira (com os solves dela que já estavam lá). Na fila, a exclusão dela vai depois das mudanças dos solves, e ela só sobe depois que o
   // servidor confirma cada uma (o mapa 'moved', como em moveSolves). Devolve quantos passaram.
   mergeSessions(fromId: string, toId: string): Promise<number>;
-  listTrash():Promise<{ sessions: Session[]; solves: Solve[]; duels: Duel[] }>; // o excluído mais recentemente primeiro, em cada lista
+  listTrash(): Promise<{ sessions: Session[]; solves: Solve[]; duels: Duel[] }>; // o excluído mais recentemente primeiro, em cada lista
   // Apaga de vez o excluído antes de now - olderThanMs (no limite exato ainda fica), menos o que espera na fila de saída ou está só neste
   // aparelho (a lista dos recusados pela cota): a marca de exclusão só some depois que o servidor a tem (spec 5.5). Uma sessão só sai depois
   // do último solve dela (fica enquanto algum sobrar, na fila, por vencer ou ativo). Devolve quantos itens (sessões, solves e desafios); as

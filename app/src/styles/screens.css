@@ -623,7 +623,7 @@ body:has(.hx-bulk) .toast {
   .hx-list { --hx-h: 44px; }
 }
 
-/* As folhas do histórico (o detalhe, mover; o recorde virá no mesmo padrão): o .sheet de sempre, com o título mais junto do texto. */
+/* As folhas do histórico (o detalhe, mover e o recorde): o .sheet de sempre, com o título mais junto do texto. */
 /* O <dialog> tem um max-width do navegador (100% menos 6px e 2em) que o .sheet não tira: nos 390 px da maquete a folha ficava 4 px mais estreita
    que os 358 px dela, e as duas médias do detalhe não cabiam lado a lado. Aqui vale a largura do .sheet. */
 .hx-sheet {

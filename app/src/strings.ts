@@ -38,6 +38,8 @@ export const FINISH_INFO = Object.freeze({
 
 // "1 solve", "2.304 solves": a contagem com o ponto de milhar, no singular quando é um só.
 const solvesLabel = (n: number): string => `${n.toLocaleString('pt-BR')} ${n === 1 ? 'solve' : 'solves'}`;
+// O "Cancelar" das listas de sessões (as Sessões, a seleção do histórico e a folha de mover): o mesmo texto nos três.
+const cancelLabel = 'Cancelar';
 
 export const T = Object.freeze({
   coach: {
@@ -304,7 +306,7 @@ export const T = Object.freeze({
     plus2Spoken: (time: string) => `${time} mais 2`,
     // A seleção: o botão do topo, a caixa de cada linha e a barra do lote (até MAX_SELECTION, em ui/evolucao/rows.ts).
     select: 'Selecionar',
-    cancel: 'Cancelar',
+    cancel: cancelLabel,
     pick: (number: string) => `Selecionar o solve ${number}`,
     selection: 'Seleção',
     selected: (n: number) => (n === 1 ? '1 selecionado' : `${n.toLocaleString('pt-BR')} selecionados`),
@@ -321,7 +323,7 @@ export const T = Object.freeze({
         ? `Só as sessões de ${event}. O solve muda de sessão e continua com a data dele.`
         : `Só as sessões de ${event}. Os solves mudam de sessão e continuam com a data deles.`,
     here: 'está aqui',
-    count: (n: number) => `${n.toLocaleString('pt-BR')} ${n === 1 ? 'solve' : 'solves'}`,
+    count: solvesLabel,
     // O detalhe de um solve (ui/dialogs/SolveDialog.svelte): o título, o tempo cru, as médias que terminam nele e o selo de recorde.
     solveTitle: (n: number) => `Solve #${n.toLocaleString('pt-BR')}`,
     rawPlus2: (time: string) => `${time} mais 2 s de penalidade`,
@@ -649,7 +651,7 @@ export const T = Object.freeze({
     renameAria: (name: string): string => `Renomear ${name}`,
     renameLabel: (name: string): string => `Novo nome para ${name}`,
     save: 'Salvar',
-    cancel: 'Cancelar',
+    cancel: cancelLabel,
     remove: 'Excluir',
     removeAria: (name: string): string => `Excluir ${name}`,
   }),
