@@ -13,6 +13,7 @@ import { ACCOUNT_HEADER, SYNC_PROTOCOL, type Change, type SyncResponse } from '.
 import type { Env } from '../../worker/env';
 import { QUOTA_REASON } from '../../src/core/sync/limits';
 import {
+  BIG_COPY_EVERY_DAYS,
   COMPACT_PER_DAY,
   COMPACT_ROWS_SHARE,
   DAILY_WRITE_BUDGET,
@@ -28,7 +29,7 @@ import {
   utcMonth,
 } from '../../worker/limits';
 import { dayOf, gzipJson, snapshotKey } from '../../worker/snapshots';
-import { call, postJson, stateOf, stubOf, T0, testDeps } from './helpers';
+import { call, postJson, setState, stateOf, stubOf, T0, testDeps } from './helpers';
 
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
@@ -322,6 +323,8 @@ describe('o teto de linhas gravadas por dia do ambiente', () => {
     await sync(user, [session(), solve('velho', gone(old)), solve('vivo')], { now: Date.now() - 2 * DAY });
     await setCap(user, '1000');
     await seedDay(Date.now(), 1000); // o alarme segue a hora de verdade
+    // Com o teto de 1.000 linhas, o dia útil é 0 e toda conta é grande: a última cópia foi há muito tempo, e a de hoje é a vez dela (I5 c).
+    await setState(user, 'lastSnapshotDay', dayOf(Date.now() - 2 * BIG_COPY_EVERY_DAYS * DAY));
     const writes = await stateOf(user, 'writes');
     const { result, logged } = await logsOf(() => runDurableObjectAlarm(stubOf(user)));
     expect(result).toBe(true);

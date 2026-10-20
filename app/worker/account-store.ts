@@ -47,6 +47,7 @@ import {
   recordsPerDay,
   REQUEST_ROWS,
   RESTORE_ATTEMPTS_PER_DAY,
+  RESTORE_READS_EXTRA,
   RESTORES_PER_DAY,
   rowsOf,
   ROWS_PER_COMPACT,
@@ -73,9 +74,11 @@ import {
   utf8Bytes,
   type Row,
 } from './records-sql';
-import { dayOf, gunzipJson, gzipJson, listCopiesIn, nextSnapshotAt, partKey, preRestoreName, snapshotKey } from './snapshots';
+import { copySlot, dayOf, daySlot, gunzipJson, gzipJson, listCopiesIn, nextSnapshotAt, partKey, preRestoreName, snapshotKey } from './snapshots';
 
 const activeSolves = (data: KlickExport): number => data.solves.filter((s) => s.deletedAt === null).length;
+// Os registros de uma cópia de arquivo só (as listas dela), para a estimativa das leituras da restauração.
+const copyRecords = (copy: RestoreCopy): number => copy.sessions.length + copy.solves.length + (copy.practice?.length ?? 0) + (copy.duels?.length ?? 0);
 
 // O arquivo só de uma cópia (um KlickExport) como a faixa única da restauração, com o perfil dele; null quando ele nem tem as listas de um
 // export (torto). Uma cópia de antes do treino ou dos desafios (sem a lista) não mexe neles.
@@ -732,13 +735,16 @@ export class AccountStore extends DurableObject<Env> {
   }
 
   // A cópia do dia, dentro do grátis (endurecimento 4.2, Task 12 e as cópias grandes): uma conta com mais registros que SNAPSHOT_MAX_RECORDS
-  // não tem cópia (o teto da memória do objeto em partes; 'size'), conferido por um COUNT antes de ler a conta. Uma conta grande, com mais
-  // registros que o dia útil (recordsPerDay), copia só quando passaram BIG_COPY_EVERY_DAYS dias ou mais desde a última (lastSnapshotDay, o dia
-  // de Brasília de uma cópia gravada) ou quando nunca copiou; fora do prazo volta sem pausa e sem marcar snapshotRev, e o alarme de amanhã
-  // pergunta de novo. Por isso a primeira contagem vai só até o dia útil + 1: nos dias sem cópia, uma conta de 250 mil não gasta as leituras. Com o tamanho da última cópia (`gz`), o espaço e a operação A também são conferidos antes de ler (copyRoom): uma conta
-  // pausada por eles não lê nem comprime a conta todo dia para descobrir de novo que não cabe (a primeira cópia lê, como antes). A gravação
-  // é de writeCopy (um arquivo ou as partes, e a reserva de cada uma). Recusada, ela não é gravada nem marca snapshotRev (o alarme de amanhã
-  // tenta de novo), e a pausa fica no estado, com o motivo; gravada, a pausa sai e a lista guardada se renova.
+  // não tem cópia (o tempo de relógio e a memória do objeto; 'size'). Uma conta grande, com mais registros que o dia útil (recordsPerDay),
+  // copia só na vez dela (bigCopyDue: de BIG_COPY_EVERY_DAYS em BIG_COPY_EVERY_DAYS dias, no dia da semana dela); fora da vez volta sem pausa
+  // e sem marcar snapshotRev, e o alarme de amanhã pergunta de novo. Por isso a primeira contagem vai só até o dia útil + 1: nos dias sem
+  // cópia, uma conta grande não gasta as leituras. Na vez dela, a conta não é contada de novo até o teto (a revisão final, I5 a: as páginas
+  // já leem a conta inteira, e a contagem a leria duas vezes): as páginas conferem o teto (writeParts), e um arquivo só, a contagem dele
+  // (writeCopyIn). Antes, as leituras dela contra o que sobra do dia (I4). Com o tamanho da última cópia (`gz`), o espaço e a operação A
+  // também são conferidos antes de ler (copyRoom): uma conta pausada por eles não lê nem comprime a conta todo dia para descobrir de novo
+  // que não cabe (a primeira cópia lê, como antes). A gravação é de writeCopy (um arquivo ou as partes, e a reserva de cada uma). Recusada,
+  // ela não é gravada nem marca snapshotRev (o alarme de amanhã tenta de novo), e a pausa fica no estado, com o motivo; gravada, a pausa sai
+  // e a lista guardada se renova.
   private async takeSnapshot(now: number): Promise<boolean> {
     const userId = this.getState('userId');
     const rev = this.getState('rev') ?? '0';
@@ -746,18 +752,16 @@ export class AccountStore extends DurableObject<Env> {
     const caps = capsOf(this.env);
     if (caps.snapshotRecords === 0) return this.pauseCopies(userId, 'size');
     // A primeira contagem para no menor dos dois limites + 1: o bastante para saber se a conta passou do teto ('size') ou do dia útil (é
-    // grande). Uma grande fora do prazo volta aqui, depois de contar no máximo recordsPerDay + 1 linhas (e não as até 250 mil do teto);
-    // só uma grande na vez conta de novo, até o teto. Uma pequena já sabe o tamanho exato.
+    // grande). Uma grande fora da vez volta aqui, depois de contar no máximo recordsPerDay + 1 linhas (e não as do teto). Uma pequena já
+    // sabe o tamanho exato.
     const useful = recordsPerDay(caps.rowsDay);
-    let records = this.recordCount(Math.min(useful, caps.snapshotRecords), now);
+    const records = this.recordCount(Math.min(useful, caps.snapshotRecords), now);
     if (records > caps.snapshotRecords) return this.pauseCopies(userId, 'size');
     if (records > useful) {
-      if (!this.bigCopyDue(now)) return false;
+      if (!this.bigCopyDue(userId, now)) return false;
       // A cópia grande que passaria do orçamento de leituras do dia (as páginas, pelo teto da conta, e o resto: COPY_READS_EXTRA) fica para
       // o alarme de amanhã, sem pausa (a revisão final, I4): parada no meio, ela já teria lido, e o sync da conta esperaria a virada do dia.
       if (this.readsOf(now).n + this.recordsBound(now) + COPY_READS_EXTRA > DAILY_READ_BUDGET) return false;
-      records = this.recordCount(caps.snapshotRecords, now);
-      if (records > caps.snapshotRecords) return this.pauseCopies(userId, 'size');
     }
     const estimate = this.copies().gz;
     const short = estimate === null ? null : await copyRoom(this.env.DB, estimate, now, caps);
@@ -771,14 +775,18 @@ export class AccountStore extends DurableObject<Env> {
     return true;
   }
 
-  // Já é a vez da cópia de uma conta grande? Sim quando nenhuma foi gravada (lastSnapshotDay falta) ou quando o dia de Brasília de agora está
-  // BIG_COPY_EVERY_DAYS dias inteiros ou mais depois dele. Os dois são AAAA-MM-DD, então a diferença é de dias inteiros; um valor que não
-  // lê como data (nunca grava assim) vale como ausente, e um dia no futuro (o relógio voltou) espera.
-  private bigCopyDue(now: number): boolean {
+  // Já é a vez da cópia de uma conta grande? No dia dela (copySlot da conta igual ao daySlot do dia de Brasília de agora: as contas grandes
+  // não copiam todas no mesmo dia, a revisão final, I5 c), quando nenhuma foi gravada (lastSnapshotDay falta) ou quando a última ficou
+  // BIG_COPY_EVERY_DAYS dias inteiros ou mais para trás; e, em qualquer dia, quando ficou 2 × BIG_COPY_EVERY_DAYS − 1 ou mais (o dia dela
+  // passou sem cópia: sem espaço, sem leituras, um erro). Os dois são AAAA-MM-DD, então a diferença é de dias inteiros; um valor que não lê
+  // como data (nunca grava assim) vale como ausente, e um dia no futuro (o relógio voltou) espera.
+  private bigCopyDue(userId: string, now: number): boolean {
+    const today = dayOf(now);
+    const ownDay = daySlot(today) === copySlot(userId);
     const last = this.getState('lastSnapshotDay');
-    if (last === null) return true;
-    const gone = (Date.parse(dayOf(now)) - Date.parse(last)) / 86_400_000;
-    return Number.isNaN(gone) || gone >= BIG_COPY_EVERY_DAYS;
+    const gone = last === null ? NaN : (Date.parse(today) - Date.parse(last)) / 86_400_000;
+    if (Number.isNaN(gone)) return ownDay;
+    return (ownDay && gone >= BIG_COPY_EVERY_DAYS) || gone >= 2 * BIG_COPY_EVERY_DAYS - 1;
   }
 
   // Grava uma cópia da conta com o nome `name` (a do dia, e depois a de antes de restaurar) e volta o tamanho comprimido dela, ou o motivo
@@ -809,7 +817,9 @@ export class AccountStore extends DurableObject<Env> {
     now: number,
     caps: Caps,
   ): Promise<{ gz: number; parts: number } | CopiesPaused> {
-    if (this.recordCount(COPY_PART_RECORDS, now) > COPY_PART_RECORDS) return this.writeParts(userId, name, meta, now, caps);
+    const records = this.recordCount(COPY_PART_RECORDS, now);
+    if (records > COPY_PART_RECORDS) return this.writeParts(userId, name, meta, now, caps);
+    if (records > caps.snapshotRecords) return 'size'; // o teto vale também para um arquivo só (as partes o conferem página a página)
     const data = exportFromRecords(this.all(now), now);
     const gz = await gzipJson(data);
     const paused = await reserveCopy(this.env.DB, gz.byteLength, now, caps);
@@ -840,8 +850,9 @@ export class AccountStore extends DurableObject<Env> {
   // manifesto. Sem elas, nada é gravado ('ops'). O espaço continua reservado parte a parte, antes de cada put, e o do manifesto também. Uma
   // recusa no meio, ou um erro do R2 (ou do SQLite), apaga as partes já gravadas (apagar no R2 não custa operação), devolve o espaço delas
   // uma vez só (discard pode rodar de novo no catch) e segue; as operações já reservadas ficam contadas (a mais, nunca a menos). Uma parte
-  // além das N (o teto nunca fica abaixo da conta, mas a regra não depende disso) reserva a operação dela antes. Sem uma parte depois de
-  // MAX_PARTS, a conta passa do que a cópia aguenta ('size').
+  // além das N (o teto nunca fica abaixo da conta, mas a regra não depende disso) reserva a operação dela antes. As páginas conferem o teto
+  // da cópia (SNAPSHOT_MAX_RECORDS, a revisão final, I5 a: a conta não é contada até ele antes): a página que passa dele, ou uma parte
+  // depois de MAX_PARTS, é 'size', com as partes já gravadas apagadas e o espaço delas devolvido.
   private async writeParts(
     userId: string,
     name: string,
@@ -869,12 +880,14 @@ export class AccountStore extends DurableObject<Env> {
     try {
       const parts: CopyManifest['parts'] = [];
       let solves = 0;
+      let paged = 0;
       let after: CopyKey = ['', ''];
       for (;;) {
         const rows = this.sql.exec<Row>(PAGE_AFTER, after[0], after[1], COPY_PART_RECORDS).toArray();
         this.countReads(rows.length, now);
         if (rows.length === 0) break;
-        if (parts.length === MAX_PARTS) return await refuse('size', 0);
+        paged += rows.length;
+        if (parts.length === MAX_PARTS || paged > caps.snapshotRecords) return await refuse('size', 0);
         const end = rows[rows.length - 1];
         after = [end.store, end.id];
         const data = exportFromRecords(rows.map(rowToChange), now);
@@ -999,12 +1012,16 @@ export class AccountStore extends DurableObject<Env> {
         this.renewCopies();
         return 'not-found';
       }
-      if (manifest !== null && !(await takeOps(this.env.DB, 'B', manifest.parts.length, now, caps.classBMonth))) return 'r2-budget';
       const counted = (): void => this.setState('restores', JSON.stringify({ day: restores.day, n: restores.n + 1 }));
       const onDevice = (): { parts: number } => {
         counted();
         return { parts: manifest === null ? 0 : manifest.parts.length };
       };
+      // A comparação e a cópia de antes leem a conta cada uma (a revisão final, I5 b): com as leituras de hoje, a estimativa delas (2 × os
+      // registros da cópia, mais RESTORE_READS_EXTRA) tem de caber no orçamento do dia, senão a restauração nem compara.
+      const copied = manifest !== null ? manifest.parts.reduce((sum, p) => sum + p.records, 0) : copyRecords(file!);
+      if (this.readsOf(now).n + 2 * copied + RESTORE_READS_EXTRA > DAILY_READ_BUDGET) return device ? onDevice() : 'restore-limit';
+      if (manifest !== null && !(await takeOps(this.env.DB, 'B', manifest.parts.length, now, caps.classBMonth))) return 'r2-budget';
       const limit = Math.min(caps.restoreRecords, recordsPerDay(caps.rowsDay));
       const steps: RestoreStep[] = [];
       let floor = 0;

@@ -26,18 +26,29 @@ import {
   RECORDS_PER_DAY,
   recordsPerDay,
   RESTORE_ATTEMPTS_PER_DAY,
+  RESTORE_READS_EXTRA,
   RESTORES_PER_DAY,
   rowsOf,
   STORAGE_HEADROOM,
   utcDay,
   utcMonth,
 } from '../../worker/limits';
-import { COMPACTABLE, PAGE_AFTER, RANGE_AFTER, rowToChange, SLICE_PAGE, type Row } from '../../worker/records-sql';
-import { dayOf, gunzipJson, gzipJson, partKey, preRestoreName, snapshotKey, snapshotPrefix } from '../../worker/snapshots';
+import { COMPACTABLE, COUNT_RECORDS, PAGE_AFTER, RANGE_AFTER, rowToChange, SLICE_PAGE, type Row } from '../../worker/records-sql';
+import { copySlot, dayOf, daySlot, gunzipJson, gzipJson, partKey, preRestoreName, snapshotKey, snapshotPrefix } from '../../worker/snapshots';
 import { call, ORIGIN, postJson, setState, stateOf, stubOf, T0, testDeps } from './helpers';
 
 const DAY = 86_400_000;
 const MONTH = utcMonth(T0);
+// A cópia grande sai no dia dela (copySlot, a revisão final I5 c), ou passados 2 × BIG_COPY_EVERY_DAYS − 1 dias da última. Os testes que
+// precisam da cópia grande em T0 partem de uma última cópia de muito tempo atrás (LONG_AGO): a vez dela, qualquer que seja o dia.
+const LONG_AGO = dayOf(T0 - 2 * BIG_COPY_EVERY_DAYS * DAY);
+// Um id de conta cujo dia da cópia grande é o dia de `t`: com ele, a cópia sai em `t` e de 7 em 7 dias depois.
+const onSlot = (name: string, t = T0): string => {
+  for (let i = 0; ; i++) {
+    const id = i === 0 ? name : `${name}-${i}`;
+    if (copySlot(id) === daySlot(dayOf(t))) return id;
+  }
+};
 const caps = capsOf(env as unknown as Env);
 const ROOM = Math.floor(caps.snapshotBytes * STORAGE_HEADROOM); // até onde o espaço das cópias vai
 
@@ -608,10 +619,12 @@ describe('a cópia em partes e a cada 7 dias numa conta grande', () => {
   const bigDay = recordsPerDay(caps.rowsDay); // acima disto a conta é grande
   const prefsAna: Change = { store: 'prefs', id: 'duelName', data: 'Ana', updatedAt: T0, deletedAt: null, deletionStamp: T0 };
 
-  // Uma conta de `n` registros: a sessão s1, o solve a e os x1.. semeados. `extra` entra no total.
-  async function accountWith(user: string, n: number, extra: Change[] = []): Promise<void> {
+  // Uma conta de `n` registros: a sessão s1, o solve a e os x1.. semeados. `extra` entra no total. A última cópia foi há muito tempo
+  // (LONG_AGO): grande, ela copia em qualquer dia; `fresh`, nenhuma cópia ainda.
+  async function accountWith(user: string, n: number, extra: Change[] = [], fresh = false): Promise<void> {
     await sync(user, [session, solve('a'), ...extra]);
     await seedSolves(user, n - 2 - extra.length);
+    if (!fresh) await setState(user, 'lastSnapshotDay', LONG_AGO);
     expect(await recordCount(user)).toBe(n);
   }
   const readGz = async <T>(key: string): Promise<T> => (await gunzipJson(await (await env.SNAPSHOTS.get(key))!.arrayBuffer())) as T;
@@ -770,7 +783,7 @@ describe('a cópia em partes e a cada 7 dias numa conta grande', () => {
     expect(await storageUsed(env.DB)).toBe(ROOM - part1 - 5); // o espaço dela voltou
     expect(await opsOf('A')).toBe(3); // as operações das duas partes e do manifesto, reservadas antes, ficam contadas (a mais, nunca a menos)
     expect(await stateOf(space, 'snapshotRev')).toBeNull();
-    expect(await stateOf(space, 'lastSnapshotDay')).toBeNull();
+    expect(await stateOf(space, 'lastSnapshotDay')).toBe(LONG_AGO); // não muda
     expect((await sync(space, [])).copiesPaused).toBe('space');
     expect(await list(space)).toEqual({ status: 200, body: { copies: [], paused: 'space' } });
 
@@ -823,7 +836,8 @@ describe('a cópia em partes e a cada 7 dias numa conta grande', () => {
         },
       });
     });
-    await expect(stubOf(user).snapshot(T0)).rejects.toThrow('SQLite: falha');
+    const failed = await stubOf(user).snapshot(T0).then(() => null, (error: unknown) => error); // o erro passa por quem chamou
+    expect(String(failed)).toContain('SQLite: falha');
     expect(await objectsOf(user)).toEqual([]);
     expect(await storageUsed(env.DB)).toBe(ROOM - part1 - 5); // devolvido uma vez só
   });
@@ -892,29 +906,50 @@ describe('a cópia em partes e a cada 7 dias numa conta grande', () => {
     expect(await stubOf(user).snapshot(T0)).toBe(true);
   });
 
-  it('conta grande copia só a cada BIG_COPY_EVERY_DAYS dias', async () => {
+  // A revisão final (I5 c): as cópias grandes não saem todas no mesmo dia. A primeira espera o dia da conta (copySlot: um hash do id, módulo
+  // BIG_COPY_EVERY_DAYS, contra os dias desde 1970 do dia de Brasília), e as seguintes saem de 7 em 7 dias, no mesmo dia da semana; um dia
+  // perdido (sem espaço, sem leituras) não espera a semana seguinte inteira: passados 2 × 7 − 1 dias, sai em qualquer dia.
+  it('conta grande copia no dia dela, a cada BIG_COPY_EVERY_DAYS dias; um dia perdido espera no máximo 13', async () => {
     const user = 'grande-semanal';
-    await accountWith(user, bigDay + 1); // acima do dia útil e dentro de uma parte só: um arquivo, semanal
-    expect(await stubOf(user).snapshot(T0)).toBe(true); // sem lastSnapshotDay, a primeira sai
-    expect(await stateOf(user, 'lastSnapshotDay')).toBe(dayOf(T0));
-    await sync(user, [solve('novo')], T0 + 1000); // a conta mudou: o que segura a cópia é só o prazo
+    await accountWith(user, bigDay + 1, [], true); // acima do dia útil e dentro de uma parte só: um arquivo, semanal; nenhuma cópia ainda
+    const first = [0, 1, 2, 3, 4, 5, 6].find((k) => daySlot(dayOf(T0 + k * DAY)) === copySlot(user))!;
+    for (let k = 0; k < first; k++) expect(await stubOf(user).snapshot(T0 + k * DAY), `D+${k}`).toBe(false);
+    const d0 = T0 + first * DAY;
+    expect(await stubOf(user).snapshot(d0)).toBe(true); // o dia dela
+    expect(await stateOf(user, 'lastSnapshotDay')).toBe(dayOf(d0));
+    await sync(user, [solve('novo')], d0 + 1000); // a conta mudou: o que segura a cópia é só o prazo
     const rev = await stateOf(user, 'snapshotRev');
     const ops = await opsOf('A');
     for (let k = 1; k < BIG_COPY_EVERY_DAYS; k++) {
-      expect(await stubOf(user).snapshot(T0 + k * DAY), `D+${k}`).toBe(false);
-      expect(await objectsOf(user), `D+${k}`).toEqual([snapshotKey(user, dayOf(T0))]);
+      expect(await stubOf(user).snapshot(d0 + k * DAY), `D+${k}`).toBe(false);
+      expect(await objectsOf(user), `D+${k}`).toEqual([snapshotKey(user, dayOf(d0))]);
     }
     expect([await stateOf(user, 'snapshotRev'), await opsOf('A')]).toEqual([rev, ops]); // sem marcar e sem gastar operação
-    expect((await sync(user, [], T0)).copiesPaused).toBeNull(); // adiada, não pausada
-    expect(await stubOf(user).snapshot(T0 + BIG_COPY_EVERY_DAYS * DAY)).toBe(true);
-    expect(await objectsOf(user)).toEqual([snapshotKey(user, dayOf(T0)), snapshotKey(user, dayOf(T0 + BIG_COPY_EVERY_DAYS * DAY))]);
-    expect(await stateOf(user, 'lastSnapshotDay')).toBe(dayOf(T0 + BIG_COPY_EVERY_DAYS * DAY));
+    expect((await sync(user, [], d0)).copiesPaused).toBeNull(); // adiada, não pausada
+    const d7 = d0 + BIG_COPY_EVERY_DAYS * DAY;
+    expect(await stubOf(user).snapshot(d7)).toBe(true);
+    expect(await objectsOf(user)).toEqual([snapshotKey(user, dayOf(d0)), snapshotKey(user, dayOf(d7))]);
+    expect(await stateOf(user, 'lastSnapshotDay')).toBe(dayOf(d7));
     // Um arquivo só, como sempre, e sem `parts` nos metadados.
-    expect((await env.SNAPSHOTS.head(snapshotKey(user, dayOf(T0))))!.customMetadata).toEqual({ kind: 'daily', day: dayOf(T0), solves: String(bigDay) });
+    expect((await env.SNAPSHOTS.head(snapshotKey(user, dayOf(d0))))!.customMetadata).toEqual({ kind: 'daily', day: dayOf(d0), solves: String(bigDay) });
+    // O dia dela 7 dias depois passou sem cópia: 12 dias depois da última, fora do dia, ainda não; 13 dias depois, sai.
+    await sync(user, [solve('outro')], d7 + 1000);
+    const late = 2 * BIG_COPY_EVERY_DAYS - 1;
+    expect(await stubOf(user).snapshot(d7 + (late - 1) * DAY)).toBe(false);
+    expect(daySlot(dayOf(d7 + late * DAY))).not.toBe(copySlot(user));
+    expect(await stubOf(user).snapshot(d7 + late * DAY)).toBe(true);
+  });
+
+  it('o dia da cópia grande é estável e espalha as contas pela semana', () => {
+    expect(copySlot('conta-1')).toBe(copySlot('conta-1'));
+    const slots = new Set(Array.from({ length: 200 }, (_, i) => copySlot(`conta-${i}`)));
+    expect([...slots].sort()).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    expect(daySlot('1970-01-01')).toBe(0);
+    expect([daySlot('2026-10-19'), daySlot('2026-10-26')]).toEqual([daySlot('2026-10-12'), daySlot('2026-10-19')]);
   });
 
   it('conta grande fora do dia da cópia lê no máximo recordsPerDay + 1 linhas', async () => {
-    const user = 'grande-fora-do-dia';
+    const user = onSlot('grande-fora-do-dia');
     await accountWith(user, 2 * bigDay);
     expect(await stubOf(user).snapshot(T0)).toBe(true);
     await sync(user, [solve('novo')], T0 + 1000); // mudou: só o prazo segura a cópia
@@ -940,13 +975,60 @@ describe('a cópia em partes e a cada 7 dias numa conta grande', () => {
     expect(read()).toBeGreaterThan(0);
     expect(read()).toBeLessThanOrEqual((BIG_COPY_EVERY_DAYS - 1) * (bigDay + 1)); // cada dia, no máximo recordsPerDay + 1
     expect((await sync(user, [], T0)).copiesPaused).toBeNull();
-    // No dia da cópia, a conta é contada até o teto e a cópia sai.
+    // No dia da cópia, ela sai.
     expect(await stubOf(user).snapshot(T0 + BIG_COPY_EVERY_DAYS * DAY)).toBe(true);
     // A pausa por tamanho continua conferida na vez da conta grande: com um teto abaixo dela, 'size'.
     await sync(user, [solve('outro')], T0 + BIG_COPY_EVERY_DAYS * DAY + 1000);
     await setVars(user, { SNAPSHOT_MAX_RECORDS: String(bigDay + 5) });
     expect(await stubOf(user).snapshot(T0 + 2 * BIG_COPY_EVERY_DAYS * DAY)).toBe(false);
     expect((await sync(user, [], T0)).copiesPaused).toBe('size');
+  });
+
+  // A revisão final (I5 a): a conta grande na vez dela não é contada até o teto (SNAPSHOT_MAX_RECORDS) antes das páginas, que já leem a conta
+  // inteira: as páginas conferem o teto, e a cópia não lê a conta duas vezes.
+  it('a conta grande na vez dela não conta a conta até o teto antes das páginas', async () => {
+    const user = 'grande-sem-contagem';
+    await accountWith(user, 2 * COPY_PART_RECORDS + 1);
+    const counts: SqlStorageCursor<Record<string, SqlStorageValue>>[] = [];
+    await runInDurableObject(stubOf(user), (instance) => {
+      const o = instance as unknown as { sql: SqlStorage };
+      const real = o.sql;
+      o.sql = new Proxy(real, {
+        get(target, key) {
+          const value = Reflect.get(target, key) as unknown;
+          if (key !== 'exec') return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+          return (query: string, ...bindings: unknown[]) => {
+            const cursor = target.exec(query, ...(bindings as SqlStorageValue[]));
+            if (query === COUNT_RECORDS) counts.push(cursor);
+            return cursor;
+          };
+        },
+      });
+    });
+    const reads = await readsCounted(user, T0);
+    expect(await stubOf(user).snapshot(T0)).toBe(true);
+    expect(counts.length).toBeGreaterThan(0);
+    for (const c of counts) expect(c.rowsRead).toBeLessThanOrEqual(COPY_PART_RECORDS + 1);
+    // As leituras da cópia: as páginas (a conta, uma vez) mais as contagens limitadas e o resto, dentro de COPY_READS_EXTRA.
+    expect((await readsCounted(user, T0)) - reads).toBeLessThanOrEqual(2 * COPY_PART_RECORDS + 1 + COPY_READS_EXTRA);
+  });
+
+  it('acima do teto, a cópia para na página que passa dele: as partes somem, o espaço volta, e a pausa é size', async () => {
+    const user = 'grande-acima-do-teto';
+    await accountWith(user, 2 * COPY_PART_RECORDS + 1);
+    await setVars(user, { SNAPSHOT_MAX_RECORDS: String(COPY_PART_RECORDS + 10) });
+    const r2 = await countR2(user);
+    expect(await stubOf(user).snapshot(T0)).toBe(false);
+    expect(r2.put).toBe(1); // a parte 1 coube; a página 2 passou do teto, e a parte 1 foi apagada
+    expect([await objectsOf(user), await storageUsed(env.DB), await stateOf(user, 'snapshotRev')]).toEqual([[], 0, null]);
+    expect((await sync(user, [], T0)).copiesPaused).toBe('size');
+    // Um arquivo só acima do teto também é size.
+    const single = 'grande-acima-do-teto-arquivo';
+    await accountWith(single, bigDay + 100);
+    await setVars(single, { SNAPSHOT_MAX_RECORDS: String(bigDay + 50) });
+    expect(await stubOf(single).snapshot(T0)).toBe(false);
+    expect(await objectsOf(single)).toEqual([]);
+    expect((await sync(single, [], T0)).copiesPaused).toBe('size');
   });
 
   it('conta pequena continua com um arquivo só, todo dia; no limite do dia útil também', async () => {
@@ -1033,7 +1115,8 @@ describe('a contagem limitada do tamanho da conta', () => {
     await seedSolves(user, 3 * most);
     await env.SNAPSHOTS.put(snapshotKey(user, dayOf(T0)), await gzipJson(exportFromRecords([], T0)));
     const taps = 5;
-    await setState(user, 'reads', { day: utcDay(T0), n: DAILY_READ_BUDGET - taps * (most + 1 + SLICE_PAGE) - 1 });
+    // Com lugar para a estimativa da restauração (RESTORE_READS_EXTRA, a cópia vazia: I5 b), que a deixa comparar e recusar.
+    await setState(user, 'reads', { day: utcDay(T0), n: DAILY_READ_BUDGET - RESTORE_READS_EXTRA - taps * (most + 1 + SLICE_PAGE) - 1 });
     for (let i = 1; i <= taps; i++) expect((await restore(user, dayOf(T0), T0 + i * 1000)).status).toBe(413);
     const res = await sync(user, []);
     expect(res.readsDeferred).toBeUndefined();
@@ -1122,6 +1205,7 @@ describe('a restauração por diferenças e a resposta pelo aparelho', () => {
   async function bigWithParts(user: string, extra: Change[] = []): Promise<void> {
     await sync(user, [session, solve('a'), ...extra]);
     await seedSolves(user, COPY_PART_RECORDS);
+    await setState(user, 'lastSnapshotDay', LONG_AGO); // a vez dela (copySlot), qualquer que seja o dia
     expect(await stubOf(user).snapshot(T0)).toBe(true);
     expect(await objectsOf(user)).toEqual([snapshotKey(user, dayOf(T0)), partKey(user, dayOf(T0), 1), partKey(user, dayOf(T0), 2)]);
   }
@@ -1148,6 +1232,7 @@ describe('a restauração por diferenças e a resposta pelo aparelho', () => {
     await sync(user, [session, s2, solve('a')]);
     for (let i = 0; i < ofS2.length; i += 250) await sync(user, ofS2.slice(i, i + 250));
     await seedSolves(user, COPY_PART_RECORDS - 400);
+    await setState(user, 'lastSnapshotDay', LONG_AGO); // a vez dela (copySlot), qualquer que seja o dia
     expect(await recordCount(user)).toBe(COPY_PART_RECORDS + 103); // acima do dia útil e de uma parte
     expect(await stubOf(user).snapshot(T0)).toBe(true);
     expect(await objectsOf(user)).toContain(partKey(user, dayOf(T0), 2));
@@ -1269,6 +1354,35 @@ describe('a restauração por diferenças e a resposta pelo aparelho', () => {
     expect(await restoreDevice(user, dayOf(T0), T0 + 2000)).toEqual({ status: 404, body: { error: 'not-found' } });
     expect(await accountOf(user)).toEqual(account);
     expect(await objectsOf(user)).toEqual(torn);
+  });
+
+  // A revisão final (I5 b): uma restauração grande no servidor lê a conta duas vezes (a comparação e a cópia de antes). Quando as leituras de
+  // hoje mais a estimativa dela (2 × os registros da cópia, mais RESTORE_READS_EXTRA) passam do orçamento do dia, ela não compara: o app novo
+  // ouve a resposta do aparelho, o de antes restore-limit.
+  it('com as leituras de hoje perto do fim, a restauração não compara: vai pelo aparelho, ou restore-limit no app de antes', async () => {
+    const user = 'diferencas-sem-leituras';
+    await bigWithParts(user);
+    await sync(user, [solve('novo')]);
+    const estimate = 2 * (COPY_PART_RECORDS + 2) + RESTORE_READS_EXTRA; // as partes do manifesto têm 5.002 registros
+    await setState(user, 'reads', { day: utcDay(T0), n: DAILY_READ_BUDGET - estimate + 1 });
+    const account = await accountOf(user);
+    const reads = await readsCounted(user, T0 + 1000);
+    const r2 = await countR2(user);
+    expect(await restore(user, dayOf(T0), T0 + 1000)).toEqual({ status: 429, body: { error: 'restore-limit' } });
+    expect(await restoreDevice(user, dayOf(T0), T0 + 2000)).toEqual({ status: 200, body: { restore: 'device', parts: 2 } });
+    expect(r2.get).toBe(2); // o objeto da cópia, uma vez por pedido; nenhuma parte
+    expect(await readsCounted(user, T0 + 2000)).toBe(reads); // nada comparado
+    expect((await accountOf(user)).records).toEqual(account.records);
+    // Um arquivo só: os registros dele.
+    const small = 'diferencas-sem-leituras-arquivo';
+    await sync(small, [session, solve('a')]);
+    expect(await stubOf(small).snapshot(T0)).toBe(true);
+    await sync(small, [solve('b')]);
+    await setState(small, 'reads', { day: utcDay(T0), n: DAILY_READ_BUDGET - (2 * 2 + RESTORE_READS_EXTRA) + 1 });
+    expect(await restore(small, dayOf(T0), T0 + 1000)).toEqual({ status: 429, body: { error: 'restore-limit' } });
+    // Com folga no dia, compara e restaura no servidor.
+    await setState(user, 'reads', { day: utcDay(T0), n: DAILY_READ_BUDGET - estimate - 20_000 });
+    expect((await restore(user, dayOf(T0), T0 + 3000)).status).toBe(204);
   });
 
   it('a comparação lê cada registro de agora uma vez só', async () => {

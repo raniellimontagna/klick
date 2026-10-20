@@ -74,6 +74,11 @@ export const COPY_PART_READS_PER_DAY = 200;
 // conta e os ajustes): com as páginas, a estimativa que a cópia grande confere contra o que sobra do orçamento de leituras do dia, antes de
 // começar (a revisão final, I4). Sem lugar, ela fica para o alarme de amanhã, sem pausa.
 export const COPY_READS_EXTRA = 10_000;
+// A restauração no servidor de uma conta grande lê a conta duas vezes: a comparação (a conta, faixa a faixa) e a cópia de antes. Antes de
+// comparar, com a cópia lida, a estimativa (2 × os registros da cópia, mais RESTORE_READS_EXTRA para o que a conta cresceu depois dela e os
+// ajustes) vai contra o que sobra do orçamento de leituras do dia: sem lugar, ela não compara (o app novo restaura no aparelho; o de antes
+// ouve restore-limit). A revisão final, I5 b.
+export const RESTORE_READS_EXTRA = 50_000;
 // Solves compactados por alarme. A medição (seção 9 (d)): 2.000 ficam na linha dos 5 ms de CPU e mudam de lado entre as rodadas; 1.000
 // chegam no máximo a 2,9 ms.
 export const COMPACT_PER_DAY = 1_000;

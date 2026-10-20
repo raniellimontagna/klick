@@ -1,6 +1,7 @@
 // As cópias diárias no R2 (spec 8.3): snap/<userId>/<nome>.json.gz, comprimidas com gzip. O dia é o de Brasília (UTC-3, sem horário de
 // verão desde 2019); a cópia sai logo depois da meia-noite de lá. A regra de ciclo de vida do bucket apaga o que passa de 30 dias.
 import type { CloudCopy } from '../src/core/sync/types';
+import { BIG_COPY_EVERY_DAYS } from './limits';
 
 export const SNAPSHOTS_ROOT = 'snap/'; // todas as cópias, de todas as contas: o que a recontagem do espaço lista (budget.ts)
 export const snapshotPrefix = (userId: string): string => `${SNAPSHOTS_ROOT}${userId}/`;
@@ -13,6 +14,17 @@ const BRT = 3 * 3_600_000;
 export const dayOf = (t: number): string => new Date(t - BRT).toISOString().slice(0, 10);
 // A cópia "antes de restaurar": a data e a hora em UTC, para não sobrescrever a do dia. O dia de Brasília vai nos metadados (dayOf).
 export const preRestoreName = (t: number): string => `${new Date(t).toISOString().slice(0, 19).replaceAll(':', '-')}Z-antes`;
+
+// O dia da semana da cópia de uma conta grande (a revisão final, I5 c): as contas grandes copiam de BIG_COPY_EVERY_DAYS em
+// BIG_COPY_EVERY_DAYS dias, e cada uma no dia dela, para não saírem todas juntas (a primeira inclusive, quando o app chega ao beta).
+// copySlot é um hash pequeno e estável do id da conta (FNV-1a de 32 bits), módulo BIG_COPY_EVERY_DAYS; daySlot, os dias desde 1970 de um
+// dia AAAA-MM-DD (o de Brasília, dayOf), no mesmo módulo. A conta copia quando os dois batem (account-store.ts, bigCopyDue).
+export function copySlot(userId: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < userId.length; i++) h = Math.imul(h ^ userId.charCodeAt(i), 0x01000193) >>> 0;
+  return h % BIG_COPY_EVERY_DAYS;
+}
+export const daySlot = (day: string): number => (((Math.floor(Date.parse(day) / 86_400_000) % BIG_COPY_EVERY_DAYS) + BIG_COPY_EVERY_DAYS) % BIG_COPY_EVERY_DAYS);
 
 // O próximo 03:05 UTC (00:05 em Brasília) depois de `t`.
 export function nextSnapshotAt(t: number): number {

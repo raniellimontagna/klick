@@ -787,8 +787,12 @@ const readsNow = (a: Account): number => inside(a.store).readsOf(NOW()).n;
 // R2; acima de COPY_PART_RECORDS registros, em partes (uma página, exportFromRecords, gzip, a reserva e o put por parte, e o manifesto).
 const copyOp = (a: Account): Op<Account> => ({
   setup: () => {
-    // Senão a cópia de hoje já foi feita, e uma conta grande só copia de BIG_COPY_EVERY_DAYS em BIG_COPY_EVERY_DAYS dias.
-    a.sql.db.exec("DELETE FROM state WHERE key IN ('snapshotRev', 'lastSnapshotDay')");
+    // Senão a cópia de hoje já foi feita, e uma conta grande só copia de BIG_COPY_EVERY_DAYS em BIG_COPY_EVERY_DAYS dias, no dia dela
+    // (copySlot): a última, há muito tempo, faz de hoje a vez dela. As leituras do dia voltam a zero: a cópia grande que passaria do
+    // orçamento delas fica para amanhã (I4), e as rodadas somadas passariam dele.
+    a.sql.db.exec("DELETE FROM state WHERE key IN ('snapshotRev', 'reads')");
+    a.sql.db.prepare("INSERT INTO state (key, value) VALUES ('lastSnapshotDay', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(dayOf(T0 - 2 * BIG_COPY_EVERY_DAYS * DAY));
+    inside(a.store).unsaved = { day: '', n: 0 };
     a.r2.puts.length = 0;
     return a;
   },

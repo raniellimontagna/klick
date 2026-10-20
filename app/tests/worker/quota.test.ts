@@ -12,6 +12,7 @@ import { ACTIVE_CHILDREN } from '../../worker/records-sql';
 import {
   ACCOUNT_BYTES_CAP,
   BIG_COPY_EVERY_DAYS,
+  RESTORE_READS_EXTRA,
   capsOf,
   COMPACT_PER_DAY,
   COPY_PART_READS_PER_DAY,
@@ -727,12 +728,17 @@ describe('o orçamento de leituras do dia (revisão final, I2 c)', () => {
     await fresh('leituras-copia');
     expect(await stubOf('leituras-copia').snapshot(T0)).toBe(true);
     expect((await sync('leituras-copia', [], { device: 'd2' })).readsDeferred).toBe(true);
+    // A restauração confere antes a estimativa das leituras dela (2 × os registros da cópia, mais RESTORE_READS_EXTRA: a revisão final, I5 b);
+    // aqui, com lugar só para ela, e o que ela lê de verdade conta.
     const other = 'leituras-restaura';
     await fresh(other);
+    const before = DAILY_READ_BUDGET - RESTORE_READS_EXTRA;
+    await setState(other, 'reads', { day: utcDay(T0), n: before });
     await env.SNAPSHOTS.put(snapshotKey(other, dayOf(T0)), await gzipJson(exportFromRecords([], T0))); // uma cópia vazia: tudo vai para a lixeira
     const restored = await call(`/api/snapshots/${dayOf(T0)}/restore`, postJson({}, { [ACCOUNT_HEADER]: other }), { deps: testDeps({ user: other, now: () => T0 + 1000 }) });
     expect(restored.status).toBe(204);
-    expect((await sync(other, [], { device: 'd2' })).readsDeferred).toBe(true);
+    const read = await runInDurableObject(stubOf(other), (instance) => (instance as unknown as { readsOf(t: number): { n: number } }).readsOf(T0 + 1000).n);
+    expect(read).toBeGreaterThanOrEqual(before + 2 * 10); // a comparação e a cópia de antes leram os 10 registros cada uma
   });
 });
 
