@@ -149,6 +149,27 @@ describe('restaurar uma cópia é gravação (spec 5.5)', () => {
     expect(await snapshot()).toEqual(before);
     expect(await db.getAllKeys('outbox')).toEqual([]);
   });
+
+  // O acabamento (A2): perto da cota, o servidor recusaria o que volta da lixeira (ou chega) antes de as exclusões abrirem as vagas. Na
+  // fila, as exclusões da restauração vão antes de tudo; dentro de cada grupo, a ordem de sempre (a chave).
+  it('na fila, as exclusões da restauração vão antes do que volta ou chega; dentro de cada grupo, a ordem de sempre', async () => {
+    const { db, repo } = await fresh('conta-1');
+    const s = await repo.createSession({ event: '333' });
+    const gone = await repo.createSession({ event: '333', name: 'Na lixeira' });
+    for (const id of ['z1', 'z2']) await repo.addSolve({ id, ...ns(s.id, 1000) });
+    const here = await repo.exportAll();
+    await repo.deleteSession(gone.id);
+    // A cópia: a sessão que está na lixeira volta, e os dois solves daqui saem para dar lugar a dois que só ela tem.
+    const copy: KlickExport = { ...here, solves: here.solves.map((x, i) => ({ ...x, id: `a${i + 1}` })) };
+    await db.clear('outbox');
+    t += 60_000;
+    await repo.replaceAll(copy);
+    const { sent } = await repo.outboxBatch(10);
+    expect(sent.map((e) => `${e.store}/${e.id}`)).toEqual(['solves/z1', 'solves/z2', `sessions/${gone.id}`, 'solves/a1', 'solves/a2']);
+    // Só a ordem da fila muda: os registros têm a data da restauração, todos a mesma.
+    const stamps = await Promise.all(['z1', 'z2', 'a1', 'a2'].map(async (id) => (await db.get('solves', id))!.updatedAt));
+    expect(new Set([...stamps, (await db.get('sessions', gone.id))!.updatedAt]).size).toBe(1);
+  });
 });
 
 describe('importar sessões (spec 5.5)', () => {

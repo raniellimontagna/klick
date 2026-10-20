@@ -1820,9 +1820,15 @@ export function createRepository(
         await each(changes, (c) => putChange(tx, c));
         // Tudo o que a restauração grava entra na fila (spec 5.5), menos o que o servidor recusaria (spec 6.6): um registro da cópia que já
         // estava torto aqui (um id que não serve de chave, um solve sem sessão, um desafio grande demais) volta à tela como antes, mas não
-        // sobe.
+        // sobe. As exclusões vão na frente, com uma data de fila antes da do resto (o acabamento das cópias grandes, A2): perto da cota, o
+        // servidor recusaria o que volta da lixeira ou chega antes de elas abrirem as vagas, e outboxBatch manda a fila da mais antiga para
+        // a mais nova. Dentro de cada grupo, a ordem de sempre (a chave). As datas dos registros continuam a da restauração.
+        const queued = changes.filter((c) => checkChange(c).ok);
+        const deletes = queued.filter((c) => c.deletedAt !== null);
+        await each(deletes, (c) => ctx.track(c.store, c.id));
+        if (deletes.length > 0 && deletes.length < queued.length) ctx.raise(ctx.stamp() + 1); // o track seguinte tem uma data depois
         await each(
-          changes.filter((c) => checkChange(c).ok),
+          queued.filter((c) => c.deletedAt === null),
           (c) => ctx.track(c.store, c.id),
         );
         if (keepsProfile) await tx.objectStore('profile').put(split.device, 'current');

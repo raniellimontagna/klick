@@ -141,6 +141,33 @@ describe('a cota no objeto da conta (endurecimento 4.1)', () => {
     expect((await truth(user)).active).toEqual({ solves: 3, sessions: 2, practice: 1, duels: 0 }); // a cópia volta, e o d vai para a lixeira
     expect(await counters(user)).toEqual(await truth(user));
   });
+
+  // O acabamento (A2): a fila de uma restauração pelo aparelho como o aparelho a manda agora (as exclusões na frente, SYNC_BATCH por
+  // pedido), numa conta no teto que troca N solves ativos por N outros. O objeto da conta aceita tudo, lote a lote: cada exclusão abre a vaga
+  // de um que vem depois. Na ordem de antes (o que chega na frente), o primeiro lote voltaria com a cota.
+  it('a fila de uma restauração pelo aparelho, com as exclusões na frente, numa conta no teto: tudo é aceito, lote a lote', async () => {
+    const N = 300;
+    const at = T0 + 1000;
+    const old = many('z', N);
+    const fresh = many('a', N).map((c) => ({ ...c, updatedAt: at, deletionStamp: at }));
+    const queue = [...old.map((c) => ({ ...c, ...gone(at) })), ...fresh]; // as exclusões na frente
+    const lots = (list: Change[]) => Array.from({ length: Math.ceil(list.length / SYNC_BATCH) }, (_, i) => list.slice(i * SYNC_BATCH, (i + 1) * SYNC_BATCH));
+    const full = async (user: string) => {
+      for (const lot of lots([session(), ...old])) await sync(user, lot);
+      await setState(user, 'active', { solves: 100_000, sessions: 1, practice: 0 }); // os N daqui e o resto da conta
+    };
+    const user = 'cota-restaura-no-aparelho';
+    await full(user);
+    for (const lot of lots(queue)) {
+      const res = await sync(user, lot, { now: at });
+      expect([res.rejected, res.accepted, res.deferred]).toEqual([[], lot.length, undefined]);
+    }
+    expect(await json(user, 'active')).toEqual({ solves: 100_000, sessions: 1, practice: 0, duels: 0 });
+    // A ordem de antes, numa conta igual: o que chega antes das exclusões volta com a cota.
+    const before = 'cota-restaura-ordem-antiga';
+    await full(before);
+    expect((await sync(before, [...fresh, ...old].slice(0, SYNC_BATCH), { now: at })).rejected).toHaveLength(SYNC_BATCH);
+  });
 });
 
 describe('o teto de bytes da conta', () => {

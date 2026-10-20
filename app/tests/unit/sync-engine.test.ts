@@ -1188,6 +1188,30 @@ describe('a cota e o orçamento do dia (endurecimento 4.1 e decisões 4 e 6)', (
     return { server, repo, net, engine, s, a, b, c, first };
   }
 
+  // O acabamento (A2): a restauração pelo aparelho numa conta no teto troca N solves ativos por N outros. As exclusões sobem antes (a fila
+  // as põe na frente) e abrem as vagas, lote a lote: nada fica só neste aparelho. Mais que SYNC_BATCH mudanças: mais de um pedido.
+  it('restaurar no aparelho uma cópia que troca solves ativos por outros, com a conta no teto: tudo é aceito, lote a lote', async () => {
+    const N = 130;
+    const server = new FakeServer(500, { limits: { solves: N, sessions: 10, practice: 10, duels: 10 } });
+    server.now = t;
+    const repo = await device();
+    const s = await repo.createSession({ event: '333' });
+    for (let i = 0; i < N; i++) await repo.addSolve({ id: `z${i}`, ...ns(s.id, 1000 + i, t + i) });
+    const net = network(server);
+    const { engine } = engineFor(repo, net);
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, notice: null });
+    expect(activeSolves(server)).toHaveLength(N); // a conta no teto
+    const here = await repo.exportAll();
+    const copy = { ...here, solves: here.solves.map((x, i) => ({ ...x, id: `a${i}` })) };
+    t += 60_000;
+    await repo.replaceAll(copy);
+    const before = net.calls.length;
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, refused: 0, notice: null });
+    expect(net.calls.slice(before).filter((r) => r.changes.length > 0)).toHaveLength(2);
+    expect(await repo.heldCount()).toBe(0);
+    expect(activeSolves(server).map((x) => x.id).sort()).toEqual(copy.solves.map((x) => x.id).sort());
+  });
+
   it('a cota: o terceiro solve sai da fila, fica só neste aparelho, não volta sozinho, e o estado diz quota', async () => {
     const { server, repo, net, engine, a, b, c, first } = await fullAccount();
     expect(first).toMatchObject({ phase: 'idle', pending: 0, refused: 0, notice: 'quota' });
