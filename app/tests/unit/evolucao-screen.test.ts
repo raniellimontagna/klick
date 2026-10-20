@@ -25,7 +25,7 @@ describe('Evolução', () => {
     expect(await screen.findByText(/Sem solves neste período/)).toBeInTheDocument();
   });
 
-  it('filtra por evento e mostra a nota sob o tempo', async () => {
+  it('filtra por evento e mostra a nota na linha', async () => {
     const a = await app();
     const s = (await a.addSolve({ ms: 61234, penalty: null, at: Date.now() }))!;
     await a.setNote(s.id, 'cruz no amarelo');
@@ -34,7 +34,7 @@ describe('Evolução', () => {
     render(EvolucaoScreen, { app: a });
     const select = (await screen.findByLabelText('Evento')) as HTMLSelectElement;
     expect(select.value).toBe('222');
-    expect(document.querySelectorAll('.hist tbody tr')).toHaveLength(1);
+    expect(document.querySelectorAll('.hx-row')).toHaveLength(1);
     select.value = '333';
     select.dispatchEvent(new Event('change', { bubbles: true }));
     expect(await screen.findByText('cruz no amarelo')).toBeInTheDocument();
@@ -78,13 +78,13 @@ describe('Evolução: seletores e nota', () => {
     sessao.value = a.sessions.find((s) => s.name === 'Treino 2x2')!.id;
     sessao.dispatchEvent(new Event('change', { bubbles: true }));
     await tick();
-    expect(document.querySelectorAll('.hist tbody tr')).toHaveLength(1);
+    expect(document.querySelectorAll('.hx-row')).toHaveLength(1);
     evento.value = '333';
     evento.dispatchEvent(new Event('change', { bubbles: true }));
     await tick();
     expect(sessao.value).toBe('all');
-    expect(document.querySelectorAll('.hist tbody tr')).toHaveLength(1);
-    expect(document.querySelector('.hist tbody')?.textContent).toContain('0:09.00');
+    expect(document.querySelectorAll('.hx-row')).toHaveLength(1);
+    expect(document.querySelector('.hx-rows')?.textContent).toContain('0:09.00');
   });
 
   it('uma nota com HTML aparece como texto, sem virar elemento', async () => {
@@ -93,7 +93,7 @@ describe('Evolução: seletores e nota', () => {
     await a.setNote(s.id, '<b>x</b>');
     render(EvolucaoScreen, { app: a });
     expect(await screen.findByText('<b>x</b>')).toBeInTheDocument();
-    expect(document.querySelector('.hist b')).toBeNull();
+    expect(document.querySelector('.hx-rows b')).toBeNull();
   });
 });
 
@@ -102,18 +102,18 @@ describe('Evolução: hora atual e troca de evento', () => {
     vi.useRealTimers();
   });
 
-  it('um solve "agora" vira "há 2 min" depois de 2 minutos com a tela aberta', async () => {
+  // A data da lista leva o ano só quando o solve é de outro ano: a virada do ano com a tela aberta muda a linha.
+  it('a data de um solve ganha o ano quando o ano vira com a tela aberta', async () => {
     const a = await app();
-    const base = Date.now();
+    const base = new Date(2026, 11, 31, 23, 58).getTime();
     await a.addSolve({ ms: 61234, penalty: null, at: base });
     vi.useFakeTimers({ now: base, toFake: ['Date', 'setInterval', 'clearInterval'] });
     render(EvolucaoScreen, { app: a });
     await tick();
-    expect(document.querySelector('.hist tbody')?.textContent).toContain('agora');
-    vi.advanceTimersByTime(2 * 60000);
+    expect(document.querySelector('.hx-when')?.textContent).toBe('31/12 23:58');
+    vi.advanceTimersByTime(3 * 60000);
     await tick();
-    expect(document.querySelector('.hist tbody')?.textContent).toContain('há 2 min');
-    expect(document.querySelector('.hist tbody')?.textContent).not.toContain('agora');
+    expect(document.querySelector('.hx-when')?.textContent).toBe('31/12/2026');
   });
 
   it('a janela de 7 dias deixa de fora o solve quando o tempo passa', async () => {
@@ -125,7 +125,7 @@ describe('Evolução: hora atual e troca de evento', () => {
     await tick();
     (document.querySelector('[data-period="7"]') as HTMLButtonElement).click();
     await tick();
-    expect(document.querySelector('.hist tbody')?.textContent).toContain('1:01.23');
+    expect(document.querySelector('.hx-rows')?.textContent).toContain('1:01.23');
     vi.advanceTimersByTime(8 * 24 * 60 * 60000);
     await tick();
     expect(screen.getByText(/Sem solves neste período/)).toBeInTheDocument();
@@ -133,17 +133,18 @@ describe('Evolução: hora atual e troca de evento', () => {
 
   it('desmontar para o relógio; montar de novo pega a hora atual', async () => {
     const a = await app();
-    const base = Date.now();
+    const base = new Date(2026, 11, 31, 23, 58).getTime();
     await a.addSolve({ ms: 61234, penalty: null, at: base });
     vi.useFakeTimers({ now: base, toFake: ['Date', 'setInterval', 'clearInterval'] });
     const primeira = render(EvolucaoScreen, { app: a });
     await tick();
+    expect(document.querySelector('.hx-when')?.textContent).toBe('31/12 23:58');
     primeira.unmount();
     expect(vi.getTimerCount()).toBe(0);
     vi.setSystemTime(base + 5 * 60000);
     render(EvolucaoScreen, { app: a });
     await tick();
-    expect(document.querySelector('.hist tbody')?.textContent).toContain('há 5 min');
+    expect(document.querySelector('.hx-when')?.textContent).toBe('31/12/2026');
   });
 
   it('trocar de evento volta a "Todas as sessões", mesmo ao voltar para o evento da sessão', async () => {

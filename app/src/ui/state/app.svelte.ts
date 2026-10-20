@@ -55,8 +55,15 @@ export type TrailView = { kind: 'home' } | { kind: 'lesson'; step: TrailStep } |
 // Onde a aba Evolução está (a maquete aprovada do desafio, 9a a 9c): os números de sempre, a lista dos Desafios ou uma partida aberta. Como a
 // da Trilha, fica no AppState: "Ver em Desafios", no fim de uma partida, abre a lista de outra aba.
 export type EvolucaoView = { kind: 'stats' } | { kind: 'duels' } | { kind: 'duel'; id: string };
-// 'duel': a folha da pílula do modo desafio (continuar, sair ou descartar).
-export type DialogId = 'sessions' | 'shortcuts' | 'onboarding' | 'export' | 'import' | 'backups' | 'trash' | 'install' | 'signin' | 'signout' | 'cloud' | 'deleteAccount' | 'duel';
+// 'duel': a folha da pílula do modo desafio (continuar, sair ou descartar). 'move': a folha de mover solves para outra sessão (app.moveRequest).
+export type DialogId = 'sessions' | 'shortcuts' | 'onboarding' | 'export' | 'import' | 'backups' | 'trash' | 'install' | 'signin' | 'signout' | 'cloud' | 'deleteAccount' | 'duel' | 'move';
+// O que a folha de mover move: os ids (a seleção da lista, ou o solve do detalhe), o número do solve no filtro quando é um só (o título
+// "Mover o solve #10.471") e quem pediu, avisado quando o lote passou para a outra sessão (a lista sai da seleção).
+export interface MoveRequest {
+  ids: string[];
+  number?: number;
+  done?: () => void;
+}
 export interface Toast {
   text: string;
   action?: string;
@@ -262,6 +269,7 @@ export class AppState {
   toast = $state<Toast | null>(null);
   live = $state(''); // texto da região aria-live
   dialog = $state<DialogId | null>(null);
+  moveRequest = $state.raw<MoveRequest | null>(null); // o que a folha de mover leva (dialog 'move')
   v1Available = $state(false); // há dados da v1 ainda não oferecidos
   exportReminder = $state(false); // mostrar o lembrete de exportar
   pendingExport = $state<PendingExport | null>(null); // texto de uma exportação que o navegador não baixou (ExportDialog)
@@ -741,6 +749,13 @@ export class AppState {
     const name = this.sessions.find((s) => s.id === sessionId)?.name ?? '';
     this.offerUndo({ kind: 'move', moves }, T.historico.moved(moves.length, name));
     return true;
+  }
+
+  // Abre a folha de mover com estes solves (a barra da seleção; o detalhe de um solve). Sem nenhum, não abre.
+  openMove(ids: readonly string[], options: { number?: number; done?: () => void } = {}): void {
+    if (ids.length === 0) return;
+    this.moveRequest = { ids: [...ids], ...options };
+    this.dialog = 'move';
   }
 
   // Junta duas sessões do mesmo evento (o diálogo das Sessões): os solves de `fromId` passam para `toId`, e ela vai para a lixeira. Se ela

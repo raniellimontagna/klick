@@ -15,6 +15,7 @@
   import CentroScreen from './centro/CentroScreen.svelte';
   import EvolucaoScreen from './evolucao/EvolucaoScreen.svelte';
   import InstallGuide from './dialogs/InstallGuide.svelte';
+  import MoveDialog from './dialogs/MoveDialog.svelte';
   import OnboardingDialog from './dialogs/OnboardingDialog.svelte';
   import SessionsDialog from './dialogs/SessionsDialog.svelte';
   import ShortcutsDialog from './dialogs/ShortcutsDialog.svelte';
@@ -411,6 +412,8 @@ import SyncIndicator from './SyncIndicator.svelte';
       <ShortcutsDialog {app} open={app.dialog === 'shortcuts'} />
       <OnboardingDialog {app} open={app.dialog === 'onboarding'} onpickfile={() => importInput?.click()} />
       <InstallGuide {app} open={app.dialog === 'install'} {installEvent} onused={() => (installEvent = null)} />
+      <!-- Mover solves para outra sessão: abre por app.openMove (a barra da seleção na Evolução). -->
+      <MoveDialog {app} />
       {#if app.account}
         <SignInDialog {app} open={app.dialog === 'signin'} />
       {/if}

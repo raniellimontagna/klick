@@ -30,7 +30,7 @@ test('solve no teclado é gravado antes da reação e sobrevive a recarregar', a
   await expect(page.locator('[data-actions]')).toBeVisible();
   await page.reload();
   await page.getByRole('button', { name: 'Evolução' }).click();
-  await expect(page.locator('.hist tbody tr')).toHaveCount(1);
+  await expect(page.locator('.hx-row')).toHaveCount(1);
 });
 
 test('inspeção: largar depois de 15 s dá +2', async ({ page, isMobile }) => {

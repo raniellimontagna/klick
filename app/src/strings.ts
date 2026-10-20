@@ -236,7 +236,7 @@ export const T = Object.freeze({
       empty: 'Todos os casos deste conjunto estão fora do sorteio.',
     }),
   }),
-  // Tela da Evolução (ui/evolucao/EvolucaoScreen.svelte). Os nomes dos períodos e as colunas da tabela ficam aqui.
+  // Tela da Evolução (ui/evolucao/EvolucaoScreen.svelte). Os nomes dos períodos e as colunas da lista ficam aqui.
   evolucao: {
     eventLabel: 'Evento',
     sessionLabel: 'Sessão',
@@ -258,7 +258,6 @@ export const T = Object.freeze({
     barsEmpty: 'Distribuição dos tempos do período: sem solves',
     empty: 'Sem solves neste período.',
     columns: Object.freeze({ number: '#', time: 'Tempo', scramble: 'Embaralhamento', when: 'Quando' }),
-    pbTag: 'recorde',
   },
   // O histórico inteiro (a lista, o detalhe, mover e juntar). As contagens levam o ponto de milhar.
   historico: {
@@ -270,6 +269,41 @@ export const T = Object.freeze({
       n === 0
         ? `Sessões juntadas em ${session}`
         : `Sessões juntadas: ${n === 1 ? '1 solve passou' : `${n.toLocaleString('pt-BR')} solves passaram`} para ${session}`,
+    // A lista (ui/evolucao/SolveList.svelte): o título com a contagem, as colunas que a tabela de antes não tinha e o nome de cada linha.
+    listTitle: (n: number) => `Solves do período · ${n.toLocaleString('pt-BR')}`,
+    columns: Object.freeze({ note: 'Nota', pick: 'Seleção' }),
+    row: (r: { number: string; time: string; ao5: string | null; ao12: string | null; when: string; pb: boolean; note: string }) =>
+      [
+        `Solve ${r.number}: ${r.time}`,
+        r.ao5 === null ? null : `média de 5 ${r.ao5}`,
+        r.ao12 === null ? null : `média de 12 ${r.ao12}`,
+        r.when,
+        r.pb ? 'recorde' : null,
+        r.note === '' ? null : `nota: ${r.note}`,
+      ]
+        .filter((part) => part !== null)
+        .join(', '),
+    plus2Spoken: (time: string) => `${time} mais 2`,
+    // A seleção: o botão do topo, a caixa de cada linha e a barra do lote (até MAX_SELECTION, em ui/evolucao/rows.ts).
+    select: 'Selecionar',
+    cancel: 'Cancelar',
+    pick: (number: string) => `Selecionar o solve ${number}`,
+    selection: 'Seleção',
+    selected: (n: number) => (n === 1 ? '1 selecionado' : `${n.toLocaleString('pt-BR')} selecionados`),
+    atMax: 'o máximo de uma vez',
+    selectionCap: 'Até 1.000 solves por vez',
+    moveTo: 'Mover para…',
+    remove: 'Excluir',
+    confirmAgain: 'Tem certeza? Clique de novo',
+    // A folha de mover (ui/dialogs/MoveDialog.svelte): só as sessões do mesmo evento, com a contagem de cada uma.
+    moveTitle: (n: number, number?: number) =>
+      n === 1 ? (number === undefined ? 'Mover o solve' : `Mover o solve #${number.toLocaleString('pt-BR')}`) : `Mover ${n.toLocaleString('pt-BR')} solves`,
+    moveIntro: (event: string, n: number) =>
+      n === 1
+        ? `Só as sessões de ${event}. O solve muda de sessão e continua com a data dele.`
+        : `Só as sessões de ${event}. Os solves mudam de sessão e continuam com a data deles.`,
+    here: 'está aqui',
+    count: (n: number) => `${n.toLocaleString('pt-BR')} ${n === 1 ? 'solve' : 'solves'}`,
   },
   // Mensagens de um arquivo que não pode ser lido (data/transfer.ts).
   transfer: {

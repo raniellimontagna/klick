@@ -1,5 +1,6 @@
 <script lang="ts">
-  // A tela da Evolução (porte de prototype/scripts/ui/evolucao-view.js): indicadores, gráfico, distribuição e histórico.
+  // A tela da Evolução (porte de prototype/scripts/ui/evolucao-view.js): indicadores, gráfico, distribuição e a lista inteira do filtro
+  // (SolveList, o histórico inteiro: do mais novo ao mais antigo, com a seleção).
   // Os filtros são evento, sessão (só as do evento escolhido) e período; o evento segue a sessão atual até a pessoa escolher um.
   // Os números vêm de core/stats.ts e os gráficos de ui/charts.ts. Os textos ficam em strings.ts.
   //
@@ -13,7 +14,6 @@
     bestSingle,
     effectiveMs,
     formatMs,
-    formatSolve,
     meanOf,
     officialAverage,
     officialAverageLabel,
@@ -26,11 +26,12 @@
   import { type Bin, evolutionChart, histogramBins } from '../charts';
   import { duelsSummary, miniBoardOf } from '../duel/duel-view';
   import MiniPlacar from '../duel/MiniPlacar.svelte';
-  import { relativeTime, truncate } from '../format';
   import type { AppState } from '../state/app.svelte';
   import { scoreOf } from '../state/duel.svelte';
   import DuelList from './DuelList.svelte';
   import DuelMatch from './DuelMatch.svelte';
+  import type { Series } from './rows';
+  import SolveList from './SolveList.svelte';
 
   type Period = keyof typeof T.evolucao.periods;
   interface Kpi {
@@ -39,27 +40,15 @@
     sub: string;
     pb: boolean;
   }
-  interface Row {
-    id: string;
-    number: number;
-    time: string;
-    pb: boolean;
-    plus2: boolean;
-    note: string;
-    avg: string;
-    scramble: string;
-    when: string;
-  }
 
   const DAY = 86400000;
   const PERIODS: readonly Period[] = ['7', '30', 'all'];
-  const TABLE_ROWS = 30; // os últimos solves do período que a tabela mostra
 
   let { app }: { app: AppState } = $props();
   const uid = $props.id();
 
-  // O relógio da tela: a hora de montagem, atualizada a cada minuto enquanto a tela existe. Sem ele, "Quando" e a janela do
-  // período ficariam presos no último momento em que algo mudou (as derivadas não se refazem sozinhas com o tempo).
+  // O relógio da tela: a hora de montagem, atualizada a cada minuto enquanto a tela existe. Sem ele, a janela do período e o ano da data
+  // na lista ficariam presos no último momento em que algo mudou (as derivadas não se refazem sozinhas com o tempo).
   const CLOCK_MS = 60000;
   let now = $state(Date.now());
 
@@ -107,10 +96,12 @@
 
   const flags = $derived(pbFlags(pool));
   const times = $derived(split.inPeriod.map(effectiveMs));
-  // Média oficial em cada ponto (Ao5, ou Mo3 no 6×6, no 7×7 e no 3BLD): a linha do gráfico.
-  const officialSeries = $derived(rollingOfficial(pool, official));
-  // Média de 5 em cada ponto: a coluna da tabela.
+  // Médias de 5 e de 12 em cada ponto (as colunas da lista), uma vez por filtro: a lista só formata as linhas que desenha.
   const ao5Series = $derived(rollingAverages(pool, 5));
+  const ao12Series = $derived(rollingAverages(pool, 12));
+  const series = $derived<Series>({ ao5: ao5Series, ao12: ao12Series, pb: flags });
+  // Média oficial em cada ponto (Ao5, ou Mo3 no 6×6, no 7×7 e no 3BLD): a linha do gráfico. Na Ao5, é a mesma série da lista.
+  const officialSeries = $derived(official.kind === 'ao' && official.n === 5 ? ao5Series : rollingOfficial(pool, official));
 
   function rollingOfficial(list: Solve[], { n, kind }: { n: number; kind: 'ao' | 'mo' }): (number | null)[] {
     if (kind === 'ao') return rollingAverages(list, n);
@@ -222,25 +213,12 @@
     });
   });
 
-  const rows = $derived.by((): Row[] => {
-    const out: Row[] = [];
-    const lowest = Math.max(split.first, pool.length - TABLE_ROWS);
-    for (let i = pool.length - 1; i >= lowest; i--) {
-      const x = pool[i];
-      out.push({
-        id: x.id,
-        number: i + 1,
-        time: formatSolve(x),
-        pb: flags[i],
-        plus2: x.penalty === '+2',
-        note: x.note,
-        avg: formatMs(ao5Series[i]),
-        scramble: truncate(x.scramble, 28),
-        when: relativeTime(x.at, now),
-      });
-    }
-    return out;
-  });
+  // Mudar um filtro (evento, sessão, período) monta a lista de novo: a seleção some com ele, e um lote nunca age sobre solves que
+  // saíram da lista.
+  const listKey = $derived(`${event}|${sessionId}|${period}`);
+
+  // Tocar numa linha (ou Enter nela) abre o solve. A folha do detalhe ainda não existe: por enquanto, nada abre.
+  function openSolve(_id: string): void {}
 </script>
 
 <section class="screen" data-screen="evolucao" aria-label={T.tabs.evolucao}>
@@ -317,35 +295,8 @@
       </div>
     </div>
 
-    <div class="card hist">
-      <table>
-        <thead>
-          <tr>
-            <th>{T.evolucao.columns.number}</th>
-            <th>{T.evolucao.columns.time}</th>
-            <th>{T.tiles.avg(5)}</th>
-            <th class="scr">{T.evolucao.columns.scramble}</th>
-            <th>{T.evolucao.columns.when}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each rows as r (r.id)}
-            <tr>
-              <td class="num">{r.number}</td>
-              <td>
-                {r.time}
-                {#if r.pb}<span class="tag pb">{T.evolucao.pbTag}</span>{:else if r.plus2}<span class="tag">{T.timer.plus2}</span>{/if}
-                {#if r.note}<small class="note">{truncate(r.note, 48)}</small>{/if}
-              </td>
-              <td>{r.avg}</td>
-              <td class="scr">{r.scramble}</td>
-              <td>{r.when}</td>
-            </tr>
-          {:else}
-            <tr><td colspan="5" class="muted">{T.evolucao.empty}</td></tr>
-          {/each}
-        </tbody>
-      </table>
-    </div>
+    {#key listKey}
+      <SolveList {app} {pool} start={split.first} {series} {now} onOpen={openSolve} />
+    {/key}
   {/if}
 </section>

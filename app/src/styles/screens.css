@@ -322,11 +322,6 @@ body.solving .t-coach {
   font-variant-numeric: tabular-nums;
 }
 
-.hist td.scr {
-  font: 400 13px var(--mono);
-  color: var(--muted);
-}
-
 .tag {
   margin-left: 6px;
   padding: 1px 7px;
@@ -340,6 +335,238 @@ body.solving .t-coach {
 .tag.pb {
   background: var(--pb-bg);
   color: var(--pb-ink);
+}
+
+/* A lista inteira do filtro (ui/evolucao/SolveList.svelte; a maquete aprovada do histórico, 1a a 2b), no lugar da tabela dos 30. As linhas
+   têm altura fixa: a lista reserva a altura inteira (--n linhas) e desenha só as da tela, cada uma na posição dela (--k). Colunas em px,
+   para o cabeçalho (11 px) e as linhas (14 px) baterem. O cabeçalho das colunas gruda no topo ao rolar. */
+.hx-list {
+  --hx-cols: 64px 104px 96px 96px minmax(0, 1.3fr) minmax(0, 1fr) 104px;
+  --hx-h: 36px;
+  margin-top: 12px;
+  padding: 0;
+  overflow: clip;
+}
+
+.hx-list[data-select] {
+  --hx-cols: 20px 64px 104px 96px 96px minmax(0, 1.3fr) minmax(0, 1fr) 104px;
+}
+
+.hx-list-h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px 10px;
+}
+
+.hx-empty {
+  padding: 0 18px 14px;
+  font-size: 14px;
+}
+
+.hx-cols,
+.hx-row {
+  display: grid;
+  grid-template-columns: var(--hx-cols);
+  column-gap: 10px;
+  align-items: center;
+  padding: 0 18px;
+}
+
+/* No app instalado no iPhone, o topo da página fica embaixo do relógio (body::before): o cabeçalho gruda logo abaixo dele. */
+.hx-cols {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  z-index: 1;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  align-items: end;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* A borda da última linha fica por baixo da borda do cartão. */
+.hx-rows {
+  position: relative;
+  height: calc(var(--hx-h) * var(--n));
+  margin-bottom: -1px;
+}
+
+/* Segurar a linha (o toque longo) seleciona: sem selecionar o texto nem abrir o menu do sistema. A margem de rolagem deixa a linha da vez
+   fora de baixo do cabeçalho que gruda e da barra da seleção. */
+.hx-row {
+  position: absolute;
+  top: calc(var(--hx-h) * var(--k));
+  left: 0;
+  right: 0;
+  height: var(--hx-h);
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+  scroll-margin: 48px 0 96px;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.hx-row > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hx-row:focus-visible {
+  outline-offset: -2px;
+}
+
+.hx-row[aria-selected='true'] {
+  background: var(--surface-2);
+}
+
+/* Na linha marcada, o cinza vira a tinta 2: sobre o fundo dela, o cinza não chega ao contraste AA no tema claro. */
+.hx-row[aria-selected='true'] :is(.hx-n, .hx-scr, .hx-note, .hx-when) {
+  color: var(--ink-2);
+}
+
+.hx-n { font-size: 12px; color: var(--muted); }
+.hx-t { display: flex; align-items: center; gap: 6px; color: var(--ink); }
+.hx-t .tag { margin-left: 0; }
+.hx-scr { font: 400 13px var(--mono); color: var(--muted); }
+.hx-note { color: var(--muted); font-size: 13px; }
+.hx-when { color: var(--muted); font-size: 13px; }
+
+/* O losango do recorde, o mesmo do gráfico (12 px lá, 8 px aqui). */
+.hx-pb {
+  display: inline-block;
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin: 0 1px;
+  border-radius: 1px;
+  background: var(--pb);
+  transform: rotate(45deg);
+}
+
+/* O ponto da nota, o mesmo do botão Nota do Timer (.btn.has-note::after): só no celular, onde a nota não aparece por extenso. */
+.hx-dot {
+  display: none;
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+/* A caixa da seleção é uma peça do cubo: contorno vazio, cheia na tinta quando marcada. No máximo, as vazias ficam desligadas. */
+.hx-check {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  border: 1.5px solid var(--muted);
+  border-radius: 5px;
+  background: none;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.hx-check:checked {
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+.hx-check:checked::after {
+  content: '';
+  width: 9px;
+  height: 5px;
+  border: solid var(--bg);
+  border-width: 0 0 2px 2px;
+  transform: translateY(-1px) rotate(-45deg);
+}
+
+.hx-check[aria-disabled='true'] {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* A barra da seleção fica onde o aviso aparece (embaixo, no meio; no celular, acima das abas). */
+.hx-bulk {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 20;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--surface);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+.hx-bulk b {
+  margin-right: auto;
+  padding-right: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* No máximo ("1.000 selecionados · o máximo de uma vez"), a contagem quebra a linha para a barra caber no celular. */
+.hx-bulk[data-max] b {
+  white-space: normal;
+}
+
+/* Com a barra na tela, um aviso (o do máximo) aparece logo acima dela, e a página ganha folga para a última linha sair de baixo dela. */
+body:has(.hx-bulk) .toast {
+  bottom: 88px;
+}
+
+.screen:has(.hx-bulk) {
+  padding-bottom: 96px;
+}
+
+@media (pointer: coarse) {
+  .hx-list { --hx-h: 44px; }
+}
+
+/* As folhas do histórico (mover; o detalhe e o recorde virão no mesmo padrão): o .sheet de sempre, com o título mais junto do texto. */
+.hx-sheet h2 {
+  margin-bottom: 4px;
+}
+
+.hx-move .list-btn {
+  width: 100%;
+  gap: 12px;
+}
+
+.hx-move .list-btn > span:last-child,
+.hx-move .list-btn .tag {
+  white-space: nowrap;
+}
+
+/* A sessão de onde os solves vêm: a borda na tinta (aria-current) e parada, sem cara de desligada. */
+.hx-move .list-btn:disabled {
+  cursor: default;
+  opacity: 1;
 }
 
 /* ---------- Companion ---------- */
@@ -470,14 +697,6 @@ body.solving .t-coach {
   align-items: center;
   gap: 12px;
   grid-column: 1 / -1;
-}
-
-.hist .note {
-  display: block;
-  margin-top: 2px;
-  font-size: 12px;
-  color: var(--muted);
-  white-space: normal;
 }
 
 .silent-row .silent-hint {
@@ -653,8 +872,24 @@ body.solving .t-coach {
   .t-hints { display: none; }
 
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .hist .scr { display: none; }
   .comp-cols { grid-template-columns: minmax(0, 1fr); }
+
+  /* A lista no celular: sem o embaralhamento e a nota por extenso (fica o ponto) e sem a etiqueta +2 (fica o "+"). Na seleção, a caixa toma o
+     lugar do número, que continua no nome lido pelo leitor de tela. */
+  .hx-list { --hx-cols: 40px minmax(0, 1fr) 51px 51px 78px; }
+  .hx-list[data-select] { --hx-cols: 20px minmax(0, 1fr) 51px 51px 78px; }
+  .hx-list[data-select] .hx-n { display: none; }
+  .hx-cols,
+  .hx-row { column-gap: 6px; padding: 0 14px; }
+  .hx-list-h { padding: 8px 14px 6px 18px; }
+  .hx-scr,
+  .hx-note,
+  .hx-p2 { display: none; }
+  .hx-t { gap: 5px; }
+  .hx-dot { display: inline-block; }
+  .hx-bulk { bottom: calc(76px + env(safe-area-inset-bottom)); }
+  body:has(.hx-bulk) .toast { bottom: calc(140px + env(safe-area-inset-bottom)); }
+  .screen:has(.hx-bulk) { padding-bottom: 160px; }
 
   .tabbar {
     position: fixed;

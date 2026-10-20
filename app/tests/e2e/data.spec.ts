@@ -11,7 +11,7 @@ test('duas abas: o solve de uma aparece na outra sem recarregar', async ({ conte
   await b.goto('/');
   await b.getByRole('button', { name: 'Evolução' }).click();
   await quickSolve(a);
-  await expect(b.locator('.hist tbody tr')).toHaveCount(1);
+  await expect(b.locator('.hx-row')).toHaveCount(1);
 });
 
 test('exportar no formato Klick baixa o arquivo com o solve', async ({ page }) => {

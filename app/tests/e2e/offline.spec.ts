@@ -14,5 +14,5 @@ test('depois da primeira visita, funciona offline e grava o solve', async ({ pag
   await noInspection(page);
   await quickSolve(page);
   await page.getByRole('button', { name: 'Evolução' }).click();
-  await expect(page.locator('.hist tbody tr')).toHaveCount(1);
+  await expect(page.locator('.hx-row')).toHaveCount(1);
 });
