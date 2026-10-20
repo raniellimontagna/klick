@@ -802,12 +802,12 @@ export class AccountStore extends DurableObject<Env> {
     meta: { kind: 'daily' | 'pre-restore'; day: string },
     now: number,
     caps: Caps,
-  ): Promise<{ gz: number } | CopiesPaused> {
+  ): Promise<{ gz: number; parts: number } | CopiesPaused> {
     const started = Date.now();
     const done = await this.writeCopyIn(userId, name, meta, now, caps);
     if (typeof done === 'string') return done;
     console.log(JSON.stringify({ evt: 'copy', user: userId, kind: meta.kind, parts: done.parts, ms: Date.now() - started }));
-    return { gz: done.gz };
+    return done;
   }
 
   private async writeCopyIn(
@@ -1024,6 +1024,7 @@ export class AccountStore extends DurableObject<Env> {
       if (manifest !== null && !(await takeOps(this.env.DB, 'B', manifest.parts.length, now, caps.classBMonth))) return 'r2-budget';
       const limit = Math.min(caps.restoreRecords, recordsPerDay(caps.rowsDay));
       const steps: RestoreStep[] = [];
+      const seen = { n: 0 }; // os registros de agora que a comparação leu (sem os ajustes): na de 'ok', a conta inteira
       let floor = 0;
       const slices = manifest === null ? 1 : manifest.parts.length;
       for (let i = 0; i < slices && steps.length <= limit; i++) {
@@ -1037,7 +1038,7 @@ export class AccountStore extends DurableObject<Env> {
           this.renewCopies();
           return 'not-found';
         }
-        const diff = diffSlice(this.currentOf(range.lo, range.hi, now), copy, limit - steps.length);
+        const diff = diffSlice(this.currentOf(range.lo, range.hi, now, seen), copy, limit - steps.length);
         for (const step of diff.steps) steps.push(step);
         floor = Math.max(floor, diff.floor);
       }
@@ -1055,13 +1056,23 @@ export class AccountStore extends DurableObject<Env> {
       }
       const rows = rowsOf(changes.length);
       if (rows > DAILY_WRITE_BUDGET - this.dayCount('writes', now).n || !(await this.dayRoom(rows, now, 'restore'))) return device ? onDevice() : 'write-budget';
-      // Uma segunda restauração no mesmo segundo (o clique duplo) acha a cópia de antes da primeira, que já guarda o estado de antes: ela
-      // fica como está, e não precisa de espaço nem de operação A.
+      // A cópia de antes (a revisão final, I6: elas ocupam o espaço que todas as contas dividem). Quando a última cópia do dia já é a conta
+      // de agora (snapshotRev igual à revisão), ela guarda o estado de antes, e não sai outra (vai para o log). Uma segunda restauração no
+      // mesmo segundo (o clique duplo) acha a cópia de antes da primeira, que já guarda o estado de antes: ela fica como está, e não precisa
+      // de espaço nem de operação A. Uma conta grande (a cópia sai em partes: a comparação leu a conta inteira, e com os ajustes ela passa de
+      // COPY_PART_RECORDS) grava no máximo uma cópia de antes em partes por dia UTC (bigPreRestore): a seguinte, a resposta do aparelho ou
+      // restore-limit, antes de gravar qualquer coisa.
       const before = preRestoreName(now);
-      if ((await this.env.SNAPSHOTS.head(snapshotKey(userId, before))) === null) {
+      if (this.getState('snapshotRev') === (this.getState('rev') ?? '0')) {
+        console.log(JSON.stringify({ evt: 'pre-restore-skipped', user: userId }));
+      } else if ((await this.env.SNAPSHOTS.head(snapshotKey(userId, before))) === null) {
+        const today = utcDay(now);
+        const big = seen.n + prefs.length > COPY_PART_RECORDS;
+        if (big && this.getState('bigPreRestore') === today) return device ? onDevice() : 'restore-limit';
         const done = await this.writeCopy(userId, before, { kind: 'pre-restore', day: dayOf(now) }, now, caps);
-        if (typeof done === 'string') return done === 'ops' ? 'r2-budget' : 'no-room'; // 'size' (mais partes que MAX_PARTS) também não cabe
+        if (typeof done === 'string') return done === 'ops' ? 'r2-budget' : 'no-room'; // 'size' (passou do teto da cópia) também não cabe
         this.setCopies({ ...this.copies(), at: 0, gz: done.gz });
+        if (done.parts > 0) this.setState('bigPreRestore', today);
       }
       // A reserva das linhas vem por último, com a cópia de antes já guardada (que não custa linhas): a cópia recusada, ou um R2 que falha
       // nela, não gasta o dia do ambiente. Recusada aqui, nada é gravado, e a cópia de antes fica no R2, como a de um clique duplo.
@@ -1094,7 +1105,7 @@ export class AccountStore extends DurableObject<Env> {
   // Os registros de agora da faixa de chaves (lo, hi] de uma restauração, sem os ajustes, em páginas de SLICE_PAGE na ordem da chave (lo
   // null: desde o começo; hi null: até o fim, as chaves que chegaram depois da cópia inclusive), cada página contada no orçamento de
   // leituras. Um gerador: a comparação o consome aos poucos, e quando ela para no meio, as páginas de depois não são lidas.
-  private *currentOf(lo: CopyKey | null, hi: CopyKey | null, now: number): Generator<Change> {
+  private *currentOf(lo: CopyKey | null, hi: CopyKey | null, now: number, seen: { n: number }): Generator<Change> {
     let after: CopyKey = lo ?? ['', ''];
     for (;;) {
       const rows =
@@ -1102,6 +1113,7 @@ export class AccountStore extends DurableObject<Env> {
           ? this.sql.exec<Row>(PAGE_AFTER, after[0], after[1], SLICE_PAGE).toArray()
           : this.sql.exec<Row>(RANGE_AFTER, after[0], after[1], hi[0], hi[1], SLICE_PAGE).toArray();
       this.countReads(rows.length, now);
+      seen.n += rows.length;
       for (const row of rows) yield rowToChange(row);
       if (rows.length < SLICE_PAGE) return;
       const end = rows[rows.length - 1];

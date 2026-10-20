@@ -1356,6 +1356,51 @@ describe('a restauração por diferenças e a resposta pelo aparelho', () => {
     expect(await objectsOf(user)).toEqual(torn);
   });
 
+  // A revisão final (I6): as cópias de antes de restaurar ocupam o espaço que todas as contas dividem. (a) Quando a última cópia do dia já é a
+  // conta de agora (snapshotRev igual à revisão), ela guarda o estado de antes, e a restauração não grava outra (vai para o log). (b) Uma
+  // conta grande grava no máximo uma cópia de antes em partes por dia UTC; a restauração seguinte que precisaria de outra vai pelo aparelho
+  // (o app novo) ou ouve restore-limit (o de antes), sem gravar nada.
+  it('sem cópia de antes quando a última cópia do dia já é a conta de agora; vai para o log', async () => {
+    const user = 'antes-igual-a-do-dia';
+    await sync(user, [session, solve('a'), solve('b')]);
+    await env.SNAPSHOTS.put(snapshotKey(user, dayOf(T0 - DAY)), await gzipJson(exportFromRecords([session, solve('a')], T0 - DAY))); // ontem: sem o b
+    expect(await stubOf(user).snapshot(T0)).toBe(true); // a de hoje é a conta de agora
+    const r2 = await countR2(user);
+    const out = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      expect(await restore(user, dayOf(T0 - DAY), T0 + 1000)).toEqual({ status: 204, body: null });
+      const logged = out.mock.calls.map(([line]) => JSON.parse(String(line)) as Record<string, unknown>);
+      expect(logged).toContainEqual({ evt: 'pre-restore-skipped', user });
+    } finally {
+      out.mockRestore();
+    }
+    expect([r2.head, r2.put]).toEqual([undefined, undefined]);
+    expect(await objectsOf(user)).toEqual([snapshotKey(user, dayOf(T0 - DAY)), snapshotKey(user, dayOf(T0))]);
+    // Depois da restauração a conta mudou: a próxima restauração grava a cópia de antes, como sempre.
+    expect((await restore(user, dayOf(T0), T0 + 2000)).status).toBe(204);
+    expect(await objectsOf(user)).toContain(snapshotKey(user, preRestoreName(T0 + 2000)));
+  });
+
+  it('uma cópia de antes em partes por dia: a segunda restauração grande do dia vai pelo aparelho, ou restore-limit no app de antes', async () => {
+    const user = 'antes-em-partes-uma-por-dia';
+    await bigWithParts(user);
+    await sync(user, [solve('novo')]);
+    expect((await restore(user, dayOf(T0), T0 + 1000)).status).toBe(204);
+    expect(await objectsOf(user)).toContain(partKey(user, preRestoreName(T0 + 1000), 2)); // a primeira do dia, em partes
+    await sync(user, [solve('outro')], T0 + 1500);
+    const account = await accountOf(user);
+    const objects = await objectsOf(user);
+    const r2 = await countR2(user);
+    expect(await restore(user, dayOf(T0), T0 + 2000)).toEqual({ status: 429, body: { error: 'restore-limit' } });
+    expect(await restoreDevice(user, dayOf(T0), T0 + 3000)).toEqual({ status: 200, body: { restore: 'device', parts: 2 } });
+    expect(r2.put).toBeUndefined();
+    expect(await objectsOf(user)).toEqual(objects);
+    expect((await accountOf(user)).records).toEqual(account.records);
+    // No dia UTC seguinte, volta a caber.
+    await sync(user, [solve('mais')], T0 + DAY);
+    expect((await restore(user, dayOf(T0), T0 + DAY + 1000)).status).toBe(204);
+  });
+
   // A revisão final (I5 b): uma restauração grande no servidor lê a conta duas vezes (a comparação e a cópia de antes). Quando as leituras de
   // hoje mais a estimativa dela (2 × os registros da cópia, mais RESTORE_READS_EXTRA) passam do orçamento do dia, ela não compara: o app novo
   // ouve a resposta do aparelho, o de antes restore-limit.
