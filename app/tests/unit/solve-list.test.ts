@@ -197,8 +197,9 @@ describe('a seleção', () => {
     expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
     const mode = screen.getByRole('button', { name: T.historico.select });
     await fireEvent.click(mode);
+    // O botão muda de nome (Selecionar, Cancelar), sem aria-pressed: o nome que muda já diz o estado.
     expect(mode).toHaveTextContent(T.historico.cancel);
-    expect(mode).toHaveAttribute('aria-pressed', 'true');
+    expect(mode).not.toHaveAttribute('aria-pressed');
     expect(screen.getByRole('grid')).toHaveAttribute('aria-multiselectable', 'true');
     expect(screen.getAllByRole('checkbox')).toHaveLength(5);
     // Com nada marcado, a barra não aparece.
@@ -228,7 +229,7 @@ describe('a seleção', () => {
     await waitFor(() => expect(a.toast).toMatchObject({ text: T.historico.deleted(2), action: T.toast.undo }));
     // Depois do lote, a seleção some e o modo sai.
     await waitFor(() => expect(bulk()).toBeNull());
-    expect(screen.getByRole('button', { name: T.historico.select })).not.toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: T.historico.select })).not.toHaveAttribute('aria-pressed');
     expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
     await waitFor(() => expect(rows()).toHaveLength(3));
     expect(screen.getByRole('heading', { name: 'Solves do período · 3' })).toBeInTheDocument();
@@ -297,6 +298,41 @@ describe('a seleção', () => {
     await fireEvent.keyDown(document.activeElement!, { key: ' ' });
     expect(again).toBeChecked();
     expect(within(bulk()!).getByText(`1.000 selecionados · ${T.historico.atMax}`)).toBeInTheDocument();
+  });
+
+  // Um solve marcado que sai da lista (outra aba o excluiu ou o moveu) sai da seleção, e o "Excluir" armado desarma: o segundo toque
+  // confirmaria um lote diferente do que a pessoa viu ao armar.
+  it('um marcado que sai da lista desarma o Excluir', async () => {
+    const pool = Array.from({ length: 6 }, (_, i) => solve(i, 10_000 + i * 100));
+    const a = await app();
+    const view = render(SolveList, { app: a, pool, series: seriesOf(pool), onOpen: () => {} });
+    await fireEvent.click(screen.getByRole('button', { name: T.historico.select }));
+    await fireEvent.click(rows()[0]!);
+    await fireEvent.click(rows()[1]!);
+    const remove = within(bulk()!).getByRole('button', { name: T.historico.remove });
+    await fireEvent.click(remove);
+    expect(remove).toHaveTextContent(T.historico.confirmAgain);
+
+    const left = pool.filter((s) => s.id !== 's5');
+    await view.rerender({ pool: left, series: seriesOf(left) });
+    await waitFor(() => expect(within(bulk()!).getByText('1 selecionado')).toBeInTheDocument());
+    expect(within(bulk()!).getByRole('button', { name: T.historico.remove })).toHaveTextContent(T.historico.remove);
+  });
+
+  // O Shift marca desde o último solve tocado, pelo id: um solve novo no topo (as posições andam) não muda o começo do intervalo.
+  it('o Shift marca desde o último solve tocado, mesmo com a lista andando', async () => {
+    const pool = Array.from({ length: 10 }, (_, i) => solve(i, 10_000 + i * 100));
+    const a = await app();
+    const view = render(SolveList, { app: a, pool, series: seriesOf(pool), onOpen: () => {} });
+    await fireEvent.click(screen.getByRole('button', { name: T.historico.select }));
+    await fireEvent.click(rows().find((r) => r.dataset.id === 's8')!);
+
+    const grown = [...pool, solve(10, 9_000, null, '', pool[9]!.at + MIN)];
+    await view.rerender({ pool: grown, series: seriesOf(grown) });
+    await waitFor(() => expect(rows()[0]).toHaveAttribute('data-id', 's10'));
+    await fireEvent.click(rows().find((r) => r.dataset.id === 's5')!, { shiftKey: true });
+    expect(within(bulk()!).getByText('4 selecionados')).toBeInTheDocument(); // s8, s7, s6 e s5
+    expect(rows().filter((r) => r.getAttribute('aria-selected') === 'true').map((r) => r.dataset.id)).toEqual(['s8', 's7', 's6', 's5']);
   });
 
   it('mudar o filtro limpa a seleção', async () => {
@@ -378,6 +414,20 @@ describe('mover para outra sessão', () => {
     a.toast!.onAction!();
     await waitFor(() => expect(rows()).toHaveLength(3));
     for (const id of moved) expect(a.solves.find((s) => s.id === id)!.sessionId).toBe(main.id);
+  });
+
+  // Um solve do pedido que some com a folha aberta (outra aba o excluiu): o título e o texto contam os que ainda existem.
+  it('o título e o texto da folha contam os solves que ainda existem', async () => {
+    const a = await app();
+    for (let i = 0; i < 3; i++) await a.addSolve({ ms: 10_000 + i * 100, penalty: null, at: Date.now() - (5 - i) * MIN });
+    await a.createSession('333', 'Outra');
+    const ids = a.solves.map((s) => s.id);
+    render(MoveDialog, { app: a });
+    a.openMove(ids);
+    const sheet = await screen.findByRole('dialog', { name: T.historico.moveTitle(3) });
+    a.solves = a.solves.filter((s) => s.id !== ids[0]);
+    await waitFor(() => expect(sheet).toHaveAccessibleName(T.historico.moveTitle(2)));
+    expect(within(sheet).getByText(T.historico.moveIntro('3×3', 2))).toBeInTheDocument();
   });
 
   it('o título de um solve só leva o número dele', () => {

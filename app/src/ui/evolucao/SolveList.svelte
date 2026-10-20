@@ -214,7 +214,7 @@
   // --- A seleção ---
   let selecting = $state(false);
   const selected = new SvelteSet<string>();
-  let anchor: number | null = null; // a última linha tocada: Shift marca daqui até a próxima
+  let anchor: string | null = null; // o último solve tocado: Shift marca dele até o próximo (pelo id: um solve novo no topo muda as posições)
   let armed = $state(false); // "Excluir" espera o segundo toque
   let armedAt: number | null = null; // a hora do primeiro: o segundo antes de CONFIRM_DELAY_MS é o toque duplo e não vale
   let busy = $state(false);
@@ -245,9 +245,11 @@
     disarm();
     active = k;
     let ok = true;
-    if (extend && anchor !== null && anchor !== k && anchor < count) {
-      const step = k > anchor ? 1 : -1;
-      for (let j = anchor; ok; j += step) {
+    const at = anchor === null ? -1 : pool.findIndex((s) => s.id === anchor);
+    const from = at >= start ? pool.length - 1 - at : null; // a linha do último tocado, se ele ainda está na lista
+    if (extend && from !== null && from !== k) {
+      const step = k > from ? 1 : -1;
+      for (let j = from; ok; j += step) {
         ok = add(idAt(j));
         if (j === k) break;
       }
@@ -256,7 +258,7 @@
       if (selected.has(id)) selected.delete(id);
       else ok = add(id);
     }
-    anchor = k;
+    anchor = idAt(k);
     if (!ok) app.showToast(T.historico.selectionCap);
   }
 
@@ -311,7 +313,8 @@
     if (ok) finish();
   }
 
-  // Um solve que saiu da lista (o período andou, outra aba o excluiu ou o moveu) sai da seleção: o lote nunca age sobre o que não se vê.
+  // Um solve que saiu da lista (o período andou, outra aba o excluiu ou o moveu) sai da seleção: o lote nunca age sobre o que não se vê. O
+  // "Excluir" armado desarma: o segundo toque confirmaria um lote diferente do que estava marcado no primeiro.
   $effect(() => {
     const list = pool;
     const from = start;
@@ -319,7 +322,9 @@
       if (selected.size === 0) return;
       const live = new Set<string>();
       for (let i = from; i < list.length; i++) live.add(list[i]!.id);
-      for (const id of [...selected]) if (!live.has(id)) selected.delete(id);
+      const gone = [...selected].filter((id) => !live.has(id));
+      for (const id of gone) selected.delete(id);
+      if (gone.length > 0) disarm();
     });
   });
 
@@ -338,7 +343,6 @@
         bind:this={modeEl}
         type="button"
         class="btn"
-        aria-pressed={selecting ? 'true' : undefined}
         onclick={() => (selecting ? leave() : (selecting = true))}>{selecting ? T.historico.cancel : T.historico.select}</button
       >
     {/if}

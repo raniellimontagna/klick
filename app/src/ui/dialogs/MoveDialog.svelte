@@ -64,9 +64,10 @@
 
 <dialog bind:this={dialogEl} class="sheet hx-sheet" aria-labelledby="{uid}-t" use:modal={{ open, onclose }}>
   {#if open && request}
-    <h2 id="{uid}-t">{T.historico.moveTitle(request.ids.length, request.number)}</h2>
+    <!-- A contagem é a dos que ainda existem (um pode sumir com a folha aberta: excluído noutra aba). -->
+    <h2 id="{uid}-t">{T.historico.moveTitle(picked.length, request.number)}</h2>
     {#if event !== null}
-      <p class="muted">{T.historico.moveIntro(eventInfo(event).name, request.ids.length)}</p>
+      <p class="muted">{T.historico.moveIntro(eventInfo(event).name, picked.length)}</p>
     {/if}
     <ul class="sheet-list hx-move">
       {#each sessions as s (s.id)}
