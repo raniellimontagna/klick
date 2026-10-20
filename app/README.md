@@ -128,10 +128,16 @@ Antes da raiz:
 
 Antes de subir `SNAPSHOT_MAX_RECORDS` acima de `150000` (as cópias grandes, `docs/superpowers/specs/2026-10-20-klick-copias-grandes-design.md`):
 
-13. **O tempo de relógio de uma conta de 100 mil solves, no beta.** A cópia e a restauração no servidor rodam dentro de
-    `blockConcurrencyWhile`, que tem 30 s de relógio (a CPU mais cada ida ao R2 e ao D1), e a medição só mediu a CPU. Com uma conta de
-    teste de 100 mil solves no beta, cronometrar a cópia semanal dela e uma restauração no servidor com `npx wrangler tail` (o `ms` das
-    linhas `{evt:'copy'}` e `{evt:'restore'}`) e conferir que as duas ficam abaixo de 15 s. Só então subir a var, nos dois ambientes.
+13. **O tempo de relógio de uma conta de 100 mil solves.** A cópia e a restauração no servidor rodam dentro de `blockConcurrencyWhile`,
+    que tem 30 s de relógio (a CPU mais cada ida ao R2 e ao D1), e a medição só mediu a CPU. Uma conta de teste desse tamanho não se monta
+    no grátis: cada registro grava umas 4 linhas, e 100 mil registros passam das 100 mil linhas por dia da conta inteira da Cloudflare
+    (pelo sync do beta, com o teto de 10 mil, levariam uns 45 dias). A sonda espera uma conta de verdade com mais de 100 mil registros:
+    o `ms` das linhas `{evt:'copy', parts}` e `{evt:'restore'}` no `npx wrangler tail` (a cópia sai às 03:05 UTC, no dia da conta), ou o
+    `wallTime` (em µs) do alarme dela no GraphQL (`durableObjectsInvocationsAdaptiveGroups`, com o token OAuth do wrangler). As duas
+    abaixo de 15 s, e só então subir a var, nos dois ambientes. **Primeira amostra em 20/10:** o alarme do beta às 03:05 UTC (conta
+    pequena: compactação e cópia de um arquivo só, umas 5 idas ao D1 e um put no R2) levou 121 ms de relógio. Pela conta de idas, uma
+    parte custa uns 100 ms (uma reserva no D1 e um put de ~400 KB) mais ~27 ms de CPU: a cópia de 150 mil registros (30 partes) fica
+    perto de 4 s, e a restauração no servidor (as leituras das partes, a comparação e a cópia de antes) perto de 10 s.
 
 Voltar o Worker (rollback) depois das cópias em partes: um Worker de antes delas lista cada parte de uma cópia grande
 (`snap/<conta>/<nome>/001.json.gz`, ...) como uma cópia de "0 solves". Restaurar uma delas dá 400 `bad-name` (o nome com a barra não passa
