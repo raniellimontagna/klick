@@ -239,7 +239,8 @@
     await tick();
     const at = pool.findIndex((s) => s.id === jump.id);
     if (at < 0) return;
-    if (at < split.first) period = 'all';
+    // A janela inteira tem que estar na lista: o que decide é o primeiro solve dela (uma ao100 pode atravessar o corte do período).
+    if (Math.max(0, at - jump.span + 1) < split.first) period = 'all';
     await tick(); // a lista monta de novo com o filtro novo
     await tick();
     await list?.scrollToIndex(at, jump.span);

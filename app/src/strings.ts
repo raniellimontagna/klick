@@ -339,7 +339,7 @@ export const T = Object.freeze({
     recordRule: (n: number) =>
       n <= 12
         ? `O melhor e o pior ficam fora da conta, entre parênteses; a média é a dos ${n - 2} do meio.`
-        : `A média tira os ${trimCount(n).toLocaleString('pt-BR')} melhores e os ${trimCount(n).toLocaleString('pt-BR')} piores tempos (5% de cada lado).`,
+        : `A média tira os ${trimCount(n).toLocaleString('pt-BR')} melhores e os ${trimCount(n).toLocaleString('pt-BR')} piores tempos (cerca de 5% de cada lado).`,
     recordMark: 'recorde',
     viewInList: 'Ver na lista',
   },

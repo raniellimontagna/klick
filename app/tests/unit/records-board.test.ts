@@ -257,6 +257,26 @@ describe('Ver na lista', () => {
     await waitFor(() => expect(document.querySelector('.hx-row[data-id="s9"]')).toHaveFocus());
   });
 
+  it('uma janela que atravessa o corte do período abre a lista em "Tudo", com a janela inteira ao alcance', async () => {
+    const a = await app();
+    // 120 solves, um por dia, cada um mais rápido que o anterior: a melhor ao100 são os 100 últimos (s20 a s119). O período de 30 dias começa
+    // perto do s90: o último solve da janela está dentro dele, e o primeiro, bem antes.
+    const times = Array.from({ length: 120 }, (_, i) => 15_000 - i * 10);
+    a.solves = make(a.profile.currentSessionId!, times, DAY, Date.now() - 2 * 3600_000);
+    vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+    render(EvolucaoScreen, { app: a });
+    render(RecordDialog, { app: a });
+    const period = (p: '7' | '30' | 'all') => screen.getByText(T.evolucao.periods[p]).closest('button')!;
+    expect(period('30')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('heading', { name: T.historico.listTitle(30) })).toBeInTheDocument(); // só os 30 dias
+    await fireEvent.click(rowBtn(/^Média de 100:/));
+    await fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: T.historico.viewInList }));
+    await waitFor(() => expect(period('all')).toHaveAttribute('aria-pressed', 'true'));
+    // A lista agora tem os 120: o s20, o primeiro da janela, existe nela.
+    await waitFor(() => expect(screen.getByRole('heading', { name: T.historico.listTitle(120) })).toBeInTheDocument());
+    await waitFor(() => expect(document.querySelector('.hx-row[data-id="s119"]')).toHaveFocus());
+  });
+
   it('o recorde de outra sessão muda o filtro da Evolução para a dele', async () => {
     const a = await app();
     await a.createSession('333', 'Treino');
