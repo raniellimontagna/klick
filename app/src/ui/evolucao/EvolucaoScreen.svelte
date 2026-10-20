@@ -26,11 +26,12 @@
   import { type Bin, evolutionChart, histogramBins } from '../charts';
   import { duelsSummary, miniBoardOf } from '../duel/duel-view';
   import MiniPlacar from '../duel/MiniPlacar.svelte';
-  import type { AppState } from '../state/app.svelte';
+  import type { AppState, ListJump, RecordKind } from '../state/app.svelte';
   import { scoreOf } from '../state/duel.svelte';
   import DuelList from './DuelList.svelte';
   import DuelMatch from './DuelMatch.svelte';
   import type { Series } from './rows';
+  import RecordsBoard from './RecordsBoard.svelte';
   import SolveList from './SolveList.svelte';
 
   type Period = keyof typeof T.evolucao.periods;
@@ -221,6 +222,33 @@
   function openSolve(id: string): void {
     app.openSolve(id, sessionId);
   }
+
+  // O quadro de recordes: um recorde abre a folha dele, com o filtro de agora (evento e sessão).
+  function openRecord(kind: RecordKind): void {
+    app.openRecord(kind, sessionId, event);
+  }
+
+  // "Ver na lista" (a folha do recorde): ajusta o filtro ao do recorde, passa o período para "Tudo" se o solve está antes dele (a lista só tem
+  // do período para cá, e o recorde é do histórico inteiro) e rola a lista até ele. O pedido sai do AppState assim que é atendido.
+  let list = $state<{ scrollToIndex: (i: number, span?: number) => Promise<boolean> }>();
+
+  async function jumpTo(jump: ListJump): Promise<void> {
+    app.listJump = null;
+    if (event !== jump.event) eventPick = jump.event;
+    if (sessionId !== jump.sessionId) sessionPick = jump.sessionId;
+    await tick();
+    const at = pool.findIndex((s) => s.id === jump.id);
+    if (at < 0) return;
+    if (at < split.first) period = 'all';
+    await tick(); // a lista monta de novo com o filtro novo
+    await tick();
+    await list?.scrollToIndex(at, jump.span);
+  }
+
+  $effect(() => {
+    const jump = app.listJump;
+    if (jump && view.kind === 'stats') untrack(() => void jumpTo(jump));
+  });
 </script>
 
 <section class="screen" data-screen="evolucao" aria-label={T.tabs.evolucao}>
@@ -277,6 +305,8 @@
       {/each}
     </div>
 
+    <RecordsBoard solves={pool} all={sessionId === 'all'} onOpen={openRecord} />
+
     <div class="evo-grid">
       <div class="card">
         <div class="label">{T.evolucao.chartLabel(official.n)}</div>
@@ -298,7 +328,7 @@
     </div>
 
     {#key listKey}
-      <SolveList {app} {pool} start={split.first} {series} {now} onOpen={openSolve} />
+      <SolveList bind:this={list} {app} {pool} start={split.first} {series} {now} onOpen={openSolve} />
     {/key}
   {/if}
 </section>

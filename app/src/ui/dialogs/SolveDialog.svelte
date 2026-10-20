@@ -1,7 +1,7 @@
 <script lang="ts">
   // O detalhe de um solve (a maquete aprovada, estados 3 e 8b–8c): uma folha como as outras (.sheet). Mostra o tempo grande, a penalidade
   // (OK / +2 / DNF: um seletor de três valores, que já refaz médias e recordes), a data, o evento e a sessão, as médias de 5 e de 12 que
-  // terminam nele, o selo de recorde, o embaralhamento (com a imagem, se o ajuste deixa) e a nota. Muda só a penalidade, a nota, a sessão
+  // terminam nele, o selo de recorde (um botão: abre a folha do recorde), o embaralhamento (com a imagem, se o ajuste deixa) e a nota. Muda só a penalidade, a nota, a sessão
   // (Mover, pela folha de mover) e a lixeira; o tempo e o embaralhamento não.
   //
   // Abre por app.openSolve(id, sessionId): o solve é lido ao vivo de app.solves (uma penalidade nova aparece na hora), e as médias, o número
@@ -16,7 +16,7 @@
   import { confirmReady } from '../confirm';
   import { copyTextOf } from '../evolucao/rows';
   import { dateLabel, timeOfDay } from '../format';
-  import type { AppState } from '../state/app.svelte';
+  import type { AppState, RecordKind } from '../state/app.svelte';
   import ScrambleImage from '../timer/ScrambleImage.svelte';
   import { modal } from './modal';
 
@@ -58,7 +58,9 @@
       s.event === solve.event && (request.sessionId === 'all' || s.sessionId === request.sessionId);
     let pool = app.solves.filter(inFilter);
     let at = pool.findIndex((s) => s.id === solve.id);
+    let sessionId = request.sessionId; // o filtro da conta (o do selo, também)
     if (at < 0) {
+      sessionId = solve.sessionId;
       pool = app.solves.filter((s) => s.sessionId === solve.sessionId);
       at = pool.findIndex((s) => s.id === solve.id);
     }
@@ -67,12 +69,12 @@
     const best = records(pool);
     // O selo é um só, como na maquete: o maior recorde em que ele está (a janela de uma média de n termina em bestEnd e tem n solves); sem
     // nenhuma média, o recorde de single, se for o caso.
-    let record: 'single' | number | null = best.single.bestEnd === at ? 'single' : null;
+    let record: RecordKind | null = best.single.bestEnd === at ? 'single' : null;
     for (const n of RECORD_SIZES) {
       const end = best.averages[n].bestEnd;
       if (end !== null && end - n + 1 <= at && at <= end) record = n;
     }
-    return { number: at + 1, ao5: formatMs(ao5), ao12: formatMs(ao12), record };
+    return { number: at + 1, ao5: formatMs(ao5), ao12: formatMs(ao12), record, sessionId };
   });
 
   // O tempo grande: "0:15" e ".24+" (o decimal menor, como no Timer); o DNF não tem ponto e vai inteiro.
@@ -148,6 +150,12 @@
     void saveNote();
   }
 
+  // O selo abre a folha do recorde, com o mesmo filtro da conta (o detalhe fecha: a folha é uma só por vez).
+  function openRecord(): void {
+    if (!solve || !view || view.record === null) return;
+    app.openRecord(view.record, view.sessionId, solve.event);
+  }
+
   function move(): void {
     if (!solve || !view) return;
     app.openMove([solve.id], { number: view.number });
@@ -199,7 +207,7 @@
       <span class="chip">{T.historico.avgChip(5, view.ao5)}</span>
       <span class="chip">{T.historico.avgChip(12, view.ao12)}</span>
       {#if view.record !== null}
-        <span class="chip pb">{T.historico.inRecord(view.record)}</span>
+        <button type="button" class="chip pb hx-chip" onclick={openRecord}>{T.historico.inRecord(view.record)} <span aria-hidden="true">›</span></button>
       {/if}
     </div>
 

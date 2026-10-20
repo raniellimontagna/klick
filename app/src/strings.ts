@@ -1,4 +1,5 @@
 // Todo texto que a pessoa lê passa por aqui (pt-BR). Facilita traduzir depois.
+import { trimCount } from './core/stats';
 import type { CopiesPaused } from './core/sync/types';
 
 // Diferenças em segundos, truncadas no centésimo como os tempos.
@@ -319,6 +320,28 @@ export const T = Object.freeze({
     copyText: (time: string, scramble: string, when: string) => `${time} · ${scramble} · ${when}`,
     copied: 'Copiado',
     copyFailed: 'Não consegui copiar. Tente de novo.',
+    // O quadro de recordes (ui/evolucao/RecordsBoard.svelte): segue o evento e a sessão do filtro, não o período. Uma linha por recorde, com o
+    // melhor e o atual ao lado (no single, "último": o último tempo).
+    recordsTitle: 'Recordes da sessão',
+    recordsScope: 'a sessão inteira',
+    recordsTitleAll: 'Recordes do evento',
+    recordsScopeAll: 'todas as sessões',
+    recordSingle: 'Single',
+    recordLast: (time: string) => `último ${time}`,
+    recordNow: (time: string) => `atual ${time}`,
+    // O nome lido de cada linha: "Média de 12: melhor 0:13.48, atual 0:14.09. Ver os solves do recorde".
+    recordRow: (label: string, best: string, now: string) => `${label}: melhor ${best}, ${now}. Ver os solves do recorde`,
+    // A folha do recorde (ui/dialogs/RecordDialog.svelte): o título com o valor, os solves (ou o intervalo) e a regra da média.
+    recordTitle: (kind: 'single' | number, time: string) => (kind === 'single' ? `Recorde de single · ${time}` : `Melhor média de ${kind} · ${time}`),
+    recordSolve: (number: number) => `Solve #${number.toLocaleString('pt-BR')}`,
+    recordSolves: (from: number, to: number) => `Solves #${from.toLocaleString('pt-BR')} a #${to.toLocaleString('pt-BR')}`,
+    recordRange: (from: string, to: string) => `${from} a ${to}`,
+    recordRule: (n: number) =>
+      n <= 12
+        ? `O melhor e o pior ficam fora da conta, entre parênteses; a média é a dos ${n - 2} do meio.`
+        : `A média tira os ${trimCount(n).toLocaleString('pt-BR')} melhores e os ${trimCount(n).toLocaleString('pt-BR')} piores tempos (5% de cada lado).`,
+    recordMark: 'recorde',
+    viewInList: 'Ver na lista',
   },
   // Mensagens de um arquivo que não pode ser lido (data/transfer.ts).
   transfer: {

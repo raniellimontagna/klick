@@ -85,3 +85,44 @@ for (const scheme of ['light', 'dark'] as const) {
     expect(await serious('mover')).toEqual([]);
   });
 }
+
+// O quadro de recordes e a folha do recorde (a maquete aprovada do histórico, 1a e 5), nos dois temas: o quadro com as linhas-botão, a folha
+// aberta pelo quadro (ao12: os tempos com o melhor e o pior entre parênteses) e pelo selo do detalhe, e o "Ver na lista".
+for (const scheme of ['light', 'dark'] as const) {
+  test(`o quadro de recordes e a folha do recorde, sem violações sérias no tema ${scheme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await fresh(page);
+    await importHistory(page);
+    await page.getByRole('button', { name: 'Evolução', exact: true }).first().click();
+    const screen = page.locator('[data-screen="evolucao"]');
+    const board = screen.getByRole('region', { name: 'Recordes do evento' });
+    await expect(board).toBeVisible();
+    const serious = async (where: string) => {
+      const r = await new AxeBuilder({ page }).analyze();
+      return r.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${where}: ${v.id}`);
+    };
+    // Single, ao5 e ao12 têm solves nos 40 do arquivo; ao50 em diante, não.
+    await expect(board.getByRole('button')).toHaveCount(3);
+    await expect(board.getByRole('button', { name: /^Média de 12: melhor \d:\d\d\.\d\d, atual .*\. Ver os solves do recorde$/ })).toBeVisible();
+    expect(await serious('quadro')).toEqual([]);
+    // A folha do recorde de ao12: o título com o valor, os 12 tempos com dois entre parênteses e a regra.
+    await board.getByRole('button', { name: /^Média de 12:/ }).click();
+    const sheet = page.getByRole('dialog', { name: /^Melhor média de 12 · / });
+    await expect(sheet).toBeVisible();
+    await expect(sheet.getByRole('heading')).toContainText('Melhor média de 12');
+    await expect(sheet.locator('ol.dz-times li')).toHaveCount(12);
+    await expect(sheet.locator('li.hx-out')).toHaveCount(2);
+    expect(await serious('folha do recorde')).toEqual([]);
+    // "Ver na lista" fecha a folha e leva o foco a uma linha da lista, com as 12 da janela marcadas.
+    await sheet.getByRole('button', { name: 'Ver na lista' }).click();
+    await expect(sheet).toBeHidden();
+    await expect(screen.locator('.hx-row[data-flash]')).toHaveCount(12);
+    await expect(screen.locator('.hx-row:focus')).toHaveCount(1);
+    expect(await serious('lista marcada')).toEqual([]);
+    // O single: a folha do melhor tempo, aberta pelo quadro.
+    await board.getByRole('button', { name: /^Single:/ }).click();
+    await expect(page.getByRole('dialog', { name: /^Recorde de single · / })).toBeVisible();
+    expect(await serious('folha do single')).toEqual([]);
+    await page.getByRole('dialog').getByRole('button', { name: 'Fechar' }).click();
+  });
+}

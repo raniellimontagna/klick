@@ -538,7 +538,9 @@
   .tab,
   .toast button,
   .sheet input[type='text'],
-  .sheet .row select {
+  .sheet .row select,
+  .hx-rec,
+  .hx-chip {
     min-height: 44px;
   }
 }

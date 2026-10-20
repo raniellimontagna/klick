@@ -16,6 +16,7 @@
   import EvolucaoScreen from './evolucao/EvolucaoScreen.svelte';
   import InstallGuide from './dialogs/InstallGuide.svelte';
   import MoveDialog from './dialogs/MoveDialog.svelte';
+  import RecordDialog from './dialogs/RecordDialog.svelte';
   import SolveDialog from './dialogs/SolveDialog.svelte';
   import OnboardingDialog from './dialogs/OnboardingDialog.svelte';
   import SessionsDialog from './dialogs/SessionsDialog.svelte';
@@ -417,6 +418,8 @@ import SyncIndicator from './SyncIndicator.svelte';
       <MoveDialog {app} />
       <!-- O detalhe de um solve: abre por app.openSolve (uma linha da lista da Evolução). -->
       <SolveDialog {app} />
+      <!-- A folha de um recorde: abre por app.openRecord (uma linha do quadro de recordes; o selo do detalhe). -->
+      <RecordDialog {app} />
       {#if app.account}
         <SignInDialog {app} open={app.dialog === 'signin'} />
       {/if}

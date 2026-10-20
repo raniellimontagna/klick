@@ -337,6 +337,67 @@ body.solving .t-coach {
   color: var(--pb-ink);
 }
 
+/* O quadro de recordes da sessão (ui/evolucao/RecordsBoard.svelte; a maquete aprovada do histórico, 1a e 1c). No desktop, seis colunas num
+   cartão só; no celular (mais abaixo), uma linha por recorde. Cada recorde é um botão que abre os solves dele. "Melhor" na tinta, "atual" em
+   cinza; o dourado fica para o losango e para o indicador Recorde. */
+.hx-recs {
+  margin-top: 12px;
+  padding-bottom: 12px;
+}
+
+.hx-rec-list {
+  list-style: none;
+  padding: 0;
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.hx-rec {
+  display: grid;
+  gap: 1px;
+  width: 100%;
+  padding: 6px 14px;
+  border: 0;
+  border-left: 1px solid var(--line);
+  background: none;
+  text-align: left;
+  color: var(--ink-2);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.hx-rec-list li:first-child .hx-rec {
+  border-left: 0;
+  padding-left: 0;
+}
+
+.hx-rec:focus-visible {
+  outline-offset: -2px;
+}
+
+.hx-rec-k {
+  color: var(--muted);
+}
+
+.hx-rec b {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.hx-rec em {
+  font-style: normal;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.hx-rec .dz-chev {
+  display: none;
+}
+
 /* A lista inteira do filtro (ui/evolucao/SolveList.svelte; a maquete aprovada do histórico, 1a a 2b), no lugar da tabela dos 30. As linhas
    têm altura fixa: a lista reserva a altura inteira (--n linhas) e desenha só as da tela, cada uma na posição dela (--k). Colunas em px,
    para o cabeçalho (11 px) e as linhas (14 px) baterem. O cabeçalho das colunas gruda no topo ao rolar. */
@@ -433,8 +494,22 @@ body.solving .t-coach {
   background: var(--surface-2);
 }
 
-/* Na linha marcada, o cinza vira a tinta 2: sobre o fundo dela, o cinza não chega ao contraste AA no tema claro. */
-.hx-row[aria-selected='true'] :is(.hx-n, .hx-scr, .hx-note, .hx-when) {
+/* "Ver na lista": as linhas da janela do recorde ficam marcadas por um instante (ui/evolucao/SolveList.svelte, FLASH_MS) e vão
+   voltando ao normal. Com "reduzir movimento" (base.css tira a animação), ficam marcadas e saem juntas. */
+.hx-row[data-flash] {
+  background: var(--pb-bg);
+  animation: hx-flash 1.8s ease-out forwards;
+}
+
+@keyframes hx-flash {
+  60% { background: var(--pb-bg); }
+  to { background: transparent; }
+}
+
+/* Na linha marcada (e na da janela do recorde, que o "Ver na lista" marca), o cinza vira a tinta 2: sobre o fundo dela, o cinza não chega
+   ao contraste AA. */
+.hx-row[aria-selected='true'] :is(.hx-n, .hx-scr, .hx-note, .hx-when),
+.hx-row[data-flash] :is(.hx-n, .hx-scr, .hx-note, .hx-when) {
   color: var(--ink-2);
 }
 
@@ -592,6 +667,26 @@ body:has(.hx-bulk) .toast {
 .hx-sec .scramble { margin-top: 0; }
 .hx-sec .t-note { margin-top: 0; }
 .hx-sheet .t-note input { background: var(--bg); }
+
+/* O selo de recorde do detalhe é um botão (abre a folha do recorde): o mesmo chip dourado, sem a borda do botão. */
+.hx-chip {
+  border: 0;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+/* A folha do recorde: os 12 tempos em duas colunas de 6, na ordem em que foram feitos; o melhor e o pior (fora da conta) em cinza. */
+.hx-twelve {
+  grid-auto-flow: column;
+  grid-template-rows: repeat(6, auto);
+  margin-top: 10px;
+}
+
+.hx-twelve li { align-items: center; }
+.hx-twelve li.hx-out { color: var(--muted); }
+.hx-rule { margin-top: 10px; }
 
 .hx-move .list-btn {
   width: 100%;
@@ -853,6 +948,10 @@ body:has(.hx-bulk) .toast {
 
 /* ---------- Responsivo ---------- */
 @media (max-width: 1023px) {
+  /* O quadro de recordes, como os indicadores: três colunas e duas linhas (a primeira de cada linha sem a divisória). */
+  .hx-rec-list { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 8px; }
+  .hx-rec-list li:nth-child(3n + 1) .hx-rec { border-left: 0; padding-left: 0; }
+
   .timer {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas: 'main' 'side' 'tiles' 'zones' 'hints';
@@ -916,6 +1015,25 @@ body:has(.hx-bulk) .toast {
 
   /* A lista no celular: sem o embaralhamento e a nota por extenso (fica o ponto) e sem a etiqueta +2 (fica o "+"). Na seleção, a caixa toma o
      lugar do número, que continua no nome lido pelo leitor de tela. */
+  /* O quadro no celular: uma linha por recorde (nome, melhor, atual, seta). */
+  .hx-rec-list { display: block; margin-top: 4px; }
+  .hx-rec {
+    grid-template-columns: minmax(0, 1fr) auto 7.4em 10px;
+    align-items: baseline;
+    column-gap: 12px;
+    min-height: 44px;
+    padding: 9px 0;
+    border-left: 0;
+    border-bottom: 1px solid var(--line);
+    font-size: 14px;
+  }
+  .hx-rec-list li:last-child .hx-rec { border-bottom: 0; }
+  .hx-rec-k { color: var(--ink-2); }
+  .hx-rec b { font-size: 15px; letter-spacing: 0; }
+  .hx-rec em { font-size: 12px; text-align: right; }
+  .hx-rec .dz-chev { display: block; font-size: 18px; }
+  .hx-recs { padding-bottom: 4px; }
+
   .hx-list { --hx-cols: 40px minmax(0, 1fr) 51px 51px 78px; }
   .hx-list[data-select] { --hx-cols: 20px minmax(0, 1fr) 51px 51px 78px; }
   .hx-list[data-select] .hx-n { display: none; }

@@ -8,6 +8,9 @@
   // abre o solve. Selecionar (2a, 2b): o botão do topo ou o toque longo numa linha; a linha inteira marca (Espaço, no teclado), Shift
   // marca o intervalo desde a última, e Esc sai. A barra do lote leva "Mover para…" (a folha de mover) e "Excluir" (segundo toque). Até
   // MAX_SELECTION de uma vez. Depois de um lote, a seleção some e o modo sai; um solve que sai da lista sai da seleção.
+  //
+  // "Ver na lista" (a folha do recorde): scrollToIndex(i, span) leva a página até o solve i do pool, põe o foco na linha dele e marca por um
+  // instante as `span` linhas que terminam nele (a janela do recorde).
   import { tick, untrack } from 'svelte';
   import { SvelteSet } from 'svelte/reactivity';
   import type { Solve } from '../../core/types';
@@ -156,6 +159,35 @@
   function onFocusIn(e: FocusEvent): void {
     const el = (e.target as HTMLElement).closest<HTMLElement>('.hx-row');
     if (el) active = Number(el.dataset.k);
+  }
+
+  // --- Rolar até um solve ---
+  const FLASH_MS = 1800; // quanto tempo as linhas da janela ficam marcadas
+  let flash = $state<{ from: number; to: number } | null>(null); // as linhas (k) marcadas
+  let flashTimer: ReturnType<typeof setTimeout> | undefined;
+
+  $effect(() => () => clearTimeout(flashTimer));
+
+  // Leva a página até o solve `i` (a posição dele no pool; o mais novo da janela fica logo abaixo do cabeçalho das colunas), com o foco na
+  // linha e as `span` linhas que terminam nele marcadas. Sem rolagem animada: "reduzir movimento" não tem o que tirar. Um solve antes do
+  // começo do período não está na lista: devolve false, e quem chama escolhe o que fazer (a Evolução passa o período para "Tudo").
+  export async function scrollToIndex(i: number, span = 1): Promise<boolean> {
+    if (!Number.isInteger(i) || i < start || i >= pool.length) return false;
+    const k = pool.length - 1 - i;
+    const el = rowsEl;
+    if (!el) return false;
+    const css = Number.parseFloat(getComputedStyle(el).getPropertyValue('--hx-h'));
+    const h = css > 0 ? css : ROW_H;
+    const header = el.parentElement?.querySelector<HTMLElement>('.hx-cols')?.offsetHeight ?? 0;
+    // O topo da lista na página, de onde a linha k fica a k × h; uma linha de contexto acima da janela, abaixo do cabeçalho que gruda.
+    const top = el.getBoundingClientRect().top + (window.scrollY || 0) + k * h - header - h;
+    window.scrollTo({ top: Math.max(0, top), behavior: 'auto' });
+    viewTop = Math.max(0, k - 1); // a linha já está desenhada quando a página chega; o evento de rolagem mede de novo logo depois
+    flash = { from: k, to: Math.min(count - 1, k + Math.max(1, span) - 1) };
+    clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => (flash = null), FLASH_MS);
+    await focusRow(k);
+    return true;
   }
 
   // --- A seleção ---
@@ -313,6 +345,7 @@
             style="--k: {k}"
             data-k={k}
             data-id={row.id}
+            data-flash={flash !== null && k >= flash.from && k <= flash.to ? '' : undefined}
             aria-rowindex={k + 2}
             aria-label={row.label}
             aria-selected={selecting ? (sel ? 'true' : 'false') : undefined}

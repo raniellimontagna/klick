@@ -7,7 +7,7 @@ import { untrack } from 'svelte';
 import { cleanDuelName } from '../../core/duel/link';
 import { eventInfo } from '../../core/events';
 import { createSeasonTracker, defaultSeason, type MarkStatus, planAdvance, seasonKey } from '../../core/season';
-import { dayKey } from '../../core/stats';
+import { dayKey, type RECORD_SIZES } from '../../core/stats';
 import type { CaseSet, TrailStep } from '../../core/trail/types';
 import { defaultSettings } from '../../core/types';
 import type { Duel, EventId, Meta, Penalty, Practice, Profile, SeasonState, Session, Solve } from '../../core/types';
@@ -56,8 +56,8 @@ export type TrailView = { kind: 'home' } | { kind: 'lesson'; step: TrailStep } |
 // da Trilha, fica no AppState: "Ver em Desafios", no fim de uma partida, abre a lista de outra aba.
 export type EvolucaoView = { kind: 'stats' } | { kind: 'duels' } | { kind: 'duel'; id: string };
 // 'duel': a folha da pílula do modo desafio (continuar, sair ou descartar). 'move': a folha de mover solves para outra sessão (app.moveRequest).
-// 'solve': o detalhe de um solve (app.solveRequest).
-export type DialogId = 'sessions' | 'shortcuts' | 'onboarding' | 'export' | 'import' | 'backups' | 'trash' | 'install' | 'signin' | 'signout' | 'cloud' | 'deleteAccount' | 'duel' | 'move' | 'solve';
+// 'solve': o detalhe de um solve (app.solveRequest). 'record': a folha de um recorde da sessão (app.recordRequest).
+export type DialogId = 'sessions' | 'shortcuts' | 'onboarding' | 'export' | 'import' | 'backups' | 'trash' | 'install' | 'signin' | 'signout' | 'cloud' | 'deleteAccount' | 'duel' | 'move' | 'solve' | 'record';
 // O que a folha de mover move: os ids (a seleção da lista, ou o solve do detalhe), o número do solve no filtro quando é um só (o título
 // "Mover o solve #10.471") e quem pediu, avisado quando o lote passou para a outra sessão (a lista sai da seleção).
 export interface MoveRequest {
@@ -69,6 +69,23 @@ export interface MoveRequest {
 // do solve e as médias que terminam nele. O solve em si é lido ao vivo de app.solves.
 export interface SolveRequest {
   id: string;
+  sessionId: string;
+}
+// Um recorde do quadro: o melhor single ou a melhor média de 5, 12, 50, 100 ou 1000.
+export type RecordKind = 'single' | (typeof RECORD_SIZES)[number];
+// O recorde que a folha mostra e de onde ele vem: o evento e a sessão do filtro da lista ('all': todas as do evento). Os solves que o
+// formam são lidos ao vivo de app.solves.
+export interface RecordRequest {
+  kind: RecordKind;
+  event: EventId;
+  sessionId: string;
+}
+// "Ver na lista": o último solve da janela do recorde, quantos solves ela tem (as linhas que a lista marca) e o filtro onde ele está. A
+// Evolução atende o pedido (ajusta o filtro e o período, e rola a lista) e o apaga.
+export interface ListJump {
+  id: string;
+  span: number;
+  event: EventId;
   sessionId: string;
 }
 export interface Toast {
@@ -278,6 +295,8 @@ export class AppState {
   dialog = $state<DialogId | null>(null);
   moveRequest = $state.raw<MoveRequest | null>(null); // o que a folha de mover leva (dialog 'move')
   solveRequest = $state.raw<SolveRequest | null>(null); // o solve do detalhe (dialog 'solve')
+  recordRequest = $state.raw<RecordRequest | null>(null); // o recorde da folha (dialog 'record')
+  listJump = $state.raw<ListJump | null>(null); // o pedido de rolar a lista da Evolução até um solve ("Ver na lista")
   v1Available = $state(false); // há dados da v1 ainda não oferecidos
   exportReminder = $state(false); // mostrar o lembrete de exportar
   pendingExport = $state<PendingExport | null>(null); // texto de uma exportação que o navegador não baixou (ExportDialog)
@@ -773,6 +792,23 @@ export class AppState {
     if (!solve) return;
     this.solveRequest = { id, sessionId: sessionId ?? solve.sessionId };
     this.dialog = 'solve';
+  }
+
+  // Abre a folha de um recorde (uma linha do quadro; o selo do detalhe). `sessionId` é o filtro da lista ('all' para todas as sessões do
+  // evento); sem ele, vale a sessão atual. O evento é o da sessão, quando há uma, ou o dado; sem nenhum dos dois, o de agora.
+  openRecord(kind: RecordKind, sessionId?: string, event?: EventId): void {
+    const id = sessionId ?? this.profile.currentSessionId ?? 'all';
+    const session = id === 'all' ? undefined : this.sessions.find((s) => s.id === id);
+    this.recordRequest = { kind, event: event ?? session?.event ?? this.event, sessionId: id };
+    this.dialog = 'record';
+  }
+
+  // "Ver na lista": a Evolução abre (a aba e a vista dos números) e a lista rola até o solve. Se a tela já está montada, atende na hora;
+  // se não, atende ao montar.
+  showInList(jump: ListJump): void {
+    this.tab = 'evolucao';
+    this.evolucaoView = { kind: 'stats' };
+    this.listJump = jump;
   }
 
   // Junta duas sessões do mesmo evento (o diálogo das Sessões): os solves de `fromId` passam para `toId`, e ela vai para a lixeira. Se ela
