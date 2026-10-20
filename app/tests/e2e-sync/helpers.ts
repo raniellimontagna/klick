@@ -70,8 +70,11 @@ export async function syncNow(page: Page): Promise<void> {
   await expect(page.locator('[data-sync-line]')).toHaveText(/Sincronizado/, { timeout: 30_000 });
 }
 
-// As linhas de solve do histórico (a tabela vazia tem uma linha só com o aviso, sem a coluna do número).
+// Os solves do histórico do período: a lista da Evolução só desenha as linhas da tela, então o total vem do aria-rowcount da grade (a
+// linha do cabeçalho conta uma). Sem solves, a grade nem aparece.
 export async function historyCount(page: Page): Promise<number> {
   await page.getByRole('button', { name: 'Evolução' }).click();
-  return page.locator('.hist tbody tr:has(td.num)').count();
+  const grid = page.locator('[role="grid"][aria-rowcount]');
+  if ((await grid.count()) === 0) return 0;
+  return Number(await grid.first().getAttribute('aria-rowcount')) - 1;
 }
