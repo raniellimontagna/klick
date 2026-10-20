@@ -484,6 +484,37 @@
   margin-left: auto;
 }
 
+/* Juntar sessões: a linha da sessão vira o passo de juntar, como o Renomear (a sessão de destino, o que vai acontecer e "Juntar") */
+.hx-merge {
+  flex: 1 1 100%;
+  display: grid;
+  gap: 8px;
+  justify-content: stretch;
+  font-size: 14px;
+}
+
+.hx-merge label {
+  font-weight: 600;
+}
+
+.hx-merge p {
+  margin: 0;
+}
+
+.hx-merge select {
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-btn);
+  background: var(--bg);
+}
+
+.sheet-list .hx-merge .data-actions {
+  justify-content: flex-start;
+  margin-left: 0;
+  margin-top: 2px;
+}
+
 /* Aviso com desfazer */
 .toast {
   position: fixed;
@@ -539,6 +570,7 @@
   .toast button,
   .sheet input[type='text'],
   .sheet .row select,
+  .hx-merge select,
   .hx-rec,
   .hx-chip {
     min-height: 44px;

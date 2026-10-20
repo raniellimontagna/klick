@@ -36,6 +36,9 @@ export const FINISH_INFO = Object.freeze({
   carbono: { label: 'Carbono', unlock: 'sai na T3' },
 });
 
+// "1 solve", "2.304 solves": a contagem com o ponto de milhar, no singular quando é um só.
+const solvesLabel = (n: number): string => `${n.toLocaleString('pt-BR')} ${n === 1 ? 'solve' : 'solves'}`;
+
 export const T = Object.freeze({
   coach: {
     idle: 'Quando quiser. Segure espaço para armar.',
@@ -270,6 +273,17 @@ export const T = Object.freeze({
       n === 0
         ? `Sessões juntadas em ${session}`
         : `Sessões juntadas: ${n === 1 ? '1 solve passou' : `${n.toLocaleString('pt-BR')} solves passaram`} para ${session}`,
+    // Juntar sessões (ui/dialogs/SessionsDialog.svelte): o passo abre na própria linha, como o Renomear. O que o botão "Juntar" diz a quem usa
+    // leitor de tela (mergeConfirm) repete o que a linha mostra: de onde, quantos, para onde e que a primeira vai para a lixeira.
+    mergeLabel: (from: string, n: number) => `Juntar “${from}” (${solvesLabel(n)}) com`,
+    mergeOption: (name: string, n: number) => `${name} · ${solvesLabel(n)}`,
+    mergeEffect: (from: string, n: number, to: string) =>
+      n === 0
+        ? `“${from}” não tem solves e vai para a lixeira.`
+        : `${n === 1 ? 'O solve passa' : `Os ${n.toLocaleString('pt-BR')} solves passam`} para “${to}”, e “${from}” vai para a lixeira.`,
+    mergeConfirm: (from: string, n: number, to: string) => `Juntar “${from}” (${solvesLabel(n)}) com “${to}” — a primeira vai para a lixeira`,
+    mergeSlow: 'São muitos: eles juntam agora neste aparelho, e o resto sobe pelo sync nos próximos dias.',
+    mergeGo: 'Juntar',
     // A lista (ui/evolucao/SolveList.svelte): o título com a contagem, as colunas que a tabela de antes não tinha e o nome de cada linha.
     listTitle: (n: number) => `Solves do período · ${n.toLocaleString('pt-BR')}`,
     columns: Object.freeze({ note: 'Nota', pick: 'Seleção' }),
@@ -625,7 +639,9 @@ export const T = Object.freeze({
     newName: 'Nome da nova sessão',
     newNamePlaceholder: 'Nome (opcional)',
     create: 'Criar',
-    count: (n: number): string => `${n} ${n === 1 ? 'solve' : 'solves'}`,
+    count: solvesLabel,
+    merge: 'Juntar com…',
+    mergeAria: (name: string): string => `Juntar ${name} com outra sessão`,
     rename: 'Renomear',
     renameAria: (name: string): string => `Renomear ${name}`,
     renameLabel: (name: string): string => `Novo nome para ${name}`,

@@ -1,5 +1,9 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { Solve } from '../../src/core/types';
+import { T } from '../../src/strings';
+import { appWithAccount, fakeApi } from './sync-account';
+import { FakeServer } from './sync-fakes';
 import { openKlickDb } from '../../src/data/db';
 import { createRepository } from '../../src/data/repository';
 import { createScrambleQueue } from '../../src/scramble/queue';
@@ -112,5 +116,106 @@ describe('diálogo de sessões', () => {
     await fireEvent.click(await screen.findByRole('button', { name: 'Fechar' }));
     await sleep(0);
     expect(document.activeElement).toBe(opener);
+  });
+  // Juntar com… (o histórico inteiro, maquete 6a/6b): abre na própria linha, escolhe a sessão do mesmo evento e confirma.
+  describe('Juntar com…', () => {
+    // Solves de mentira só na memória do AppState: o diálogo conta pelo app.solves, e criar milhares pelo repositório seria lento à toa.
+    const fake = (sessionId: string, n: number): Solve[] =>
+      Array.from({ length: n }, (_, i) => ({
+        id: `${sessionId}-${i}`, sessionId, event: '333', ms: 10_000 + i, penalty: null, at: 1_700_000_000_000 + i,
+        scramble: 'R U', note: '', createdAt: 1, updatedAt: 1, deletedAt: null,
+      }));
+
+    it('Juntar com… lista só as sessões do mesmo evento, nunca a própria; evento com uma sessão só não oferece', async () => {
+      const { a } = await app();
+      await a.createSession('333', 'Treino');
+      await a.createSession('333', 'Antiga');
+      await a.createSession('sq1', 'Sozinha');
+      render(SessionsDialog, { app: a, open: true });
+      await fireEvent.click(await screen.findByRole('button', { name: 'Juntar Antiga com outra sessão' }));
+      const escolha = (await screen.findByRole('combobox', { name: /^Juntar “Antiga”/ })) as HTMLSelectElement;
+      expect([...escolha.options].map((o) => o.textContent)).toEqual(['Sessão 1 · 0 solves', 'Treino · 0 solves']);
+      // O Sq-1 tem uma sessão só: sem destino, sem o botão. As do 3×3 seguem com ele.
+      expect(screen.queryByRole('button', { name: 'Juntar Sozinha com outra sessão' })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Juntar Treino com outra sessão' })).toBeInTheDocument();
+    });
+
+    it('confirmar junta, manda a de origem para a lixeira, mostra o toast e leva o foco ao botão da de destino', async () => {
+      const { a, repo } = await app();
+      const main = a.currentSession!;
+      await a.addSolve({ ms: 60_000, penalty: null, at: 1_700_000_000_000 });
+      await a.createSession('333', 'Antiga');
+      const old = a.currentSession!;
+      await a.addSolve({ ms: 61_000, penalty: null, at: 1_700_000_000_001 });
+      await a.addSolve({ ms: 62_000, penalty: null, at: 1_700_000_000_002 });
+      render(SessionsDialog, { app: a, open: true });
+      await fireEvent.click(await screen.findByRole('button', { name: 'Juntar Antiga com outra sessão' }));
+      expect(await screen.findByText('Os 2 solves passam para “Sessão 1”, e “Antiga” vai para a lixeira.')).toBeInTheDocument();
+      await fireEvent.click(screen.getByRole('button', { name: T.historico.mergeConfirm('Antiga', 2, 'Sessão 1') }));
+      await vi.waitFor(async () => expect((await repo.listTrash()).sessions.map((s) => s.id)).toContain(old.id), { timeout: 3000 });
+      await vi.waitFor(() => expect(a.toast?.text).toBe(T.historico.merged(2, 'Sessão 1')), { timeout: 3000 });
+      expect((await repo.listSolves({ sessionId: main.id })).length).toBe(3);
+      expect(a.currentSession?.id).toBe(main.id); // a de origem era a atual: a de destino passou a ser
+      await vi.waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: /^Sessão 1/ })));
+      expect(screen.queryByRole('button', { name: /^Antiga/ })).toBeNull();
+    });
+
+    it('Esc cancela a junção sem mexer em nada, e o foco volta ao botão Juntar com…; o diálogo segue aberto', async () => {
+      const { a, repo } = await app();
+      await a.createSession('333', 'Antiga');
+      render(SessionsDialog, { app: a, open: true });
+      const abrir = await screen.findByRole('button', { name: 'Juntar Antiga com outra sessão' });
+      await fireEvent.click(abrir);
+      const escolha = await screen.findByRole('combobox', { name: /^Juntar “Antiga”/ });
+      await fireEvent.keyDown(escolha, { key: 'Escape' });
+      await vi.waitFor(() => expect(screen.queryByRole('combobox', { name: /^Juntar “Antiga”/ })).toBeNull());
+      expect(document.querySelector('dialog')).toHaveAttribute('open');
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Juntar Antiga com outra sessão' }));
+      expect((await repo.listSessions()).map((s) => s.name)).toEqual(['Sessão 1', 'Antiga']);
+      expect((await repo.listTrash()).sessions).toEqual([]);
+      // O Cancelar faz o mesmo.
+      await fireEvent.click(screen.getByRole('button', { name: 'Juntar Antiga com outra sessão' }));
+      await fireEvent.click(await screen.findByRole('button', { name: 'Cancelar' }));
+      await vi.waitFor(() => expect(screen.queryByRole('combobox', { name: /^Juntar “Antiga”/ })).toBeNull());
+      expect((await repo.listTrash()).sessions).toEqual([]);
+    });
+
+    it('com conta e mais de 4.000 solves, avisa que o resto sobe pelo sync; sem conta, ou com 4.000, não', async () => {
+      const { app: a } = await appWithAccount(fakeApi(new FakeServer()).api, { signedIn: true, sessionFirst: true });
+      await vi.waitFor(() => expect(a.account!.signedIn).toBe(true));
+      const main = a.currentSession!;
+      await a.createSession('333', 'Treino OH antigo');
+      const old = a.currentSession!;
+      a.solves = [...fake(old.id, 4001)];
+      render(SessionsDialog, { app: a, open: true });
+      await fireEvent.click(await screen.findByRole('button', { name: 'Juntar Treino OH antigo com outra sessão' }));
+      expect(await screen.findByText(T.historico.mergeSlow)).toBeInTheDocument();
+      expect(screen.getByText('Os 4.001 solves passam para “Sessão 1”, e “Treino OH antigo” vai para a lixeira.')).toBeInTheDocument();
+      expect(main.name).toBe('Sessão 1');
+      // Com exatamente 4.000, sem o aviso.
+      await fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+      a.solves = [...fake(old.id, 4000)];
+      await fireEvent.click(await screen.findByRole('button', { name: 'Juntar Treino OH antigo com outra sessão' }));
+      await screen.findByText(/^Os 4\.000 solves passam/);
+      expect(screen.queryByText(T.historico.mergeSlow)).toBeNull();
+    });
+
+    it('sem conta, mesmo com mais de 4.000 solves, não avisa do sync', async () => {
+      const { a } = await app();
+      await a.createSession('333', 'Antiga');
+      a.solves = fake(a.currentSession!.id, 5000);
+      render(SessionsDialog, { app: a, open: true });
+      await fireEvent.click(await screen.findByRole('button', { name: 'Juntar Antiga com outra sessão' }));
+      await screen.findByText(/^Os 5\.000 solves passam/);
+      expect(screen.queryByText(T.historico.mergeSlow)).toBeNull();
+    });
+
+    it('a contagem usa o ponto de milhar', async () => {
+      const { a } = await app();
+      const main = a.currentSession!;
+      a.solves = fake(main.id, 10_482);
+      render(SessionsDialog, { app: a, open: true });
+      expect(await screen.findByText('10.482 solves')).toBeInTheDocument();
+    });
   });
 });

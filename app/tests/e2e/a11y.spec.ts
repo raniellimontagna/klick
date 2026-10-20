@@ -126,3 +126,33 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.getByRole('dialog').getByRole('button', { name: 'Fechar' }).click();
   });
 }
+
+// Juntar sessões (a maquete aprovada do histórico, 6a e 6b), nos dois temas: o passo na própria linha da sessão, sem violações sérias, e
+// confirmar leva os solves para a sessão de destino, com o aviso.
+for (const scheme of ['light', 'dark'] as const) {
+  test(`juntar sessões no diálogo de Sessões, sem violações sérias no tema ${scheme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await fresh(page);
+    await importHistory(page);
+    await page.getByRole('button', { name: /Sessão 1/ }).click();
+    const dialog = page.getByRole('dialog', { name: 'Sessões' });
+    await expect(dialog).toBeVisible();
+    const serious = async (where: string) => {
+      const r = await new AxeBuilder({ page }).analyze();
+      return r.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${where}: ${v.id}`);
+    };
+    expect(await serious('sessões')).toEqual([]);
+    await dialog.getByRole('button', { name: 'Juntar Treino de cruz com outra sessão' }).click();
+    const choice = dialog.getByRole('combobox', { name: /^Juntar “Treino de cruz” \(10 solves\) com$/ });
+    await expect(choice).toBeFocused();
+    await expect(dialog.getByText('Os 10 solves passam para “Sessão 1”, e “Treino de cruz” vai para a lixeira.')).toBeVisible();
+    await choice.selectOption({ label: 'Principal · 30 solves' });
+    await expect(dialog.getByText('Os 10 solves passam para “Principal”, e “Treino de cruz” vai para a lixeira.')).toBeVisible();
+    expect(await serious('juntar')).toEqual([]);
+    await dialog.getByRole('button', { name: /^Juntar “Treino de cruz”/ }).click();
+    await expect(dialog.getByRole('button', { name: /^Treino de cruz/ })).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: /^Principal/ })).toContainText('40 solves');
+    await expect(dialog.getByRole('button', { name: /^Principal/ })).toBeFocused();
+    await expect(page.locator('.toast')).toContainText('Sessões juntadas: 10 solves passaram para Principal');
+  });
+}
