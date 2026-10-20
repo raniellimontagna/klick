@@ -730,6 +730,21 @@ describe('a cópia em partes e a cada 7 dias numa conta grande', () => {
     expect(rows.range).toEqual(['solves/a', 'solves/b']);
   });
 
+  // A revisão final (M7): apagar a conta lista o prefixo dela sem delimitador, e as pastas das partes (snap/<conta>/<nome>/) vão junto.
+  it('apagar a conta leva também as pastas das partes', async () => {
+    const user = 'partes-apagar-conta';
+    await accountWith(user, COPY_PART_RECORDS + 1);
+    expect(await stubOf(user).snapshot(T0)).toBe(true);
+    expect(await objectsOf(user)).toEqual([snapshotKey(user, dayOf(T0)), partKey(user, dayOf(T0), 1), partKey(user, dayOf(T0), 2)]);
+    const res = await call('/api/account', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', [ACCOUNT_HEADER]: user },
+      body: JSON.stringify({ email: `${user}@exemplo.com` }),
+    }, { deps: testDeps({ user }) });
+    expect(res.status).toBe(204);
+    expect(await objectsOf(user)).toEqual([]);
+  });
+
   it('a cópia em partes lê só páginas de COPY_PART_RECORDS, nunca a conta inteira de uma vez', async () => {
     const user = 'partes-memoria';
     await accountWith(user, 2 * COPY_PART_RECORDS + 1);

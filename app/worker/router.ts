@@ -252,6 +252,7 @@ export async function handle(request: Request, env: Env, ctx: ExecutionContext, 
   // A cópia do dia tirada na hora, só para o ponta a ponta local (a de verdade sai no alarme do dia), para a conta da sessão: `ok` diz se
   // uma cópia nova foi gravada.
   if (path === '/api/__e2e/snapshot' && request.method === 'POST') {
+    if (!e2eOn(url, env)) return fail(404, 'not-found'); // a conferência de cima já barra; esta não depende dela
     const guard = writeGuard(request, env);
     if (guard) return guard;
     return json({ ok: await account.snapshot(deps.now()) });

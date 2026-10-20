@@ -433,15 +433,17 @@ export class AccountStore extends DurableObject<Env> {
     return rows;
   }
 
-  // A conta inteira (a cópia do dia, a restauração), contada no orçamento de leituras.
+  // A conta inteira, de uma vez (a cópia de arquivo só, até COPY_PART_RECORDS registros: writeCopyIn), contada no orçamento de leituras. A
+  // restauração não a lê assim: compara faixa a faixa (currentOf).
   private all(now: number): Change[] {
     const rows = this.sql.exec<Row>('SELECT * FROM records').toArray();
     this.countReads(rows.length, now);
     return rows.map(rowToChange);
   }
 
-  // O tamanho da conta em registros (COUNT_RECORDS), o que a cópia do dia e a restauração conferem antes de ler tudo, até `limit` + 1: acima
-  // de `limit`, quem chama recusa, e o COUNT não percorre o resto de uma conta enorme. Conta no orçamento de leituras as linhas que contou.
+  // O tamanho da conta em registros (COUNT_RECORDS), até `limit` + 1: a cópia do dia o confere antes de ler (o teto, o dia útil e o arquivo
+  // só ou as partes), e o COUNT não percorre o resto de uma conta enorme. A restauração não conta a conta: compara (restoreSnapshot). Conta
+  // no orçamento de leituras as linhas que contou.
   private recordCount(limit: number, now: number): number {
     const n = this.sql.exec<{ n: number }>(COUNT_RECORDS, limit + 1).one().n;
     this.countReads(n, now);
