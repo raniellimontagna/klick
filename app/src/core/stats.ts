@@ -64,9 +64,81 @@ export function averageOf(solves: Solve[], n: number): number | null {
   return trimmedMean(solves.slice(-n).map(effectiveMs));
 }
 
+// A média de cada janela de n tempos seguidos (null até haver n), igual a trimmedMean janela a janela, mas com a janela deslizando:
+// uma árvore de Fenwick sobre os postos dos tempos guarda quantos há e quanto somam, então cada passo custa O(log N) em vez de
+// copiar e ordenar n valores (com 100 mil solves, a diferença entre meio segundo e minutos). DNF (Infinity) não entra na árvore:
+// é só uma contagem, e na ordenação ele sempre fica no topo. Os tempos são inteiros em ms, então as somas são exatas e o resultado
+// bate com o ingênuo até no arredondamento.
+function rollingTrimmed(eff: number[], n: number): (number | null)[] {
+  const out: (number | null)[] = new Array(eff.length).fill(null);
+  if (eff.length < n) return out;
+
+  // posto de cada tempo finito entre os valores distintos da lista (-1 para DNF)
+  const finite = Float64Array.from(eff.filter((v) => v !== Infinity)).sort();
+  const vals: number[] = [];
+  for (const v of finite) if (vals.length === 0 || vals[vals.length - 1] !== v) vals.push(v);
+  const m = vals.length;
+  const rankOf = (v: number): number => {
+    let lo = 0;
+    let hi = m - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (vals[mid]! < v) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo + 1; // posições da árvore começam em 1
+  };
+  const rank = eff.map((v) => (v === Infinity ? -1 : rankOf(v)));
+
+  const cnt = new Int32Array(m + 1);
+  const sum = new Float64Array(m + 1);
+  const update = (pos: number, dc: number, dv: number): void => {
+    for (let i = pos; i <= m; i += i & -i) {
+      cnt[i]! += dc;
+      sum[i]! += dv;
+    }
+  };
+  let top = 1;
+  while (top * 2 <= m) top *= 2;
+  // soma dos q menores tempos finitos da janela: desce a árvore pelas contagens e completa com o valor do posto onde parou
+  const sumSmallest = (q: number): number => {
+    let pos = 0;
+    let rem = q;
+    let acc = 0;
+    for (let step = top; step > 0; step >>= 1) {
+      const next = pos + step;
+      if (next <= m && cnt[next]! <= rem) {
+        pos = next;
+        rem -= cnt[next]!;
+        acc += sum[next]!;
+      }
+    }
+    return rem > 0 ? acc + rem * vals[pos]! : acc;
+  };
+
+  const t = trimCount(n);
+  const keep = n - 2 * t;
+  let dnf = 0;
+  for (let i = 0; i < eff.length; i++) {
+    if (rank[i]! < 0) dnf++;
+    else update(rank[i]!, 1, eff[i]!);
+    if (i >= n) {
+      if (rank[i - n]! < 0) dnf--;
+      else update(rank[i - n]!, -1, -eff[i - n]!);
+    }
+    if (i + 1 < n) continue;
+    // sem nada sobrando depois do corte (n de 1 ou 2), o ingênuo divide 0 por 0 e dá NaN: aqui também
+    if (keep <= 0) out[i] = Number.NaN;
+    // os t piores são todos DNF só se houver até t deles; um DNF a mais fica entre os mantidos
+    else if (dnf > t) out[i] = Infinity;
+    // mantidos = do posto t ao n - t - 1; como DNF ocupa o topo, "os n - t menores" já os deixa de fora
+    else out[i] = toCentisecond((sumSmallest(n - t) - sumSmallest(t)) / keep);
+  }
+  return out;
+}
+
 export function rollingAverages(solves: Solve[], n: number): (number | null)[] {
-  const eff = solves.map(effectiveMs);
-  return eff.map((_, i) => (i + 1 < n ? null : trimmedMean(eff.slice(i + 1 - n, i + 1))));
+  return rollingTrimmed(solves.map(effectiveMs), n);
 }
 
 export function bestSingle(solves: Solve[]): number | null {
@@ -206,4 +278,57 @@ export function pbFlags(solves: Solve[]): boolean[] {
     if (e !== Infinity && (best === null || e < best)) best = e;
     return flag;
   });
+}
+
+// Os recordes da sessão: o melhor single e a melhor Ao5, Ao12, Ao50, Ao100 e Ao1000, cada um com o valor atual.
+export const RECORD_SIZES = [5, 12, 50, 100, 1000] as const;
+
+export interface RecordEntry {
+  best: number | null; // null sem solves suficientes (ou, nas médias, sem nenhuma janela sem DNF)
+  bestEnd: number | null; // índice, na lista dada, do último solve da melhor janela (no single, do próprio solve)
+  current: number | null; // a janela que termina no último solve; Infinity se for DNF
+}
+
+export interface Records {
+  single: RecordEntry;
+  averages: Record<(typeof RECORD_SIZES)[number], RecordEntry>;
+}
+
+// Mesma regra de bestSingle e bestAverage (DNF não conta como melhor); no empate fica o recorde mais antigo.
+export function records(solves: readonly Solve[]): Records {
+  const eff = solves.map(effectiveMs);
+  const single: RecordEntry = { best: null, bestEnd: null, current: eff.length > 0 ? eff[eff.length - 1]! : null };
+  eff.forEach((e, i) => {
+    if (e !== Infinity && (single.best === null || e < single.best)) {
+      single.best = e;
+      single.bestEnd = i;
+    }
+  });
+  const averages = {} as Records['averages'];
+  for (const n of RECORD_SIZES) {
+    const entry: RecordEntry = { best: null, bestEnd: null, current: null };
+    const rolling = rollingTrimmed(eff, n);
+    rolling.forEach((v, i) => {
+      if (v !== null && v !== Infinity && (entry.best === null || v < entry.best)) {
+        entry.best = v;
+        entry.bestEnd = i;
+      }
+    });
+    entry.current = rolling.length > 0 ? rolling[rolling.length - 1]! : null;
+    averages[n] = entry;
+  }
+  return { single, averages };
+}
+
+// Os n tempos que terminam no solve `end` (em ordem cronológica) e quais deles caem no corte, para mostrar "(melhor)" e "(pior)".
+// No empate, o corte de baixo pega os mais antigos e o de cima os mais recentes; DNF é sempre o pior.
+export function windowOf(solves: readonly Solve[], n: number, end: number): { values: number[]; trimmed: boolean[] } {
+  const values = solves.slice(Math.max(0, end - n + 1), end + 1).map(effectiveMs);
+  const t = trimCount(values.length);
+  const order = values.map((_, i) => i).sort((a, b) => (values[a]! < values[b]! ? -1 : values[a]! > values[b]! ? 1 : a - b));
+  const trimmed = values.map(() => false);
+  order.forEach((idx, pos) => {
+    if (pos < t || pos >= values.length - t) trimmed[idx] = true;
+  });
+  return { values, trimmed };
 }
