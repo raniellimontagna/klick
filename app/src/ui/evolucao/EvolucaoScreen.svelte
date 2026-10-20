@@ -218,8 +218,9 @@
   const listKey = $derived(`${event}|${sessionId}|${period}`);
 
   // Tocar numa linha (ou Enter nela) abre o detalhe do solve. O número e as médias dele são os do filtro da lista (a sessão escolhida, ou todas).
-  function openSolve(id: string): void {
-    app.openSolve(id, sessionId);
+  // `back` é da lista: devolve o foco a ela quando o detalhe (ou a folha de mover que ele abre) fecha.
+  function openSolve(id: string, back: () => void): void {
+    app.openSolve(id, sessionId, back);
   }
 
   // O quadro de recordes: um recorde abre a folha dele, com o filtro de agora (evento e sessão).

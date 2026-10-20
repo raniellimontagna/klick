@@ -59,17 +59,21 @@ export type EvolucaoView = { kind: 'stats' } | { kind: 'duels' } | { kind: 'duel
 // 'solve': o detalhe de um solve (app.solveRequest). 'record': a folha de um recorde da sessão (app.recordRequest).
 export type DialogId = 'sessions' | 'shortcuts' | 'onboarding' | 'export' | 'import' | 'backups' | 'trash' | 'install' | 'signin' | 'signout' | 'cloud' | 'deleteAccount' | 'duel' | 'move' | 'solve' | 'record';
 // O que a folha de mover move: os ids (a seleção da lista, ou o solve do detalhe), o número do solve no filtro quando é um só (o título
-// "Mover o solve #10.471") e quem pediu, avisado quando o lote passou para a outra sessão (a lista sai da seleção).
+// "Mover o solve #10.471") e quem pediu, avisado quando o lote passou para a outra sessão (a lista sai da seleção). `back`: aberta pelo
+// detalhe, devolve o foco à linha da lista de onde o detalhe abriu (ou à que ficou no lugar dela) quando a folha fecha, por qualquer caminho.
 export interface MoveRequest {
   ids: string[];
   number?: number;
   done?: () => void;
+  back?: () => void;
 }
 // O solve que o detalhe mostra e de onde a contagem vem: a sessão do filtro da lista ('all': todas as do evento dele), que dá o número
-// do solve e as médias que terminam nele. O solve em si é lido ao vivo de app.solves.
+// do solve e as médias que terminam nele. O solve em si é lido ao vivo de app.solves. `back`: devolve o foco à linha da lista de onde ele
+// abriu, ou à que ficou no lugar dela (o solve foi excluído, ou saiu do filtro); passa para a folha de mover, se for ela que abre depois.
 export interface SolveRequest {
   id: string;
   sessionId: string;
+  back?: () => void;
 }
 // Um recorde do quadro: o melhor single ou a melhor média de 5, 12, 50, 100 ou 1000.
 export type RecordKind = 'single' | (typeof RECORD_SIZES)[number];
@@ -779,18 +783,18 @@ export class AppState {
   }
 
   // Abre a folha de mover com estes solves (a barra da seleção; o detalhe de um solve). Sem nenhum, não abre.
-  openMove(ids: readonly string[], options: { number?: number; done?: () => void } = {}): void {
+  openMove(ids: readonly string[], options: { number?: number; done?: () => void; back?: () => void } = {}): void {
     if (ids.length === 0) return;
     this.moveRequest = { ids: [...ids], ...options };
     this.dialog = 'move';
   }
 
   // Abre o detalhe de um solve (uma linha da lista). `sessionId` é o filtro da lista ('all' para todas as sessões do evento); sem ele, vale
-  // a sessão do próprio solve. Um id que não existe (já excluído) não abre nada.
-  openSolve(id: string, sessionId?: string): void {
+  // a sessão do próprio solve. `back` devolve o foco à lista (SolveRequest). Um id que não existe (já excluído) não abre nada.
+  openSolve(id: string, sessionId?: string, back?: () => void): void {
     const solve = this.solves.find((s) => s.id === id);
     if (!solve) return;
-    this.solveRequest = { id, sessionId: sessionId ?? solve.sessionId };
+    this.solveRequest = { id, sessionId: sessionId ?? solve.sessionId, ...(back ? { back } : {}) };
     this.dialog = 'solve';
   }
 

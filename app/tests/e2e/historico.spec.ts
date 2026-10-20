@@ -99,6 +99,7 @@ test('move um solve para outra sessão e desfaz', async ({ page }) => {
   await expect(screen.getByRole('heading', { name: 'Solves do período · 10' })).toBeVisible();
 
   // O solve mais novo (o #10 desta sessão) vai para a "Principal" pelo detalhe.
+  const below = await screen.locator('.hx-row').nth(1).getAttribute('data-id');
   await screen.locator('.hx-row').first().click();
   await page.getByRole('dialog', { name: /Solve #10/ }).getByRole('button', { name: 'Mover para outra sessão' }).click();
   const sheet = page.getByRole('dialog', { name: 'Mover o solve #10' });
@@ -109,11 +110,49 @@ test('move um solve para outra sessão e desfaz', async ({ page }) => {
   await expect(sheet).toBeHidden();
   await expect(page.locator('.toast')).toContainText('Solve movido para Principal');
   await expect(screen.getByRole('heading', { name: 'Solves do período · 9' })).toBeVisible();
+  // Ele saiu do filtro: o foco fica com a linha que subiu para o lugar dele (o #9).
+  await expect.poll(() => page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset.id ?? null)).toBe(below);
 
   await undo(page).click();
   await expect(screen.getByRole('heading', { name: 'Solves do período · 10' })).toBeVisible();
   await session.selectOption({ label: 'Principal' });
   await expect(screen.getByRole('heading', { name: 'Solves do período · 30' })).toBeVisible();
+});
+
+// O foco depois das folhas abertas pelo detalhe (a revisão final, I3): Mover, com Esc ou escolhendo, volta à linha de onde o detalhe abriu;
+// Excluir vai para a linha que ficou no lugar dela. Com "Todas as sessões", o solve movido continua na lista, no mesmo lugar.
+test('o foco volta à lista depois de mover e de excluir pelo detalhe', async ({ page }) => {
+  const screen = await openEvolucao(page);
+  const focused = () => page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset.id ?? document.activeElement?.tagName ?? null);
+  const rows = screen.locator('.hx-row');
+  const id = (await rows.nth(2).getAttribute('data-id'))!;
+  const next = (await rows.nth(3).getAttribute('data-id'))!;
+  const detail = page.getByRole('dialog', { name: /Solve #38/ });
+  const sheet = page.getByRole('dialog', { name: 'Mover o solve #38' });
+
+  // Mover e Esc.
+  await rows.nth(2).click();
+  await detail.getByRole('button', { name: 'Mover para outra sessão' }).click();
+  await expect(sheet).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(sheet).toBeHidden();
+  await expect.poll(focused).toBe(id);
+
+  // Mover e escolher (o Enter na linha focada abre o detalhe de novo).
+  await page.keyboard.press('Enter');
+  await detail.getByRole('button', { name: 'Mover para outra sessão' }).click();
+  await expect(sheet).toBeVisible();
+  await sheet.locator('.list-btn:not([disabled])').first().click();
+  await expect(sheet).toBeHidden();
+  await expect(page.locator('.toast')).toContainText('Solve movido para');
+  await expect.poll(focused).toBe(id);
+
+  // Excluir: a linha de baixo (o #37) sobe para o lugar dele e fica com o foco.
+  await page.keyboard.press('Enter');
+  await confirmDelete(page, detail.getByRole('button', { name: /^(Excluir|Tem certeza)/ }));
+  await expect(detail).toBeHidden();
+  await expect(screen.getByRole('heading', { name: 'Solves do período · 39' })).toBeVisible();
+  await expect.poll(focused).toBe(next);
 });
 
 test('junta duas sessões', async ({ page }) => {

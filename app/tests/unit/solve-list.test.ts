@@ -136,7 +136,7 @@ describe('a lista inteira', () => {
     await fireEvent.keyDown(document.activeElement!, { key: 'ArrowUp' });
     await waitFor(() => expect(document.activeElement).toHaveAttribute('aria-rowindex', '3'));
     await fireEvent.keyDown(document.activeElement!, { key: 'Enter' });
-    expect(onOpen).toHaveBeenCalledWith('s58');
+    expect(onOpen).toHaveBeenCalledWith('s58', expect.any(Function));
     // End vai ao mais antigo, que estava fora das linhas desenhadas.
     expect(rows().some((r) => r.dataset.id === 's0')).toBe(false);
     await fireEvent.keyDown(document.activeElement!, { key: 'End' });
@@ -144,12 +144,41 @@ describe('a lista inteira', () => {
     expect(document.activeElement).toHaveAttribute('aria-rowindex', '61');
     expect(rows().filter((r) => r.tabIndex === 0)).toEqual([document.activeElement]);
     await fireEvent.keyDown(document.activeElement!, { key: 'Enter' });
-    expect(onOpen).toHaveBeenLastCalledWith('s0');
+    expect(onOpen).toHaveBeenLastCalledWith('s0', expect.any(Function));
     // Home volta ao mais novo; o clique também abre.
     await fireEvent.keyDown(document.activeElement!, { key: 'Home' });
     await waitFor(() => expect(document.activeElement).toHaveAttribute('data-id', 's59'));
     await fireEvent.click(rows()[1]!);
-    expect(onOpen).toHaveBeenLastCalledWith('s58');
+    expect(onOpen).toHaveBeenLastCalledWith('s58', expect.any(Function));
+  });
+});
+
+describe('o foco de volta', () => {
+  // A folha aberta de uma linha (o detalhe, e a de mover que ele abre) recebe o caminho de volta: à linha do solve, se ele continua na
+  // lista; à que ficou no lugar dela, se ele saiu (excluído, ou movido para fora do filtro); ao título, se a lista ficou vazia.
+  it('volta à linha do solve, à que ficou no lugar dela, ou ao título com a lista vazia', async () => {
+    const pool = Array.from({ length: 10 }, (_, i) => solve(i, 10_000 + i * 100));
+    const onOpen = vi.fn();
+    const a = await app();
+    const view = render(SolveList, { app: a, pool, series: seriesOf(pool), onOpen });
+    await fireEvent.click(rows()[2]!);
+    expect(onOpen).toHaveBeenCalledWith('s7', expect.any(Function));
+    const back = onOpen.mock.calls[0]![1] as () => void;
+
+    back();
+    await waitFor(() => expect(document.activeElement).toHaveAttribute('data-id', 's7'));
+
+    // O solve saiu, com o foco fora da lista (na folha): a medida leva a parada de Tab ao topo, e a volta vai ao lugar dele mesmo assim.
+    const without = pool.filter((s) => s.id !== 's7');
+    (document.activeElement as HTMLElement).blur();
+    await view.rerender({ pool: without, series: seriesOf(without) });
+    back();
+    await waitFor(() => expect(document.activeElement).toHaveAttribute('data-id', 's6'));
+
+    (document.activeElement as HTMLElement).blur();
+    await view.rerender({ pool: [], series: seriesOf([]) });
+    back();
+    await waitFor(() => expect(document.activeElement).toHaveTextContent(T.historico.listTitle(0)));
   });
 });
 

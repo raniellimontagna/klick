@@ -31,6 +31,7 @@
   let armedAt: number | null = null; // a hora do primeiro: o segundo antes de CONFIRM_DELAY_MS é o toque duplo e não vale
   let busy = $state(false);
   let saving: string | null = null; // a nota que está sendo gravada: sair do campo e tocar em Salvar não gravam duas vezes
+  let then: (() => void) | null = null; // a folha que abre quando esta fechar (Mover, o selo do recorde)
 
   const request = $derived(app.solveRequest);
   const solve = $derived(app.dialog === 'solve' && request ? app.solves.find((s) => s.id === request.id) : undefined);
@@ -107,10 +108,22 @@
     armedAt = null;
   }
 
-  // Fechou por qualquer caminho (Esc, Fechar, fundo, ou o Mover, que abre a outra folha): libera a folha, se ainda for esta.
+  // Fechou por qualquer caminho (Esc, Fechar, fundo, o solve excluído, ou o Mover e o selo, que abrem outra folha): libera a folha, se ainda
+  // for esta. O modal já devolve o foco à linha de onde ela abriu; se a linha saiu (o solve foi excluído), a lista o leva para a que ficou
+  // no lugar (request.back). A outra folha abre só agora, com o foco de volta na linha: ela o devolve à linha quando fechar.
   function onclose(): void {
     disarm();
+    const next = then;
+    then = null;
     if (app.dialog === 'solve') app.dialog = null;
+    if (next) next();
+    else request?.back?.();
+  }
+
+  // Fecha esta folha e abre a outra depois (onclose).
+  function closeThen(open: () => void): void {
+    then = open;
+    dialogEl?.close();
   }
 
   function setPenalty(penalty: Penalty): void {
@@ -149,15 +162,21 @@
     void saveNote();
   }
 
-  // O selo abre a folha do recorde, com o mesmo filtro da conta (o detalhe fecha: a folha é uma só por vez).
+  // O selo abre a folha do recorde, com o mesmo filtro da conta (o detalhe fecha antes: a folha é uma só por vez).
   function openRecord(): void {
     if (!solve || !view || view.record === null) return;
-    app.openRecord(view.record, view.sessionId, solve.event);
+    const { record, sessionId } = view;
+    const { event } = solve;
+    closeThen(() => app.openRecord(record, sessionId, event));
   }
 
+  // A folha de mover leva o caminho de volta da lista: Esc ou escolher uma sessão devolvem o foco à linha.
   function move(): void {
     if (!solve || !view) return;
-    app.openMove([solve.id], { number: view.number });
+    const ids = [solve.id];
+    const number = view.number;
+    const back = request?.back;
+    closeThen(() => app.openMove(ids, { number, ...(back ? { back } : {}) }));
   }
 
   // O toque chama a área de transferência na hora (dentro do gesto); só o aviso espera o resultado.

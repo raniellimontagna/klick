@@ -35,10 +35,14 @@
     return m;
   });
 
-  // Fechou por qualquer caminho (Esc, Cancelar, fundo, ou depois de mover): libera a folha, se ainda for esta.
+  // Fechou por qualquer caminho (Esc, Cancelar, fundo, ou depois de mover): libera a folha, se ainda for esta. Aberta pelo detalhe, o foco
+  // volta à linha da lista de onde ele abriu (ou à que ficou no lugar dela, se o solve saiu do filtro): o modal só o devolveria à linha se
+  // ela ainda estivesse lá.
   function onclose(): void {
+    const back = app.moveRequest?.back;
     if (app.dialog === 'move') app.dialog = null;
     app.moveRequest = null;
+    back?.();
   }
 
   // Uma recusa (a sessão foi para a lixeira noutra aba) deixa a folha aberta: o aviso de falha é do AppState, e dá para escolher outra.

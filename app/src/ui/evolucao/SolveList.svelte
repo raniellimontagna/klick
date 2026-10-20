@@ -33,7 +33,7 @@
     start?: number; // onde o período começa no pool: a lista mostra de `start` ao fim
     series: Series; // as médias e os recordes do pool, uma posição por solve
     now?: number;
-    onOpen: (id: string) => void;
+    onOpen: (id: string, back: () => void) => void; // `back` devolve o foco à lista quando a folha que abriu fecha (ver returnTo)
   } = $props();
   const uid = $props.id();
 
@@ -48,6 +48,7 @@
 
   let rowsEl = $state<HTMLElement>();
   let modeEl = $state<HTMLButtonElement>();
+  let titleEl = $state<HTMLElement>();
   let viewTop = $state(0); // a primeira linha na tela
   let viewRows = $state(FALLBACK_ROWS); // quantas cabem nela
   let active = $state(0); // a linha com a parada de Tab
@@ -117,6 +118,26 @@
     el.scrollIntoView?.({ block: 'nearest' });
   }
 
+  // O foco de volta à lista depois de uma folha aberta de uma linha (o detalhe, e a folha de mover que ele abre): à linha do solve, se ele
+  // continua na lista; senão (excluído, ou movido para fora do filtro), à que ficou no lugar dela; com a lista vazia, ao título dela. A
+  // posição é a de quando a folha abriu: medir de novo com o foco na folha leva a parada de Tab para o topo da tela.
+  function returnTo(id: string, k: number): () => void {
+    return () => {
+      void tick().then(() => {
+        if (count === 0) {
+          titleEl?.focus();
+          return;
+        }
+        const i = pool.findIndex((s) => s.id === id);
+        void focusRow(i >= start ? pool.length - 1 - i : Math.min(k, count - 1));
+      });
+    };
+  }
+
+  function open(id: string, k: number): void {
+    onOpen(id, returnTo(id, k));
+  }
+
   function onKey(e: KeyboardEvent): void {
     const el = e.target as HTMLElement;
     if (!el.classList.contains('hx-row')) return; // a caixa, se tem o foco, cuida do próprio Espaço
@@ -143,11 +164,11 @@
         next = count - 1;
         break;
       case 'Enter':
-        onOpen(el.dataset.id!);
+        open(el.dataset.id!, k);
         break;
       case ' ':
         if (selecting) toggle(k, e.shiftKey);
-        else onOpen(el.dataset.id!);
+        else open(el.dataset.id!, k);
         break;
       default:
         return;
@@ -242,7 +263,7 @@
   function onRowClick(e: MouseEvent, k: number, id: string): void {
     active = k;
     if (selecting) toggle(k, e.shiftKey);
-    else onOpen(id);
+    else open(id, k);
   }
 
   // A caixa marca como a linha; o clique dela não chega à linha (marcaria duas vezes). Acima do máximo, ela volta a ficar vazia.
@@ -311,7 +332,7 @@
 
 <section class="card hx-list" data-select={selecting ? '' : undefined} aria-labelledby="{uid}-h">
   <div class="hx-list-h">
-    <h2 class="label" id="{uid}-h">{T.historico.listTitle(count)}</h2>
+    <h2 class="label" id="{uid}-h" tabindex="-1" bind:this={titleEl}>{T.historico.listTitle(count)}</h2>
     {#if count > 0}
       <button
         bind:this={modeEl}
