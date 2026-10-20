@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseTyped, previewTyped } from '../../src/core/typed';
+import { parseTyped, previewTyped, tooLong } from '../../src/core/typed';
 
 describe('parseTyped', () => {
   it.each([
@@ -42,11 +42,12 @@ describe('parseTyped', () => {
 });
 
 describe('previewTyped', () => {
-  it('mostra o tempo como a tela mostra, com o + e o DNF', () => {
-    expect(previewTyped('1234')).toBe('0:12.34');
-    expect(previewTyped('10234')).toBe('1:02.34');
-    expect(previewTyped('12.34+')).toBe('0:12.34+');
-    expect(previewTyped('dnf')).toBe('DNF');
+  it('devolve o tempo como a tela mostra e, no +2, o tempo cru', () => {
+    expect(previewTyped('1234')).toEqual({ time: '0:12.34', plus2: false, raw: '0:12.34' });
+    expect(previewTyped('10234')).toEqual({ time: '1:02.34', plus2: false, raw: '1:02.34' });
+    // O +2 soma os 2 s ao tempo mostrado e guarda o cru ("Fica 0:14.34+: 0:12.34 mais 2 s de penalidade").
+    expect(previewTyped('12.34+')).toEqual({ time: '0:14.34+', plus2: true, raw: '0:12.34' });
+    expect(previewTyped('dnf')).toEqual({ time: 'DNF', plus2: false, raw: '' });
   });
 
   it('é null para vazio e para o que não vale', () => {
@@ -55,4 +56,21 @@ describe('previewTyped', () => {
     expect(previewTyped('abc')).toBeNull();
     expect(previewTyped('60:00.00')).toBeNull();
   });
+});
+
+describe('tooLong', () => {
+  it.each(['1:02:03.45', '1:02:03', '60:00.00', '60:00', '100:00.00', '999:59.99', '600000', '1020345', '10000000', '3600.00', '99999,99', '60:00.00+'])(
+    'diz que %s passa de uma hora',
+    (text) => {
+      expect(parseTyped(text)).toEqual({ ok: false });
+      expect(tooLong(text)).toBe(true);
+    },
+  );
+
+  it.each(['', 'abc', '12.3.4', '7512', '6000', '1:75.00', '0', '0000', '000000000', '12.', '59:59.99', '595999', '75.12', '1234', 'dnf'])(
+    'não diz isso de %j',
+    (text) => {
+      expect(tooLong(text)).toBe(false);
+    },
+  );
 });

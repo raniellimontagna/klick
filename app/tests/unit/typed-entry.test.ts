@@ -156,6 +156,9 @@ describe('digitar o tempo no Timer', () => {
     type('1020345');
     enter();
     expect(message().textContent).toBe(T.timer.typedTooLong);
+    type('100:00.00'); // minutos de três dígitos também
+    enter();
+    expect(message().textContent).toBe(T.timer.typedTooLong);
     expect(field()).toHaveAttribute('aria-invalid', 'true');
     expect(a.solves).toHaveLength(0);
   });
