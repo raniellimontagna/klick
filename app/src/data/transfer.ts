@@ -156,6 +156,7 @@ export interface CsTimerSolve {
   scramble: string;
   note: string;
   at: number;
+  phases?: number[]; // as durações das fases, somando `ms`; só quando o item do csTimer traz o multiphase certo
 }
 
 export interface CsTimerSession {
@@ -189,16 +190,52 @@ function readSessionData(properties: unknown): Record<string, unknown> {
   return data;
 }
 
-// [[penalidade, ms, ...tempos das fases], embaralhamento, comentário, segundos]. Item torto recusa o arquivo.
+// Multifase do csTimer, conferido no código aberto (github.com/cs0x7f/cstimer, commit 2547d82e):
+//   - src/js/timer.js:24 e :469 (onkeydown): o vetor do tempo é [inspeção, total, c(N-1), ..., c1], com cada c(i) o tempo desde o início
+//     até o fim da fase i, guardado assim que o toque acontece;
+//   - src/js/stats/stats.js:113-122 (prettyMPA) e :955-964 (timeAtDim): a fase 1 é o último elemento, e cada fase seguinte é o seu
+//     acumulado menos o do elemento depois dele (o total fecha a última).
+// Ou seja: depois de [penalidade, ms] vêm os tempos ACUMULADOS das fases, em ordem DECRESCENTE, sem o da última fase (esse é o `ms`).
+// Só o formato é usado aqui; nada do código foi copiado.
+function csPhases(times: unknown[], ms: number): number[] | undefined {
+  const tail = times.slice(2);
+  if (tail.length === 0) return undefined;
+  const cumulative = tail.reverse(); // da fase 1 para a penúltima
+  let before = 0;
+  const durations: number[] = [];
+  for (const c of cumulative) {
+    if (!isNum(c) || c < before || c > ms) return undefined; // fora de ordem, ou além do total: o item entra sem fases
+    durations.push(c - before);
+    before = c;
+  }
+  durations.push(ms - before);
+  return durations;
+}
+
+// O inverso, para a exportação. Só sai multiphase quando as fases fecham o tempo (duas ou mais, somando `ms`): o csTimer calcula a
+// última fase como o total menos o último acumulado, e fases que não somam desenhariam um tempo que o solve não teve.
+function csTimeVector(s: Solve): number[] {
+  const head = [penaltyToCs(s.penalty), s.ms];
+  const phases = s.phases;
+  if (!phases || phases.length < 2 || !phases.every(isNum) || phases.reduce((a, b) => a + b, 0) !== s.ms) return head;
+  const cumulative: number[] = [];
+  let sum = 0;
+  for (const d of phases.slice(0, -1)) cumulative.push((sum += d));
+  return [...head, ...cumulative.reverse()];
+}
+
+// [[penalidade, ms, ...acumulados das fases (ver csPhases)], embaralhamento, comentário, segundos]. Item torto recusa o arquivo.
 function csSolve(item: unknown): CsTimerSolve {
   if (!Array.isArray(item) || !Array.isArray(item[0])) throw new Error(T.transfer.csTimerInvalid);
-  const [[code, ms], scramble, comment, seconds] = item as [unknown[], unknown, unknown, unknown];
+  const [times, scramble, comment, seconds] = item as [unknown[], unknown, unknown, unknown];
+  const [code, ms] = times;
   const penalty = typeof code === 'number' ? PENALTY_FROM_CS.get(code) : undefined;
   const at = typeof seconds === 'number' ? seconds * 1000 : Number.NaN;
   if (penalty === undefined || !isNum(ms) || ms < 0 || typeof scramble !== 'string' || !Number.isFinite(at)) {
     throw new Error(T.transfer.csTimerInvalid);
   }
-  return { ms, penalty, scramble, note: typeof comment === 'string' ? comment : '', at };
+  const phases = csPhases(times, ms);
+  return { ms, penalty, scramble, note: typeof comment === 'string' ? comment : '', at, ...(phases ? { phases } : {}) };
 }
 
 export function parseCsTimer(text: string): CsTimerSession[] {
@@ -250,7 +287,7 @@ export function toCsTimerJson(sessions: Session[], solves: Solve[]): string {
     const n = i + 1;
     const items = [...group.solves]
       .sort((a, b) => a.at - b.at)
-      .map((s) => [[penaltyToCs(s.penalty), s.ms], s.scramble, s.note, Math.floor(s.at / 1000)]);
+      .map((s) => [csTimeVector(s), s.scramble, s.note, Math.floor(s.at / 1000)]);
     file[`session${n}`] = items;
     sessionData[n] = { name: group.name, opt: { scrType: group.scrType }, rank: n };
   });
@@ -319,7 +356,7 @@ export function csTimerToKlick(
       const born = bornAt(s.at, ctx.now);
       result.solves.push({
         id: csTimerSolveId(event, s), sessionId, event, ms: s.ms, penalty: s.penalty, at: s.at, scramble: s.scramble, note: s.note,
-        createdAt: born, updatedAt: born, deletedAt: null,
+        ...(s.phases ? { phases: s.phases } : {}), createdAt: born, updatedAt: born, deletedAt: null,
       });
     }
   }

@@ -48,6 +48,16 @@ describe('estado do app', () => {
     expect(app.scramble).toBe('333-2');
   });
 
+  it('grava as fases do solve, na memória e no banco', async () => {
+    const { app, repo } = await setup();
+    const s = await app.addSolve({ ms: 12_000, penalty: null, at: t, phases: [3_000, 4_000, 5_000] });
+    expect(s?.phases).toEqual([3_000, 4_000, 5_000]);
+    expect(app.solves[0].phases).toEqual([3_000, 4_000, 5_000]);
+    expect((await repo.listSolves())[0].phases).toEqual([3_000, 4_000, 5_000]);
+    const plain = await app.addSolve({ ms: 9_000, penalty: null, at: t + 1 });
+    expect(plain && 'phases' in plain).toBe(false);
+  });
+
   it('a cada 50 solves faz uma cópia automática', async () => {
     const { app, repo } = await setup();
     for (let i = 0; i < 50; i++) await app.addSolve({ ms: 60000 + i, penalty: null, at: t + i });

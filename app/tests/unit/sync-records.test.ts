@@ -31,6 +31,14 @@ describe('registro e mudança (spec 6.1)', () => {
     expect(fromChange(c)).toEqual(rec);
   });
 
+  it('as fases do solve vão em data e voltam iguais, sem mudar o servidor nem o protocolo', () => {
+    const rec = { id: 'a', sessionId: 's', event: '333', ms: 12_000, penalty: null, at: 2, scramble: 'R', note: '', createdAt: 2, updatedAt: 3, deletedAt: null, deletionStamp: 2, phases: [3_000, 4_000, 5_000] };
+    const c = toChange('solves', rec);
+    expect((c.data as Record<string, unknown>).phases).toEqual([3_000, 4_000, 5_000]);
+    expect(checkChange(c).ok).toBe(true);
+    expect(fromChange(c)).toEqual(rec);
+  });
+
   it('um item da conta vira mudança com deletedAt null e deletionStamp igual a updatedAt', () => {
     const c = prefToChange({ key: 'trail.3', value: true, updatedAt: 9 });
     expect(c).toEqual({ store: 'prefs', id: 'trail.3', data: true, updatedAt: 9, deletedAt: null, deletionStamp: 9 });

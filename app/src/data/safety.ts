@@ -269,6 +269,9 @@ const defaultSchedule = (fn: () => void, ms: number): (() => void) => {
   return () => globalThis.clearTimeout(handle);
 };
 
+// Cópia do solve da fila: o array de fases também é copiado, senão quem enfileirou (ou quem lê pendingItems) mexeria no que será gravado.
+const copyOf = (s: NewSolve): NewSolve => (s.phases ? { ...s, phases: [...s.phases] } : { ...s });
+
 // Guarda os solves em memória, na ordem de chegada, e os grava um de cada vez. Quando o save falha (cota cheia, banco bloqueado),
 // a gravação para no primeiro que falhou, o aviso sai por onChange(n) e uma nova tentativa fica agendada para daqui a retryMs;
 // os solves seguintes esperam atrás dele, para continuarem na ordem. Um solve só sai da lista depois que o save respondeu por ele.
@@ -379,12 +382,12 @@ export function createSaveQueue(
   return {
     enqueue(solve) {
       return new Promise<Solve | null>((settle) => {
-        queue.push({ solve: { ...solve }, settle });
+        queue.push({ solve: copyOf(solve), settle });
         void drain();
       });
     },
     pending: () => queue.length,
-    pendingItems: () => queue.map((entry) => ({ ...entry.solve })),
+    pendingItems: () => queue.map((entry) => copyOf(entry.solve)),
     flush: () => (running ? current : Promise.resolve()),
   };
 }

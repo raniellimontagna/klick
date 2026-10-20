@@ -964,6 +964,19 @@ describe('fila de gravação: garantias', () => {
     expect(q.pending()).toBe(0);
   });
 
+  it('a fila guarda as fases por cópia: mexer no array de quem enfileirou ou de pendingItems não mexe nela', async () => {
+    const timers: Array<() => void> = [];
+    const q = createSaveQueue(async () => { throw new Error('banco fora'); }, { schedule: (fn) => { timers.push(fn); return () => {}; } });
+    const phases = [1_000, 2_000];
+    await q.enqueue({ ...ns(1), phases });
+    phases[0] = 999;
+    expect(q.pendingItems()[0].phases).toEqual([1_000, 2_000]);
+    q.pendingItems()[0].phases!.push(7);
+    expect(q.pendingItems()[0].phases).toEqual([1_000, 2_000]);
+    await q.enqueue(ns(2));
+    expect('phases' in q.pendingItems()[1]).toBe(false);
+  });
+
   // --- pendentes à mostra (exportação de emergência) ---
 
   it('pendingItems devolve cópias dos pendentes, na ordem de chegada; mexer no resultado não mexe na fila', async () => {

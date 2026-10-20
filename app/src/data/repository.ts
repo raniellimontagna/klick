@@ -65,6 +65,7 @@ export interface NewSolve {
   penalty: Penalty;
   at: number;
   scramble: string;
+  phases?: number[]; // a duração de cada fase em ms, somando `ms`; só vai quando o timer marcou fases
 }
 
 // O formato do arquivo mora em core/types.ts (o Worker também o escreve); quem importava daqui continua importando.
@@ -1073,6 +1074,8 @@ export function createRepository(
           penalty: s.penalty,
           at: s.at,
           scramble: s.scramble,
+          // Só com fases: um solve sem elas continua sem o campo, como os gravados antes. Cópia: o array de quem chamou não entra no banco.
+          ...(s.phases ? { phases: [...s.phases] } : {}),
           note: '',
           createdAt: stamp,
           updatedAt: stamp,

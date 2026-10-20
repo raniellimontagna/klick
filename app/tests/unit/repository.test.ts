@@ -2,6 +2,7 @@ import type { IDBPDatabase } from 'idb';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defaultSeason } from '../../src/core/season';
 import { DEFAULT_SETTINGS } from '../../src/core/types';
+import { toChange } from '../../src/core/sync/records';
 import type { FinishId, SeasonProgress, SeasonRecord, SeasonState } from '../../src/core/types';
 import type { DeviceProfile } from '../../src/core/sync/types';
 import { openKlickDb, type KlickDB } from '../../src/data/db';
@@ -1531,6 +1532,42 @@ describe('repositório: id estável do solve', () => {
     expect(again.createdAt).toBe(first.createdAt);
     expect(again.updatedAt).toBe(first.updatedAt);
     expect(await repo.listSolves({ includeDeleted: true })).toHaveLength(1);
+  });
+
+  it('addSolve grava as fases, e sem elas o solve não ganha o campo', async () => {
+    const repo = await fresh();
+    const s = await repo.createSession({ event: '333' });
+    const a = await repo.addSolve({ ...ns(s.id, 12_000, 1000), phases: [3_000, 4_000, 5_000] });
+    const b = await repo.addSolve(ns(s.id, 9_000, 2000));
+    expect(a.phases).toEqual([3_000, 4_000, 5_000]);
+    expect('phases' in b).toBe(false);
+    const listed = await repo.listSolves();
+    expect(listed.find((x) => x.id === a.id)?.phases).toEqual([3_000, 4_000, 5_000]);
+    expect('phases' in listed.find((x) => x.id === b.id)!).toBe(false);
+    expect((await repo.exportAll()).solves.find((x) => x.id === a.id)?.phases).toEqual([3_000, 4_000, 5_000]);
+  });
+
+  // Review Focus 4. O código de hoje faz o papel do "app de antes": ele não conhece o campo, então o que vale é que a gravação
+  // e a edição dele (updateSolve espalha o registro e bareSolve só tira o deletionStamp) deixam passar o que não conhecem.
+  it('um app de antes que troca o +2 ou a nota não perde as fases', async () => {
+    const repo = await fresh();
+    const s = await repo.createSession({ event: '333' });
+    const rec = { id: 'de-outro-aparelho', sessionId: s.id, event: '333', ms: 12_000, penalty: null, at: 5_000, scramble: 'R U', note: '', createdAt: t, updatedAt: t, deletedAt: null, deletionStamp: t };
+    // O solve chega pelo sync, como um aparelho com fases o grava (o campo vai em data, intacto).
+    const withPhases = { ...rec, phases: [3_000, 4_000, 5_000] };
+    await repo.applyRemote([toChange('solves', withPhases)], t);
+    expect((await repo.listSolves())[0].phases).toEqual([3_000, 4_000, 5_000]);
+    t += 1000;
+    const plus2 = await repo.updateSolve(rec.id, { penalty: '+2' });
+    expect(plus2.penalty).toBe('+2');
+    expect(plus2.phases).toEqual([3_000, 4_000, 5_000]);
+    t += 1000;
+    const noted = await repo.updateSolve(rec.id, { note: 'cruz boa' });
+    expect(noted).toMatchObject({ note: 'cruz boa', penalty: '+2', phases: [3_000, 4_000, 5_000] });
+    expect((await repo.listSolves())[0].phases).toEqual([3_000, 4_000, 5_000]);
+    // O que sobe de volta para a conta também leva as fases.
+    const [out] = (await repo.exportAll()).solves;
+    expect(toChange('solves', { ...out, deletionStamp: out.updatedAt }).data).toMatchObject({ phases: [3_000, 4_000, 5_000] });
   });
 
   it('o mesmo id com outro conteúdo não sobrescreve: o que já está gravado vale, e uma tentativa atrasada não desfaz a edição', async () => {

@@ -700,7 +700,7 @@ export class AppState {
   // Um solve nunca se perde. Se não há sessão para atribuí-lo (ensureSession falhou), ele vai para a fila com a sessão atual ou
   // com um id de sessão novo: a fila tenta de novo, e o aviso fixo (savePending) fica na tela até gravar. Devolve null só quando
   // o solve ficou na fila; o próximo embaralhamento não segura a reação.
-  async addSolve(r: { ms: number; penalty: Penalty; at: number }): Promise<Solve | null> {
+  async addSolve(r: { ms: number; penalty: Penalty; at: number; phases?: number[] }): Promise<Solve | null> {
     this.solvesInFlight += 1; // conta até o solve estar gravado ou na fila (e o finally sempre desconta)
     try {
       this.closeUndo(); // um solve novo encerra o desfazer pendente
@@ -714,6 +714,7 @@ export class AppState {
         penalty: r.penalty,
         at: r.at,
         scramble: this.scramble,
+        ...(r.phases ? { phases: r.phases } : {}), // só com fases ligadas; sem elas o solve não ganha o campo
       });
       if (solve) await this.recordSaved(solve);
       void this.nextScramble();

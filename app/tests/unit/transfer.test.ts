@@ -90,6 +90,20 @@ describe('formato Klick', () => {
     const extra = { ...data, device: 'abc', solves: data.solves.map((s) => ({ ...s, tag: 'x' })) };
     expect(parseKlickJson(JSON.stringify(extra))).toEqual(extra);
   });
+  it('o arquivo do Klick leva as fases e um Klick de antes o importa', async () => {
+    const withPhases = { ...fullExport(), solves: [mkSolve({ id: 'f', ms: 12_000, phases: [3_000, 4_000, 5_000] }), mkSolve({ id: 'g', at: AT + 1_000 })] };
+    // O texto traz o campo, e a leitura (o isSolve) aceita o solve com ele e o devolve intacto.
+    const file = parseKlickJson(toKlickJson(withPhases));
+    expect(file.solves[0].phases).toEqual([3_000, 4_000, 5_000]);
+    expect('phases' in file.solves[1]).toBe(false);
+    // Um Klick de antes não conhece `phases`: os campos que ele checa são os de sempre, e o resto passa. Aqui o arquivo sem o campo, e
+    // o mesmo com ele, entram pela mesma importação e voltam como estavam.
+    const repo = createRepository(await openKlickDb('transfer-fases'), { now: () => NOW, channel: null });
+    await repo.importAll(file);
+    const back = await repo.exportAll();
+    expect(back.solves.find((s) => s.id === 'f')?.phases).toEqual([3_000, 4_000, 5_000]);
+    expect('phases' in back.solves.find((s) => s.id === 'g')!).toBe(false);
+  });
   it('o arquivo do csTimer não passa por arquivo do Klick (a tela tenta um e depois o outro)', () => {
     expect(() => parseKlickJson(fixture('cstimer-export.txt'))).toThrow(KLICK_INVALID);
   });
@@ -352,6 +366,23 @@ describe('csTimer', () => {
     expect(again[0].solves).toEqual(parsed[0].solves);
   });
 
+  it('exporta e importa as fases no multiphase do csTimer', () => {
+    const solves = [
+      mkSolve({ id: 'a', ms: 12_000, phases: [3_000, 4_000, 5_000] }),
+      mkSolve({ id: 'b', ms: 10_000, at: AT + 1_000, penalty: '+2', phases: [4_000, 6_000] }),
+      mkSolve({ id: 'c', ms: 9_000, at: AT + 2_000 }),
+      mkSolve({ id: 'd', ms: 9_000, at: AT + 3_000, phases: [4_000, 4_000] }), // não soma o tempo: sai sem fases
+    ];
+    const file = JSON.parse(toCsTimerJson([mkSession()], solves)) as Record<string, unknown[][]>;
+    expect(file.session1.map((row) => row[0])).toEqual([[0, 12_000, 7_000, 3_000], [2000, 10_000, 4_000], [0, 9_000], [0, 9_000]]);
+    const back = parseCsTimer(toCsTimerJson([mkSession()], solves))[0].solves;
+    expect(back.map((s) => s.phases)).toEqual([[3_000, 4_000, 5_000], [4_000, 6_000], undefined, undefined]);
+    // E o caminho inteiro: do arquivo para o Klick, com as fases no solve novo.
+    const imported = csTimerToKlick(parseCsTimer(toCsTimerJson([mkSession()], solves)), {}, ctx()).solves;
+    expect(imported.map((s) => s.phases)).toEqual([[3_000, 4_000, 5_000], [4_000, 6_000], undefined, undefined]);
+    expect(imported.every((s, i) => i < 2 || !('phases' in s))).toBe(true);
+  });
+
   describe('leitura do arquivo', () => {
     const csText = (body: Loose): string => JSON.stringify(body);
     // Um solve como o csTimer grava: [[penalidade, ms], embaralhamento, comentário, segundos].
@@ -398,6 +429,27 @@ describe('csTimer', () => {
     it('tempos de fases e campos a mais no item são ignorados', () => {
       const text = csText({ session1: [[[0, 5_000, 2_000, 3_000], 'R', 'ok', 1_791_400_000, 'extra', 9]] });
       expect(parseCsTimer(text)[0].solves).toEqual([{ ms: 5_000, penalty: null, scramble: 'R', note: 'ok', at: AT }]);
+    });
+    // Multifase do csTimer (src/js/stats/stats.js, prettyMPA e timeAtDim; src/js/timer.js, onkeydown): [penalidade, total, c(N-1), ..., c1],
+    // com os tempos das fases ACUMULADOS (desde o início) e em ordem DECRESCENTE depois do total, que é o ms do solve.
+    it('lê as fases do multiphase: acumuladas, em ordem decrescente depois do total', () => {
+      const text = csText({ session1: [[[0, 12_000, 7_000, 3_000], 'R', '', 1_791_400_000]] });
+      expect(parseCsTimer(text)[0].solves[0]).toEqual({ ms: 12_000, penalty: null, scramble: 'R', note: '', at: AT, phases: [3_000, 4_000, 5_000] });
+    });
+    it('duas fases: um só acumulado depois do total; o +2 não mexe nas fases', () => {
+      const text = csText({ session1: [[[2000, 10_000, 4_000], 'R', '', 1_791_400_000]] });
+      expect(parseCsTimer(text)[0].solves[0]).toMatchObject({ ms: 10_000, penalty: '+2', phases: [4_000, 6_000] });
+    });
+    it.each<[string, unknown[]]>([
+      ['acumulados fora de ordem', [0, 12_000, 3_000, 7_000]],
+      ['um acumulado maior que o total', [0, 5_000, 6_000]],
+      ['um valor que não é número', [0, 12_000, '7000', 3_000]],
+      ['um valor negativo', [0, 12_000, 7_000, -1]],
+    ])('fases tortas (%s) ficam de fora e o solve entra sem elas', (_n, head) => {
+      const text = csText({ session1: [[head, 'R', '', 1_791_400_000]] });
+      const [solve] = parseCsTimer(text)[0].solves;
+      expect(solve.ms).toBe(head[1]);
+      expect('phases' in solve).toBe(false);
     });
     it('comentário que não é texto vira nota vazia', () => {
       const text = csText({ session1: [[[0, 5_000], 'R', null, 1_791_400_000], [[0, 6_000], 'R', 7, 1_791_400_001]] });
