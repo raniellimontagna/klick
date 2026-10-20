@@ -113,10 +113,12 @@ describe('wrangler.jsonc', () => {
   // Task 12 (a leitura de 30 s do limite de CPU dos Durable Objects): os tamanhos que a cópia do dia e a restauração aceitam, em registros
   // da conta. Na leitura de 10 ms, as duas vão a 0 (nenhuma cópia, toda restauração recusada), só na configuração. A cópia do dia não pára
   // mais no que o app restaura num dia (o dia útil, recordsPerDay): uma conta grande sai em partes, a cada BIG_COPY_EVERY_DAYS dias, e a
-  // restauração que não cabe no dia vira um download (spec das cópias grandes). O teto sobe para 250 mil registros, nos dois ambientes.
+  // restauração que não cabe no dia vira um download (spec das cópias grandes). O teto fica em 150 mil registros, nos dois ambientes (a
+  // revisão final, I3): o tempo de relógio de uma cópia em partes e de uma restauração no servidor ainda não foi medido com a latência de
+  // verdade, e 150 mil cobrem uma conta de 100 mil solves com a lixeira e as sessões; subir espera o portão do README.
   it('os tamanhos da cópia do dia e da restauração ficam na configuração, nos dois ambientes', () => {
     for (const vars of [config.vars, config.env.production.vars]) {
-      expect(vars.SNAPSHOT_MAX_RECORDS).toBe('250000');
+      expect(vars.SNAPSHOT_MAX_RECORDS).toBe('150000');
       expect(vars.RESTORE_MAX_RECORDS).toBe('5000');
     }
   });

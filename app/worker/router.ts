@@ -282,8 +282,10 @@ export async function handle(request: Request, env: Env, ctx: ExecutionContext, 
     // nunca recebe o 200 que aquele app não entende (Review Focus 1 das cópias grandes).
     const body = await readJson(request);
     const device = !(body instanceof Response) && isRec(body) && body.device === true;
-    const outcome = await account.restoreSnapshot(name, deps.now(), device);
-    log({ evt: 'restore', user: user.id, ...(typeof outcome === 'object' ? { outcome: 'device', parts: outcome.parts } : { outcome }) });
+    const started = deps.now();
+    const outcome = await account.restoreSnapshot(name, started, device);
+    // O tempo de relógio (`ms`): a restauração roda dentro de blockConcurrencyWhile (30 s), e o portão do README o confere no `wrangler tail`.
+    log({ evt: 'restore', user: user.id, ...(typeof outcome === 'object' ? { outcome: 'device', parts: outcome.parts } : { outcome }), ms: deps.now() - started });
     if (outcome === 'deleted') return fail(401, 'auth');
     if (outcome === 'ok') return new Response(null, { status: 204 });
     if (typeof outcome === 'object') return json({ restore: 'device', parts: outcome.parts });

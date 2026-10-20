@@ -385,10 +385,10 @@ describe('os tamanhos que cabem (Task 12)', () => {
     expect(rowsOf(RECORDS_PER_DAY) + rowsOf(0, COMPACT_PER_DAY)).toBeLessThanOrEqual(DAILY_WRITE_BUDGET);
     expect(rowsOf(RECORDS_PER_DAY + 1) + rowsOf(0, COMPACT_PER_DAY)).toBeGreaterThan(DAILY_WRITE_BUDGET);
     // As vars do beta (wrangler.jsonc; a raiz em tests/unit/wrangler-config.test.ts). A cópia do dia não pára mais no que o app restaura num
-    // dia: uma conta grande sai em partes e a restauração, quando não cabe no dia, vira um download (spec das cópias grandes), então o teto
-    // sobe para 250 mil, o que a memória do objeto aguenta em partes de COPY_PART_RECORDS.
+    // dia: uma conta grande sai em partes e a restauração, quando não cabe no dia, vira um download (spec das cópias grandes). O teto fica em
+    // 150 mil (a revisão final, I3): uma conta de 100 mil solves com a lixeira e as sessões, até o tempo de relógio ser medido no beta.
     const caps = capsOf(env as unknown as Env);
-    expect([caps.snapshotRecords, caps.restoreRecords]).toEqual([250_000, 5_000]);
+    expect([caps.snapshotRecords, caps.restoreRecords]).toEqual([150_000, 5_000]);
     expect([COPY_PART_RECORDS, BIG_COPY_EVERY_DAYS, COPY_PART_READS_PER_DAY]).toEqual([5_000, 7, 200]);
   });
 

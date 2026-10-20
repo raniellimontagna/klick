@@ -22,7 +22,7 @@ import {
   type SyncStore,
 } from '../src/core/sync/types';
 import type { KlickExport, ProfilePatch } from '../src/core/types';
-import { copyRoom, countRows, releaseStorage, reserveCopy, reserveRows, rowsRoom, takeOps } from './budget';
+import { copyRoom, countRows, releaseStorage, reserveCopy, reserveRows, reserveStorage, rowsRoom, takeOps } from './budget';
 import type { Env } from './env';
 import {
   ACCOUNT_BYTES_CAP,
@@ -63,6 +63,7 @@ import {
   PAGE_AFTER,
   PREFS_ROWS,
   RANGE_AFTER,
+  RECORDS_BOUND,
   RECORDS_SCHEMA,
   rowToChange,
   SLICE_PAGE,
@@ -772,7 +773,9 @@ export class AccountStore extends DurableObject<Env> {
   // de a reserva do espaço ou da operação A ter sido recusada (nada fica gravado nem reservado). Até COPY_PART_RECORDS registros, o arquivo
   // só de sempre, com a conta inteira lida de uma vez (`all`). Acima, a cópia em partes (writeParts): o objeto nunca tem a conta inteira na
   // memória, só uma página. A contagem é limitada a COPY_PART_RECORDS + 1 linhas, e entra no orçamento de leituras como as outras.
-  // Uma recusa deixa a estimativa (`gz`) com o tamanho do que chegou a ser comprimido, para o copyRoom do dia seguinte.
+  // Uma recusa deixa a estimativa (`gz`) com o tamanho do que chegou a ser comprimido, para o copyRoom do dia seguinte. A cópia gravada vai
+  // para o log ({evt:'copy'}) com as partes (0 num arquivo só) e o tempo de relógio dela (`ms`): tudo roda dentro de blockConcurrencyWhile,
+  // que tem 30 s, e o `wrangler tail` mostra quanto uma conta grande gasta de verdade (o portão do README).
   private async writeCopy(
     userId: string,
     name: string,
@@ -780,6 +783,20 @@ export class AccountStore extends DurableObject<Env> {
     now: number,
     caps: Caps,
   ): Promise<{ gz: number } | CopiesPaused> {
+    const started = Date.now();
+    const done = await this.writeCopyIn(userId, name, meta, now, caps);
+    if (typeof done === 'string') return done;
+    console.log(JSON.stringify({ evt: 'copy', user: userId, kind: meta.kind, parts: done.parts, ms: Date.now() - started }));
+    return { gz: done.gz };
+  }
+
+  private async writeCopyIn(
+    userId: string,
+    name: string,
+    meta: { kind: 'daily' | 'pre-restore'; day: string },
+    now: number,
+    caps: Caps,
+  ): Promise<{ gz: number; parts: number } | CopiesPaused> {
     if (this.recordCount(COPY_PART_RECORDS, now) > COPY_PART_RECORDS) return this.writeParts(userId, name, meta, now, caps);
     const data = exportFromRecords(this.all(now), now);
     const gz = await gzipJson(data);
@@ -789,7 +806,13 @@ export class AccountStore extends DurableObject<Env> {
       return paused;
     }
     await this.env.SNAPSHOTS.put(snapshotKey(userId, name), gz, { customMetadata: { ...meta, solves: String(activeSolves(data)) } });
-    return { gz: gz.byteLength };
+    return { gz: gz.byteLength, parts: 0 };
+  }
+
+  // Um teto do número de registros da conta, lido numa linha (RECORDS_BOUND, o maior rowid), contado no orçamento de leituras.
+  private recordsBound(now: number): number {
+    this.countReads(1, now);
+    return this.sql.exec<{ n: number }>(RECORDS_BOUND).one().n;
   }
 
   // A cópia em partes (spec das cópias grandes, seção 4). A conta é lida por páginas de COPY_PART_RECORDS registros na ordem da chave
@@ -797,22 +820,31 @@ export class AccountStore extends DurableObject<Env> {
   // memória fica em torno de uma página. As páginas particionam as chaves: a primeira começa depois de ('', ''), e cada uma depois da última
   // linha do SQL da anterior, mesmo a que a cópia não leva (marca compactada, treino apagado); `last` do manifesto é essa chave, e
   // `records`, as linhas da página, para a faixa de cada parte (sliceOf) ser a página dela na restauração. Os ajustes (`prefs`) ficam fora
-  // das páginas e vão no perfil do manifesto. Cada parte reserva o espaço e a operação A dela antes do put, e o manifesto, gravado por
-  // último, também: uma cópia é o manifesto mais todas as partes, ou nada (o manifesto é o que a lista mostra, e o que faltar não aparece).
-  // Uma reserva recusada no meio apaga as partes já gravadas (apagar no R2 não custa operação) e devolve o espaço delas; um erro do R2 (ou
-  // do SQLite) faz o mesmo e segue para quem chamou. Sem uma parte depois de MAX_PARTS, a conta passa do que a cópia aguenta ('size').
+  // das páginas e vão no perfil do manifesto. Uma cópia é o manifesto mais todas as partes, ou nada (o manifesto, gravado por último, é o
+  // que a lista mostra, e o que faltar não aparece).
+  //
+  // As operações A de todas as partes e do manifesto saem antes de gravar, numa reserva só (a revisão final, I3: cada ida ao D1 é tempo de
+  // relógio dentro de blockConcurrencyWhile, que tem 30 s), pelo teto do tamanho da conta (recordsBound): N partes no máximo, mais o
+  // manifesto. Sem elas, nada é gravado ('ops'). O espaço continua reservado parte a parte, antes de cada put, e o do manifesto também. Uma
+  // recusa no meio, ou um erro do R2 (ou do SQLite), apaga as partes já gravadas (apagar no R2 não custa operação), devolve o espaço delas
+  // uma vez só (discard pode rodar de novo no catch) e segue; as operações já reservadas ficam contadas (a mais, nunca a menos). Uma parte
+  // além das N (o teto nunca fica abaixo da conta, mas a regra não depende disso) reserva a operação dela antes. Sem uma parte depois de
+  // MAX_PARTS, a conta passa do que a cópia aguenta ('size').
   private async writeParts(
     userId: string,
     name: string,
     meta: { kind: 'daily' | 'pre-restore'; day: string },
     now: number,
     caps: Caps,
-  ): Promise<{ gz: number } | CopiesPaused> {
+  ): Promise<{ gz: number; parts: number } | CopiesPaused> {
     const bucket = this.env.SNAPSHOTS;
     const keys: string[] = [];
     let bytes = 0; // o espaço reservado até aqui, as partes gravadas
+    let released = false;
     const discard = async (): Promise<void> => {
       if (keys.length > 0) await bucket.delete(keys);
+      if (released) return;
+      released = true;
       await releaseStorage(this.env.DB, bytes);
     };
     const refuse = async (why: CopiesPaused, pending: number): Promise<CopiesPaused> => {
@@ -820,6 +852,8 @@ export class AccountStore extends DurableObject<Env> {
       this.setCopies({ ...this.copies(), gz: Math.max(this.copies().gz ?? 0, bytes + pending) });
       return why;
     };
+    const ops = Math.min(MAX_PARTS, Math.max(1, Math.ceil(this.recordsBound(now) / COPY_PART_RECORDS)));
+    if (!(await takeOps(this.env.DB, 'A', ops + 1, now, caps.classAMonth))) return refuse('ops', 0);
     try {
       const parts: CopyManifest['parts'] = [];
       let solves = 0;
@@ -834,8 +868,8 @@ export class AccountStore extends DurableObject<Env> {
         const data = exportFromRecords(rows.map(rowToChange), now);
         const part: CopyPart = { sessions: data.sessions, solves: data.solves, practice: data.practice ?? [], duels: data.duels ?? [] };
         const gz = await gzipJson(part);
-        const refused = await reserveCopy(this.env.DB, gz.byteLength, now, caps);
-        if (refused !== null) return await refuse(refused, gz.byteLength);
+        if (parts.length >= ops && !(await takeOps(this.env.DB, 'A', 1, now, caps.classAMonth))) return await refuse('ops', gz.byteLength);
+        if (!(await reserveStorage(this.env.DB, gz.byteLength, now, caps.snapshotBytes))) return await refuse('space', gz.byteLength);
         const key = partKey(userId, name, parts.length + 1);
         keys.push(key);
         bytes += gz.byteLength; // reservado: se o put falhar, o catch o devolve
@@ -848,11 +882,10 @@ export class AccountStore extends DurableObject<Env> {
       this.countReads(prefs.length, now);
       const manifest: CopyManifest = { format: 'klick-parts', version: 1, exportedAt: now, day: meta.day, profile: exportFromRecords(prefs.map(rowToChange), now).profile, solves, parts };
       const gz = await gzipJson(manifest);
-      const refused = await reserveCopy(this.env.DB, gz.byteLength, now, caps);
-      if (refused !== null) return await refuse(refused, gz.byteLength);
+      if (!(await reserveStorage(this.env.DB, gz.byteLength, now, caps.snapshotBytes))) return await refuse('space', gz.byteLength);
       bytes += gz.byteLength;
       await bucket.put(snapshotKey(userId, name), gz, { customMetadata: { ...meta, solves: String(solves), parts: String(parts.length) } });
-      return { gz: bytes };
+      return { gz: bytes, parts: parts.length };
     } catch (error) {
       await discard().catch(() => undefined); // o erro que importa é o primeiro
       throw error;

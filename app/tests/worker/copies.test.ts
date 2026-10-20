@@ -498,11 +498,11 @@ describe('restaurar dentro do grátis (decisões 1, 2 e 3)', () => {
 // servidor não restaura, e só sabe depois de ler a cópia. As duas são vars do wrangler.jsonc, e uma var ausente ou torta vale 0: nenhuma
 // cópia, nenhuma restauração (essa, sem perguntar ao R2).
 describe('os tamanhos que cabem: a cópia e a restauração (Task 12)', () => {
-  const SMALL_CAP = '50'; // o SNAPSHOT_MAX_RECORDS de um teste que precisa passar dele sem semear 250 mil registros
+  const SMALL_CAP = '50'; // o SNAPSHOT_MAX_RECORDS de um teste que precisa passar dele sem semear 150 mil registros
   it('acima de SNAPSHOT_MAX_RECORDS a cópia do dia não sai e o sync diz paused "size"', async () => {
     const user = 'copia-tamanho';
     await sync(user, [session, solve('a')]);
-    await setVars(user, { SNAPSHOT_MAX_RECORDS: SMALL_CAP }); // o teto de verdade (250 mil) pede uma conta enorme: um pequeno, só neste objeto
+    await setVars(user, { SNAPSHOT_MAX_RECORDS: SMALL_CAP }); // o teto de verdade (150 mil) pede uma conta enorme: um pequeno, só neste objeto
     await seedSolves(user, Number(SMALL_CAP) - 1);
     expect(await recordCount(user)).toBe(Number(SMALL_CAP) + 1);
     expect(await stubOf(user).snapshot(T0)).toBe(false);
@@ -767,21 +767,24 @@ describe('a cópia em partes e a cada 7 dias numa conta grande', () => {
     expect(await stubOf(space).snapshot(T0)).toBe(false);
     expect(await objectsOf(space)).toEqual([]); // a parte 1 foi apagada
     expect(await storageUsed(env.DB)).toBe(ROOM - part1 - 5); // o espaço dela voltou
-    expect(await opsOf('A')).toBe(1); // o put da parte 1 já tinha gastado a dele
+    expect(await opsOf('A')).toBe(3); // as operações das duas partes e do manifesto, reservadas antes, ficam contadas (a mais, nunca a menos)
     expect(await stateOf(space, 'snapshotRev')).toBeNull();
     expect(await stateOf(space, 'lastSnapshotDay')).toBeNull();
     expect((await sync(space, [])).copiesPaused).toBe('space');
     expect(await list(space)).toEqual({ status: 200, body: { copies: [], paused: 'space' } });
 
-    // Operações: sem a A da parte 2 (k = 2) e, em outra conta, sem a do manifesto (k = N + 1).
+    // Operações: as N + 1 (as partes e o manifesto) saem de uma vez, antes de gravar (I3): sem a da parte 2 (k = 2) ou, em outra conta, sem
+    // a do manifesto (k = N + 1), nada vai ao R2 e nada fica contado.
     for (const [user, left] of [['partes-sem-op-2', 1], ['partes-sem-op-manifesto', 2]] as const) {
       await env.DB.batch([env.DB.prepare('DELETE FROM r2_ops'), env.DB.prepare('DELETE FROM r2_storage')]);
       await accountWith(user, COPY_PART_RECORDS + 1);
       await seedOps('A', caps.classAMonth - left);
+      const r2 = await countR2(user);
       expect(await stubOf(user).snapshot(T0), user).toBe(false);
+      expect([r2.put, r2.delete], user).toEqual([undefined, undefined]); // nenhuma parte gravada (nem apagada)
       expect(await objectsOf(user), user).toEqual([]);
       expect(await storageUsed(env.DB), user).toBe(0);
-      expect(await opsOf('A'), user).toBe(caps.classAMonth);
+      expect(await opsOf('A'), user).toBe(caps.classAMonth - left);
       expect(await stateOf(user, 'snapshotRev'), user).toBeNull();
       expect((await sync(user, [])).copiesPaused, user).toBe('ops');
     }
@@ -790,6 +793,53 @@ describe('a cópia em partes e a cada 7 dias numa conta grande', () => {
     expect(await stubOf('partes-sem-op-2').snapshot(T0)).toBe(true);
     expect(await objectsOf('partes-sem-op-2')).toHaveLength(3);
     expect((await sync('partes-sem-op-2', [])).copiesPaused).toBeNull();
+  });
+
+  it('a recusa que falha depois de devolver o espaço não o devolve de novo no catch', async () => {
+    await accountWith('partes-medida-2', COPY_PART_RECORDS + 1);
+    expect(await stubOf('partes-medida-2').snapshot(T0)).toBe(true);
+    const part1 = (await env.SNAPSHOTS.head(partKey('partes-medida-2', dayOf(T0), 1)))!.size;
+    await env.DB.batch([env.DB.prepare('DELETE FROM r2_ops'), env.DB.prepare('DELETE FROM r2_storage')]);
+    const user = 'partes-devolve-uma-vez';
+    await accountWith(user, COPY_PART_RECORDS + 1);
+    await seedUsed(ROOM - part1 - 5); // a parte 1 cabe e a 2 não
+    // A estimativa (`copies`) que a recusa grava falha uma vez, depois de apagar a parte 1 e devolver o espaço dela.
+    await runInDurableObject(stubOf(user), (instance) => {
+      const o = instance as unknown as { sql: SqlStorage };
+      const real = o.sql;
+      let armed = true;
+      o.sql = new Proxy(real, {
+        get(target, key) {
+          const value = Reflect.get(target, key) as unknown;
+          if (key !== 'exec') return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+          return (query: string, ...bindings: unknown[]) => {
+            if (armed && query.startsWith('INSERT INTO state') && bindings[0] === 'copies') {
+              armed = false;
+              throw new Error('SQLite: falha');
+            }
+            return target.exec(query, ...(bindings as SqlStorageValue[]));
+          };
+        },
+      });
+    });
+    await expect(stubOf(user).snapshot(T0)).rejects.toThrow('SQLite: falha');
+    expect(await objectsOf(user)).toEqual([]);
+    expect(await storageUsed(env.DB)).toBe(ROOM - part1 - 5); // devolvido uma vez só
+  });
+
+  it('a cópia em partes vai para o log com as partes e o tempo de relógio; a restauração também leva o tempo', async () => {
+    const user = 'partes-log';
+    await accountWith(user, COPY_PART_RECORDS + 1);
+    const out = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      expect(await stubOf(user).snapshot(T0)).toBe(true);
+      expect((await restore(user, dayOf(T0), T0 + 1000)).status).toBe(204);
+      const logged = out.mock.calls.map(([line]) => JSON.parse(String(line)) as Record<string, unknown>);
+      expect(logged).toContainEqual({ evt: 'copy', user, kind: 'daily', parts: 2, ms: expect.any(Number) });
+      expect(logged).toContainEqual({ evt: 'restore', user, outcome: 'ok', ms: expect.any(Number) });
+    } finally {
+      out.mockRestore();
+    }
   });
 
   it('conta grande copia só a cada BIG_COPY_EVERY_DAYS dias', async () => {

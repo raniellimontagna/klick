@@ -52,6 +52,11 @@ export const STORED_BYTES = 'SELECT coalesce(sum(length(CAST(data AS BLOB))), 0)
 // inteira (Task 12), com o limite em uso + 1, o bastante para saber que ela passou dele, sem percorrer uma conta enorme inteira (revisão
 // final). A restauração não conta a conta: compara (account-store.ts, restoreSnapshot).
 export const COUNT_RECORDS = 'SELECT count(*) AS n FROM (SELECT 1 FROM records LIMIT ?)';
+// Um teto do tamanho da conta em registros, lido numa linha só: o maior rowid. O SQLite dá a cada linha nova o maior rowid + 1, e a conta
+// nunca apaga um registro (só o apagar da conta, que recomeça o banco), então ele é o número de registros, os ajustes inclusive; com uma
+// linha apagada, passaria do número, nunca ficaria abaixo. A cópia em partes reserva por ele as operações A de todas as partes de uma vez
+// (account-store.ts, writeParts) e estima as leituras dela, sem contar a conta inteira.
+export const RECORDS_BOUND = 'SELECT coalesce(max(rowid), 0) AS n FROM records';
 
 // A cópia em partes (account-store.ts, writeCopy) lê a conta por páginas na ordem da chave (store, id), a ordem da tabela: os registros
 // depois da chave (?1, ?2), no máximo ?3, sem os ajustes (`prefs`, que o manifesto leva à parte: PREFS_ROWS). A primeira página começa

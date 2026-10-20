@@ -14,11 +14,16 @@
 // de 30 s do limite de CPU dos Durable Objects (decidem a memória e as linhas do dia: docs/superpowers/measurements/2026-10-17-conta-100k.md).
 // Na leitura de 10 ms, os dois vão a "0" (nenhuma cópia, nenhuma restauração), sem mudar código; a cascata de apagar uma sessão grande (uns
 // milhares de solves) não tem var e pediria um teto no código (worker/limits.ts).
-// SNAPSHOT_MAX_RECORDS fica em 250000, nos dois ambientes: uma conta com mais de COPY_PART_RECORDS registros sai em partes (um manifesto e as
+// SNAPSHOT_MAX_RECORDS fica em 150000, nos dois ambientes: uma conta com mais de COPY_PART_RECORDS registros sai em partes (um manifesto e as
 // partes de 5.000 registros, lidas uma página por vez: a memória do objeto é a de uma parte, e não a da conta), e uma conta acima do dia
 // útil (RECORDS_PER_DAY, worker/limits.ts) copia só a cada BIG_COPY_EVERY_DAYS dias (7), para as cópias de contas grandes (uma de 50 mil
 // solves grava ~74 MB) não ocuparem o espaço gratuito de todas as contas todo dia. A cópia grande não precisa caber num dia de gravações:
-// o aparelho a baixa e restaura o que o servidor não restaura (o que cabe no dia, no servidor, como antes).
+// o aparelho a baixa e restaura o que o servidor não restaura (o que cabe no dia, no servidor, como antes). Por que 150 mil, e não mais: a
+// cópia e a restauração rodam dentro de blockConcurrencyWhile, que tem 30 s de relógio, e esse tempo (a CPU mais cada ida ao R2 e ao D1)
+// ainda não foi medido com a latência de verdade; 150 mil cobrem uma conta de 100 mil solves com a lixeira e as sessões. Subir esta var
+// espera o portão do README (a conta de 100 mil solves no beta, com o `ms` dos logs no `wrangler tail`).
+// Os downloads da restauração pelo aparelho (copyPart) gravam cada um uma linha do estado (`partReads`, no máximo
+// COPY_PART_READS_PER_DAY = 200 por conta por dia): ficam fora do teto ROWS_WRITTEN_DAY_CAP, abaixo, e dentro da folga de 30%.
 // O teto de linhas gravadas por dia (ROWS_WRITTEN_DAY_CAP; decisão 6 e o portão 11 do README): as 100 mil linhas que os Durable Objects
 // do grátis gravam por dia são da conta inteira (o beta, a raiz e os outros projetos), e passadas elas toda gravação de todo objeto falha
 // até a virada do dia UTC. Cada ambiente soma as linhas de todas as contas dele no próprio D1 e para no teto: 10 mil no beta e 60 mil na
@@ -67,7 +72,7 @@
     "R2_CLASS_B_MONTH": "500000",
     "MAIL_PER_DAY": "10",
     "MAIL_PER_MONTH": "250",
-    "SNAPSHOT_MAX_RECORDS": "250000",
+    "SNAPSHOT_MAX_RECORDS": "150000",
     "RESTORE_MAX_RECORDS": "5000",
     "ROWS_WRITTEN_DAY_CAP": "10000"
   },
@@ -97,7 +102,7 @@
         "R2_CLASS_B_MONTH": "5000000",
         "MAIL_PER_DAY": "80",
         "MAIL_PER_MONTH": "2500",
-        "SNAPSHOT_MAX_RECORDS": "250000",
+        "SNAPSHOT_MAX_RECORDS": "150000",
         "RESTORE_MAX_RECORDS": "5000",
         "ROWS_WRITTEN_DAY_CAP": "60000"
       }
