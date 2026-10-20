@@ -140,6 +140,7 @@ const hasDeletion = (changes: readonly Change[]): boolean => changes.some((c) =>
 const deferredOf = (v: unknown, sent: number): number => (Number.isSafeInteger(v) && (v as number) > 0 ? Math.min(v as number, sent) : 0);
 const retryAtOf = (v: unknown): number | null => (Number.isSafeInteger(v) ? (v as number) : null);
 const copiesPausedOf = (v: unknown): CopiesPaused | null | undefined => (v === null || isCopiesPaused(v) ? v : undefined);
+const isFloor = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0; // o que o servidor aceita em SyncRequest.floor
 
 // A cópia antes de apagar em massa (spec 6.6), por rodada: os solves daqui que os lotes da rodada já apagaram e se a cópia 'pre-sync' já
 // saiu nela. Uma sessão apagada chega aos outros aparelhos como exclusões comuns, em páginas (a fila manda os solves antes dela): uma cópia
@@ -241,8 +242,19 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
     const batch = push ? await deps.repo().outboxBatch(SYNC_BATCH) : { changes: [], sent: [], refused: 0, missing: 0, held: 0 };
     refused += batch.refused;
     missing += batch.missing;
+    // O piso da última restauração pelo aparelho (A1) vai em todo pedido até o servidor o confirmar (floorSet): um Worker de antes o ignora,
+    // e ele vai de novo. Um valor torto no estado não vai (o servidor recusaria o pedido inteiro).
+    const floor = isFloor(state.pendingFloor) ? state.pendingFloor : null;
     const answered = deps.clock?.send();
-    const res = await deps.api.sync({ v: SYNC_PROTOCOL, account: accountId, deviceId: meta.deviceId, cursor: state.cursor, clock: state.clock, changes: batch.changes });
+    const res = await deps.api.sync({
+      v: SYNC_PROTOCOL,
+      account: accountId,
+      deviceId: meta.deviceId,
+      cursor: state.cursor,
+      clock: state.clock,
+      changes: batch.changes,
+      ...(floor === null ? {} : { floor }),
+    });
     const at = now(); // a hora da resposta, no relógio daqui: a espera do orçamento conta a partir dela
     answered?.(res.serverTime);
     await sameAccount(accountId);
@@ -287,6 +299,7 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
       build,
       pushAfter,
       copiesPaused: copiesPausedOf(res.copiesPaused),
+      ...(floor !== null && res.floorSet === true ? { floorSent: floor } : {}),
     });
     return {
       more: res.more,

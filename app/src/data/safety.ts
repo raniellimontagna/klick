@@ -205,9 +205,10 @@ export async function restoreBackup(repo: Repository, id: string, now: number): 
 
 // A restauração de uma cópia que não veio do banco daqui (a que o aparelho baixou da nuvem, já conferida por quem chama): o estado de agora
 // vai antes para uma cópia 'pre-restore' e então replaceAll aplica só as diferenças. Se a cópia local falha, rejeita sem gravar a troca.
-export async function restoreExport(repo: Repository, data: KlickExport, now: number): Promise<void> {
+// `floor`: o piso da restauração pelo aparelho (A1), que replaceAll guarda com ela.
+export async function restoreExport(repo: Repository, data: KlickExport, now: number, floor?: number): Promise<void> {
   await createBackup(repo, 'pre-restore', now);
-  await repo.replaceAll(data);
+  await repo.replaceAll(data, { floor });
 }
 
 // --- Armazenamento persistente ---

@@ -540,3 +540,83 @@ describe('restaurar uma cópia de antes do nome dos desafios', () => {
     expect((await repo.getProfile()).duelName).toBe('');
   });
 });
+
+// O acabamento (A1): a restauração pelo aparelho é "a última restauração vence". O aparelho gasta uma data do relógio (o piso) antes de
+// gravar a restauração, e ela fica guardada (pendingFloor) com a restauração, na mesma transação: o sync a manda, e o servidor faz perder o
+// que vem de antes dela. O que espera na fila daqui (ou só neste aparelho, pela cota) e a restauração deixa como está também é dela: ganha
+// a data dela, senão perderia para o piso do próprio aparelho quando subisse.
+describe('o piso da restauração pelo aparelho', () => {
+  it('burnStamp gasta a próxima data do relógio: toda escrita depois dela sai com uma data maior', async () => {
+    const { db, repo } = await fresh('conta-1');
+    const s = await repo.createSession({ event: '333' });
+    const floor = await repo.burnStamp();
+    expect(floor).toBeGreaterThan((await db.get('sessions', s.id))!.updatedAt);
+    expect((await repo.getSyncState()).clock).toBe(floor);
+    const solve = await repo.addSolve(ns(s.id, 1000)); // o relógio de agora (t) não passou
+    expect((await db.get('solves', solve.id))!.updatedAt).toBeGreaterThan(floor);
+  });
+
+  it('com o piso, a restauração o guarda, os passos dela ficam acima dele, e o que esperava aqui e ela deixa como está ganha a data dela', async () => {
+    const { db, repo } = await fresh('conta-1');
+    const s = await repo.createSession({ event: '333' });
+    for (const id of ['p', 'q', 'h', 'd', 'x']) await repo.addSolve({ id, ...ns(s.id, 1000) });
+    await db.clear('outbox');
+    await repo.updateSolve('p', { note: 'na fila' }); // espera na fila
+    await repo.deleteSolve('d'); // a exclusão espera na fila
+    await db.put('meta', ['solves/h'], 'held'); // a conta o recusou pela cota: só neste aparelho
+    const here = await repo.exportAll();
+    // A cópia é o estado daqui, sem o x e com um n que só ela tem: o p, o d e o h ela deixa como estão.
+    const copy: KlickExport = { ...here, solves: [...here.solves.filter((x) => x.id !== 'x'), { ...here.solves.find((x) => x.id === 'q')!, id: 'n' }] };
+    const before = (id: string) => db.get('solves', id);
+    const q = (await before('q'))!;
+    const dGone = (await before('d'))!.deletedAt;
+    t += 60_000;
+    const floor = await repo.burnStamp();
+    await repo.replaceAll(copy, { floor });
+    expect((await repo.getSyncState()).pendingFloor).toBe(floor);
+    const at = (await before('n'))!.updatedAt;
+    expect(at).toBeGreaterThan(floor);
+    expect(await before('x')).toMatchObject({ updatedAt: at, deletedAt: at, deletionStamp: at });
+    expect(await before('p')).toMatchObject({ note: 'na fila', updatedAt: at, deletionStamp: at, deletedAt: null });
+    expect(await before('d')).toMatchObject({ updatedAt: at, deletionStamp: at, deletedAt: dGone });
+    expect(await before('h')).toMatchObject({ updatedAt: at, deletionStamp: at, deletedAt: null });
+    expect(await before('q')).toEqual(q); // nem na fila nem guardado: fica como estava
+    // Na fila, as exclusões na frente (A2); o h continua só neste aparelho, fora dela.
+    const { sent } = await repo.outboxBatch(10);
+    expect(sent.map((e) => `${e.store}/${e.id}`)).toEqual(['solves/d', 'solves/x', 'solves/n', 'solves/p']);
+    expect(await db.get('meta', 'held')).toEqual(['solves/h']);
+  });
+
+  it('sem o piso (a cópia deste aparelho), nada é guardado e o que espera na fila fica com a data dele', async () => {
+    const { db, repo } = await fresh('conta-1');
+    const s = await repo.createSession({ event: '333' });
+    await repo.addSolve({ id: 'p', ...ns(s.id, 1000) });
+    const here = await repo.exportAll();
+    const p = (await db.get('solves', 'p'))!;
+    t += 60_000;
+    await repo.replaceAll(here);
+    expect((await repo.getSyncState()).pendingFloor).toBeNull();
+    expect(await db.get('solves', 'p')).toEqual(p);
+  });
+
+  it('o piso sai do estado quando o servidor confirma o que foi mandado; um mais novo, gravado no meio, fica', async () => {
+    const { repo } = await fresh('conta-1');
+    await repo.saveSyncState({ pendingFloor: t - 10 });
+    await repo.applyRemote([], t, 'conta-1', { cursor: 1, lastSyncAt: t }); // sem a confirmação
+    expect((await repo.getSyncState()).pendingFloor).toBe(t - 10);
+    await repo.applyRemote([], t, 'conta-1', { cursor: 2, lastSyncAt: t, floorSent: t - 10 });
+    expect((await repo.getSyncState()).pendingFloor).toBeNull();
+    await repo.saveSyncState({ pendingFloor: t - 5 }); // outra restauração enquanto o pedido do piso de antes estava na rede
+    await repo.applyRemote([], t, 'conta-1', { cursor: 3, lastSyncAt: t, floorSent: t - 10 });
+    expect((await repo.getSyncState()).pendingFloor).toBe(t - 5);
+  });
+
+  it('o primeiro login noutra conta tira o piso da conta de antes; a mesma conta o guarda', async () => {
+    const { repo } = await fresh('conta-1');
+    await repo.saveSyncState({ pendingFloor: t });
+    await repo.beginFirstSync({ accountId: 'conta-1', email: 'a@b.c' });
+    expect((await repo.getSyncState()).pendingFloor).toBe(t);
+    await repo.beginFirstSync({ accountId: 'conta-2', email: 'a@b.c' });
+    expect((await repo.getSyncState()).pendingFloor).toBeNull();
+  });
+});

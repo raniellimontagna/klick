@@ -37,6 +37,7 @@ import {
   COPY_READS_EXTRA,
   DAILY_READ_BUDGET,
   DAILY_WRITE_BUDGET,
+  DEVICE_FLOOR_AHEAD_MS,
   DEVICE_TOUCH_MS,
   MAX_DEVICES,
   MAX_WRITES_PER_REQUEST,
@@ -565,6 +566,9 @@ export class AccountStore extends DurableObject<Env> {
   // O orçamento de leituras (revisão final, I2 c): passadas DAILY_READ_BUDGET linhas lidas no dia, o pedido não lê nada (unread). Senão, as
   // linhas que ele leu (as contagens da cascata, os registros do lote, a página) contam. O aparelho do pedido vem depois, fora da transação
   // (touchDevice): um sync que só recebe, com a linha do aparelho fresca, não grava nada, e o recebimento nunca cai por uma gravação.
+  //
+  // O piso de uma restauração pelo aparelho (`floor`, o acabamento A1) sobe restoreFloor na transação que junta o lote, antes dele, e a
+  // resposta o confirma (`floorSet`). O pedido que não é lido (sem leituras no dia) não o sobe nem o confirma: o aparelho o manda de novo.
   async syncBatch(userId: string, req: SyncRequest, now: number): Promise<SyncResponse | 'deleted'> {
     const done = await this.exclusive(async (): Promise<{ response: SyncResponse; unread: boolean } | 'deleted'> => {
       const plan = this.ctx.storage.transactionSync(() => {
@@ -595,7 +599,10 @@ export class AccountStore extends DurableObject<Env> {
       const { response, rows } = this.ctx.storage.transactionSync(() => {
         const from = req.cursor > Number(this.getState('rev') ?? '0') ? 0 : req.cursor;
         const batch = this.batch();
-        const floor = Number(this.getState('restoreFloor') ?? '0'); // a última restauração no servidor (I1): o que vem de antes dela perde
+        // O piso de uma restauração pelo aparelho (A1) sobe antes de juntar o lote, que já é julgado por ele (os passos da restauração ficam
+        // acima dele e passam), até a hora do servidor mais DEVICE_FLOOR_AHEAD_MS. Uma linha do estado, como a da restauração de 0 mudanças.
+        if (req.floor !== undefined) this.raiseFloor(Math.min(req.floor, now + DEVICE_FLOOR_AHEAD_MS));
+        const floor = Number(this.getState('restoreFloor') ?? '0'); // a última restauração (I1 e A1): o que vem de antes dela perde
         const result = applyChanges(batch.view, cut.read, { mode: 'server', quota: { active: usage.active }, admit: bytesCap(batch, usage.bytes), floor });
         const rows = this.commit(result, batch, usage);
         const size = req.changes.length > 0 ? PULL_PAGE_WITH_PUSH : PULL_PAGE;
@@ -612,6 +619,7 @@ export class AccountStore extends DurableObject<Env> {
           serverTime: now,
           ...(deferred > 0 ? { deferred, retryAt } : {}),
           copiesPaused: this.copies().paused,
+          ...(req.floor === undefined ? {} : { floorSet: true as const }),
         };
         return { response, rows };
       });

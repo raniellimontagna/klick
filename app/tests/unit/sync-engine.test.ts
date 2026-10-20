@@ -1839,6 +1839,86 @@ describe('a cota e o orçamento do dia (endurecimento 4.1 e decisões 4 e 6)', (
   });
 });
 
+// O acabamento (A1): o piso de uma restauração pelo aparelho (pendingFloor, gravado com ela) vai no pedido seguinte (`floor`) e sai do estado
+// só quando o servidor o confirma (`floorSet`). Um Worker de antes ignora o campo e não confirma: o piso fica e vai de novo (inofensivo).
+describe('o piso da restauração pelo aparelho no sync', () => {
+  const floors = (calls: SyncRequest[]) => calls.map((r) => ('floor' in r ? r.floor : null));
+
+  it('vai no próximo pedido, uma vez, e sai do estado com a confirmação do servidor', async () => {
+    const server = new FakeServer();
+    server.now = t;
+    const repo = await device();
+    const net = network(server);
+    const { engine } = engineFor(repo, net);
+    await engine.run();
+    await repo.saveSyncState({ pendingFloor: t - 100 });
+    const before = net.calls.length;
+    await engine.run();
+    expect(floors(net.calls.slice(before))).toEqual([t - 100]);
+    expect((await repo.getSyncState()).pendingFloor).toBeNull();
+    expect(server.floor).toBe(t - 100);
+    await engine.run();
+    expect(floors(net.calls.slice(before + 1))).toEqual([null]); // confirmado: não vai mais
+  });
+
+  it('sem a confirmação (um Worker de antes, um pedido que falha), o piso fica e vai de novo', async () => {
+    const server = new FakeServer();
+    server.now = t;
+    server.floors = false; // o Worker de antes do piso: ignora o campo
+    const repo = await device();
+    const net = network(server);
+    const { engine } = engineFor(repo, net);
+    await repo.saveSyncState({ pendingFloor: t - 100 });
+    await engine.run();
+    await engine.run();
+    expect(floors(net.calls)).toEqual([t - 100, t - 100]);
+    expect((await repo.getSyncState()).pendingFloor).toBe(t - 100);
+    server.floors = true;
+    net.failNext(new ApiError('offline', 0));
+    await engine.run();
+    expect((await repo.getSyncState()).pendingFloor).toBe(t - 100);
+    await engine.run();
+    expect(floors(net.calls)).toEqual([t - 100, t - 100, t - 100, t - 100]);
+    expect((await repo.getSyncState()).pendingFloor).toBeNull();
+  });
+
+  it('um piso torto no estado não vai (o servidor recusaria o pedido inteiro), e o sync segue', async () => {
+    const server = new FakeServer();
+    server.now = t;
+    const repo = await device();
+    const net = network(server);
+    const { engine } = engineFor(repo, net);
+    for (const bad of [1.5, -1]) {
+      await repo.saveSyncState({ pendingFloor: bad });
+      expect(await engine.run(), String(bad)).toMatchObject({ phase: 'idle', error: null });
+    }
+    expect(floors(net.calls)).toEqual([null, null]);
+  });
+
+  it('um piso mais novo, gravado enquanto o pedido do de antes estava na rede, fica para o pedido seguinte', async () => {
+    const server = new FakeServer();
+    server.now = t;
+    const repo = await device();
+    const net = network(server);
+    const real = net.api.sync;
+    let armed = true;
+    net.api.sync = async (req) => {
+      const res = await real(req);
+      if (armed) await repo.saveSyncState({ pendingFloor: t - 5 }); // outra restauração, no meio
+      armed = false;
+      return res;
+    };
+    const { engine } = engineFor(repo, net);
+    await repo.saveSyncState({ pendingFloor: t - 100 });
+    await engine.run();
+    expect((await repo.getSyncState()).pendingFloor).toBe(t - 5);
+    await engine.run();
+    expect(floors(net.calls)).toEqual([t - 100, t - 5]);
+    expect((await repo.getSyncState()).pendingFloor).toBeNull();
+    expect(server.floor).toBe(t - 5);
+  });
+});
+
 describe('dois aparelhos migrados da versão 2 em horas diferentes (spec 5.6 e 6.5)', () => {
   // Gravado direto na versão 2 e aberto na atual (a migração), com o relógio da migração dado.
   async function migrated(trail: boolean[], migratedAt: number): Promise<Repository> {

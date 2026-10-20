@@ -80,6 +80,10 @@ export const COPY_READS_EXTRA = 10_000;
 // ajustes) vai contra o que sobra do orçamento de leituras do dia: sem lugar, ela não compara (o app novo restaura no aparelho; o de antes
 // ouve restore-limit). A revisão final, I5 b.
 export const RESTORE_READS_EXTRA = 50_000;
+// O piso que um aparelho manda depois de restaurar nele (SyncRequest.floor, o acabamento A1) vem do relógio dele: até a primeira resposta do
+// servidor, um aparelho adiantado o daria no futuro, e cada mudança dos outros aparelhos até lá perderia. O servidor o aceita até a hora
+// dele mais isto.
+export const DEVICE_FLOOR_AHEAD_MS = 10 * 60_000;
 // Solves compactados por alarme. A medição (seção 9 (d)): 2.000 ficam na linha dos 5 ms de CPU e mudam de lado entre as rodadas; 1.000
 // chegam no máximo a 2,9 ms.
 export const COMPACT_PER_DAY = 1_000;

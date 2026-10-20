@@ -335,7 +335,7 @@ export class AppState {
             now: () => this.now(),
             announce: (text) => this.announce(text),
             afterWipe: () => this.afterWipe(),
-            restoreExport: (data) => this.restoreFromCloud(data),
+            restoreExport: (data, floor) => this.restoreFromCloud(data, floor),
           },
           deps.account,
         )
@@ -766,11 +766,12 @@ export class AppState {
 
   // A restauração de uma cópia baixada da nuvem (a conta grande: o servidor não cabe a troca e ela é daqui). Passa pelo mesmo portão da
   // cópia local: espera a importação, confere a fila, fecha as gravações durante a troca e tem o prazo. Devolve false quando ele a
-  // segurou (o aviso já saiu; passando do prazo, a troca ainda termina).
-  restoreFromCloud(data: KlickExport): Promise<boolean> {
+  // segurou (o aviso já saiu; passando do prazo, a troca ainda termina). `floor`: o piso da restauração pelo aparelho (A1), que a troca
+  // guarda com ela.
+  restoreFromCloud(data: KlickExport, floor: number): Promise<boolean> {
     // Outra troca em andamento: o aviso é daqui (o diálogo das cópias na nuvem não avisa nada no 'held').
     if (this.restoreRunning) this.showToast(T.conta.cloudRestoreBusy);
-    return this.restoreGuarded(() => this.replaceFromCloud(data));
+    return this.restoreGuarded(() => this.replaceFromCloud(data, floor));
   }
 
   private async restoreGuarded(replace: () => Promise<void>): Promise<boolean> {
@@ -854,9 +855,10 @@ export class AppState {
     await this.checkSeason();
   }
 
-  // A troca pela cópia da nuvem: a cópia local 'pre-restore' e só as diferenças (restoreExport), e então recarrega, como a da cópia local.
-  private async replaceFromCloud(data: KlickExport): Promise<void> {
-    await restoreExport(this.repo, data, this.now());
+  // A troca pela cópia da nuvem: a cópia local 'pre-restore' e só as diferenças (restoreExport, com o piso), e então recarrega, como a da
+  // cópia local.
+  private async replaceFromCloud(data: KlickExport, floor: number): Promise<void> {
+    await restoreExport(this.repo, data, this.now(), floor);
     await this.reload();
     await this.checkSeason();
   }

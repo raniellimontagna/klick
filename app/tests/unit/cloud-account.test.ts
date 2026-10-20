@@ -482,6 +482,49 @@ describe('a restauração pelo aparelho', () => {
     expect(net.cloud.restored).toEqual(['2026-10-15']);
   });
 
+  // O acabamento (A1): logo antes de gravar (depois da rodada limpa e do download), o aparelho gasta uma data do relógio, o piso, e a manda
+  // para a gravação: os passos da restauração ficam acima dele, e ele fica guardado com ela (pendingFloor). O sync de depois o manda, e o
+  // servidor faz perder o que vem de antes da restauração, nos outros aparelhos.
+  it('gasta o piso logo antes de gravar e o guarda com a restauração; o sync de depois o manda e o servidor confirma', async () => {
+    const { net, app, repo, b, c } = await setup();
+    const events: string[] = [];
+    const part = net.api.copyPart;
+    net.api.copyPart = async (name, index, account) => {
+      events.push(`parte:${index}`);
+      return part(name, index, account);
+    };
+    const burn = repo.burnStamp.bind(repo);
+    let floor = 0;
+    vi.spyOn(repo, 'burnStamp').mockImplementation(async () => {
+      floor = await burn();
+      events.push('piso');
+      return floor;
+    });
+    const apply = app.restoreFromCloud.bind(app);
+    vi.spyOn(app, 'restoreFromCloud').mockImplementation(async (data, given) => {
+      events.push(`grava:${given}`);
+      return apply(data, given);
+    });
+    const sync = vi.spyOn(app.account!, 'syncNow').mockImplementation(async () => undefined);
+    expect(await app.account!.restoreCloudCopy('2026-10-15')).toBe('device');
+    expect(events).toEqual(['parte:0', 'parte:1', 'parte:2', 'piso', `grava:${floor}`]);
+    expect((await repo.getSyncState()).pendingFloor).toBe(floor);
+    // Os passos da restauração (o C que entrou, o B que foi para a lixeira) ficam acima do piso.
+    const all = await repo.listSolves({ includeDeleted: true });
+    for (const id of [b.id, c.id]) expect(all.find((s) => s.id === id)!.updatedAt).toBeGreaterThan(floor);
+    // O sync de depois manda o piso; o servidor falso o confirma, e ele sai do estado.
+    sync.mockRestore();
+    const sent: (number | undefined)[] = [];
+    const real = net.api.sync;
+    net.api.sync = async (req) => {
+      sent.push(req.floor);
+      return real(req);
+    };
+    await app.account!.syncNow();
+    expect(sent[0]).toBe(floor);
+    expect((await repo.getSyncState()).pendingFloor).toBeNull();
+  });
+
   it('o portão da cópia local segura a troca: held, o aviso é do app e o sync de depois não sai', async () => {
     const { app, repo } = await setup();
     const solves = await repo.listSolves();
@@ -491,6 +534,7 @@ describe('a restauração pelo aparelho', () => {
     expect(held).toHaveBeenCalledTimes(1);
     expect(sync).not.toHaveBeenCalled(); // o sync de depois não houve
     expect(await repo.listSolves()).toEqual(solves);
+    expect((await repo.getSyncState()).pendingFloor).toBeNull(); // a data foi gasta, mas sem restauração não há piso
   });
 
   it('o objeto 0 que é uma cópia inteira (arquivo só): grava sem pedir partes', async () => {
@@ -514,11 +558,14 @@ describe('a restauração pelo aparelho', () => {
       if (index === 2) throw new ApiError('offline', 0); // a rede cai na última parte
       return net.cloud.partBytes[index].slice(0);
     };
+    const burn = vi.spyOn(repo, 'burnStamp');
     expect(await app.account!.restoreCloudCopy('2026-10-15')).toBe('failed');
     expect((await repo.listBackups()).map((r) => r.id)).toEqual(backups);
     expect(await repo.listSolves()).toEqual(solves);
     expect(await repo.listTrash()).toEqual(trash);
     expect(sync).not.toHaveBeenCalled(); // o sync de depois não houve
+    expect(burn).not.toHaveBeenCalled(); // o piso só sai depois do download
+    expect((await repo.getSyncState()).pendingFloor).toBeNull();
   });
 
   // A revisão final (I2): o aparelho só compara com a cópia depois de uma rodada que começou depois do clique e terminou limpa (sem erro, sem

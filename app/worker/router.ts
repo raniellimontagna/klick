@@ -143,16 +143,19 @@ const isAccountId = (v: unknown): v is string => typeof v === 'string' && v !== 
 // O pedido de sync (spec 6.1). Uma versão de protocolo que o servidor não conhece pede um app mais novo (426); sem versão numérica, o
 // pedido é que está torto (400). `account` é obrigatório: nenhum app publicado sincroniza sem ele (a conta não estava ligada em nenhum
 // ambiente antes dele). Até MAX_SYNC_REQUEST mudanças, o lote de um app de antes da Task 12: o objeto da conta lê só as primeiras
-// MAX_WRITES_PER_REQUEST e devolve o resto para já.
+// MAX_WRITES_PER_REQUEST e devolve o resto para já. `floor` (o piso de uma restauração pelo aparelho, o acabamento A1) é opcional, e quando
+// vem é um inteiro seguro >= 0. Os campos que o servidor não conhece ficam de fora (um Worker de antes do piso ignora o `floor` assim, sem
+// recusar o pedido, e o aparelho, sem a confirmação, o manda de novo).
 export function parseSyncRequest(body: unknown): SyncRequest | 'update' | null {
   if (!isRec(body) || typeof body.v !== 'number') return null;
   if (body.v !== SYNC_PROTOCOL) return 'update';
-  const { account, deviceId, cursor, clock, changes } = body;
+  const { account, deviceId, cursor, clock, changes, floor } = body;
   if (!isAccountId(account)) return null;
   if (typeof deviceId !== 'string' || deviceId === '' || deviceId.length > 64) return null;
   if (!Number.isInteger(cursor) || (cursor as number) < 0 || typeof clock !== 'number' || !Number.isFinite(clock)) return null;
   if (!Array.isArray(changes) || changes.length > MAX_SYNC_REQUEST) return null;
-  return { v: SYNC_PROTOCOL, account, deviceId, cursor: cursor as number, clock, changes };
+  if (floor !== undefined && (!Number.isSafeInteger(floor) || (floor as number) < 0)) return null;
+  return { v: SYNC_PROTOCOL, account, deviceId, cursor: cursor as number, clock, changes, ...(floor === undefined ? {} : { floor: floor as number }) };
 }
 
 // A conta que o aparelho espera não é a da sessão (revisão final, C1): o cookie de outra conta (a pessoa entrou com outro e-mail e o

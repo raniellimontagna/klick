@@ -133,7 +133,7 @@ describe('fila de saída (spec 5.3)', () => {
     const { repo } = await fresh(null);
     expect(await repo.getSyncState()).toEqual({
       accountId: null, email: null, signedIn: false, firstSync: false, firstSyncDefaults: [], cursor: 0, lastSyncAt: null, clock: 0, passkey: false,
-      refusedBuild: null, pushAfter: null, copiesPaused: null,
+      refusedBuild: null, pushAfter: null, copiesPaused: null, pendingFloor: null,
     });
     const heard: ChangeKind[] = [];
     repo.onChange((k) => heard.push(k));

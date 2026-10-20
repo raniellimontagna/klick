@@ -39,7 +39,10 @@ export class MapView implements RecordView {
 // resto, e a que não caberia nem num dia inteiro volta com o motivo da cota (e o resto segue). Com `perRequest`, no máximo tantas mudanças
 // por pedido, e o resto volta em `deferred` com `retryAt` = `now` (MAX_WRITES_PER_REQUEST). Com `reads` (registros por dia; o de verdade
 // conta linhas, DAILY_READ_BUDGET), cada página conta o que levou, e passado dele o pedido não lê nada: a página volta vazia, com o cursor
-// do pedido, o lote todo em `deferred`, `retryAt` na virada do dia e `readsDeferred`. `copiesPaused` vai em toda resposta.
+// do pedido, o lote todo em `deferred`, `retryAt` na virada do dia e `readsDeferred`. `copiesPaused` vai em toda resposta. O piso da
+// restauração (`floor`, o restoreFloor do objeto da conta) sobe com o `floor` de um pedido lido, antes de juntar o lote, e a resposta o
+// confirma (`floorSet`); o teto de 10 minutos à frente é do objeto da conta (testado no Worker). Com `floors` false, o servidor é um Worker de
+// antes do piso: ignora o campo e não confirma.
 export class FakeServer {
   readonly records = new Map<string, Change & { rev: number }>();
   rev = 0;
@@ -49,6 +52,8 @@ export class FakeServer {
   reads: number | null = null; // o orçamento de leituras do dia, em registros
   read = 0; // registros lidos no dia (as páginas)
   copiesPaused: CopiesPaused | null = null;
+  floor = 0; // o piso da última restauração
+  floors = true;
   admit: ApplyOptions['admit'] = undefined;
   budget: number | null;
   readonly batch: number;
@@ -101,7 +106,9 @@ export class FakeServer {
       }
       taken++;
     }
-    const result = applyChanges(view, read, { mode: 'server', quota: { active: this.counts(), limits: this.limits }, admit: this.admit });
+    const floorSet = this.floors && req.floor !== undefined;
+    if (floorSet) this.floor = Math.max(this.floor, req.floor!);
+    const result = applyChanges(view, read, { mode: 'server', quota: { active: this.counts(), limits: this.limits }, admit: this.admit, floor: this.floor });
     for (const w of result.writes) this.records.set(syncKey(w.store, w.id), { ...w, rev: ++this.rev });
     this.written += result.writes.length;
     const after = [...this.records.values()].filter((r) => r.rev > req.cursor).sort((a, b) => a.rev - b.rev);
@@ -117,6 +124,7 @@ export class FakeServer {
       serverTime: this.now,
       ...(deferred > 0 ? { deferred, retryAt: cut ? this.now : nextDay } : {}),
       copiesPaused: this.copiesPaused,
+      ...(floorSet ? { floorSet: true as const } : {}),
     };
   }
   // A virada do dia do orçamento: as gravações e as leituras do dia voltam a zero (a hora fica a de `now`).

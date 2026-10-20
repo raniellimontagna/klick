@@ -1675,4 +1675,96 @@ describe('o piso da restauração (cópias grandes, I1)', () => {
     deviceApply(device, res.changes);
     expect(device).toEqual(await recordsOf(user));
   });
+
+  // O acabamento (A1): a restauração pelo aparelho também é "a última restauração vence". O aparelho gasta uma data do relógio (o piso F)
+  // antes de gravar a restauração, cujos passos ficam acima dela, e manda F no sync seguinte (`floor`). O servidor sobe restoreFloor até F
+  // (no máximo agora + 10 min), antes de juntar o lote, e confirma (`floorSet`); a regra do I1 faz o resto.
+  const syncWith = async (user: string, changes: Change[], now: number, o: { floor?: number; device?: string } = {}): Promise<SyncResponse> => {
+    const body = { v: SYNC_PROTOCOL, account: user, deviceId: o.device ?? 'd1', cursor: 0, clock: now, changes, ...(o.floor === undefined ? {} : { floor: o.floor }) };
+    const res = await call('/api/sync', postJson(body), { deps: testDeps({ user, now: () => now }) });
+    expect(res.status).toBe(200);
+    return (await res.json()) as SyncResponse;
+  };
+
+  it('o piso que o aparelho manda depois de restaurar nele: a mudança velha de outro aparelho perde e volta no piso; os passos da restauração vencem', async () => {
+    const user = 'piso-aparelho';
+    await sync(user, [session, solve('a'), solve('b')]);
+    const offline: Change = { ...solve('a', 7000), updatedAt: T0 + 500 }; // outro aparelho, na fila, de antes da restauração
+    const floor = T0 + 1000; // a data que o aparelho gastou antes de gravar a restauração
+    const step: Change = { ...solve('b', 8000), updatedAt: floor + 1, deletionStamp: floor + 1 }; // um passo dela, acima do piso
+    const mine = await syncWith(user, [step], floor + 100, { floor });
+    expect([mine.accepted, mine.floorSet]).toEqual([1, true]);
+    expect(await stateOf(user, 'restoreFloor')).toBe(String(floor));
+
+    const res = await syncWith(user, [offline], floor + 200, { device: 'd2' });
+    expect(res.floorSet).toBeUndefined(); // sem piso no pedido, nada a confirmar
+    const kept: Change = { ...solve('a'), updatedAt: floor, deletionStamp: floor };
+    expect(res.changes.filter((c) => c.id === 'a')).toEqual([kept]);
+    const records = await recordsOf(user);
+    expect([records.get('solves/a'), records.get('solves/b')]).toEqual([kept, step]);
+    const device = localOf(session, offline, solve('b'));
+    deviceApply(device, res.changes);
+    expect(device).toEqual(records);
+  });
+
+  it('o piso do aparelho fica no máximo 10 minutos à frente da hora do servidor, e nunca desce', async () => {
+    const user = 'piso-aparelho-futuro';
+    await sync(user, [session, solve('a')]);
+    expect((await syncWith(user, [], T0, { floor: T0 + 3_600_000 })).floorSet).toBe(true);
+    expect(await stateOf(user, 'restoreFloor')).toBe(String(T0 + 600_000));
+    expect((await syncWith(user, [], T0 + 1000, { floor: T0 })).floorSet).toBe(true); // confirmado, mas o piso fica
+    expect(await stateOf(user, 'restoreFloor')).toBe(String(T0 + 600_000));
+  });
+
+  it('sem leituras no dia, o servidor não lê o pedido: o piso não sobe nem é confirmado, e o aparelho o manda de novo', async () => {
+    const user = 'piso-aparelho-sem-leituras';
+    await sync(user, [session, solve('a')]);
+    await setState(user, 'reads', { day: utcDay(T0), n: DAILY_READ_BUDGET });
+    const res = await syncWith(user, [], T0, { floor: T0 - 1 });
+    expect([res.readsDeferred, res.floorSet]).toEqual([true, undefined]);
+    expect(await stateOf(user, 'restoreFloor')).toBeNull();
+  });
+
+  it('restaurar X pelo aparelho A (que sobe aos poucos) e depois Y pelo aparelho B: a conta e os dois aparelhos terminam exatamente em Y', async () => {
+    const user = 'piso-aparelho-a-b';
+    await sync(user, [session, solve('a'), solve('b')]);
+    expect(await stubOf(user).snapshot(T0)).toBe(true); // X: s1, a, b
+    const t1 = T0 + DAY;
+    await sync(user, [{ ...solve('a'), updatedAt: t1, deletedAt: t1, deletionStamp: t1 }, solve('c')], t1);
+    expect(await stubOf(user).snapshot(t1)).toBe(true); // Y: s1, a na lixeira, b, c
+    await sync(user, [{ ...solve('b', 8000), updatedAt: t1 + 100 }, solve('d')], t1 + 100); // agora: b editado e d novo
+    const read = async (name: string): Promise<KlickExport> => (await gunzipJson(await (await env.SNAPSHOTS.get(snapshotKey(user, name)))!.arrayBuffer())) as KlickExport;
+    const copyOf = (data: KlickExport) => ({ sessions: data.sessions, solves: data.solves, practice: data.practice ?? null, duels: data.duels ?? null });
+    const y = copyOf(await read(dayOf(t1)));
+
+    // A restaura X: gasta o piso, grava as diferenças acima dele, e a fila dele vai como o aparelho a manda (as exclusões na frente, A2).
+    // Só o primeiro lote sobe agora, com o piso; o resto espera o orçamento dos próximos dias.
+    const deviceA = await recordsOf(user);
+    const floorA = t1 + 200;
+    const queuedA = restoreChanges([...deviceA.values()], copyOf(await read(dayOf(T0))), null, floorA + 1);
+    const ordered = [...queuedA.filter((c) => c.deletedAt !== null), ...queuedA.filter((c) => c.deletedAt === null)];
+    expect(ordered.map((c) => `${c.id}:${c.deletedAt === null ? 'ativo' : 'lixeira'}`)).toEqual(['c:lixeira', 'd:lixeira', 'a:ativo', 'b:ativo']);
+    for (const c of queuedA) deviceA.set(syncKey(c.store, c.id), c);
+    deviceApply(deviceA, (await syncWith(user, ordered.slice(0, 2), t1 + 250, { floor: floorA, device: 'A' })).changes);
+
+    // B sincroniza (recebe o que A subiu) e restaura Y nele, com um piso acima de tudo o que viu.
+    const deviceB = await recordsOf(user);
+    const floorB = t1 + 400;
+    const queuedB = restoreChanges([...deviceB.values()], y, null, floorB + 1);
+    for (const c of queuedB) deviceB.set(syncKey(c.store, c.id), c);
+    const fromB = await syncWith(user, queuedB, t1 + 450, { floor: floorB, device: 'B' });
+    expect([fromB.accepted, fromB.floorSet]).toEqual([queuedB.length, true]);
+    deviceApply(deviceB, fromB.changes);
+
+    // O resto da fila de A sobe depois: abaixo do piso de B, perde; a conta fica Y.
+    const restA = await syncWith(user, ordered.slice(2), t1 + 600, { device: 'A' });
+    expect(restA.accepted).toBe(2);
+    deviceApply(deviceA, restA.changes);
+    const account = await recordsOf(user);
+    expect(restoreChanges([...account.values()], y, null, 0)).toEqual([]);
+    // Os dois aparelhos, com o que recebem pelo sync, terminam iguais à conta.
+    deviceApply(deviceB, (await syncWith(user, [], t1 + 700, { device: 'B' })).changes);
+    expect(deviceA).toEqual(account);
+    expect(deviceB).toEqual(account);
+  });
 });

@@ -184,6 +184,21 @@ describe('POST /api/sync (spec 6.1 e 8.2)', () => {
     expect((await call('/api/sync', postJson({ ...body, v: 1 }), { deps })).status).toBe(426);
   });
 
+  // O acabamento (A1): o piso da restauração pelo aparelho é opcional; quando vem, é um inteiro seguro >= 0, senão o pedido é torto (400).
+  it('o piso no pedido: sem ele, o pedido de sempre; com ele, confirmado; torto, 400', async () => {
+    const deps = testDeps({ user: 'conta-piso' });
+    const body = { v: SYNC_PROTOCOL, account: 'conta-piso', deviceId: 'd', cursor: 0, clock: T0, changes: [] };
+    const plain = await call('/api/sync', postJson(body), { deps });
+    expect(plain.status).toBe(200);
+    expect('floorSet' in ((await plain.json()) as object)).toBe(false);
+    const sent = await call('/api/sync', postJson({ ...body, floor: T0 }), { deps });
+    expect(((await sent.json()) as SyncResponse).floorSet).toBe(true);
+    for (const floor of [-1, 1.5, '1', null, Number.MAX_SAFE_INTEGER + 2, true]) {
+      expect((await call('/api/sync', postJson({ ...body, floor }), { deps })).status, String(floor)).toBe(400);
+    }
+    expect(await stateOf('conta-piso', 'restoreFloor')).toBe(String(T0));
+  });
+
   it('a chave ACCOUNTS_ENABLED: com "true" o sync responde; com "false", 404 mesmo com sessão (spec 8.4)', async () => {
     const deps = testDeps({ user: 'conta-chave' });
     const body = (): RequestInit => postJson({ v: SYNC_PROTOCOL, account: 'conta-chave', deviceId: 'd', cursor: 0, clock: T0, changes: [] });

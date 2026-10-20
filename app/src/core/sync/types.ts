@@ -42,6 +42,10 @@ export interface SyncRequest {
   cursor: number;
   clock: number;
   changes: Change[];
+  // O piso de uma restauração pelo aparelho (o acabamento das cópias grandes, A1): a data que ele gastou do relógio logo antes de gravar a
+  // restauração, cujos passos ficam acima dela. O servidor sobe o piso da conta (restoreFloor, o mesmo da restauração no servidor) até ela,
+  // antes de juntar o lote, e confirma em `floorSet`; sem a confirmação (um Worker de antes, que ignora o campo), o aparelho a manda de novo.
+  floor?: number;
 }
 
 export interface Rejected {
@@ -65,6 +69,7 @@ export interface SyncResponse {
   // vazio, o cursor do pedido de volta, `more` false) nem o lote (todo em `deferred`), e os dois voltam em `retryAt`, a virada do dia UTC.
   readsDeferred?: boolean;
   copiesPaused?: CopiesPaused | null; // as cópias na nuvem da conta estão pausadas, e por quê
+  floorSet?: true; // o servidor juntou o pedido com o piso dele (`floor`): o aparelho pode esquecê-lo
 }
 
 // Um item da conta (store prefs, spec 5.2).
@@ -96,7 +101,8 @@ export interface OutboxEntry {
 // cursor passava por cima; a primeira rodada de outra versão recomeça o cursor do 0, uma vez, e tira a marca. `pushAfter`: o orçamento de
 // gravações do dia da conta acabou (endurecimento, decisão 6), e nada sobe antes desta hora, no relógio deste aparelho (a espera que o
 // servidor pediu, retryAt − serverTime, contada da resposta e com teto: sync/engine.ts); null: sobe quando houver fila. `copiesPaused`: a
-// pausa das cópias na nuvem que veio na última resposta do sync (null: elas seguem).
+// pausa das cópias na nuvem que veio na última resposta do sync (null: elas seguem). `pendingFloor`: o piso da última restauração pelo
+// aparelho (SyncRequest.floor), gravado com ela, esperando o servidor confirmar (null: nenhum).
 export interface SyncState {
   accountId: string | null;
   email: string | null;
@@ -110,6 +116,7 @@ export interface SyncState {
   refusedBuild: string | null;
   pushAfter: number | null;
   copiesPaused: CopiesPaused | null;
+  pendingFloor: number | null;
 }
 
 export const syncKey = (store: string, id: string): string => `${store}/${id}`;
