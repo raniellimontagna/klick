@@ -155,7 +155,8 @@ describe('cópias na nuvem: pausas e recusas', () => {
     expect(sync).not.toHaveBeenCalled();
     expect(net.cloud.restored).toEqual([]);
     expect(await repo.listSolves()).toEqual(solves);
-    expect(await repo.getSyncState()).toEqual(state);
+    // A rodada limpa de antes do pedido (freshSync, a rodada residual) só renova a hora do sync.
+    expect(await repo.getSyncState()).toEqual({ ...state, lastSyncAt: expect.any(Number) });
   });
 
   it('um código que não é de recusa (a rajada do Worker, 429 "limited") continua sendo a falha de sempre', async () => {
@@ -457,11 +458,17 @@ describe('a restauração pelo aparelho', () => {
       events.push(`parte:${index}`);
       return part(name, index, account);
     };
+    const post = net.api.restoreCloudCopy;
+    net.api.restoreCloudCopy = async (name, account) => {
+      events.push('pedido');
+      return post(name, account);
+    };
     const backups = (await repo.listBackups()).length;
     const untouched = (await repo.listSolves()).find((s) => s.id === a.id)!;
     expect(await app.account!.restoreCloudCopy('2026-10-15')).toBe('device');
-    // Uma rodada limpa antes de baixar (I2), o objeto 0 e as partes 1..N em ordem, e o sync de depois de gravar.
-    expect(events).toEqual(['rodada', 'parte:0', 'parte:1', 'parte:2', 'sync']);
+    // Uma rodada limpa antes do pedido (I2 e a rodada residual: 'stale' nem chega ao servidor), o objeto 0 e as partes 1..N em ordem, e o
+    // sync de depois de gravar.
+    expect(events).toEqual(['rodada', 'pedido', 'parte:0', 'parte:1', 'parte:2', 'sync']);
     expect(sync).toHaveBeenCalledTimes(1);
     // A cópia local 'pre-restore' foi guardada, com o estado de antes (A e B).
     const after = await repo.listBackups();
@@ -528,10 +535,12 @@ describe('a restauração pelo aparelho', () => {
       ['mais', async (req) => ({ ...(await real(req)), more: true, cursor: req.cursor })], // mais por receber, e o cursor não anda
       ['leituras', async (req) => ({ accepted: 0, rejected: [], changes: [], cursor: req.cursor, more: false, serverTime: Date.now(), retryAt: Date.now() + 3_600_000, readsDeferred: true, copiesPaused: null })],
     ];
+    const asked = net.cloud.restored.length;
     for (const [mode, sync] of modes) {
       net.api.sync = sync;
       expect(await app.account!.restoreCloudCopy('2026-10-15'), mode).toBe('stale');
     }
+    expect(net.cloud.restored).toHaveLength(asked); // o pedido de restaurar nem saiu: não conta nas restaurações do dia
     expect(net.cloud.partCalls).toEqual([]);
     expect((await repo.listBackups()).map((r) => r.id)).toEqual(backups);
     expect(await repo.listSolves()).toEqual(solves);
@@ -567,7 +576,7 @@ describe('a restauração pelo aparelho', () => {
     const { app } = await setup();
     const steps: [number, number][] = [];
     expect(await app.account!.restoreCloudCopy('2026-10-15', (k, n) => steps.push([k, n]))).toBe('device');
-    expect(steps).toEqual([[1, 2], [1, 2], [2, 2]]);
+    expect(steps).toEqual([[1, 2], [2, 2]]); // uma vez por parte: o manifesto não repete o "1 de 2"
   });
 
   it('numa aba que não lidera: espera a rodada da líder pedida depois do clique; limpa, segue; com erro ou sem resposta, stale', async () => {
@@ -598,8 +607,10 @@ describe('a restauração pelo aparelho', () => {
     net.api.sync = async () => {
       throw new ApiError('server', 500);
     };
+    const asked = net.cloud.restored.length;
     expect(await second.app.account!.restoreCloudCopy('2026-10-15')).toBe('stale');
     expect(net.cloud.partCalls).toEqual([]);
+    expect(net.cloud.restored).toHaveLength(asked);
 
     // A líder não responde (a aba dela está suspensa): passado o prazo, stale.
     net.api.sync = real;
@@ -610,6 +621,7 @@ describe('a restauração pelo aparelho', () => {
     env.fireDelayed();
     expect(await waiting).toBe('stale');
     expect(net.cloud.partCalls).toEqual([]);
+    expect(net.cloud.restored).toHaveLength(asked);
   });
 
   it('parte torta, manifesto torto ou arquivo que não é do Klick: failed, sem gravar nada', async () => {
@@ -748,6 +760,7 @@ describe('o diálogo das cópias grandes', () => {
     await vi.waitFor(() => expect(app.toast?.text).toBe(T.conta.cloudSyncFirst));
     expect(T.conta.cloudSyncFirst).toBe('Não consegui sincronizar este aparelho antes de restaurar. Confira a conexão e tente de novo. Tudo continua como estava.');
     expect(net.cloud.partCalls).toEqual([]);
+    expect(net.cloud.restored).toEqual([]); // nem o pedido de restaurar saiu
     expect(screen.getByRole('heading', { name: 'Cópias na nuvem' })).toBeInTheDocument();
   });
 

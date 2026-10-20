@@ -663,47 +663,61 @@ export class AccountState {
     return this.deps.api.cloudCopies(await this.accountId());
   }
 
-  // Restaurar um dia (spec 8.3): o servidor grava antes a cópia "antes de restaurar" e troca a conta inteira. A mudança chega aqui pelo sync
-  // normal, pedido à líder, com a cópia 'pre-sync' da spec 6.6 quando o lote apaga muitos solves daqui. 'gone': a cópia não existe mais (a
-  // regra do bucket apaga as de mais de 30 dias); um RestoreRefusal: o servidor recusou e disse por quê (o código do erro); 'failed': sem
-  // rede ou outro erro. Fora do 'ok' e do 'device', nada mudou e nada sincroniza.
+  // Restaurar um dia (spec 8.3): antes do pedido, uma rodada de sync que começou depois do clique e terminou limpa (freshSync; senão 'stale',
+  // e o pedido nem sai: não conta nas restaurações do dia, e nada é baixado nem gravado). Assim o que espera na fila daqui sobe antes da
+  // restauração, e a do aparelho compara com uma vista nova da conta. O servidor grava antes a cópia "antes de restaurar" e troca a conta
+  // inteira. A mudança chega aqui pelo sync normal, pedido à líder, com a cópia 'pre-sync' da spec 6.6 quando o lote apaga muitos solves
+  // daqui. 'gone': a cópia não existe mais (a regra do bucket apaga as de mais de 30 dias); um RestoreRefusal: o servidor recusou e disse
+  // por quê (o código do erro); 'failed': sem rede ou outro erro. Fora do 'ok' e do 'device', nada mudou e nada sincroniza.
   //
-  // 'device': a conta é grande e o servidor não cabe a troca hoje, então a restauração é daqui (spec das cópias grandes, seção 5): uma rodada
-  // de sync que começou depois do clique e terminou limpa (freshSync; senão 'stale', sem baixar nem gravar nada: a comparação correria contra
-  // uma vista velha da conta), a cópia inteira baixada pelo Worker, a cópia local 'pre-restore' e só as diferenças gravadas (replaceAll); o
-  // sync sobe o resto no ritmo do orçamento, e os outros aparelhos recebem pelo sync de sempre. Antes de restoreExport nada deste aparelho
-  // muda: um download que falha (ou uma cópia torta) é 'failed', e o 404 de qualquer objeto, 'gone'. A gravação passa pelo portão da cópia
+  // 'device': a conta é grande e o servidor não cabe a troca hoje, então a restauração é daqui (spec das cópias grandes, seção 5): a cópia
+  // inteira baixada pelo Worker (o andamento, `progress`, uma vez por parte), a cópia local 'pre-restore' e só as diferenças gravadas
+  // (replaceAll); o sync sobe o resto no ritmo do orçamento, e os outros aparelhos recebem pelo sync de sempre. Antes de restoreExport nada
+  // deste aparelho muda: um download que falha (ou uma cópia torta) é 'failed', o 404 de qualquer objeto, 'gone', e o limite de partes do
+  // dia ou das operações, a recusa dele. A gravação passa pelo portão da cópia
   // local (host.restoreExport: a importação em curso, a fila de gravação, o prazo): se ele a segura, 'held' (o aviso já saiu, nada
   // sincroniza); passando do prazo ela ainda termina, e o sync de depois sobe o que ela gravar.
   async restoreCloudCopy(
     name: string,
     progress?: (k: number, n: number) => void,
   ): Promise<'ok' | 'device' | 'stale' | 'held' | 'gone' | 'failed' | RestoreRefusal> {
-    const since = this.host.now(); // o clique: a rodada que vale para a restauração pelo aparelho começa depois dele
-    let answer: RestoreAnswer;
-    let account: string;
-    try {
-      account = await this.accountId();
-      answer = await this.deps.api.restoreCloudCopy(name, account);
-    } catch (err) {
+    const since = this.host.now(); // o clique: a rodada que vale para a restauração começa depois dele
+    const refused = (err: unknown): 'gone' | 'failed' | RestoreRefusal => {
       if (!(err instanceof ApiError)) return 'failed';
       if (err.status === 404) return 'gone';
       return isRefusal(err.code) ? err.code : 'failed';
+    };
+    let account: string;
+    try {
+      account = await this.accountId();
+    } catch (err) {
+      return refused(err);
+    }
+    if (!(await this.freshSync(since))) return 'stale';
+    let answer: RestoreAnswer;
+    try {
+      answer = await this.deps.api.restoreCloudCopy(name, account);
+    } catch (err) {
+      return refused(err);
     }
     if (answer.restore === 'server') {
       void this.syncNow();
       return 'ok';
     }
-    if (!(await this.freshSync(since))) return 'stale';
+    // O andamento, uma vez por parte: o primeiro objeto (o manifesto ou o arquivo só) já mostra "1 de N", e a parte 1 não o repete.
+    let shown = '';
+    const step = (k: number, n: number): void => {
+      if (`${k}/${n}` === shown) return;
+      shown = `${k}/${n}`;
+      progress?.(k, n);
+    };
     let applied: boolean;
     try {
-      progress?.(1, Math.max(1, answer.parts)); // o andamento desde o primeiro objeto (o manifesto ou o arquivo só)
-      const data = await downloadCopy(this.deps.api, name, account, progress);
+      step(1, Math.max(1, answer.parts));
+      const data = await downloadCopy(this.deps.api, name, account, step);
       applied = await this.host.restoreExport(data);
     } catch (err) {
-      if (!(err instanceof ApiError)) return 'failed';
-      if (err.status === 404) return 'gone';
-      return isRefusal(err.code) ? err.code : 'failed'; // o limite de partes do dia (restore-limit) ou das operações (r2-budget)
+      return refused(err); // o limite de partes do dia (restore-limit) ou das operações (r2-budget) é a recusa dele
     }
     if (!applied) return 'held';
     void this.syncNow();
