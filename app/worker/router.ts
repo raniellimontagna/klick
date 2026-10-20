@@ -2,7 +2,7 @@
 // Sem um BETTER_AUTH_SECRET de verdade, as rotas da conta respondem 503. De /api/auth/*, só as rotas do Better Auth que o app usa; as outras
 // rotas da conta pedem sessão e a conta que o aparelho espera (a da sessão, senão 401), e falam com o Durable Object dela. O que não é /api
 // são os arquivos do app. Os logs levam só ids, contagens, durações e erros (spec 8.5).
-import { ACCOUNT_HEADER, SYNC_PROTOCOL, type RestoreRefusal, type SyncRequest, type SyncResponse } from '../src/core/sync/types';
+import { ACCOUNT_HEADER, isFloor, SYNC_PROTOCOL, type RestoreRefusal, type SyncRequest, type SyncResponse } from '../src/core/sync/types';
 import { E2E_TOKEN, emailKeyOf, guardPasskeyOptions, guardSendCode, turnstileVerifier, type VerifyCaptcha } from './abuse';
 import { authSecretOk, createAuth, sessionUser, type User } from './auth';
 import { countOps } from './budget';
@@ -154,8 +154,8 @@ export function parseSyncRequest(body: unknown): SyncRequest | 'update' | null {
   if (typeof deviceId !== 'string' || deviceId === '' || deviceId.length > 64) return null;
   if (!Number.isInteger(cursor) || (cursor as number) < 0 || typeof clock !== 'number' || !Number.isFinite(clock)) return null;
   if (!Array.isArray(changes) || changes.length > MAX_SYNC_REQUEST) return null;
-  if (floor !== undefined && (!Number.isSafeInteger(floor) || (floor as number) < 0)) return null;
-  return { v: SYNC_PROTOCOL, account, deviceId, cursor: cursor as number, clock, changes, ...(floor === undefined ? {} : { floor: floor as number }) };
+  if (floor !== undefined && !isFloor(floor)) return null;
+  return { v: SYNC_PROTOCOL, account, deviceId, cursor: cursor as number, clock, changes, ...(floor === undefined ? {} : { floor }) };
 }
 
 // A conta que o aparelho espera não é a da sessão (revisão final, C1): o cookie de outra conta (a pessoa entrou com outro e-mail e o

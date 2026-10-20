@@ -58,9 +58,9 @@ export interface AccountHost {
   now(): number;
   announce(text: string): void; // a região aria-live
   afterWipe(): Promise<void>; // os dados deste aparelho foram apagados: o app relê e cria a sessão padrão
-  // A restauração da cópia da nuvem, pelo portão da cópia local, com o piso dela (A1: guardado com ela, na mesma transação); false: o portão a
+  // A restauração da cópia da nuvem, pelo portão da cópia local, com o piso dela (A1: tirado e guardado na mesma transação); false: o portão a
   // segurou (o aviso já saiu).
-  restoreExport(data: KlickExport, floor: number): Promise<boolean>;
+  restoreExport(data: KlickExport): Promise<boolean>;
 }
 
 // O que as abas dizem umas às outras pelo canal.
@@ -680,10 +680,10 @@ export class AccountState {
   // local (host.restoreExport: a importação em curso, a fila de gravação, o prazo): se ele a segura, 'held' (o aviso já saiu, nada
   // sincroniza); passando do prazo ela ainda termina, e o sync de depois sobe o que ela gravar.
   //
-  // O piso (o acabamento das cópias grandes, A1): depois do download, logo antes de gravar, o aparelho gasta uma data do relógio
-  // (burnStamp), e a restauração, cujas datas ficam acima dela, a guarda com ela (pendingFloor), na mesma transação: só uma restauração
-  // gravada a guarda (nem a segurada pelo portão, nem a que falha; a que passa do prazo e termina depois, sim). O sync a manda, e o servidor
-  // faz perder o que os outros aparelhos ainda têm de antes da restauração, como na restauração no servidor.
+  // O piso (o acabamento das cópias grandes, A1): a gravação (replaceAll, depois do download e dentro do portão) tira uma data do relógio,
+  // acima de tudo o que o aparelho já viu, grava a restauração com datas acima dela e a guarda (pendingFloor), na mesma transação: só uma
+  // restauração gravada a guarda (nem a segurada pelo portão, nem a que falha; a que passa do prazo e termina depois, sim). O sync a manda, e
+  // o servidor faz perder o que os outros aparelhos ainda têm de antes da restauração, como na restauração no servidor.
   async restoreCloudCopy(
     name: string,
     progress?: (k: number, n: number) => void,
@@ -722,8 +722,7 @@ export class AccountState {
     try {
       step(1, Math.max(1, answer.parts));
       const data = await downloadCopy(this.deps.api, name, account, step);
-      const floor = await this.host.repo().burnStamp();
-      applied = await this.host.restoreExport(data, floor);
+      applied = await this.host.restoreExport(data);
     } catch (err) {
       return refused(err); // o limite de partes do dia (restore-limit) ou das operações (r2-budget) é a recusa dele
     }

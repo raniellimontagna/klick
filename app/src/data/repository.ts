@@ -20,6 +20,7 @@ import { changeToPref, fromChange, prefToChange, sessionOfChange, stampOf, toCha
 import { restoreChanges } from '../core/sync/restore';
 import { checkChange, isSyncId } from '../core/sync/shape';
 import {
+  isFloor,
   MAX_STAMP,
   SYNC_STORES,
   syncKey,
@@ -137,7 +138,8 @@ export interface Repository {
   // qualquer outra (a regra de conflito de sempre, nunca pulada nem trocada pela daqui) e sai da lista quando a conta já tem o que fica aqui:
   // o resultado é o que chegou, ou está apagado nos dois lados (a cascata do servidor apagou o recusado). Uma exclusão daqui que vence uma
   // versão ativa da conta continua na lista: a conta ainda não a tem. `floorSent`: o piso que foi no pedido e o servidor confirmou (A1); o
-  // piso pendente sai do estado na mesma transação, a não ser que outra restauração tenha gravado um mais novo durante o pedido.
+  // piso pendente sai do estado na mesma transação, a não ser que outra restauração tenha gravado um mais novo durante o pedido. Um piso
+  // pendente torto (que nenhum pedido leva: o servidor o recusaria) também sai, em qualquer volta.
   applyRemote(
     changes: readonly unknown[],
     serverTime: number,
@@ -193,12 +195,10 @@ export interface Repository {
   importAll(data: KlickExport): Promise<ImportReport>; // junta por id; fica o de updatedAt maior, em solves, sessões e desafios (spec 5.5). Sessão da lixeira que recebe solve ativo do arquivo volta (sem entrar no relatório; avisa sessions). O perfil do arquivo vale por cima do daqui (ver importAll). O treino junta pelo id, sem duplicar (fora do relatório, como os desafios). O que o sync recusaria fica de fora, contado em `refused`
   // Restaura a cópia como gravação (spec 5.5): cada registro dela é gravado de novo, com a data do relógio; o que existe aqui e não está nela
   // vai para a lixeira; tudo entra na fila de saída. A temporada fica a mais adiantada (a daqui ou a da cópia). O treino e os desafios trocam
-  // junto, se a cópia os tiver. `floor` (a restauração pelo aparelho, A1): o piso que burnStamp gastou, guardado como pendingFloor na mesma
-  // transação; e o que espera na fila (ou na lista "só neste aparelho") e a restauração deixa como está ganha a data dela, acima do piso.
-  replaceAll(data: KlickExport, o?: { floor?: number }): Promise<void>;
-  // Gasta a próxima data do relógio do sync e a devolve: toda escrita depois dela (a de replaceAll inclusive) sai com uma data maior. O piso
-  // da restauração pelo aparelho (o acabamento das cópias grandes, A1).
-  burnStamp(): Promise<number>;
+  // junto, se a cópia os tiver. `floor` (a restauração pelo aparelho, A1): a transação tira do relógio o piso, acima de tudo o que o aparelho
+  // já viu, grava a restauração com datas acima dele e o guarda como pendingFloor; e o que espera na fila (ou na lista "só neste aparelho") e
+  // a restauração deixa como está ganha a data dela, acima do piso.
+  replaceAll(data: KlickExport, o?: { floor?: boolean }): Promise<void>;
   onChange(fn: ChangeListener): () => void; // mudanças locais e de outras abas, com a origem (e, nos solves, os ids que mudaram)
   getSolves(ids: readonly string[]): Promise<(Solve | undefined)[]>; // vários solves por id numa leitura; o que não existe vem undefined
   // O treino (spec do sub-projeto 4, seção 9.1). Cada escrita avisa 'practice'. A tela só usa update e delete na correção da última.
@@ -1343,7 +1343,8 @@ export function createRepository(
         if (after) ctx.setState({ cursor: after.cursor, lastSyncAt: after.lastSyncAt, copiesPaused: after.copiesPaused, pushAfter: after.pushAfter });
         if (after && result.rejected.length > 0) ctx.setState({ refusedBuild: after.build ?? 'dev' });
         const pendingFloor = ctx.state().pendingFloor;
-        if (after?.floorSent !== undefined && pendingFloor !== null && pendingFloor <= after.floorSent) ctx.setState({ pendingFloor: null });
+        const confirmed = after?.floorSent !== undefined && isFloor(pendingFloor) && pendingFloor <= after.floorSent;
+        if (pendingFloor !== null && (confirmed || !isFloor(pendingFloor))) ctx.setState({ pendingFloor: null });
         return { result, heldChanged };
       });
       announceSynced(joined.result.writes);
@@ -1824,49 +1825,58 @@ export function createRepository(
         ];
         const copy = { sessions: data.sessions, solves: data.solves, practice, duels: copyDuels };
         const split = splitProfile(target);
+        // O piso da restauração pelo aparelho (A1): a primeira data desta escrita, acima de tudo o que o aparelho já viu (o relógio sobe com
+        // a hora do servidor e com cada data recebida); a restauração sai com a data seguinte, acima dele. Ele fica guardado com ela, para o
+        // sync o mandar ao servidor, e o que vem de antes dela perde lá. Tirado aqui dentro, nada é gravado fora do portão da troca.
+        const floorAt = floor ? ctx.stamp() : null;
+        if (floorAt !== null) ctx.raise(floorAt + 1); // o stamp seguinte sai depois do piso
         const at = ctx.stamp();
         const changes = restoreChanges(current, copy, prefsFromProfile(split.account, { withDefaults: true }), at);
-        // O piso da restauração pelo aparelho (A1): a data que burnStamp gastou antes (as desta escrita ficam acima dela) fica guardada com a
-        // restauração, para o sync a mandar ao servidor, e o que vem de antes dela perde lá. O que espera na fila daqui (uma edição que o
-        // orçamento do dia segurou, a fila longa de uma restauração de antes) ou na lista "só neste aparelho", e esta restauração deixa como
-        // está (igual à cópia, ou fora dela e já apagado), também é dela: ganha a data dela, senão perderia para o próprio piso quando subisse.
-        // O da fila volta a ela; o da lista continua na lista.
+        // O que espera na fila daqui (uma edição que o orçamento do dia segurou, a fila longa de uma restauração de antes) ou na lista "só
+        // neste aparelho", e esta restauração deixa como está (igual à cópia, ou fora dela e já apagado), também é dela: ganha a data dela,
+        // senão perderia para o próprio piso quando subisse. O da fila volta a ela; o da lista continua na lista.
         const waiting = new Set<string>();
+        const held = new Set(await heldOf(tx));
         let restamped: Change[] = [];
-        if (floor !== undefined) {
+        if (floorAt !== null) {
           const rewritten = new Set(changes.map((c) => syncKey(c.store, c.id)));
           for (const key of await tx.objectStore('outbox').getAllKeys()) waiting.add(key);
-          const held = new Set(await heldOf(tx));
           restamped = current
             .filter((c) => {
               const key = syncKey(c.store, c.id);
               return !rewritten.has(key) && (waiting.has(key) || held.has(key)) && checkChange(c).ok;
             })
             .map((c) => ({ ...c, updatedAt: at, deletionStamp: at }));
-          ctx.setState({ pendingFloor: Math.max(ctx.state().pendingFloor ?? 0, floor) });
+          const prior = ctx.state().pendingFloor;
+          ctx.setState({ pendingFloor: isFloor(prior) ? Math.max(prior, floorAt) : floorAt });
         }
         await each([...changes, ...restamped], (c) => putChange(tx, c));
         // Tudo o que a restauração grava entra na fila (spec 5.5), menos o que o servidor recusaria (spec 6.6): um registro da cópia que já
         // estava torto aqui (um id que não serve de chave, um solve sem sessão, um desafio grande demais) volta à tela como antes, mas não
-        // sobe. As exclusões vão na frente, com uma data de fila antes da do resto (o acabamento das cópias grandes, A2): perto da cota, o
-        // servidor recusaria o que volta da lixeira ou chega antes de elas abrirem as vagas, e outboxBatch manda a fila da mais antiga para
-        // a mais nova. Dentro de cada grupo, a ordem de sempre (a chave). As datas dos registros continuam a da restauração.
+        // sobe. A fila vai em três grupos, cada um com uma data de fila depois da do anterior (outboxBatch manda da mais antiga para a mais
+        // nova), e dentro de cada um a ordem de sempre (a chave); as datas dos registros continuam a da restauração:
+        // 1. as exclusões que não são de sessão (o acabamento das cópias grandes, A2: perto da cota, o servidor recusaria o que volta da
+        //    lixeira ou chega antes de elas abrirem as vagas), e as das sessões que a cota guarda, na frente dos solves delas (a chave), como
+        //    em deleteSession: elas não estão no servidor, não há cascata lá, e atrás dos solves outboxBatch os guardaria de novo;
+        // 2. as exclusões das outras sessões (a revisão do acabamento, como deleteSession e requeueHeld): a de uma sessão cuja cascata não cabe
+        //    num dia voltaria com a cota, e os solves dela esperariam com ela "só neste aparelho"; depois dos solves, ela chega sem solves
+        //    ativos no servidor;
+        // 3. o resto.
         const queued = [...changes.filter((c) => checkChange(c).ok), ...restamped.filter((c) => waiting.has(syncKey(c.store, c.id)))];
-        const deletes = queued.filter((c) => c.deletedAt !== null);
-        await each(deletes, (c) => ctx.track(c.store, c.id));
-        if (deletes.length > 0 && deletes.length < queued.length) ctx.raise(ctx.stamp() + 1); // o track seguinte tem uma data depois
-        await each(
+        const lastDeletion = (c: Change): boolean => c.store === 'sessions' && !held.has(syncKey(c.store, c.id));
+        const groups = [
+          queued.filter((c) => c.deletedAt !== null && !lastDeletion(c)),
+          queued.filter((c) => c.deletedAt !== null && lastDeletion(c)),
           queued.filter((c) => c.deletedAt === null),
-          (c) => ctx.track(c.store, c.id),
-        );
+        ].filter((group) => group.length > 0);
+        for (const [i, group] of groups.entries()) {
+          if (i > 0) ctx.raise(ctx.stamp() + 1); // o track seguinte tem uma data depois
+          await each(group, (c) => ctx.track(c.store, c.id));
+        }
         if (keepsProfile) await tx.objectStore('profile').put(split.device, 'current');
         else await tx.objectStore('profile').delete('current');
       });
       announce('all');
-    },
-
-    async burnStamp() {
-      return syncWrite([], async (_tx, ctx) => ctx.stamp()); // o relógio gravado passa a ser esta data
     },
 
     async addPractice(p) {

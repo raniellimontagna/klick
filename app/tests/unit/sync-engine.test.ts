@@ -1212,6 +1212,67 @@ describe('a cota e o orçamento do dia (endurecimento 4.1 e decisões 4 e 6)', (
     expect(activeSolves(server).map((x) => x.id).sort()).toEqual(copy.solves.map((x) => x.id).sort());
   });
 
+  // A revisão do acabamento (Important): a restauração pelo aparelho que manda para a lixeira uma sessão cuja cascata não cabe num dia. Na
+  // fila, as exclusões dos solves vão antes da dela, e a dela antes do resto (como deleteSession): os solves sobem pelo orçamento de cada
+  // dia, a sessão chega sem solves ativos no servidor, e nada fica só neste aparelho.
+  const DAY_MS = 86_400_000;
+  const nextDayOf = (server: FakeServer) => () => {
+    t = (Math.floor(t / DAY_MS) + 1) * DAY_MS;
+    server.now = t;
+    server.newDay();
+  };
+
+  it('restaurar no aparelho uma cópia sem uma sessão grande demais para um dia: os solves antes, a sessão depois, nada fica guardado', async () => {
+    const server = new FakeServer();
+    server.now = t;
+    const repo = await device();
+    const keep = await repo.createSession({ event: '333', name: 'Fica' });
+    const kept = await repo.addSolve(ns(keep.id, 500, t));
+    const copy = await repo.exportAll(); // a cópia: só a sessão que fica
+    const big = await repo.createSession({ event: '333', name: 'Grande' });
+    for (let i = 0; i < 7; i++) await repo.addSolve(ns(big.id, 1000 + i, t + i));
+    const { engine } = engineFor(repo, network(server));
+    await engine.run();
+    expect(activeSolves(server)).toHaveLength(8);
+    // Um dia de 3 registros: a sessão grande e a cascata dela (8) nunca caberiam.
+    const nextDay = nextDayOf(server);
+    server.budget = 3;
+    server.newDay();
+    t += 10;
+    server.now = t;
+    await repo.replaceAll(copy, { floor: true });
+    for (let day = 0; day < 6 && (await repo.outboxCount()) > 0; day++) {
+      await engine.run();
+      nextDay();
+    }
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, notice: null });
+    expect(await repo.heldCount()).toBe(0);
+    expect(server.active().has(`sessions/${big.id}`)).toBe(false);
+    expect(activeSolves(server).map((x) => x.id)).toEqual([kept.id]);
+  });
+
+  // A sessão que a cota já guarda (só neste aparelho) não está no servidor: a exclusão dela vai com as dos solves, na frente deles (a chave),
+  // como em deleteSession. Atrás deles, outboxBatch os guardaria de novo (a sessão ainda não estaria no lote).
+  it('restaurar no aparelho uma cópia sem uma sessão que a cota guarda: ela vai na frente dos solves dela, e nada fica guardado', async () => {
+    const server = new FakeServer(500, { limits: { solves: 100, sessions: 1, practice: 10, duels: 10 } });
+    server.now = t;
+    const repo = await device();
+    const keep = await repo.createSession({ event: '333', name: 'Na conta' });
+    const copy = await repo.exportAll();
+    const { engine } = engineFor(repo, network(server));
+    await engine.run();
+    const only = await repo.createSession({ event: '333', name: 'Só aqui' });
+    for (let i = 0; i < 3; i++) await repo.addSolve(ns(only.id, 1000 + i, t + i));
+    expect(await engine.run()).toMatchObject({ notice: 'quota' });
+    expect(await repo.heldCount()).toBe(4);
+    t += 10;
+    server.now = t;
+    await repo.replaceAll(copy, { floor: true });
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, notice: null });
+    expect(await repo.heldCount()).toBe(0);
+    expect([...server.active().keys()]).toEqual([`sessions/${keep.id}`]);
+  });
+
   it('a cota: o terceiro solve sai da fila, fica só neste aparelho, não volta sozinho, e o estado diz quota', async () => {
     const { server, repo, net, engine, a, b, c, first } = await fullAccount();
     expect(first).toMatchObject({ phase: 'idle', pending: 0, refused: 0, notice: 'quota' });
@@ -1882,17 +1943,45 @@ describe('o piso da restauração pelo aparelho no sync', () => {
     expect((await repo.getSyncState()).pendingFloor).toBeNull();
   });
 
-  it('um piso torto no estado não vai (o servidor recusaria o pedido inteiro), e o sync segue', async () => {
+  it('um piso torto no estado não vai (o servidor recusaria o pedido inteiro), sai do estado, e o sync segue', async () => {
     const server = new FakeServer();
     server.now = t;
     const repo = await device();
     const net = network(server);
     const { engine } = engineFor(repo, net);
-    for (const bad of [1.5, -1]) {
+    for (const bad of [1.5, -1, Number.NaN]) {
       await repo.saveSyncState({ pendingFloor: bad });
       expect(await engine.run(), String(bad)).toMatchObject({ phase: 'idle', error: null });
+      expect((await repo.getSyncState()).pendingFloor, String(bad)).toBeNull();
     }
-    expect(floors(net.calls)).toEqual([null, null]);
+    expect(floors(net.calls)).toEqual([null, null, null]);
+  });
+
+  // A revisão do acabamento (Minor 5): a edição que esperava na fila (mais velha que o piso) e a restauração deixa como está, por ser igual à
+  // cópia, é da restauração: ganha a data dela e vence o piso do próprio aparelho, no servidor e de volta aqui.
+  it('a edição que esperava na fila e a restauração deixa como está vence o piso do próprio aparelho, nos dois lados', async () => {
+    const server = new FakeServer();
+    server.now = t;
+    const repo = await device();
+    const s = await repo.createSession({ event: '333' });
+    const p = await repo.addSolve(ns(s.id, 1000));
+    const net = network(server);
+    const { engine } = engineFor(repo, net);
+    await engine.run();
+    t += 1000;
+    server.now = t;
+    await repo.updateSolve(p.id, { note: 'na fila' }); // ainda não subiu
+    const copy = await repo.exportAll(); // a cópia já tem a edição: a restauração não a regrava
+    t += 1000;
+    server.now = t;
+    await repo.replaceAll(copy, { floor: true });
+    const floor = (await repo.getSyncState()).pendingFloor!;
+    expect(floor).toBeGreaterThan(0);
+    await engine.run();
+    expect(server.floor).toBe(floor);
+    expect(server.records.get(`solves/${p.id}`)!.data).toMatchObject({ note: 'na fila' });
+    expect((await repo.listSolves()).find((x) => x.id === p.id)!.note).toBe('na fila');
+    expect((await repo.getSyncState()).pendingFloor).toBeNull();
   });
 
   it('um piso mais novo, gravado enquanto o pedido do de antes estava na rede, fica para o pedido seguinte', async () => {

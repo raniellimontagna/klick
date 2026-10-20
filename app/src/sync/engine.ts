@@ -11,7 +11,7 @@
 // login espera com a conta pela metade (sem deduplicar nem subir), para continuar do mesmo cursor.
 import { BUILD_ID } from '../build';
 import { QUOTA_REASON } from '../core/sync/limits';
-import { isCopiesPaused, SYNC_BATCH, SYNC_PROTOCOL, syncKey, type Change, type CopiesPaused, type OutboxEntry } from '../core/sync/types';
+import { isCopiesPaused, isFloor, SYNC_BATCH, SYNC_PROTOCOL, syncKey, type Change, type CopiesPaused, type OutboxEntry } from '../core/sync/types';
 import { AccountChangedError, type Repository } from '../data/repository';
 import { ApiError, type SyncApi } from './api';
 
@@ -140,7 +140,6 @@ const hasDeletion = (changes: readonly Change[]): boolean => changes.some((c) =>
 const deferredOf = (v: unknown, sent: number): number => (Number.isSafeInteger(v) && (v as number) > 0 ? Math.min(v as number, sent) : 0);
 const retryAtOf = (v: unknown): number | null => (Number.isSafeInteger(v) ? (v as number) : null);
 const copiesPausedOf = (v: unknown): CopiesPaused | null | undefined => (v === null || isCopiesPaused(v) ? v : undefined);
-const isFloor = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0; // o que o servidor aceita em SyncRequest.floor
 
 // A cópia antes de apagar em massa (spec 6.6), por rodada: os solves daqui que os lotes da rodada já apagaram e se a cópia 'pre-sync' já
 // saiu nela. Uma sessão apagada chega aos outros aparelhos como exclusões comuns, em páginas (a fila manda os solves antes dela): uma cópia
@@ -243,7 +242,10 @@ export function createSyncEngine(deps: EngineDeps): SyncEngine {
     refused += batch.refused;
     missing += batch.missing;
     // O piso da última restauração pelo aparelho (A1) vai em todo pedido até o servidor o confirmar (floorSet): um Worker de antes o ignora,
-    // e ele vai de novo. Um valor torto no estado não vai (o servidor recusaria o pedido inteiro).
+    // e ele vai de novo. Um valor torto no estado não vai (o servidor recusaria o pedido inteiro) e sai do estado com a volta (applyRemote).
+    // A janela que fica (a revisão do acabamento, Minor 1): a mudança velha de outro aparelho que chega ao servidor entre a rodada limpa de
+    // antes da restauração e o pedido que leva o piso (o download e a gravação, ou um aparelho sem rede até o próximo sync) é aceita como
+    // sempre, pelo merge: o piso só vale para o que chega depois dele. Fechar a janela pediria uma regra no aparelho (decidida fora).
     const floor = isFloor(state.pendingFloor) ? state.pendingFloor : null;
     const answered = deps.clock?.send();
     const res = await deps.api.sync({

@@ -541,19 +541,23 @@ describe('restaurar uma cópia de antes do nome dos desafios', () => {
   });
 });
 
-// O acabamento (A1): a restauração pelo aparelho é "a última restauração vence". O aparelho gasta uma data do relógio (o piso) antes de
-// gravar a restauração, e ela fica guardada (pendingFloor) com a restauração, na mesma transação: o sync a manda, e o servidor faz perder o
-// que vem de antes dela. O que espera na fila daqui (ou só neste aparelho, pela cota) e a restauração deixa como está também é dela: ganha
-// a data dela, senão perderia para o piso do próprio aparelho quando subisse.
+// O acabamento (A1): a restauração pelo aparelho é "a última restauração vence". Dentro da transação dela, o aparelho tira uma data do
+// relógio (o piso), acima de tudo o que ele já viu, e as datas da restauração ficam acima dele; o piso fica guardado (pendingFloor) com ela:
+// o sync o manda, e o servidor faz perder o que vem de antes dela. O que espera na fila daqui (ou só neste aparelho, pela cota) e a
+// restauração deixa como está também é dela: ganha a data dela, senão perderia para o piso do próprio aparelho quando subisse.
 describe('o piso da restauração pelo aparelho', () => {
-  it('burnStamp gasta a próxima data do relógio: toda escrita depois dela sai com uma data maior', async () => {
+  it('o piso fica acima de tudo o que o aparelho já viu, e cada data da restauração (e de depois dela) fica acima do piso', async () => {
     const { db, repo } = await fresh('conta-1');
     const s = await repo.createSession({ event: '333' });
-    const floor = await repo.burnStamp();
-    expect(floor).toBeGreaterThan((await db.get('sessions', s.id))!.updatedAt);
-    expect((await repo.getSyncState()).clock).toBe(floor);
-    const solve = await repo.addSolve(ns(s.id, 1000)); // o relógio de agora (t) não passou
-    expect((await db.get('solves', solve.id))!.updatedAt).toBeGreaterThan(floor);
+    await repo.addSolve({ id: 'x', ...ns(s.id, 1000) });
+    const copy: KlickExport = { ...(await repo.exportAll()), solves: [] }; // o x vai para a lixeira
+    const seen = (await repo.getSyncState()).clock; // o relógio de agora (t) não passa: as datas vêm do relógio do sync
+    await repo.replaceAll(copy, { floor: true });
+    const floor = (await repo.getSyncState()).pendingFloor!;
+    expect(floor).toBeGreaterThan(seen);
+    expect((await db.get('solves', 'x'))!.updatedAt).toBeGreaterThan(floor);
+    const after = await repo.addSolve(ns(s.id, 2000));
+    expect((await db.get('solves', after.id))!.updatedAt).toBeGreaterThan(floor);
   });
 
   it('com o piso, a restauração o guarda, os passos dela ficam acima dele, e o que esperava aqui e ela deixa como está ganha a data dela', async () => {
@@ -571,9 +575,9 @@ describe('o piso da restauração pelo aparelho', () => {
     const q = (await before('q'))!;
     const dGone = (await before('d'))!.deletedAt;
     t += 60_000;
-    const floor = await repo.burnStamp();
-    await repo.replaceAll(copy, { floor });
-    expect((await repo.getSyncState()).pendingFloor).toBe(floor);
+    await repo.replaceAll(copy, { floor: true });
+    const floor = (await repo.getSyncState()).pendingFloor!;
+    expect(floor).toBeGreaterThanOrEqual(t);
     const at = (await before('n'))!.updatedAt;
     expect(at).toBeGreaterThan(floor);
     expect(await before('x')).toMatchObject({ updatedAt: at, deletedAt: at, deletionStamp: at });

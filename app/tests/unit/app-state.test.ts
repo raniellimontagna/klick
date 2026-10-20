@@ -594,7 +594,7 @@ describe('estado do app: robustez (brief 9b)', () => {
     await app.addSolve(newSolve(62000, t + 1));
     expect(app.savePending).toBe(1);
     const backups = (await repo.listBackups()).length;
-    expect(await app.restoreFromCloud({ ...copy, solves: [] }, await repo.burnStamp())).toBe(false);
+    expect(await app.restoreFromCloud({ ...copy, solves: [] })).toBe(false);
     expect(app.toast?.text).toBe(T.data.restoreBlocked);
     expect((await repo.listSolves()).map((x) => x.ms)).toEqual([61000]);
     expect((await repo.listBackups()).length).toBe(backups); // nem a cópia local 'pre-restore'
@@ -607,22 +607,22 @@ describe('estado do app: robustez (brief 9b)', () => {
     const copy = await repo.exportAll();
     await app.addSolve(newSolve(61000, t + 1));
     expect(app.solves).toHaveLength(2);
-    const floor = await repo.burnStamp();
-    expect(await app.restoreFromCloud(copy, floor)).toBe(true);
+    const seen = (await repo.getSyncState()).clock;
+    expect(await app.restoreFromCloud(copy)).toBe(true);
     expect(app.solves.map((x) => x.ms)).toEqual([60000]);
     expect((await repo.listSolves()).map((x) => x.ms)).toEqual([60000]);
     expect((await repo.listBackups()).some((r) => r.reason === 'pre-restore')).toBe(true);
-    expect((await repo.getSyncState()).pendingFloor).toBe(floor); // o piso (A1) foi guardado com a troca
+    expect((await repo.getSyncState()).pendingFloor).toBeGreaterThan(seen); // o piso (A1) foi guardado com a troca
   });
 
   it('restoreFromCloud propaga o erro da troca e abre o portão', async () => {
     const { app, repo } = await setup();
     const copy = await repo.exportAll();
     const replaceAll = vi.spyOn(repo, 'replaceAll').mockRejectedValueOnce(new Error('disco cheio'));
-    await expect(app.restoreFromCloud(copy, await repo.burnStamp())).rejects.toThrow('disco cheio');
+    await expect(app.restoreFromCloud(copy)).rejects.toThrow('disco cheio');
     expect((await repo.getSyncState()).pendingFloor).toBeNull(); // a troca que falhou não guarda o piso
     replaceAll.mockRestore();
-    expect(await app.restoreFromCloud(copy, await repo.burnStamp())).toBe(true); // o portão abriu: a próxima passa
+    expect(await app.restoreFromCloud(copy)).toBe(true); // o portão abriu: a próxima passa
   });
 
   // O acabamento (A1): a troca da nuvem que passa do prazo devolve false (o diálogo diz 'held'), mas continua e termina depois. O piso vai
@@ -631,7 +631,7 @@ describe('estado do app: robustez (brief 9b)', () => {
     const { app, repo } = await setup();
     await app.addSolve(newSolve(60000));
     const copy = await repo.exportAll();
-    const floor = await repo.burnStamp();
+    const seen = (await repo.getSyncState()).clock;
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
@@ -644,7 +644,7 @@ describe('estado do app: robustez (brief 9b)', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     let restoring: Promise<boolean>;
     try {
-      restoring = app.restoreFromCloud(copy, floor);
+      restoring = app.restoreFromCloud(copy);
       await vi.advanceTimersByTimeAsync(30_000);
     } finally {
       vi.useRealTimers();
@@ -652,7 +652,7 @@ describe('estado do app: robustez (brief 9b)', () => {
     expect(await restoring).toBe(false);
     expect((await repo.getSyncState()).pendingFloor).toBeNull(); // ainda não gravou
     release();
-    await vi.waitFor(async () => expect((await repo.getSyncState()).pendingFloor).toBe(floor));
+    await vi.waitFor(async () => expect((await repo.getSyncState()).pendingFloor).toBeGreaterThan(seen));
   });
 
   // Regra 9: sobras da revisão da 9a.

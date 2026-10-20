@@ -47,6 +47,8 @@ export interface SyncRequest {
   // antes de juntar o lote, e confirma em `floorSet`; sem a confirmação (um Worker de antes, que ignora o campo), o aparelho a manda de novo.
   floor?: number;
 }
+// Um piso que o servidor aceita (SyncRequest.floor): um inteiro seguro >= 0.
+export const isFloor = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0;
 
 export interface Rejected {
   store: string;
