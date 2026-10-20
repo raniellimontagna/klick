@@ -681,7 +681,8 @@ export class AccountStore extends DurableObject<Env> {
   // não marca o próximo. A limpeza dos pedidos de código e dos códigos vencidos (spec 10) é do Cron Trigger do Worker (worker/index.ts): ela
   // não pode depender de uma conta viva nem da cópia no R2 dar certo. Um erro da cópia (o R2 que falha no meio das partes) não sai do
   // alarme (a revisão final, I4): lançado, o runtime repetiria o alarme, e cada repetição leria e regravaria as partes. Ele vai para o log
-  // ({evt:'copy-failed'}), a cópia já limpou o que gravou (writeParts) e não marcou snapshotRev, e o alarme de amanhã é marcado sempre.
+  // ({evt:'copy-failed'}), a cópia já limpou o que gravou (writeParts) e não marcou snapshotRev, e o alarme de amanhã é marcado sempre (a
+  // cópia de uma conta grande espera a próxima vez dela, bigCopyDue).
   async alarm(): Promise<void> {
     await this.exclusive(async () => {
       if (this.deleted()) return;
@@ -746,8 +747,8 @@ export class AccountStore extends DurableObject<Env> {
   // (writeCopyIn). Antes, as leituras dela contra o que sobra do dia (I4). Com o tamanho da última cópia (`gz`), o espaço e a operação A
   // também são conferidos antes de ler (copyRoom): uma conta pausada por eles não lê nem comprime a conta todo dia para descobrir de novo
   // que não cabe (a primeira cópia lê, como antes). A gravação é de writeCopy (um arquivo ou as partes, e a reserva de cada uma). Recusada,
-  // ela não é gravada nem marca snapshotRev (o alarme de amanhã tenta de novo), e a pausa fica no estado, com o motivo; gravada, a pausa sai
-  // e a lista guardada se renova.
+  // ela não é gravada nem marca snapshotRev (o alarme de amanhã tenta de novo; uma conta grande, na próxima vez dela), e a pausa fica no
+  // estado, com o motivo; gravada, a pausa sai e a lista guardada se renova.
   private async takeSnapshot(now: number): Promise<boolean> {
     const userId = this.getState('userId');
     const rev = this.getState('rev') ?? '0';
@@ -762,9 +763,13 @@ export class AccountStore extends DurableObject<Env> {
     if (records > caps.snapshotRecords) return this.pauseCopies(userId, 'size');
     if (records > useful) {
       if (!this.bigCopyDue(userId, now)) return false;
-      // A cópia grande que passaria do orçamento de leituras do dia (as páginas, pelo teto da conta, e o resto: COPY_READS_EXTRA) fica para
-      // o alarme de amanhã, sem pausa (a revisão final, I4): parada no meio, ela já teria lido, e o sync da conta esperaria a virada do dia.
-      if (this.readsOf(now).n + this.recordsBound(now) + COPY_READS_EXTRA > DAILY_READ_BUDGET) return false;
+      // O teto da conta (recordsBound, uma linha): acima do teto da cópia, ou com as leituras dela (as páginas e COPY_READS_EXTRA) maiores
+      // que um dia inteiro, ela nunca cabe, e pausa com 'size' antes de reservar ou ler qualquer coisa (a rodada residual da revisão final).
+      // Que passaria só do que sobra hoje, fica sem pausa para a próxima vez dela (bigCopyDue: o dia dela, ou 13 dias depois da última; I4):
+      // parada no meio, ela já teria lido, e o sync da conta esperaria a virada do dia.
+      const bound = this.recordsBound(now);
+      if (bound > caps.snapshotRecords || bound + COPY_READS_EXTRA > DAILY_READ_BUDGET) return this.pauseCopies(userId, 'size');
+      if (this.readsOf(now).n + bound + COPY_READS_EXTRA > DAILY_READ_BUDGET) return false;
     }
     const estimate = this.copies().gz;
     const short = estimate === null ? null : await copyRoom(this.env.DB, estimate, now, caps);
@@ -792,10 +797,12 @@ export class AccountStore extends DurableObject<Env> {
     return (ownDay && gone >= BIG_COPY_EVERY_DAYS) || gone >= 2 * BIG_COPY_EVERY_DAYS - 1;
   }
 
-  // Grava uma cópia da conta com o nome `name` (a do dia, e depois a de antes de restaurar) e volta o tamanho comprimido dela, ou o motivo
-  // de a reserva do espaço ou da operação A ter sido recusada (nada fica gravado nem reservado). Até COPY_PART_RECORDS registros, o arquivo
-  // só de sempre, com a conta inteira lida de uma vez (`all`). Acima, a cópia em partes (writeParts): o objeto nunca tem a conta inteira na
-  // memória, só uma página. A contagem é limitada a COPY_PART_RECORDS + 1 linhas, e entra no orçamento de leituras como as outras.
+  // Grava uma cópia da conta com o nome `name` (a do dia, e depois a de antes de restaurar) e volta o tamanho comprimido dela e as partes,
+  // ou o motivo da recusa: o teto da cópia ('size'), o espaço ou as operações A. Recusada, nada fica gravado nem o espaço reservado; as
+  // operações A que a cópia em partes reservou de uma vez ficam contadas (a mais, nunca a menos). Até COPY_PART_RECORDS registros, o
+  // arquivo só de sempre, com a conta inteira lida de uma vez (`all`). Acima, a cópia em partes (writeParts): o objeto nunca tem a conta
+  // inteira na memória, só uma página; acima do teto da cópia pelo teto da conta (recordsBound), 'size' antes de reservar ou ler as páginas.
+  // A contagem é limitada a COPY_PART_RECORDS + 1 linhas, e entra no orçamento de leituras como as outras.
   // Uma recusa deixa a estimativa (`gz`) com o tamanho do que chegou a ser comprimido, para o copyRoom do dia seguinte. A cópia gravada vai
   // para o log ({evt:'copy'}) com as partes (0 num arquivo só) e o tempo de relógio dela (`ms`): tudo roda dentro de blockConcurrencyWhile,
   // que tem 30 s, e o `wrangler tail` mostra quanto uma conta grande gasta de verdade (o portão do README).
@@ -821,7 +828,11 @@ export class AccountStore extends DurableObject<Env> {
     caps: Caps,
   ): Promise<{ gz: number; parts: number } | CopiesPaused> {
     const records = this.recordCount(COPY_PART_RECORDS, now);
-    if (records > COPY_PART_RECORDS) return this.writeParts(userId, name, meta, now, caps);
+    if (records > COPY_PART_RECORDS) {
+      const bound = this.recordsBound(now);
+      if (bound > caps.snapshotRecords) return 'size'; // antes de reservar as operações ou ler as páginas
+      return this.writeParts(userId, name, meta, now, caps, bound);
+    }
     if (records > caps.snapshotRecords) return 'size'; // o teto vale também para um arquivo só (as partes o conferem página a página)
     const data = exportFromRecords(this.all(now), now);
     const gz = await gzipJson(data);
@@ -849,8 +860,8 @@ export class AccountStore extends DurableObject<Env> {
   // que a lista mostra, e o que faltar não aparece).
   //
   // As operações A de todas as partes e do manifesto saem antes de gravar, numa reserva só (a revisão final, I3: cada ida ao D1 é tempo de
-  // relógio dentro de blockConcurrencyWhile, que tem 30 s), pelo teto do tamanho da conta (recordsBound): N partes no máximo, mais o
-  // manifesto. Sem elas, nada é gravado ('ops'). O espaço continua reservado parte a parte, antes de cada put, e o do manifesto também. Uma
+  // relógio dentro de blockConcurrencyWhile, que tem 30 s), pelo teto do tamanho da conta (`bound`, recordsBound) e pelo teto da cópia, o
+  // menor dos dois: N partes no máximo, mais o manifesto. Sem elas, nada é gravado ('ops'). O espaço continua reservado parte a parte, antes de cada put, e o do manifesto também. Uma
   // recusa no meio, ou um erro do R2 (ou do SQLite), apaga as partes já gravadas (apagar no R2 não custa operação), devolve o espaço delas
   // uma vez só (discard pode rodar de novo no catch) e segue; as operações já reservadas ficam contadas (a mais, nunca a menos). Uma parte
   // além das N (o teto nunca fica abaixo da conta, mas a regra não depende disso) reserva a operação dela antes. As páginas conferem o teto
@@ -862,6 +873,7 @@ export class AccountStore extends DurableObject<Env> {
     meta: { kind: 'daily' | 'pre-restore'; day: string },
     now: number,
     caps: Caps,
+    bound: number,
   ): Promise<{ gz: number; parts: number } | CopiesPaused> {
     const bucket = this.env.SNAPSHOTS;
     const keys: string[] = [];
@@ -878,7 +890,7 @@ export class AccountStore extends DurableObject<Env> {
       this.setCopies({ ...this.copies(), gz: Math.max(this.copies().gz ?? 0, bytes + pending) });
       return why;
     };
-    const ops = Math.min(MAX_PARTS, Math.max(1, Math.ceil(this.recordsBound(now) / COPY_PART_RECORDS)));
+    const ops = Math.min(MAX_PARTS, Math.max(1, Math.min(Math.ceil(bound / COPY_PART_RECORDS), Math.ceil(caps.snapshotRecords / COPY_PART_RECORDS))));
     if (!(await takeOps(this.env.DB, 'A', ops + 1, now, caps.classAMonth))) return refuse('ops', 0);
     try {
       const parts: CopyManifest['parts'] = [];
@@ -980,9 +992,11 @@ export class AccountStore extends DurableObject<Env> {
   // antes (operações B, r2-budget), e a tentativa conta no dia; a cópia (not-found; a lista só se renova quando o nome estava nela, ou quando
   // ela já não valia); num manifesto, uma operação B por parte (r2-budget), e a parte que falta ou vem torta é not-found (a lista se
   // renova). As mudanças, as das faixas e as dos ajustes, contra o limite (too-big); nenhuma mudança é 'ok', sem a cópia de antes e sem
-  // reservar nada (a restauração conta no dia); as linhas delas (rowsOf) contra o que sobra hoje, na conta e no teto do ambiente
-  // (write-budget: dayRoom, que só lê o D1); a cópia de antes (writeCopy, um arquivo ou as partes: no-room, r2-budget; nunca se restaura sem
-  // ela, decisão 3); por fim, com ela guardada, a reserva das linhas no teto do ambiente (write-budget: reserveDay, a autoridade). Sem o
+  // reservar linhas (a restauração conta no dia, e o piso dela, restoreFloor, sobe: a única gravação, no estado); as linhas delas (rowsOf)
+  // contra o que sobra hoje, na conta e no teto do ambiente (write-budget: dayRoom, que só lê o D1); a cópia de antes (writeCopy, um arquivo
+  // ou as partes: no-room, r2-budget; nunca se restaura sem ela, decisão 3), que não sai quando a última cópia do dia já é a conta de agora
+  // (snapshotRev igual à revisão: ela guarda o estado de antes; I6 a); por fim, com ela guardada, a reserva das linhas no teto do ambiente
+  // (write-budget: reserveDay, a autoridade). Sem o
   // atalho da lista, alternar "restaurar um nome que não existe" com "abrir a lista" gastaria uma operação A por par.
   //
   // A resposta pelo aparelho (`device`: o app que sabe restaurar no aparelho diz que sabe; o de antes manda {} e nunca a recebe): onde o
@@ -1026,6 +1040,9 @@ export class AccountStore extends DurableObject<Env> {
       // registros da cópia, mais RESTORE_READS_EXTRA) tem de caber no orçamento do dia, senão a restauração nem compara.
       const copied = manifest !== null ? manifest.parts.reduce((sum, p) => sum + p.records, 0) : copyRecords(file!);
       if (this.readsOf(now).n + 2 * copied + RESTORE_READS_EXTRA > DAILY_READ_BUDGET) return device ? onDevice() : 'restore-limit';
+      // Acima do teto da cópia (o teto da conta, uma linha), a cópia de antes seria 'size': a restauração no servidor não acontece, e nem
+      // compara (o app de antes ouve no-room, como na cópia de antes recusada; o novo restaura no aparelho, com a cópia local de antes).
+      if (this.recordsBound(now) > caps.snapshotRecords) return device ? onDevice() : 'no-room';
       if (manifest !== null && !(await takeOps(this.env.DB, 'B', manifest.parts.length, now, caps.classBMonth))) return 'r2-budget';
       const limit = Math.min(caps.restoreRecords, recordsPerDay(caps.rowsDay));
       const steps: RestoreStep[] = [];

@@ -873,7 +873,8 @@ describe('a cópia em partes e a cada 7 dias numa conta grande', () => {
   });
 
   // A revisão final (I4): um erro no meio da cópia (o R2 que falha num put) não sai do alarme. Lançado, o runtime repetiria o alarme, e cada
-  // repetição regravaria as partes; ele vai para o log, a cópia fica para o alarme de amanhã, e o de amanhã é marcado.
+  // repetição regravaria as partes; ele vai para o log, o alarme de amanhã é marcado, e a cópia espera a próxima vez dela (bigCopyDue: o
+  // dia dela, ou 13 dias depois da última).
   it('um put que falha no meio das partes: o alarme termina, marca o de amanhã, e nenhuma parte nem espaço ficam', async () => {
     const user = 'partes-alarme-falha';
     await accountWith(user, COPY_PART_RECORDS + 1);
@@ -1028,13 +1029,30 @@ describe('a cópia em partes e a cada 7 dias numa conta grande', () => {
     expect((await readsCounted(user, T0)) - reads).toBeLessThanOrEqual(2 * COPY_PART_RECORDS + 1 + COPY_READS_EXTRA);
   });
 
-  it('acima do teto, a cópia para na página que passa dele: as partes somem, o espaço volta, e a pausa é size', async () => {
+  // A rodada residual: o teto da conta (recordsBound, uma linha) passa do teto da cópia, e a pausa 'size' vem antes de reservar as operações
+  // A ou ler as páginas; o que as páginas conferem fica de reserva.
+  it('acima do teto, a cópia grande pausa com size antes de reservar operações ou ler as páginas', async () => {
     const user = 'grande-acima-do-teto';
     await accountWith(user, 2 * COPY_PART_RECORDS + 1);
     await setVars(user, { SNAPSHOT_MAX_RECORDS: String(COPY_PART_RECORDS + 10) });
     const r2 = await countR2(user);
+    const pages: unknown[] = [];
+    await runInDurableObject(stubOf(user), (instance) => {
+      const o = instance as unknown as { sql: SqlStorage };
+      const real = o.sql;
+      o.sql = new Proxy(real, {
+        get(target, key) {
+          const value = Reflect.get(target, key) as unknown;
+          if (key !== 'exec') return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+          return (query: string, ...bindings: unknown[]) => {
+            if (query === PAGE_AFTER) pages.push(bindings);
+            return target.exec(query, ...(bindings as SqlStorageValue[]));
+          };
+        },
+      });
+    });
     expect(await stubOf(user).snapshot(T0)).toBe(false);
-    expect(r2.put).toBe(1); // a parte 1 coube; a página 2 passou do teto, e a parte 1 foi apagada
+    expect([r2.put, pages, await opsOf('A')]).toEqual([undefined, [], 0]); // nenhuma operação A reservada, nenhuma página lida
     expect([await objectsOf(user), await storageUsed(env.DB), await stateOf(user, 'snapshotRev')]).toEqual([[], 0, null]);
     expect((await sync(user, [], T0)).copiesPaused).toBe('size');
     // Um arquivo só acima do teto também é size.
@@ -1044,6 +1062,24 @@ describe('a cópia em partes e a cada 7 dias numa conta grande', () => {
     expect(await stubOf(single).snapshot(T0)).toBe(false);
     expect(await objectsOf(single)).toEqual([]);
     expect((await sync(single, [], T0)).copiesPaused).toBe('size');
+  });
+
+  // Uma conta cujas leituras (o teto dela mais COPY_READS_EXTRA) não caberiam nem num dia vazio: 'size', e não "fica para depois" para sempre.
+  // O teto da conta é o maior rowid: uma linha com o rowid alto o simula sem semear meio milhão de registros.
+  it('a cópia grande que não caberia nem num dia inteiro de leituras pausa com size', async () => {
+    const user = 'grande-sem-dia-de-leituras';
+    await accountWith(user, COPY_PART_RECORDS + 1);
+    await setVars(user, { SNAPSHOT_MAX_RECORDS: String(2 * DAILY_READ_BUDGET) });
+    await runInDurableObject(stubOf(user), (_o, state) => {
+      state.storage.sql.exec(
+        "INSERT INTO records (rowid, store, id, data, updated_at, deleted_at, deletion_stamp, rev, parent) VALUES (?, 'solves', 'alto', ?, ?, NULL, ?, 0, 's1')",
+        DAILY_READ_BUDGET, JSON.stringify(solve('alto').data), T0, T0,
+      );
+    });
+    const r2 = await countR2(user);
+    expect(await stubOf(user).snapshot(T0)).toBe(false);
+    expect([r2.put, await opsOf('A')]).toEqual([undefined, 0]);
+    expect((await sync(user, [], T0)).copiesPaused).toBe('size');
   });
 
   it('conta pequena continua com um arquivo só, todo dia; no limite do dia útil também', async () => {
@@ -1419,6 +1455,24 @@ describe('a restauração por diferenças e a resposta pelo aparelho', () => {
   // A revisão final (I5 b): uma restauração grande no servidor lê a conta duas vezes (a comparação e a cópia de antes). Quando as leituras de
   // hoje mais a estimativa dela (2 × os registros da cópia, mais RESTORE_READS_EXTRA) passam do orçamento do dia, ela não compara: o app novo
   // ouve a resposta do aparelho, o de antes restore-limit.
+  // A rodada residual: uma conta acima do teto da cópia não teria a cópia de antes ('size'); a restauração responde antes de comparar.
+  it('acima do teto da cópia, a restauração não compara: no-room no app de antes, o aparelho no novo', async () => {
+    const user = 'diferencas-acima-do-teto';
+    await bigWithParts(user);
+    await sync(user, [solve('novo')]);
+    await setVars(user, { SNAPSHOT_MAX_RECORDS: String(COPY_PART_RECORDS) });
+    const account = await accountOf(user);
+    const objects = await objectsOf(user);
+    const reads = await readsCounted(user, T0 + 1000);
+    const r2 = await countR2(user);
+    expect(await restore(user, dayOf(T0), T0 + 1000)).toEqual({ status: 409, body: { error: 'no-room' } });
+    expect(await restoreDevice(user, dayOf(T0), T0 + 2000)).toEqual({ status: 200, body: { restore: 'device', parts: 2 } });
+    expect([r2.get, r2.put]).toEqual([2, undefined]); // o objeto da cópia, uma vez por pedido; nenhuma parte
+    expect(await readsCounted(user, T0 + 2000)).toBe(reads + 2); // só o teto da conta, uma linha por pedido
+    expect(await objectsOf(user)).toEqual(objects);
+    expect((await accountOf(user)).records).toEqual(account.records);
+  });
+
   it('com as leituras de hoje perto do fim, a restauração não compara: vai pelo aparelho, ou restore-limit no app de antes', async () => {
     const user = 'diferencas-sem-leituras';
     await bigWithParts(user);
@@ -1454,7 +1508,7 @@ describe('a restauração por diferenças e a resposta pelo aparelho', () => {
     const records = await recordCount(user);
     const reads = await readsCounted(user, T0 + 1000);
     expect(await restoreDevice(user, dayOf(T0), T0 + 1000)).toEqual({ status: 200, body: { restore: 'device', parts: 2 } });
-    expect((await readsCounted(user, T0 + 1000)) - reads).toBe(records); // as faixas e os ajustes, cada registro uma vez
+    expect((await readsCounted(user, T0 + 1000)) - reads).toBe(records + 1); // as faixas e os ajustes, cada registro uma vez, e o teto da conta
   });
 
   it('GET parts: o índice 0 é o objeto, 1..N as partes; o dia tem COPY_PART_READS_PER_DAY leituras; cada uma reserva uma B', async () => {

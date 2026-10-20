@@ -72,7 +72,8 @@ export const BIG_COPY_EVERY_DAYS = 7;
 export const COPY_PART_READS_PER_DAY = 200;
 // As leituras de uma cópia grande além das páginas (as contagens limitadas de antes, ao dia útil + 1 e a COPY_PART_RECORDS + 1, o teto da
 // conta e os ajustes): com as páginas, a estimativa que a cópia grande confere contra o que sobra do orçamento de leituras do dia, antes de
-// começar (a revisão final, I4). Sem lugar, ela fica para o alarme de amanhã, sem pausa.
+// começar (a revisão final, I4). Sem lugar hoje, ela fica para a próxima vez dela, sem pausa; maior que um dia inteiro, ela nunca caberia,
+// e pausa com 'size'.
 export const COPY_READS_EXTRA = 10_000;
 // A restauração no servidor de uma conta grande lê a conta duas vezes: a comparação (a conta, faixa a faixa) e a cópia de antes. Antes de
 // comparar, com a cópia lida, a estimativa (2 × os registros da cópia, mais RESTORE_READS_EXTRA para o que a conta cresceu depois dela e os
