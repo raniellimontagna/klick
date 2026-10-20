@@ -130,6 +130,10 @@ export interface ImportSummary {
   refused?: number; // registros que o sync recusaria (um id que não serve de chave, por exemplo): ficaram de fora (spec 6.6)
 }
 
+// O que o "Desfazer" desfaz (o aviso e a tecla Z): uma exclusão (de um solve ou de um lote) volta da lixeira; uma mudança de sessão volta
+// cada solve para a sessão de onde ele saiu.
+type UndoAction = { kind: 'delete'; ids: string[] } | { kind: 'move'; moves: { id: string; from: string }[] };
+
 const DEFAULT_EVENT: EventId = '333';
 const UNDO_MS = 6000; // janela de Desfazer: a mesma do aviso que a oferece
 const TOAST_MS = 6000;
@@ -311,7 +315,7 @@ export class AppState {
   private chain: Promise<void> = Promise.resolve();
   // As escritas da trilha e do treino no perfil, em fila: cada uma lê o perfil depois da gravação anterior (o perfil grava inteiro).
   private trailWrites: Promise<unknown> = Promise.resolve();
-  private undo: { id: string; until: number } | null = null;
+  private undo: (UndoAction & { until: number }) | null = null; // o "Desfazer" pendente: o que desfazer e até quando
   private undoAction: (() => void) | null = null;
   private scrambleRequest = 0;
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
@@ -700,25 +704,89 @@ export class AppState {
   async deleteSolve(id: string): Promise<void> {
     const ok = await this.write(async () => {
       await this.repo.deleteSolve(id);
-      await this.serial(async () => this.removeSolve(id));
+      await this.serial(async () => this.removeSolves([id]));
     });
     if (ok) {
       void this.checkSeason(); // tirar um DNF pode completar uma média (ou a variação de 5 seguidos)
-      const undoAction = () => void this.undoDelete();
-      this.undo = { id, until: this.now() + UNDO_MS };
-      this.undoAction = undoAction;
-      this.showToast(T.toast.deleted, this.undoLabel(), undoAction, UNDO_MS);
+      this.offerUndo({ kind: 'delete', ids: [id] }, T.toast.deleted);
     }
   }
 
-  // Restaura se o prazo ainda não passou. Qualquer resposta encerra a janela: desfazer uma vez não se repete.
-  async undoDelete(): Promise<boolean> {
+  // Exclui um lote (a seleção da lista) numa transação, com um "Desfazer" só para o lote inteiro. A memória tira os excluídos sem reler o
+  // histórico. Devolve se gravou.
+  async deleteSolves(ids: readonly string[]): Promise<boolean> {
+    let gone: string[] = [];
+    const ok = await this.write(async () => {
+      gone = await this.repo.deleteSolves(ids);
+      await this.serial(async () => this.removeSolves(gone));
+    });
+    if (ok && gone.length > 0) {
+      void this.checkSeason();
+      this.offerUndo({ kind: 'delete', ids: gone }, T.historico.deleted(gone.length));
+    }
+    return ok;
+  }
+
+  // Move solves (um, pelo detalhe, ou um lote) para outra sessão do mesmo evento, com um "Desfazer" só. Outro evento ou uma sessão que foi
+  // para a lixeira o repositório recusa: nada muda, e o aviso de falha aparece. A memória lê só os solves que mudaram (o instante deles é o
+  // mesmo, então a ordem também). Devolve se gravou.
+  async moveSolves(ids: readonly string[], sessionId: string): Promise<boolean> {
+    let moves: { id: string; from: string }[] = [];
+    const ok = await this.write(async () => {
+      moves = await this.repo.moveSolves(ids, sessionId);
+    });
+    if (!ok || moves.length === 0) return ok;
+    await this.refreshSolveIds(moves.map((m) => m.id));
+    void this.checkSeason();
+    const name = this.sessions.find((s) => s.id === sessionId)?.name ?? '';
+    this.offerUndo({ kind: 'move', moves }, T.historico.moved(moves.length, name));
+    return true;
+  }
+
+  // Junta duas sessões do mesmo evento (o diálogo das Sessões): os solves de `fromId` passam para `toId`, e ela vai para a lixeira. Se ela
+  // era a atual, a de destino passa a ser. Não tem "Desfazer": a sessão volta pela lixeira, sem os solves. Devolve se gravou.
+  async mergeSessions(fromId: string, toId: string): Promise<boolean> {
+    const wasCurrent = fromId === this.profile.currentSessionId;
+    let count = 0;
+    const ok = await this.write(async () => {
+      count = await this.repo.mergeSessions(fromId, toId);
+    });
+    if (!ok) return false;
+    // O "Desfazer" de antes deixa de valer: devolver um solve à sessão juntada a traria de volta da lixeira só com ele.
+    this.closeUndo();
+    if (wasCurrent) await this.switchSession(toId);
+    await this.refreshKinds(['solves', 'sessions']); // sem os ids no retorno: relê os solves (uma junção é rara)
+    void this.checkSeason();
+    this.showToast(T.historico.merged(count, this.sessions.find((s) => s.id === toId)?.name ?? ''));
+    return true;
+  }
+
+  // O "Desfazer" do aviso e da tecla Z, se o prazo ainda não passou. Qualquer resposta encerra a janela: desfazer uma vez não se repete.
+  // Uma exclusão volta da lixeira numa transação. Uma mudança de sessão volta um pedido por sessão de origem: a volta para uma sessão que foi
+  // para a lixeira no meio (outra aba) é recusada, com o aviso de falha, e as outras voltam. Devolve se tudo voltou.
+  async undoLast(): Promise<boolean> {
     const undo = this.undo;
     this.closeUndo();
     if (!undo || this.now() > undo.until) return false;
-    const ok = await this.write(() => this.repo.restoreSolve(undo.id));
-    // Restaurar o solve pode reviver a sessão dele (se outra aba a mandou para a lixeira): relê as duas.
-    await this.refreshKinds(['solves', 'sessions']);
+    let ok = true;
+    let ids: string[];
+    if (undo.kind === 'delete') {
+      ids = undo.ids;
+      ok = await this.write(() => this.repo.restoreSolves(undo.ids));
+    } else {
+      ids = undo.moves.map((m) => m.id);
+      const back = new Map<string, string[]>();
+      for (const m of undo.moves) {
+        const group = back.get(m.from);
+        if (group) group.push(m.id);
+        else back.set(m.from, [m.id]);
+      }
+      for (const [from, group] of back) ok = (await this.write(() => this.repo.moveSolves(group, from))) && ok;
+    }
+    // A memória lê só os solves do lote, como ficaram (os que voltaram e os que não). Restaurar pode reviver a sessão deles, se outra aba a
+    // mandou para a lixeira: relê as sessões também.
+    await this.refreshSolveIds(ids);
+    if (undo.kind === 'delete') await this.refreshKinds(['sessions']);
     if (ok) await this.checkSeason();
     return ok;
   }
@@ -1444,6 +1512,14 @@ export class AppState {
     return mediaMatches('(pointer: coarse)') ? T.toast.undoTouch : T.toast.undo;
   }
 
+  // Abre a janela do "Desfazer" da última ação (o aviso, com o prazo dele, e a tecla Z). A de antes, se havia, deixa de valer.
+  private offerUndo(action: UndoAction, text: string): void {
+    const undoAction = () => void this.undoLast();
+    this.undo = { ...action, until: this.now() + UNDO_MS };
+    this.undoAction = undoAction;
+    this.showToast(text, this.undoLabel(), undoAction, UNDO_MS);
+  }
+
   // Tira o desfazer pendente e, se o aviso dele ainda está na tela, tira o aviso também (identidade da função, não do texto).
   private closeUndo(): void {
     const action = this.undoAction;
@@ -1691,9 +1767,11 @@ export class AppState {
     this.solves = next;
   }
 
-  private removeSolve(id: string): void {
-    if (!this.solves.some((s) => s.id === id)) return;
-    this.solves = this.solves.filter((s) => s.id !== id);
+  // Os excluídos saem da lista numa passada (a ordem dos outros não muda). Se nenhum está na lista, nada muda.
+  private removeSolves(ids: readonly string[]): void {
+    const gone = new Set(ids);
+    if (!this.solves.some((s) => gone.has(s.id))) return;
+    this.solves = this.solves.filter((s) => !gone.has(s.id));
   }
 
   private async backup(reason: 'auto50' | 'daily'): Promise<void> {

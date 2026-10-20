@@ -260,6 +260,17 @@ export const T = Object.freeze({
     columns: Object.freeze({ number: '#', time: 'Tempo', scramble: 'Embaralhamento', when: 'Quando' }),
     pbTag: 'recorde',
   },
+  // O histórico inteiro (a lista, o detalhe, mover e juntar). As contagens levam o ponto de milhar.
+  historico: {
+    // Os avisos do lote (o de mover e o de excluir oferecem o "Desfazer"). Um solve só, movido pelo detalhe: "Solve movido para Treino".
+    deleted: (n: number) => (n === 1 ? '1 solve excluído' : `${n.toLocaleString('pt-BR')} solves excluídos`),
+    moved: (n: number, session: string) =>
+      n === 1 ? `Solve movido para ${session}` : `${n.toLocaleString('pt-BR')} solves movidos para ${session}`,
+    merged: (n: number, session: string) =>
+      n === 0
+        ? `Sessões juntadas em ${session}`
+        : `Sessões juntadas: ${n === 1 ? '1 solve passou' : `${n.toLocaleString('pt-BR')} solves passaram`} para ${session}`,
+  },
   // Mensagens de um arquivo que não pode ser lido (data/transfer.ts).
   transfer: {
     klickInvalid: 'Arquivo do Klick inválido.',

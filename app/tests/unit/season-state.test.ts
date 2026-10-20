@@ -91,7 +91,7 @@ describe('temporada no AppState', () => {
     await a.reload();
     expect(a.profile.season.current.n).toBe(3);
     await a.deleteSolve(solve!.id);
-    expect(await a.undoDelete()).toBe(true);
+    expect(await a.undoLast()).toBe(true);
     expect(a.solves.some((s) => s.id === solve!.id)).toBe(true); // o solve voltou
     expect(a.profile.season.current.n).toBe(3);
     expect((await repo.getProfile()).season.past).toHaveLength(2);
@@ -108,7 +108,7 @@ describe('temporada no AppState', () => {
     await repo.addSolve({ sessionId: a.activeSession!.id, event: '333', ms: 20000, penalty: null, at: END + 1500, scramble: '' });
     await a.reload();
     expect(a.profile.season.current.n).toBe(2);
-    expect(await a.undoDelete()).toBe(true);
+    expect(await a.undoLast()).toBe(true);
     expect(a.profile.season.current.n).toBe(3);
   });
 

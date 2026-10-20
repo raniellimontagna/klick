@@ -5,9 +5,10 @@
 // pendente, então nada é engolido. Os avisos (ouvintes locais e canal entre abas) saem só depois do commit.
 //
 // Invariante: solve ativo => sessão ativa. Um solve ativo sob uma sessão na lixeira continuaria entrando nas contas por evento,
-// mas nenhuma lista de sessões mostraria a sessão dele, e o purge a apagaria de vez. Os três caminhos que gravam um solve ativo
-// (restoreSolve, addSolve e importAll) devolvem o registro da sessão na mesma transação, e só ele: os outros solves excluídos da
-// sessão continuam na lixeira. replaceAll grava a cópia como veio.
+// mas nenhuma lista de sessões mostraria a sessão dele, e o purge a apagaria de vez. Os caminhos que gravam um solve ativo numa sessão
+// que pode estar na lixeira (restoreSolve, restoreSolves, addSolve e importAll) devolvem o registro da sessão na mesma transação, e só ele:
+// os outros solves excluídos da sessão continuam na lixeira. Mover e juntar só aceitam uma sessão de destino ativa. replaceAll grava a
+// cópia como veio.
 //
 // Leitura: o que sai do IndexedDB já é cópia. Os padrões (perfil e meta) são montados novos a cada chamada, nunca compartilhados.
 import type { IDBPDatabase, IDBPObjectStore, IDBPTransaction, StoreNames } from 'idb';
@@ -92,7 +93,20 @@ export interface Repository {
   updateSolve(id: string, patch: { penalty?: Penalty; note?: string }): Promise<Solve>;
   deleteSolve(id: string): Promise<void>;
   restoreSolve(id: string): Promise<void>; // devolve o solve; se a sessão dele está na lixeira, devolve também o registro dela (só ele: os outros solves excluídos da sessão continuam na lixeira)
-  listTrash(): Promise<{ sessions: Session[]; solves: Solve[]; duels: Duel[] }>; // o excluído mais recentemente primeiro, em cada lista
+  // O lote do histórico (plano do histórico inteiro, Task 2), cada um numa transação, com uma data só para o lote inteiro. Um id que não
+  // existe, ou que já está no estado pedido, fica de fora; cada um devolve o que mudou, na ordem pedida.
+  // Mover: a sessão de destino precisa existir, estar ativa e ser do evento de cada solve, senão rejeita (Error 'move-session' ou
+  // 'move-event') e nada grava. O sync aceitaria um solve numa sessão de outro evento (checkChange só olha se há sessionId): quem recusa é
+  // aqui. Só o solve ativo muda (o da lixeira fica onde está), e o que já está no destino também fica de fora. Muda a sessão e a data de
+  // edição; a exclusão (deletionStamp) fica. Devolve de onde cada um saiu, para o "Desfazer".
+  moveSolves(ids: readonly string[], sessionId: string): Promise<{ id: string; from: string }[]>;
+  deleteSolves(ids: readonly string[]): Promise<string[]>; // o lote de deleteSolve
+  restoreSolves(ids: readonly string[]): Promise<string[]>; // o lote de restoreSolve: a sessão de um solve que volta, se está na lixeira, volta junto
+  // Juntar (spec do histórico, seção 5): as duas ativas e do mesmo evento, senão rejeita (Error 'merge-session' ou 'merge-event') e nada
+  // grava; juntar uma sessão com ela mesma também é 'merge-session'. Os solves ativos de `fromId` passam para `toId` e ela vai para a
+  // lixeira (com os solves dela que já estavam lá). Na fila, a exclusão dela vai depois das mudanças dos solves. Devolve quantos passaram.
+  mergeSessions(fromId: string, toId: string): Promise<number>;
+  listTrash():Promise<{ sessions: Session[]; solves: Solve[]; duels: Duel[] }>; // o excluído mais recentemente primeiro, em cada lista
   // Apaga de vez o excluído antes de now - olderThanMs (no limite exato ainda fica), menos o que espera na fila de saída ou está só neste
   // aparelho (a lista dos recusados pela cota): a marca de exclusão só some depois que o servidor a tem (spec 5.5). Uma sessão só sai depois
   // do último solve dela (fica enquanto algum sobrar, na fila, por vencer ou ativo). Devolve quantos itens (sessões, solves e desafios); as
@@ -509,6 +523,7 @@ const metaOrNew = (stored: Meta | undefined, at: number): Meta =>
   stored ? { ...META_DEFAULTS, ...stored } : { ...META_DEFAULTS, deviceId: newId(at) };
 
 const compareText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+const distinct = (ids: readonly string[]): string[] => [...new Set(ids)]; // um id repetido no lote conta uma vez
 const bySessionOrder = (a: Session, b: Session): number => a.order - b.order || a.createdAt - b.createdAt || compareText(a.id, b.id);
 const bySolveTime = (a: Solve, b: Solve): number => a.at - b.at || compareText(a.id, b.id);
 const byPracticeTime = (a: Practice, b: Practice): number => a.at - b.at || compareText(a.id, b.id);
@@ -1063,6 +1078,91 @@ export function createRepository(
       if (restored === null) return;
       announceSolves([id]);
       if (restored.session) announce('sessions');
+    },
+
+    async moveSolves(ids, sessionId) {
+      const moves = await syncWrite(['sessions', 'solves'], async (tx, ctx) => {
+        const target = await tx.objectStore('sessions').get(sessionId);
+        if (!target || target.deletedAt !== null) throw new Error('move-session');
+        const solves = tx.objectStore('solves');
+        const found = await Promise.all(distinct(ids).map((id) => solves.get(id)));
+        // Só o solve ativo de outra sessão muda: o da lixeira fica onde está, e o que já está no destino não tem o que mudar.
+        const moving = found.filter((s): s is StoredSolve => s !== undefined && s.deletedAt === null && s.sessionId !== sessionId);
+        // Um só de outro evento recusa o lote inteiro, antes de qualquer gravação: o sync o levaria assim mesmo.
+        if (moving.some((s) => s.event !== target.event)) throw new Error('move-event');
+        if (moving.length === 0) return [];
+        const at = ctx.stamp();
+        await each(moving, (s) => solves.put({ ...s, sessionId, updatedAt: at }));
+        await each(moving, (s) => ctx.track('solves', s.id));
+        return moving.map((s) => ({ id: s.id, from: s.sessionId }));
+      });
+      if (moves.length > 0) announceSolves(moves.map((m) => m.id));
+      return moves;
+    },
+
+    async deleteSolves(ids) {
+      const gone = await syncWrite(['solves'], async (tx, ctx) => {
+        const solves = tx.objectStore('solves');
+        const found = await Promise.all(distinct(ids).map((id) => solves.get(id)));
+        const live = found.filter((s): s is StoredSolve => s !== undefined && s.deletedAt === null);
+        if (live.length === 0) return [];
+        const at = ctx.stamp(); // a mesma data para o lote, como a cascata de deleteSession
+        await each(live, (s) => solves.put({ ...s, deletedAt: at, updatedAt: at, deletionStamp: at }));
+        await each(live, (s) => ctx.track('solves', s.id));
+        return live.map((s) => s.id);
+      });
+      if (gone.length > 0) announceSolves(gone);
+      return gone;
+    },
+
+    async restoreSolves(ids) {
+      const back = await syncWrite(['solves', 'sessions'], async (tx, ctx) => {
+        const solves = tx.objectStore('solves');
+        const found = await Promise.all(distinct(ids).map((id) => solves.get(id)));
+        const trashed = found.filter((s): s is StoredSolve => s !== undefined && s.deletedAt !== null);
+        if (trashed.length === 0) return null;
+        const at = ctx.stamp();
+        await each(trashed, (s) => solves.put({ ...s, deletedAt: null, updatedAt: at, deletionStamp: at }));
+        await each(trashed, (s) => ctx.track('solves', s.id));
+        // O invariante, como em restoreSolve: a sessão de cada um, se está na lixeira, volta junto (só o registro dela), com a mesma data.
+        // Na fila, ela sobe antes dos solves dela (a mesma data, e a chave a põe na frente).
+        const sessions = tx.objectStore('sessions');
+        let revived = false;
+        for (const sid of new Set(trashed.map((s) => s.sessionId))) revived = (await reviveSession(sessions, sid, ctx)) || revived;
+        return { ids: trashed.map((s) => s.id), revived };
+      });
+      if (back === null) return [];
+      announceSolves(back.ids);
+      if (back.revived) announce('sessions');
+      return back.ids;
+    },
+
+    async mergeSessions(fromId, toId) {
+      const moved = await syncWrite(['sessions', 'solves'], async (tx, ctx) => {
+        const sessions = tx.objectStore('sessions');
+        const [from, to] = await Promise.all([sessions.get(fromId), sessions.get(toId)]);
+        if (fromId === toId || !from || !to || from.deletedAt !== null || to.deletedAt !== null) throw new Error('merge-session');
+        if (from.event !== to.event) throw new Error('merge-event');
+        // Só os ativos passam: os que já estavam na lixeira ficam com ela, com a marca antiga (restaurá-la não os traz de volta).
+        const solves = tx.objectStore('solves');
+        const live = (await solves.index('bySession').getAll(keyRange(fromId))).filter((s) => s.deletedAt === null);
+        const at = ctx.stamp();
+        await each(live, (s) => solves.put({ ...s, sessionId: toId, updatedAt: at }));
+        await each(live, (s) => ctx.track('solves', s.id));
+        // A exclusão da sessão sobe depois das mudanças de sessão dos solves (spec do histórico, seção 5), com a data seguinte do relógio,
+        // como em deleteSession: antes delas, a cascata dela (no servidor, ou num aparelho que baixa um registro por vez) apagaria um solve
+        // que ainda está nela, e a mudança dele perderia (a exclusão tem o deletionStamp maior). A sessão que a cota guarda (só neste
+        // aparelho) vai na frente, com a mesma data, como lá: não há cascata dela no servidor, e atrás dos solves outboxBatch os guardaria.
+        const held = (await heldOf(tx)).includes(syncKey('sessions', fromId));
+        if (live.length > 0 && !held) ctx.raise(ctx.stamp() + 1); // o relógio passa desta escrita: a exclusão tem uma data depois
+        const gone = ctx.stamp();
+        await sessions.put({ ...from, deletedAt: gone, updatedAt: gone, deletionStamp: gone });
+        await ctx.track('sessions', fromId);
+        return live.map((s) => s.id);
+      });
+      announce('sessions');
+      if (moved.length > 0) announceSolves(moved);
+      return moved.length;
     },
 
     async getSolves(ids) {

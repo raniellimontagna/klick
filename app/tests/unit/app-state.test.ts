@@ -1,3 +1,4 @@
+import { render } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { openKlickDb } from '../../src/data/db';
 import { createRepository, type ChannelLike, type Repository } from '../../src/data/repository';
@@ -8,6 +9,7 @@ import type { Solve } from '../../src/core/types';
 import { createScrambleQueue } from '../../src/scramble/queue';
 import { T } from '../../src/strings';
 import { AppState, type AppDeps } from '../../src/ui/state/app.svelte';
+import TimerScreen from '../../src/ui/timer/TimerScreen.svelte';
 import { appWithAccount, fakeApi } from './sync-account';
 import { FakeServer } from './sync-fakes';
 
@@ -68,11 +70,11 @@ describe('estado do app', () => {
     await app.deleteSolve(s.id);
     expect(app.solves).toEqual([]);
     expect(app.toast?.text).toBeTruthy();
-    expect(await app.undoDelete()).toBe(true);
+    expect(await app.undoLast()).toBe(true);
     expect(app.solves.map((x) => x.id)).toEqual([s.id]);
     await app.deleteSolve(s.id);
     t += 7000;
-    expect(await app.undoDelete()).toBe(false);
+    expect(await app.undoLast()).toBe(false);
   });
 
   it('acha dados da v1 neste navegador e oferece uma vez', async () => {
@@ -160,7 +162,7 @@ describe('estado do app', () => {
     const s = (await app.addSolve({ ms: 60000, penalty: null, at: t }))!;
     await app.deleteSolve(s.id);
     t += 6001;
-    expect(await app.undoDelete()).toBe(false);
+    expect(await app.undoLast()).toBe(false);
     expect(app.solves).toEqual([]);
   });
 
@@ -170,7 +172,7 @@ describe('estado do app', () => {
     await app.deleteSolve(first.id);
     expect(app.toast?.action).toBe(T.toast.undo);
     await app.addSolve({ ms: 61000, penalty: null, at: t + 1 });
-    expect(await app.undoDelete()).toBe(false);
+    expect(await app.undoLast()).toBe(false);
     expect(app.solves.map((x) => x.ms)).toEqual([61000]);
     expect(app.toast).toBeNull();
   });
@@ -189,6 +191,116 @@ describe('estado do app', () => {
     } finally {
       window.matchMedia = original;
     }
+  });
+
+  // O histórico inteiro (Task 2): excluir e mover em lote têm um "Desfazer" só, que desfaz o lote inteiro.
+  it('excluir em lote e desfazer devolve todos', async () => {
+    const { app, repo } = await setup();
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i++) ids.push((await app.addSolve({ ms: 60_000 + i, penalty: null, at: t + i }))!.id);
+    const listSolves = vi.spyOn(repo, 'listSolves');
+    expect(await app.deleteSolves([ids[0], ids[2]])).toBe(true);
+    expect(app.solves.map((s) => s.id)).toEqual([ids[1]]);
+    expect(app.toast).toMatchObject({ text: T.historico.deleted(2), action: T.toast.undo });
+    expect(T.historico.deleted(1)).toBe('1 solve excluído');
+    expect(T.historico.deleted(2)).toBe('2 solves excluídos');
+    expect(await app.undoLast()).toBe(true);
+    expect(app.solves.map((s) => s.id)).toEqual(ids);
+    expect((await repo.listSolves()).map((s) => s.id)).toEqual(ids);
+    expect(listSolves).toHaveBeenCalledTimes(1); // só a conferência acima: a memória não releu o histórico inteiro
+    expect(await app.undoLast()).toBe(false); // desfazer uma vez não se repete
+  });
+
+  it('mover e desfazer volta cada solve para a sessão de onde veio', async () => {
+    const { app, repo } = await setup();
+    const first = app.currentSession!;
+    const x = (await app.addSolve({ ms: 60_000, penalty: null, at: t }))!;
+    await app.createSession('333', 'Treino');
+    const treino = app.currentSession!;
+    const y = (await app.addSolve({ ms: 61_000, penalty: null, at: t + 1 }))!;
+    await app.createSession('333', 'Destino');
+    const dest = app.currentSession!;
+    const where = (list: { id: string; sessionId: string }[]) => list.map((s) => [s.id, s.sessionId]);
+
+    expect(await app.moveSolves([x.id, y.id], dest.id)).toBe(true);
+    expect(where(app.solves)).toEqual([[x.id, dest.id], [y.id, dest.id]]);
+    expect(app.toast).toMatchObject({ text: T.historico.moved(2, 'Destino'), action: T.toast.undo });
+    expect(await app.undoLast()).toBe(true);
+    expect(where(app.solves)).toEqual([[x.id, first.id], [y.id, treino.id]]);
+    expect(where(await repo.listSolves())).toEqual([[x.id, first.id], [y.id, treino.id]]);
+
+    // A sessão de onde y veio foi para a lixeira no meio (outra aba): a volta dele é recusada e o aviso diz; x volta.
+    await app.moveSolves([x.id, y.id], dest.id);
+    await repo.deleteSession(treino.id);
+    expect(await app.undoLast()).toBe(false);
+    expect(app.toast?.text).toBe(T.data.changeFailed);
+    expect(where(await repo.listSolves())).toEqual([[x.id, first.id], [y.id, dest.id]]);
+    expect(where(app.solves)).toEqual([[x.id, first.id], [y.id, dest.id]]);
+
+    // Para outro evento, o repositório recusa: nada muda, nem a memória.
+    await app.createSession('sq1');
+    expect(await app.moveSolves([x.id], app.currentSession!.id)).toBe(false);
+    expect(app.toast?.text).toBe(T.data.changeFailed);
+    expect(where(app.solves)).toEqual([[x.id, first.id], [y.id, dest.id]]);
+  });
+
+  // Review Focus 3: um solve novo encerra o "Desfazer" pendente, seja de um, de lote ou de mover.
+  it('um solve novo encerra o desfazer de lote e o de mover', async () => {
+    const { app } = await setup();
+    const a = (await app.addSolve({ ms: 60_000, penalty: null, at: t }))!;
+    const b = (await app.addSolve({ ms: 61_000, penalty: null, at: t + 1 }))!;
+    await app.deleteSolves([a.id]);
+    await app.addSolve({ ms: 62_000, penalty: null, at: t + 2 });
+    expect(app.toast).toBeNull();
+    expect(await app.undoLast()).toBe(false);
+    expect(app.solves.map((s) => s.id)).not.toContain(a.id);
+
+    const home = app.currentSession!;
+    await app.createSession('333', 'Outra');
+    await app.moveSolves([b.id], app.currentSession!.id);
+    expect(app.toast?.action).toBe(T.toast.undo);
+    await app.addSolve({ ms: 63_000, penalty: null, at: t + 3 });
+    expect(app.toast).toBeNull();
+    expect(await app.undoLast()).toBe(false);
+    expect(app.solves.find((s) => s.id === b.id)?.sessionId).not.toBe(home.id);
+  });
+
+  it('juntar a sessão atual troca a atual para a de destino', async () => {
+    const { app, repo } = await setup();
+    const main = app.currentSession!;
+    await app.addSolve({ ms: 60_000, penalty: null, at: t });
+    await app.createSession('333', 'Antiga');
+    const old = app.currentSession!;
+    await app.addSolve({ ms: 61_000, penalty: null, at: t + 1 });
+    await app.addSolve({ ms: 62_000, penalty: null, at: t + 2 });
+
+    expect(await app.mergeSessions(old.id, main.id)).toBe(true);
+    expect(app.currentSession?.id).toBe(main.id);
+    expect((await repo.getProfile()).currentSessionId).toBe(main.id);
+    expect(app.sessions.map((s) => s.id)).toEqual([main.id]);
+    expect(app.sessionSolves).toHaveLength(3);
+    expect(app.solves.every((s) => s.sessionId === main.id)).toBe(true);
+    expect(app.toast?.text).toBe(T.historico.merged(2, main.name));
+    expect(app.scramble).toMatch(/^333-/);
+
+    // Juntar com uma sessão de outro evento é recusado, com o aviso, e nada muda.
+    await app.createSession('sq1');
+    const sq1 = app.currentSession!;
+    expect(await app.mergeSessions(sq1.id, main.id)).toBe(false);
+    expect(app.toast?.text).toBe(T.data.changeFailed);
+    expect(app.currentSession?.id).toBe(sq1.id);
+    expect(app.sessions.map((s) => s.id)).toEqual([main.id, sq1.id]);
+  });
+
+  it('a tecla Z desfaz o último lote', async () => {
+    const { app } = await setup();
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i++) ids.push((await app.addSolve({ ms: 60_000 + i, penalty: null, at: t + i }))!.id);
+    render(TimerScreen, { app });
+    await app.deleteSolves(ids.slice(0, 2));
+    expect(app.solves.map((s) => s.id)).toEqual([ids[2]]);
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyZ', key: 'z', bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(app.solves.map((s) => s.id)).toEqual(ids));
   });
 
   it('uma mudança de outra aba enquanto espera o primeiro embaralhamento aparece', async () => {
@@ -1667,7 +1779,7 @@ describe('estado do app: sessão de outra aba, pasta e textos de falha', () => {
     await repo.deleteSession(sq1.id); // outra aba excluiu a sessão
     await app.reload();
     expect(app.sessions.map((s) => s.id)).not.toContain(sq1.id);
-    expect(await app.undoDelete()).toBe(true);
+    expect(await app.undoLast()).toBe(true);
     await vi.waitFor(() => expect(app.sessions.map((s) => s.id)).toContain(sq1.id));
   });
 

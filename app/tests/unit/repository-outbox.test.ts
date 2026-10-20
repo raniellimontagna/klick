@@ -98,6 +98,30 @@ describe('fila de saída (spec 5.3)', () => {
     expect(await keys(db)).toEqual([`sessions/${s.id}`, `solves/${a.id}`, `solves/${b.id}`].sort());
   });
 
+  it('mover, excluir e restaurar em lote põem cada solve na fila uma vez, com a data da gravação e a forma que o servidor aceita', async () => {
+    const { db, repo } = await fresh();
+    const a = await repo.createSession({ event: '333' });
+    const b = await repo.createSession({ event: '333' });
+    const x = await repo.addSolve(ns(a.id, 1000));
+    const y = await repo.addSolve(ns(a.id, 2000));
+    await db.clear('outbox');
+    t += 1000;
+    await repo.moveSolves([x.id, y.id], b.id);
+    const moved = await db.getAll('outbox');
+    expect(moved.map((e) => `${e.store}/${e.id}`).sort()).toEqual([`solves/${x.id}`, `solves/${y.id}`].sort());
+    const stamp = (await db.get('solves', x.id))!.updatedAt;
+    expect(moved.map((e) => e.queuedAt)).toEqual([stamp, stamp]);
+    t += 1000;
+    await repo.deleteSolves([x.id, y.id]);
+    await repo.restoreSolves([y.id]);
+    expect(await keys(db)).toEqual([`solves/${x.id}`, `solves/${y.id}`].sort());
+    const changes = await pendingChanges(db);
+    for (const c of changes) expect(checkChange(c), `${c.store}/${c.id}`).toEqual({ ok: true, change: c });
+    expect(changes.map((c) => [c.id, (c.data as { sessionId: string }).sessionId, c.deletedAt === null])).toEqual(
+      expect.arrayContaining([[x.id, b.id, false], [y.id, b.id, true]]),
+    );
+  });
+
   it('apagar uma tentativa do treino vira marca de exclusão, fora da lista e do export, e entra na fila', async () => {
     const { db, repo } = await fresh();
     const p = await repo.addPractice({ id: 'p1', caseId: 'oll2-sune', ms: 2000, ok: true, helped: false, at: t });

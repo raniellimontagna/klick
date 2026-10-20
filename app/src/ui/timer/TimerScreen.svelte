@@ -669,7 +669,7 @@
         if (!duelOn && !duelEnd) void removeLast(); // nem excluir: não dá para refazer um embaralhamento
         return;
       case 'undo':
-        void app.undoDelete();
+        void app.undoLast(); // o último "Desfazer": um solve, um lote excluído ou movido
         return;
       case 'next':
         if (!duelOn && !duelEnd) void app.nextScramble(); // o embaralhamento do desafio é o da vez
