@@ -4,7 +4,7 @@
 // sync como qualquer gravação, e a lixeira e as cópias a desfazem.
 import { canonicalJson } from './merge';
 import { defaultPrefValue, isPrefValue } from './prefs';
-import { stampOf, toChange, type RecordStore, type StampedRecord } from './records';
+import { isCompacted, stampOf, toChange, type RecordStore, type StampedRecord } from './records';
 import { syncKey, type Change } from './types';
 
 export interface RestoreCopy {
@@ -29,11 +29,13 @@ const COPY_STORES: readonly RecordStore[] = ['sessions', 'solves', 'practice', '
 
 // O que a cópia tem, igual ao que `current` tem (conteúdo e estar apagado ou não)? As datas não entram: a de exclusão da cópia vira a da
 // restauração, e as de edição valem só no merge. O conteúdo sai do registro da cópia como o `put` o faria, para os dois lados passarem
-// pelo mesmo toChange.
+// pelo mesmo toChange. A marca compactada de agora (records.ts: o solve apagado há mais de 30 dias, sem o conteúdo) é igual ao mesmo solve
+// apagado na cópia: os dois estão na lixeira, e regravar o conteúdo dele só o traria de volta para a compactação tirar de novo.
 function sameRecord(c: Change, store: RecordStore, rec: object): boolean {
   const r = rec as { id: string; deletedAt?: number | null };
   const deleted = r.deletedAt != null;
   if ((c.deletedAt !== null) !== deleted) return false;
+  if (deleted && isCompacted(c)) return true;
   const copy = toChange(store, { ...rec, id: r.id, updatedAt: 0, deletedAt: deleted ? 0 : null, deletionStamp: 0 } as StampedRecord);
   return canonicalJson(c.data) === canonicalJson(copy.data);
 }

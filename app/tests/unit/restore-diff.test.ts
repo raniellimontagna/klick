@@ -49,6 +49,15 @@ describe('diffSlice: só o que muda', () => {
     expect(steps).toEqual([]);
   });
 
+  // A revisão final (M1): o solve apagado há mais de 30 dias é, no servidor, só a marca compactada (data {}); na cópia, ele está apagado com
+  // o conteúdo. Os dois estão apagados, e a marca não tem o que restaurar: igual, sem passo (antes, regravava a lixeira inteira de novo).
+  it('a marca compactada de agora contra o mesmo solve apagado na cópia: igual, sem passo', () => {
+    const mark: Change = { store: 'solves', id: 'velho', data: {}, updatedAt: T0, deletedAt: T0 + 1, deletionStamp: T0 + 1 };
+    expect(diffSlice([mark], copyOf({ solves: [bare(solveRec('velho', { deletedAt: T0 + 1 }))] })).steps).toEqual([]);
+    // Ativo na cópia, a marca não basta: o solve volta da cópia.
+    expect(keys(diffSlice([mark], copyOf({ solves: [bare(solveRec('velho'))] })).steps)).toEqual(['copy solves/velho']);
+  });
+
   it('só agora e ativo: tombstone; só agora e já apagado: nada', () => {
     const { steps } = diffSlice([solve('ativo'), solve('apagado', { deletedAt: T0 + 1 })], copyOf());
     expect(steps).toEqual([{ kind: 'tombstone', change: solve('ativo') }]);
