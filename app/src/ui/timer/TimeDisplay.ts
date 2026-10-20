@@ -1,9 +1,10 @@
 // Tempo grande da tela do Timer (porte de paintTime em prototype/scripts/ui/timer-view.js). Escreve direto no DOM, sem passar
 // pelo Svelte: a cada quadro, só os textos que mudaram são trocados.
 
-// '0:58.42' → <span class="int">0:58</span><span class="dec">.42</span>. Texto sem ponto (contagem da inspeção, DNF) vai
-// inteiro em .int e .dec fica vazio.
-export function paintTime(el: HTMLElement, text: string): void {
+// '0:58.42' → <span class="int">0:58</span><span class="dec">.42</span>. Texto sem ponto (contagem da inspeção, DNF, "0:09" de "Só os
+// segundos") vai inteiro em .int e .dec fica vazio. `solving`: o tempo escondido ("Resolvendo"), que .int mostra com a classe tc-solving
+// (em cinza, menor, na altura do tempo).
+export function paintTime(el: HTMLElement, text: string, solving = false): void {
   let intEl = el.querySelector<HTMLElement>(':scope > .int');
   let decEl = el.querySelector<HTMLElement>(':scope > .dec');
   if (!intEl || !decEl) {
@@ -17,6 +18,7 @@ export function paintTime(el: HTMLElement, text: string): void {
   const cut = text.indexOf('.');
   const sec = cut < 0 ? text : text.slice(0, cut);
   const cs = cut < 0 ? '' : text.slice(cut);
+  if (intEl.classList.contains('tc-solving') !== solving) intEl.classList.toggle('tc-solving', solving);
   if (intEl.textContent !== sec) intEl.textContent = sec;
   if (decEl.textContent !== cs) decEl.textContent = cs;
 }

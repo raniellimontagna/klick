@@ -325,6 +325,28 @@ describe('timer rodando', () => {
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
+  // Review Focus 2, pela entrada inteira (os eventos de ponteiro nas zonas e fora delas): com fases, o dedo novo marca, com outro encostado.
+  it('com fases, um dedo novo (numa zona ou fora dela) com outro ainda encostado marca a fase', () => {
+    const s = setup({ coarse: true });
+    s.timer.setOptions({ phases: 3 });
+    pe('pointerdown', s.left, 1);
+    pe('pointerdown', s.right, 2, { primary: false });
+    s.setT(400); s.timer.tick();
+    pe('pointerup', window, 1);
+    pe('pointerup', window, 2);
+    expect(s.timer.state).toBe('running');
+    s.setT(2400);
+    pe('pointerdown', s.left, 3); // a primeira fase, e o dedo fica
+    expect(s.timer.marks).toEqual([2000]);
+    s.setT(4400);
+    pe('pointerdown', s.right, 4, { primary: false }); // outro dedo na outra zona: a segunda
+    expect(s.timer.marks).toEqual([2000, 4000]);
+    s.setT(6400);
+    pe('pointerdown', document.querySelector('[data-time]')!, 5, { primary: false }); // fora das zonas: a última, que para
+    expect(s.timer.state).toBe('done');
+    expect(s.timer.result?.phases).toEqual([2000, 2000, 2000]);
+  });
+
   it('um segundo dedo que não é primário não libera o clique engolido', () => {
     const s = setup();
     key('keydown', 'Space', ' ');

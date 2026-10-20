@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openKlickDb } from '../../src/data/db';
 import { createRepository, type Repository } from '../../src/data/repository';
@@ -813,5 +813,138 @@ describe('tela do Timer: o modo Digitar e o desafio', () => {
     await solveByKeys();
     await waitFor(() => expect(a.duel.current!.mine).toHaveLength(1));
     expect(a.solves).toHaveLength(0); // o solve é do desafio, nunca dos solves
+  });
+});
+
+// As fases no toque e o tempo durante o solve (a maquete aprovada, 4a–4c e 5a–5b). O relógio é o do teste: cada fase dura o que ele manda.
+describe('tela do Timer: as fases e o tempo durante o solve', () => {
+  beforeEach(relogioControlado);
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  const shown = () => document.querySelector('[data-time]')?.textContent;
+  const marks = () => [...document.querySelectorAll('.tc-marks i')].map((i) => i.getAttribute('data-p'));
+  // Arma pelo espaço (segura 400 ms) e larga: o timer corre.
+  const launch = () => {
+    key('keydown', 'Space', ' ');
+    relogio += 400;
+    key('keyup', 'Space', ' ');
+  };
+  // Um toque (qualquer tecla) depois de `ms`: marca a fase ou, na última, para.
+  const tap = (ms: number) => {
+    relogio += ms;
+    key('keydown', 'KeyA', 'a');
+    key('keyup', 'KeyA', 'a');
+  };
+
+  it('com 4 fases, as marcas aparecem e o resultado mostra as quatro fases', async () => {
+    const { a } = await app();
+    await a.updateSettings({ inspection: false, phases: 4 });
+    render(TimerScreen, { app: a });
+    expect(document.querySelector('.tc-marks')).toBeNull(); // parado, sem marcas
+    launch();
+    // As peças do progresso do desafio: feita na tinta, a da vez com contorno, as outras só o contorno.
+    await waitFor(() => expect(marks()).toEqual(['now', 'open', 'open', 'open']));
+    expect(document.querySelector('.tc-marks')).toHaveAttribute('aria-hidden', 'true');
+    tap(1840);
+    await waitFor(() => expect(marks()).toEqual(['done', 'now', 'open', 'open']));
+    tap(6120);
+    await waitFor(() => expect(marks()).toEqual(['done', 'done', 'now', 'open']));
+    tap(2150);
+    await waitFor(() => expect(marks()).toEqual(['done', 'done', 'done', 'now']));
+    expect(document.body.dataset.tstate).toBe('running');
+    tap(3230); // a quarta para
+    await waitFor(() => expect(a.solves).toHaveLength(1));
+    expect(a.solves[0]).toMatchObject({ ms: 13340, phases: [1840, 6120, 2150, 3230] });
+    // O resultado: o tempo inteiro e, embaixo dele, a barra com as quatro fases (no 3×3, os nomes do CFOP); as marcas saem.
+    const bar = await screen.findByRole('list', { name: T.fases.bar });
+    const li = within(bar).getAllByRole('listitem');
+    expect(li.map((x) => x.querySelector('.n')?.textContent)).toEqual(['Cruz', 'F2L', 'OLL', 'PLL']);
+    expect(li[1]).toHaveTextContent('F2L, 6.12 s, 46% do tempo, a que mais pesa');
+    expect(li[1]).toHaveAttribute('data-top');
+    expect(document.querySelector('.tc-marks')).toBeNull();
+    await doisQuadros();
+    expect(shown()).toBe('0:13.34');
+    // O próximo solve corre sem a barra do anterior (as marcas tomam o lugar dela).
+    launch();
+    await waitFor(() => expect(marks()).toEqual(['now', 'open', 'open', 'open']));
+    expect(screen.queryByRole('list', { name: T.fases.bar })).toBeNull();
+  });
+
+  it('Só os segundos e Escondido mudam só o tempo correndo; a inspeção e o tempo final ficam iguais', async () => {
+    const { a } = await app();
+    await a.updateSettings({ inspection: true, liveTime: 'seconds' });
+    render(TimerScreen, { app: a });
+    // A inspeção: a contagem de sempre.
+    key('keydown', 'Space', ' ');
+    key('keyup', 'Space', ' ');
+    relogio += 1500;
+    await doisQuadros();
+    expect(shown()).toBe('14');
+    // Correndo: só a parte inteira ("0:09"), sem os centésimos.
+    launch();
+    relogio += 9470;
+    await doisQuadros();
+    expect(shown()).toBe('0:09');
+    expect(document.querySelector('[data-time] .dec')?.textContent).toBe('');
+    tap(0);
+    await waitFor(() => expect(a.solves).toHaveLength(1));
+    await doisQuadros();
+    expect(shown()).toBe('0:09.47'); // o tempo final, inteiro
+    // Escondido: "Resolvendo" no lugar do tempo correndo; a inspeção e o tempo final, iguais.
+    await a.updateSettings({ liveTime: 'hidden' });
+    key('keydown', 'Space', ' ');
+    key('keyup', 'Space', ' ');
+    relogio += 1500;
+    await doisQuadros();
+    expect(shown()).toBe('14');
+    launch();
+    relogio += 5000;
+    await doisQuadros();
+    expect(shown()).toBe(T.timer.solving);
+    expect(document.querySelector('[data-time] .tc-solving')).toHaveTextContent('Resolvendo');
+    tap(0);
+    await waitFor(() => expect(a.solves).toHaveLength(2));
+    await doisQuadros();
+    expect(shown()).toBe('0:05.00');
+    expect(document.querySelector('[data-time] .tc-solving')).toBeNull();
+  });
+
+  it('no desafio, sem fases e com o tempo inteiro, mesmo com os ajustes ligados', async () => {
+    const repo = createRepository(await openKlickDb(`ts-${++n}`), { channel: null });
+    let k = 0;
+    const a = new AppState({
+      repo,
+      queue: createScrambleQueue({ generate: async (ev) => `${ev} R U` }),
+      storage: null,
+      storageManager: null,
+      duel: { generate: async (ev) => `${ev} D L${++k}` },
+    });
+    await a.init();
+    await a.updateSettings({ inspection: false, phases: 4, liveTime: 'hidden' });
+    render(TimerScreen, { app: a });
+    // Fora do desafio, os ajustes valem: "Resolvendo" e as marcas das fases.
+    launch();
+    relogio += 1000;
+    await doisQuadros();
+    expect(shown()).toBe(T.timer.solving);
+    await waitFor(() => expect(marks()).toHaveLength(4));
+    for (let i = 0; i < 4; i++) tap(1000);
+    await waitFor(() => expect(a.solves).toHaveLength(1));
+    // No desafio: o cronômetro de hoje (o tempo inteiro correndo, sem marcas) e o primeiro toque para.
+    await a.duel.start('333');
+    await waitFor(() => expect(a.duel.phase).toBe('solving'));
+    launch();
+    relogio += 1000;
+    await doisQuadros();
+    expect(shown()).toBe('0:01.00');
+    expect(document.querySelector('.tc-marks')).toBeNull();
+    tap(500);
+    await waitFor(() => expect(a.duel.current!.mine).toHaveLength(1));
+    expect(a.duel.current!.mine[0]).toEqual({ ms: 1500, penalty: null });
+    expect(a.solves).toHaveLength(1); // o solve é do desafio, nunca dos solves
+    expect(screen.queryByRole('list', { name: T.fases.bar })).toBeNull();
   });
 });

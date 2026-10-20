@@ -338,6 +338,34 @@ describe('toque na rodada (spec 7.2: o espaço e os polegares só armam na monta
     expect(a.trainerRunning).toBe(false);
   });
 
+  // Review Focus 1: as fases, o tempo escondido e o modo Digitar são do Timer; o treino da Trilha cronometra como sempre.
+  it('o treino da Trilha cronometra como antes com fases ligadas', async () => {
+    const { a, repo } = await app();
+    await a.updateSettings({ phases: 4, liveTime: 'hidden', entry: 'typing' });
+    round(a);
+    // Pelo teclado: o tempo inteiro correndo, sem marcas, e o primeiro toque para.
+    key('keydown', 'Space', ' ');
+    await sleep(320);
+    key('keyup', 'Space', ' ');
+    await sleep(60);
+    expect(a.trainerRunning).toBe(true);
+    expect(shownTime()).toMatch(/^\d:\d\d\.\d\d$/);
+    expect(document.querySelector('.tc-marks')).toBeNull();
+    key('keydown', 'KeyA', 'a');
+    await screen.findByRole('button', { name: 'Acertei' });
+    expect(a.trainerRunning).toBe(false);
+    await fireEvent.click(screen.getByRole('button', { name: 'Acertei' }));
+    await waitFor(async () => expect(await repo.listPractice()).toHaveLength(1));
+    expect((await repo.listPractice())[0]).not.toHaveProperty('phases');
+    // Pelos polegares: um toque só para.
+    await thumbs();
+    expect(a.trainerRunning).toBe(true);
+    pointer('pointerdown', zone('left')!, 3);
+    pointer('pointerup', window, 3);
+    await screen.findByRole('button', { name: 'Acertei' });
+    expect(a.trainerRunning).toBe(false);
+  });
+
   it('na marcação, dois polegares não armam de novo e o resultado continua para marcar', async () => {
     const { a, repo } = await app();
     round(a);

@@ -175,3 +175,42 @@ describe('armar no toque, com o horário do evento', () => {
     expect(timer.inspectElapsed).toBe(8000);        // contada desde 180, e não desde os 400 do handler
   });
 });
+
+// Fases no toque (Review Focus 2): no celular, a mão que marcou a fase às vezes fica encostada na tela, e a próxima fase vem com outro dedo.
+describe('fases no toque', () => {
+  it('com fases, um toque de outro dedo com o primeiro ainda encostado marca a fase', () => {
+    const { timer, touch, at } = rig();
+    timer.setOptions({ phases: 3 });
+    const marked: number[] = [];
+    timer.on('phase', (_i, ms) => marked.push(ms));
+    touch.down(1, 'left');
+    touch.down(2, 'right');
+    at(400);
+    touch.up(1);
+    touch.up(2);
+    expect(timer.state).toBe(STATES.RUNNING);
+    at(2400);
+    touch.down(3, 'left'); // a primeira fase; o dedo fica na tela
+    expect(marked).toEqual([2000]);
+    at(4400);
+    touch.down(4, 'right'); // outro dedo, com o primeiro ainda encostado: marca a segunda
+    expect(marked).toEqual([2000, 4000]);
+    expect(timer.state).toBe(STATES.RUNNING);
+    at(6400);
+    touch.down(5, 'left'); // o terceiro, com dois encostados, para
+    expect(timer.state).toBe(STATES.DONE);
+    expect(timer.result?.phases).toEqual([2000, 2000, 2000]);
+    // Os dedos do gesto não armam de novo enquanto algum está na tela; depois que todos saem, os dois polegares armam como sempre.
+    touch.down(6, 'right');
+    at(7000);
+    expect(timer.state).toBe(STATES.DONE);
+    touch.up(3);
+    touch.up(4);
+    touch.up(5);
+    touch.up(6);
+    touch.down(7, 'left');
+    touch.down(8, 'right');
+    at(7400);
+    expect(timer.state).toBe(STATES.READY);
+  });
+});

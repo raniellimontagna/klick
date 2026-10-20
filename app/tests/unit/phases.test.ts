@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { phaseAverages, phaseLabels } from '../../src/core/phases';
+import { phaseAverages, phaseLabels, phaseShares, validPhases } from '../../src/core/phases';
 import type { Solve } from '../../src/core/types';
 
 let seq = 0;
@@ -73,5 +73,41 @@ describe('phaseAverages', () => {
     expect(a.shares.reduce((x, y) => x + y, 0)).toBeCloseTo(1, 10);
     expect(a.shares[1]).toBeCloseTo(0.5, 10);
     expect(a.heaviest).toBe(1);
+  });
+});
+
+// As fases que chegam pelo sync ou por um arquivo não passaram pelo timer daqui: a tela só mostra as que fecham o solve.
+describe('validPhases', () => {
+  const s = (ms: number, phases?: unknown) => ({ ms, phases }) as Pick<Solve, 'ms' | 'phases'>;
+
+  it('devolve uma cópia das fases de 2 a 4 durações, finitas e não negativas, que somam o tempo bruto', () => {
+    const phases = [1840, 6120, 2150, 3230];
+    const got = validPhases(s(13340, phases));
+    expect(got).toEqual(phases);
+    expect(got).not.toBe(phases);
+    expect(validPhases(s(5000, [0, 5000]))).toEqual([0, 5000]);
+  });
+
+  it('o resto é null: sem fases, fora de 2 a 4, número torto, negativo, ou que não fecha o tempo', () => {
+    expect(validPhases(s(10000))).toBeNull();
+    expect(validPhases(s(10000, [10000]))).toBeNull();
+    expect(validPhases(s(10000, [2000, 2000, 2000, 2000, 2000]))).toBeNull();
+    expect(validPhases(s(10000, 'abc'))).toBeNull();
+    expect(validPhases(s(10000, [5000, '5000']))).toBeNull();
+    expect(validPhases(s(10000, [5000, Number.NaN]))).toBeNull();
+    expect(validPhases(s(10000, [Number.POSITIVE_INFINITY, 5000]))).toBeNull();
+    expect(validPhases(s(10000, [12000, -2000]))).toBeNull();
+    expect(validPhases(s(10000, [5000, 4000]))).toBeNull();
+    expect(validPhases(s(0, [0, 0]))).toBeNull(); // sem tempo, não há parte de nada
+  });
+});
+
+describe('phaseShares', () => {
+  it('a parte de cada fase em porcentos inteiros, somando 100', () => {
+    expect(phaseShares([1840, 6120, 2150, 3230])).toEqual([14, 46, 16, 24]);
+    const thirds = phaseShares([1000, 1000, 1000]);
+    expect(thirds.reduce((a, b) => a + b, 0)).toBe(100);
+    expect([...thirds].sort()).toEqual([33, 33, 34]);
+    expect(phaseShares([0, 0])).toEqual([0, 0]);
   });
 });

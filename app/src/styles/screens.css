@@ -212,6 +212,25 @@ body.solving .centro * {
   margin-top: 8px;
 }
 
+/* As marcas das fases no solve (a maquete aprovada, 4a–4c): uma peça por fase embaixo do tempo, as do progresso do desafio (duel.css),
+   menores: feita na tinta, a da vez com contorno. O .prog vem depois (duel.css): a classe junta ganha dele. */
+.prog.tc-marks {
+  --pc: 12px;
+  --pr: 3px;
+  display: flex;
+  gap: 6px;
+  margin: -4px 0 14px;
+}
+
+/* "Escondido" (4c): a palavra no lugar do tempo, em cinza, num tamanho que cabe; a altura do tempo não muda. */
+.time .tc-solving {
+  display: block;
+  font-size: 0.36em;
+  line-height: calc(1 / 0.36);
+  letter-spacing: -0.03em;
+  color: var(--muted);
+}
+
 /* O motivo de um botão desligado, logo abaixo dele. */
 .tc-why {
   margin-top: 8px;
@@ -1096,6 +1115,10 @@ body:has(.hx-bulk) .toast {
   .hx-time.tc-last { order: 3; margin-top: 6px; }
   .tc-last + .t-chips { margin-top: 0; }
   .tc-why { order: 5; margin-top: 0; }
+  /* As fases: as marcas e a barra logo embaixo do tempo, centradas como ele (a barra na largura toda). */
+  .prog.tc-marks { order: 3; justify-content: center; margin: 0; }
+  .tc-split { width: 100%; margin: 0 auto; }
+  .timer .tc-split { order: 3; }
   .t-note { order: 6; margin: 0 auto; width: 100%; }
   .t-coachtext .label { display: none; }
   .coach { order: 7; min-height: 2.9em; margin: 0; text-align: center; }

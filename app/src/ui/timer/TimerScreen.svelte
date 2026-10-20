@@ -9,9 +9,14 @@
   //
   // O modo Digitar (settings.entry === 'typing', fora do desafio) é o outro jeito de o tempo entrar: o campo (TypedEntry) no lugar do tempo
   // grande, sem zonas e sem armar. Salvar passa pelo mesmo finishSolve do cronômetro (resultado, chips, Centro e coach iguais), sem inspeção.
+  //
+  // As fases (settings.phases, fora do desafio): o timer marca uma fase a cada toque até o último, que para (core/timer.ts). Durante o solve,
+  // as marcas (as peças do progresso do desafio, menores) embaixo do tempo; no resultado, a barra das fases (PhaseBar). O tempo correndo segue
+  // settings.liveTime (inteiro, só os segundos ou "Resolvendo"); a inspeção e o tempo final ficam como sempre, e o desafio corre inteiro.
   import { tick, untrack } from 'svelte';
   import { type CoachMessage, type CoachSeason, pickCoachMessage, type SeasonEnd, seasonEndMessage } from '../../core/coach';
   import { eventInfo } from '../../core/events';
+  import { phaseLabels, validPhases } from '../../core/phases';
   import { closeRecord, seasonFinish, seasonSolves } from '../../core/season';
   import {
     averageOf,
@@ -31,7 +36,7 @@
   import { createTimer, type Timer, type TimerResult, type TimerState } from '../../core/timer';
   import { isTypedDnf } from '../../core/typed';
   import { createTouchArm } from '../../core/touch';
-  import type { EventId, Penalty, SeasonState, Solve } from '../../core/types';
+  import type { EventId, LiveTimeMode, Penalty, PhaseOption, SeasonState, Solve } from '../../core/types';
   import { T } from '../../strings';
   import DuelBoard from '../duel/DuelBoard.svelte';
   import Bidi from '../duel/Bidi.svelte';
@@ -47,6 +52,7 @@
   import { createWakeLock } from '../wakelock';
   import type { AppState, Tab } from '../state/app.svelte';
   import CentroView from './CentroView.svelte';
+  import PhaseBar from './PhaseBar.svelte';
   import ResultActions from './ResultActions.svelte';
   import ScrambleBlock from './ScrambleBlock.svelte';
   import TypedEntry from './TypedEntry.svelte';
@@ -132,6 +138,10 @@
   let lastId = $state<string | null>(null); // o solve que a tela mostra; null = o último da sessão
   let showResult = $state(false); // o solve está gravado e a pessoa ainda pode agir sobre ele
   let typedPending = $state<string | null>(null); // o tempo digitado que está gravando (ou na fila): aparece no lugar do último solve
+  let tstate = $state<TimerState>('idle'); // o estado do timer, para o que o Svelte desenha (as marcas e a barra das fases)
+  let runPhases = $state(0); // as fases do solve que corre (0 = sem fases), fixadas na largada como no timer
+  let marksDone = $state(0); // quantas fases desse solve já foram marcadas
+  let pendingPhases = $state<number[] | null>(null); // as fases do solve que está gravando (ou na fila), do resultado do timer
   let saving = $state(false); // gravação em voo: o tempo mostra o resultado do timer e os chips somem
   let unstored = $state<number | null>(null); // a gravação falhou: o instante (at) do solve que ficou na fila; o tempo segue o timer até ele entrar nos dados
   let deleting = $state(false);
@@ -153,6 +163,7 @@
   let solveSeq = 0; // o último solve que a tela acompanha: uma gravação mais antiga que termina depois não mexe na tela
   let runningDuel: string | null = null; // o solve que corre começou no desafio aberto (o id dele): vai para o desafio, nunca para os solves
   let controller: InputController | null = null;
+  let phaseOpt: PhaseOption = 0; // as fases que a tela passou ao timer (valem na próxima largada)
 
   const theme = $derived<'light' | 'dark'>(
     app.profile.settings.theme === 'system' ? (darkMq ? 'dark' : 'light') : app.profile.settings.theme === 'dark' ? 'dark' : 'light',
@@ -264,9 +275,17 @@
     return formatMs(r.ms + (r.penalty === '+2' ? 2000 : 0)) + (r.penalty === '+2' ? T.timer.plus2Suffix : '');
   }
 
+  // Como o tempo aparece correndo (settings.liveTime). O desafio corre sempre inteiro.
+  const liveTime = (): LiveTimeMode => (duelOn ? 'full' : app.profile.settings.liveTime);
+
   function timeText(): string {
     const e = timer.inspectElapsed;
-    if (timer.state === 'running') return formatMs(timer.elapsed);
+    if (timer.state === 'running') {
+      const full = formatMs(timer.elapsed);
+      const mode = liveTime();
+      // "Só os segundos": a parte inteira de sempre ("0:09"), que muda uma vez por segundo. "Escondido": a palavra no lugar do tempo.
+      return mode === 'hidden' ? T.timer.solving : mode === 'seconds' ? full.slice(0, full.indexOf('.')) : full;
+    }
     if (e > 0 && (timer.state === 'inspect' || timer.state === 'arming' || timer.state === 'ready')) {
       return e > 17000 ? T.timer.dnf : e > 15000 ? T.timer.plus2 : String(Math.ceil((15000 - e) / 1000));
     }
@@ -294,7 +313,7 @@
     body.dataset.result = !duelOn && resting() && showResult && kind ? kind : '';
     const e = timer.inspectElapsed;
     body.dataset.insp = timer.state === 'inspect' ? (e > 15000 ? 'over' : e >= 12000 ? '12' : e >= 8000 ? '8' : '') : '';
-    if (timeEl) paintTime(timeEl, timeText());
+    if (timeEl) paintTime(timeEl, timeText(), timer.state === 'running' && liveTime() === 'hidden');
     coachShown = coachFor(view, now);
     return needsFrame(now);
   }
@@ -324,7 +343,7 @@
 
   // Uma tecla ou toque que para o timer chega aqui (ou, no modo Digitar, o Salvar do campo: `typed`, sem timer parado no resultado). A
   // gravação acontece antes de qualquer reação.
-  async function finishSolve({ ms, penalty }: Pick<TimerResult, 'ms' | 'penalty'>, typed = false): Promise<void> {
+  async function finishSolve({ ms, penalty, phases }: Pick<TimerResult, 'ms' | 'penalty' | 'phases'>, typed = false): Promise<void> {
     const settled = (): boolean => typed || timer.state === 'done'; // o resultado ainda é o desta tela (a pessoa não armou de novo)
     const mine = ++solveSeq;
     const now = Date.now();
@@ -335,6 +354,7 @@
     const listBefore = app.solves; // os marcos de antes são contados depois, na lista que estava aqui (a gravação não espera por eles)
     const seasonAtStart = $state.snapshot(app.profile.season.current); // a temporada em que este solve cai
     saving = true;
+    pendingPhases = phases ?? null; // a barra mostra as fases do resultado do timer até o solve entrar nos dados
     unstored = null;
     showResult = false;
     lastId = null;
@@ -348,7 +368,7 @@
     };
     // O finally vale mesmo se a gravação lançar: sem ele, o tempo ficaria preso no resultado do timer (e o Centro, parado).
     const solve = await app
-      .addSolve({ ms, penalty, at: now })
+      .addSolve({ ms, penalty, at: now, ...(phases ? { phases } : {}) })
       .catch((err: unknown) => {
         release();
         kick();
@@ -451,6 +471,18 @@
     const cut = text.indexOf('.');
     return cut < 0 ? { int: text, dec: '' } : { int: text.slice(0, cut), dec: text.slice(cut) };
   });
+
+  // As fases embaixo do tempo (5a–5b): as do solve que a tela mostra, como os chips; enquanto ele grava (ou fica na fila), as do resultado do
+  // timer. Saem enquanto o timer corre (as marcas tomam o lugar), na exclusão, no desafio e no modo Digitar. Só fases válidas: as que chegam
+  // pelo sync ou por um arquivo não passaram pelo timer daqui.
+  const phaseView = $derived.by((): { phases: number[]; labels: string[] } | null => {
+    if (duelOn || typingOn || deleting || tstate === 'running') return null;
+    if (saving || holding) return pendingPhases ? { phases: pendingPhases, labels: phaseLabels(pendingPhases.length, app.event) } : null;
+    const phases = last ? validPhases(last) : null;
+    return last && phases ? { phases, labels: phaseLabels(phases.length, last.event) } : null;
+  });
+  // As marcas do solve que corre (4a–4c): feita na tinta, a da vez com contorno, as outras só o contorno.
+  const marks = $derived(Array.from({ length: runPhases }, (_, i) => (i < marksDone ? 'done' : i === marksDone ? 'now' : 'open')));
 
   // Um solve do desafio: vai para o desafio aberto (app.duel.record), nunca para os solves, e não passa pelas contas do Timer (médias,
   // recordes, marcos, coach). O Centro fica parado enquanto grava; depois, o de A volta ao parado (os pontos são de B) e o de B espera o
@@ -747,7 +779,10 @@
     app.timerBusy = next === 'inspect' || next === 'arming' || next === 'ready' || next === 'running';
     document.body.dataset.tstate = next;
     document.body.classList.toggle('solving', next === 'running');
+    tstate = next;
     if (next === 'running') {
+      runPhases = phaseOpt; // o timer fixou as fases na largada, com o que a tela lhe passou por último
+      marksDone = 0;
       animator.freeze(); // nada do Centro roda no solve (spec 6.4), já neste quadro
       runningDuel = duelOn && app.duel.phase === 'solving' ? (duel?.id ?? null) : null; // o solve é do modo em que começou a correr
     }
@@ -857,6 +892,9 @@
       timer.on('state', onState),
       timer.on('warn', () => sound.tick()),
       timer.on('done', onDone),
+      timer.on('phase', (index) => {
+        marksDone = index + 1;
+      }),
       // O espaço segurado antes da inspeção: o timer ainda parece parado, mas já está ocupado (o aviso de nova versão espera).
       timer.on('pending', (held) => {
         app.pendingInspect = held;
@@ -868,7 +906,8 @@
   // Ajustes do aparelho e do evento: o timer e o toque seguem o que a pessoa escolheu.
   $effect(() => {
     const s = app.profile.settings;
-    timer.setOptions({ holdMs: s.holdMs, inspection: s.inspection && eventInfo(playEvent).inspection });
+    phaseOpt = duelOn ? 0 : s.phases; // o desafio corre sem fases
+    timer.setOptions({ holdMs: s.holdMs, inspection: s.inspection && eventInfo(playEvent).inspection, phases: phaseOpt });
     touch.setMode(s.mobileArm);
     sound.setEnabled('klick', s.sound.klick);
     sound.setEnabled('insp', s.sound.insp);
@@ -1088,6 +1127,17 @@
       {/if}
     {:else}
       <div class="time" data-time aria-hidden="true" bind:this={timeEl}></div>
+      {#if tstate === 'running' && runPhases > 0}
+        <!-- As marcas das fases (4a–4c): as peças do progresso do desafio, menores. Não somem com o resto (como o tempo e o Centro). -->
+        <span class="prog tc-marks" aria-hidden="true">
+          {#each marks as p, i (i)}
+            <i data-p={p}></i>
+          {/each}
+        </span>
+      {/if}
+    {/if}
+    {#if phaseView}
+      <PhaseBar phases={phaseView.phases} labels={phaseView.labels} />
     {/if}
     <!-- No desafio, B não tem chips (o placar é o dele): a linha some, sem deixar o vão. -->
     <div class="chips t-chips fade" data-chips hidden={duelOn && duelChips.length === 0}>

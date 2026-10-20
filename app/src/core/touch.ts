@@ -42,6 +42,8 @@ export function createTouchArm(
       const st = getState();
       active.set(pointerId, zone);
       if (st === 'running') {
+        // Com o timer correndo, todo dedo novo vai ao press, mesmo com outro ainda encostado: com fases, cada um marca a sua (e o último
+        // para); o timer ignora o que vier colado no anterior. Só depois da parada os dedos do gesto ficam ignorados até todos saírem.
         // Marca o gesto antes de parar: quem reage ao fim dentro do press (o treino chama cancelAll) consegue esquecê-lo.
         stopping = true;
         press(at);

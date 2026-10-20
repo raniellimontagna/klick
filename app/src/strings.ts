@@ -1,9 +1,12 @@
 // Todo texto que a pessoa lê passa por aqui (pt-BR). Facilita traduzir depois.
-import { trimCount } from './core/stats';
+import { formatMs, trimCount } from './core/stats';
 import type { CopiesPaused } from './core/sync/types';
 
 // Diferenças em segundos, truncadas no centésimo como os tempos.
 const sec = (ms: number): string => (Math.floor(ms / 10) / 100).toFixed(2);
+
+// O nome genérico de uma fase ("Fase 2"); a barra das fases mostra só o número e deixa a palavra para o leitor de tela.
+const FASE = 'Fase';
 
 export const MILESTONE_INFO = Object.freeze({
   first: { label: 'Primeiro solve', msg: 'Primeiro solve registrado' },
@@ -496,11 +499,21 @@ export const T = Object.freeze({
     typedError: 'Esse tempo não parece certo. Tente 12.34, 1:02.34 ou só os números.',
     typedTooLong: 'Até 59:59.99: tempos de uma hora ou mais não entram.',
     typedDnfLocked: 'Digitado sem tempo: não vira OK nem +2.',
+    // O tempo durante o solve no modo "Escondido": a palavra no lugar do tempo correndo.
+    solving: 'Resolvendo',
   },
   // Fases do solve (marcadas por toque no cronômetro): os nomes do CFOP (4 fases no 3×3) e o genérico dos outros casos.
   fases: {
     cfop: ['Cruz', 'F2L', 'OLL', 'PLL'],
-    n: (i: number) => `Fase ${i}`,
+    word: FASE,
+    n: (i: number) => `${FASE} ${i}`,
+    // A barra das fases (PhaseBar): o nome da lista, a duração de cada fase ("6.12 s" abaixo de um minuto, "1:02.40" daí em diante) e o que
+    // só o leitor ouve depois da parte ("46% do tempo, a que mais pesa").
+    bar: 'Fases deste solve',
+    dur: (ms: number) => (ms < 60000 ? `${sec(ms)} s` : formatMs(ms)),
+    share: (pct: number) => `${pct}%`,
+    ofTime: ' do tempo',
+    ofTimeTop: ' do tempo, a que mais pesa',
   },
   actions: { plus2: '+2', dnf: 'DNF', note: 'Nota', delete: 'Excluir' },
   note: {

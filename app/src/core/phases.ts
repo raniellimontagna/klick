@@ -32,3 +32,31 @@ export function phaseAverages(pool: readonly Solve[], last = 12): PhaseAverages 
   const shares = means.map((m) => (total > 0 ? m / total : 0));
   return { n, means, shares, heaviest: means.indexOf(Math.max(...means)) };
 }
+
+// As fases de um solve que dá para mostrar (uma cópia), ou null. As que chegam pelo sync ou por um arquivo não passaram pelo timer daqui:
+// só valem de 2 a 4 durações, números finitos e não negativos, somando o tempo bruto (`ms`, maior que zero).
+export function validPhases(solve: Pick<Solve, 'ms' | 'phases'>): number[] | null {
+  const phases: unknown = solve.phases;
+  if (!Array.isArray(phases) || phases.length < 2 || phases.length > 4) return null;
+  if (!phases.every((d): d is number => typeof d === 'number' && Number.isFinite(d) && d >= 0)) return null;
+  if (!Number.isFinite(solve.ms) || solve.ms <= 0) return null;
+  const sum = phases.reduce((a, b) => a + b, 0);
+  return Math.abs(sum - solve.ms) < 0.5 ? [...phases] : null;
+}
+
+// A parte de cada fase no total, em porcentos inteiros que somam 100: cada uma leva o piso, e os pontos que faltam vão para os maiores
+// restos (sem isso, 33 + 33 + 33 daria 99). Sem total, tudo zero.
+export function phaseShares(phases: readonly number[]): number[] {
+  const total = phases.reduce((a, b) => a + b, 0);
+  if (!(total > 0)) return phases.map(() => 0);
+  const exact = phases.map((d) => (d / total) * 100);
+  const out = exact.map((x) => Math.floor(x));
+  let left = 100 - out.reduce((a, b) => a + b, 0);
+  const byRest = exact.map((x, i) => ({ i, rest: x - Math.floor(x) })).sort((a, b) => b.rest - a.rest);
+  for (const { i } of byRest) {
+    if (left <= 0) break;
+    out[i] += 1;
+    left -= 1;
+  }
+  return out;
+}

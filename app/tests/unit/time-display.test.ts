@@ -27,6 +27,17 @@ describe('pintura do tempo', () => {
     expect(el.querySelector('.int')?.textContent).toBe('DNF');
   });
 
+  it('o tempo escondido ("Resolvendo") vai inteiro em .int com a classe tc-solving, que sai quando o tempo volta', () => {
+    const el = timeEl();
+    paintTime(el, 'Resolvendo', true);
+    expect(el.querySelector('.int')).toHaveClass('tc-solving');
+    expect(el.querySelector('.int')?.textContent).toBe('Resolvendo');
+    expect(el.querySelector('.dec')?.textContent).toBe('');
+    paintTime(el, '0:05.00');
+    expect(el.querySelector('.int')).not.toHaveClass('tc-solving');
+    expect(el.textContent).toBe('0:05.00');
+  });
+
   it('pintar de novo reaproveita os nós e não reescreve texto igual', () => {
     const el = timeEl();
     paintTime(el, '0:01.00');
