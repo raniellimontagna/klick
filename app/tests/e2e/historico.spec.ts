@@ -137,10 +137,26 @@ test('junta duas sessões', async ({ page }) => {
   await session.selectOption({ label: 'Principal' });
   await expect(screen.getByRole('heading', { name: 'Solves do período · 40' })).toBeVisible();
 
-  // E a junção sobrevive a recarregar.
+  // A sessão de origem foi para a lixeira (Ajustes → Ver lixeira), de onde dá para restaurá-la.
+  const openTrash = async () => {
+    await page.getByRole('button', { name: 'Ajustes' }).click();
+    await page.getByRole('button', { name: /^Ver lixeira/ }).click();
+    const trash = page.getByRole('dialog', { name: 'Lixeira' });
+    await expect(trash).toBeVisible();
+    await expect(trash.getByRole('button', { name: 'Restaurar sessão Treino de cruz' })).toBeVisible();
+    await trash.getByRole('button', { name: 'Fechar' }).click();
+    await expect(trash).toBeHidden();
+  };
+  await openTrash();
+
+  // E a junção sobrevive a recarregar: a origem continua na lixeira, fora do filtro, e a Principal segue com os 40.
   await page.reload();
+  await openTrash();
   await page.getByRole('button', { name: 'Evolução', exact: true }).first().click();
-  await expect(screen.getByRole('combobox', { name: 'Sessão' }).getByRole('option', { name: 'Treino de cruz' })).toHaveCount(0);
+  const again = screen.getByRole('combobox', { name: 'Sessão' });
+  await expect(again.getByRole('option', { name: 'Treino de cruz' })).toHaveCount(0);
+  await again.selectOption({ label: 'Principal' });
+  await expect(screen.getByRole('heading', { name: 'Solves do período · 40' })).toBeVisible();
 });
 
 test('no celular (390 px) a lista e as folhas cabem sem rolar de lado', async ({ page }) => {
@@ -159,7 +175,10 @@ test('no celular (390 px) a lista e as folhas cabem sem rolar de lado', async ({
   };
 
   await fits('lista');
+  // O quadro de recordes também: rola até ele antes de medir.
+  await screen.getByRole('region', { name: 'Recordes do evento' }).scrollIntoViewIfNeeded();
   await fits('quadro de recordes');
+  await page.evaluate(() => window.scrollTo(0, 0));
 
   // O detalhe de um solve com +2 e nota (as linhas mais largas da folha).
   await screen.locator('.hx-row').first().click();
@@ -167,6 +186,11 @@ test('no celular (390 px) a lista e as folhas cabem sem rolar de lado', async ({
   await expect(detail).toBeVisible();
   await detail.getByRole('button', { name: '+2', exact: true }).click();
   await expect(detail.locator('.hx-raw')).toBeVisible();
+  // A nota mais longa que o campo aceita (80 caracteres, sem espaços para quebrar): o pior caso de largura.
+  const note = detail.getByRole('textbox', { name: 'Nota' });
+  await note.fill('N'.repeat(80));
+  await note.press('Enter');
+  await expect(screen.getByRole('row', { name: /^Solve 40: .*nota: N{80}/ })).toHaveCount(1);
   await fits('detalhe');
   await inside(detail);
 
