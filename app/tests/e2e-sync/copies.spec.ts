@@ -42,8 +42,9 @@ test('uma restauração que não cabe chega pelo aparelho, e o outro recebe pelo
   await row.getByRole('button', { name: /^Restaurar a cópia de / }).click(); // o nome acessível do botão é o aria-label, com o dia
   await a.waitForTimeout(500); // CONFIRM_DELAY_MS: o segundo clique logo depois do primeiro é o clique duplo e não vale
   await row.getByRole('button', { name: T.conta.confirmAgain }).click();
-  // O aviso aparece no toast e na região aria-live (sr-only), que repete o texto: o primeiro é o toast.
-  await expect(a.getByText(T.conta.cloudRestoredHere).first()).toBeVisible({ timeout: 30_000 });
+  // O aviso aparece no toast (a região aria-live, sr-only, repete o texto: o toast é o que se vê).
+  await expect(a.locator('.toast')).toContainText(T.conta.cloudRestoredHere, { timeout: 30_000 });
+  await expect(a.locator('.toast')).toBeVisible();
   await expect.poll(() => historyCount(a)).toBe(15);
 
   // A sobe a restauração; B recebe pelo sync.
