@@ -28,7 +28,7 @@ for (const scheme of ['light', 'dark'] as const) {
 }
 
 // A lista inteira da Evolução (o histórico): 40 solves de 3×3 em duas sessões, com +2, DNF, nota e recorde, para o axe ver as linhas, a
-// seleção com a barra do lote e a folha de mover, nos dois temas.
+// seleção com a barra do lote, a folha de mover e o detalhe de um solve, nos dois temas.
 function historyFile(): Buffer {
   const end = Date.now() - 60_000;
   const sessions = ['ha', 'hb'].map((id, i) => ({ id, name: i === 0 ? 'Principal' : 'Treino de cruz', event: '333', order: 5 + i, createdAt: end - 86_400_000, updatedAt: end - 86_400_000, deletedAt: null }));
@@ -51,7 +51,7 @@ async function importHistory(page: Page): Promise<void> {
 }
 
 for (const scheme of ['light', 'dark'] as const) {
-  test(`a lista da Evolução, a seleção e a folha de mover, sem violações sérias no tema ${scheme}`, async ({ page }) => {
+  test(`a lista da Evolução, o detalhe, a seleção e a folha de mover, sem violações sérias no tema ${scheme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme });
     await fresh(page);
     await importHistory(page);
@@ -63,6 +63,16 @@ for (const scheme of ['light', 'dark'] as const) {
       return r.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${where}: ${v.id}`);
     };
     expect(await serious('lista')).toEqual([]);
+    // O detalhe de um solve: a linha abre a folha; com um +2, o seletor marcado e o tempo cru.
+    await screen.locator('.hx-row').first().click();
+    const detail = page.getByRole('dialog', { name: /Solve #40/ });
+    await expect(detail).toBeVisible();
+    await detail.getByRole('button', { name: '+2', exact: true }).click();
+    await expect(detail.getByRole('button', { name: '+2', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(detail.locator('.hx-raw')).toBeVisible();
+    expect(await serious('detalhe')).toEqual([]);
+    await detail.getByRole('button', { name: 'Fechar' }).click();
+    await expect(detail).toBeHidden();
     // A seleção: três linhas marcadas e a barra do lote.
     await screen.getByRole('button', { name: 'Selecionar' }).click();
     const rows = screen.locator('.hx-row');

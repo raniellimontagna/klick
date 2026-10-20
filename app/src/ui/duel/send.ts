@@ -2,6 +2,8 @@
 // área de transferência. As duas só valem dentro do gesto da pessoa (no iPhone, um await antes as recusa): cada função chama a API do
 // navegador na hora, sem esperar nada antes, e devolve depois como foi. O link já vem pronto (DuelEnd o prepara antes do toque). Ler a área
 // de transferência ("Colar a resposta") segue a mesma regra.
+import { copyText } from '../clipboard';
+
 type SendNav = Partial<Pick<Navigator, 'share' | 'clipboard'>>;
 
 // A folha do sistema existe? Sem ela, o toque copia.
@@ -21,20 +23,9 @@ export function shareLink(text: string, url: string, nav: SendNav = navigator): 
   );
 }
 
-// 'copied' ou 'failed' (sem área de transferência, ou recusada).
+// 'copied' ou 'failed' (sem área de transferência, ou recusada). É o copyText de ui/clipboard.ts, com o link.
 export function copyLink(url: string, nav: SendNav = navigator): Promise<'copied' | 'failed'> {
-  const clipboard = nav.clipboard;
-  if (!clipboard || typeof clipboard.writeText !== 'function') return Promise.resolve('failed');
-  let started: Promise<void>;
-  try {
-    started = clipboard.writeText(url);
-  } catch {
-    return Promise.resolve('failed');
-  }
-  return started.then(
-    () => 'copied' as const,
-    () => 'failed' as const,
-  );
+  return copyText(url, nav);
 }
 
 // O texto da área de transferência, ou null (sem a leitura, ou recusada: no iPhone, a pessoa não tocou em "Colar"). Aí, o campo para colar.

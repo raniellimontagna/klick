@@ -548,10 +548,50 @@ body:has(.hx-bulk) .toast {
   .hx-list { --hx-h: 44px; }
 }
 
-/* As folhas do histórico (mover; o detalhe e o recorde virão no mesmo padrão): o .sheet de sempre, com o título mais junto do texto. */
+/* As folhas do histórico (o detalhe, mover; o recorde virá no mesmo padrão): o .sheet de sempre, com o título mais junto do texto. */
+/* O <dialog> tem um max-width do navegador (100% menos 6px e 2em) que o .sheet não tira: nos 390 px da maquete a folha ficava 4 px mais estreita
+   que os 358 px dela, e as duas médias do detalhe não cabiam lado a lado. Aqui vale a largura do .sheet. */
+.hx-sheet {
+  max-width: none;
+}
+
 .hx-sheet h2 {
   margin-bottom: 4px;
 }
+
+/* O detalhe de um solve: o tempo grande é o do Timer, menor; os blocos têm o mesmo respiro entre si. */
+.hx-time {
+  margin: 0 0 0 -0.04em;
+  font-weight: 600;
+  font-size: 56px;
+  line-height: 1.05;
+  letter-spacing: -0.05em;
+  font-variant-numeric: tabular-nums;
+}
+
+.hx-time .dec {
+  font-size: 0.6em;
+  letter-spacing: -0.02em;
+  color: var(--dec);
+}
+
+.hx-raw {
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.hx-meta {
+  margin-top: 6px;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.hx-sec { margin-top: 16px; }
+.hx-sec > .label { display: block; margin-bottom: 6px; }
+.hx-sec .scramble { margin-top: 0; }
+.hx-sec .t-note { margin-top: 0; }
+.hx-sheet .t-note input { background: var(--bg); }
 
 .hx-move .list-btn {
   width: 100%;

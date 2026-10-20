@@ -304,6 +304,21 @@ export const T = Object.freeze({
         : `Só as sessões de ${event}. Os solves mudam de sessão e continuam com a data deles.`,
     here: 'está aqui',
     count: (n: number) => `${n.toLocaleString('pt-BR')} ${n === 1 ? 'solve' : 'solves'}`,
+    // O detalhe de um solve (ui/dialogs/SolveDialog.svelte): o título, o tempo cru, as médias que terminam nele e o selo de recorde.
+    solveTitle: (n: number) => `Solve #${n.toLocaleString('pt-BR')}`,
+    rawPlus2: (time: string) => `${time} mais 2 s de penalidade`,
+    rawDnf: (time: string) => `${time} contado como DNF`,
+    penalty: 'Penalidade',
+    penaltyOk: 'OK',
+    avgChip: (n: number, time: string) => `Média de ${n} · ${time}`,
+    // O selo dourado: o solve é o melhor single da lista, ou está numa janela da melhor média (a ao5, ao12, ao50, ao100 ou ao1000).
+    inRecord: (kind: 'single' | number) => (kind === 'single' ? '◆ É o recorde de single' : `◆ Faz parte do recorde de média de ${kind}`),
+    moveButton: 'Mover para outra sessão',
+    copy: 'Copiar',
+    // O que o Copiar leva: o tempo com a penalidade, o embaralhamento e a data ("0:15.24+ · U' F2 … · 19/10/2026 21:30").
+    copyText: (time: string, scramble: string, when: string) => `${time} · ${scramble} · ${when}`,
+    copied: 'Copiado',
+    copyFailed: 'Não consegui copiar. Tente de novo.',
   },
   // Mensagens de um arquivo que não pode ser lido (data/transfer.ts).
   transfer: {

@@ -16,6 +16,7 @@
   import EvolucaoScreen from './evolucao/EvolucaoScreen.svelte';
   import InstallGuide from './dialogs/InstallGuide.svelte';
   import MoveDialog from './dialogs/MoveDialog.svelte';
+  import SolveDialog from './dialogs/SolveDialog.svelte';
   import OnboardingDialog from './dialogs/OnboardingDialog.svelte';
   import SessionsDialog from './dialogs/SessionsDialog.svelte';
   import ShortcutsDialog from './dialogs/ShortcutsDialog.svelte';
@@ -414,6 +415,8 @@ import SyncIndicator from './SyncIndicator.svelte';
       <InstallGuide {app} open={app.dialog === 'install'} {installEvent} onused={() => (installEvent = null)} />
       <!-- Mover solves para outra sessão: abre por app.openMove (a barra da seleção na Evolução). -->
       <MoveDialog {app} />
+      <!-- O detalhe de um solve: abre por app.openSolve (uma linha da lista da Evolução). -->
+      <SolveDialog {app} />
       {#if app.account}
         <SignInDialog {app} open={app.dialog === 'signin'} />
       {/if}

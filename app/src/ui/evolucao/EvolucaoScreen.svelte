@@ -217,8 +217,10 @@
   // saíram da lista.
   const listKey = $derived(`${event}|${sessionId}|${period}`);
 
-  // Tocar numa linha (ou Enter nela) abre o solve. A folha do detalhe ainda não existe: por enquanto, nada abre.
-  function openSolve(_id: string): void {}
+  // Tocar numa linha (ou Enter nela) abre o detalhe do solve. O número e as médias dele são os do filtro da lista (a sessão escolhida, ou todas).
+  function openSolve(id: string): void {
+    app.openSolve(id, sessionId);
+  }
 </script>
 
 <section class="screen" data-screen="evolucao" aria-label={T.tabs.evolucao}>

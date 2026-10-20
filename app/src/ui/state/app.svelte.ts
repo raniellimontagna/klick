@@ -56,13 +56,20 @@ export type TrailView = { kind: 'home' } | { kind: 'lesson'; step: TrailStep } |
 // da Trilha, fica no AppState: "Ver em Desafios", no fim de uma partida, abre a lista de outra aba.
 export type EvolucaoView = { kind: 'stats' } | { kind: 'duels' } | { kind: 'duel'; id: string };
 // 'duel': a folha da pílula do modo desafio (continuar, sair ou descartar). 'move': a folha de mover solves para outra sessão (app.moveRequest).
-export type DialogId = 'sessions' | 'shortcuts' | 'onboarding' | 'export' | 'import' | 'backups' | 'trash' | 'install' | 'signin' | 'signout' | 'cloud' | 'deleteAccount' | 'duel' | 'move';
+// 'solve': o detalhe de um solve (app.solveRequest).
+export type DialogId = 'sessions' | 'shortcuts' | 'onboarding' | 'export' | 'import' | 'backups' | 'trash' | 'install' | 'signin' | 'signout' | 'cloud' | 'deleteAccount' | 'duel' | 'move' | 'solve';
 // O que a folha de mover move: os ids (a seleção da lista, ou o solve do detalhe), o número do solve no filtro quando é um só (o título
 // "Mover o solve #10.471") e quem pediu, avisado quando o lote passou para a outra sessão (a lista sai da seleção).
 export interface MoveRequest {
   ids: string[];
   number?: number;
   done?: () => void;
+}
+// O solve que o detalhe mostra e de onde a contagem vem: a sessão do filtro da lista ('all': todas as do evento dele), que dá o número
+// do solve e as médias que terminam nele. O solve em si é lido ao vivo de app.solves.
+export interface SolveRequest {
+  id: string;
+  sessionId: string;
 }
 export interface Toast {
   text: string;
@@ -270,6 +277,7 @@ export class AppState {
   live = $state(''); // texto da região aria-live
   dialog = $state<DialogId | null>(null);
   moveRequest = $state.raw<MoveRequest | null>(null); // o que a folha de mover leva (dialog 'move')
+  solveRequest = $state.raw<SolveRequest | null>(null); // o solve do detalhe (dialog 'solve')
   v1Available = $state(false); // há dados da v1 ainda não oferecidos
   exportReminder = $state(false); // mostrar o lembrete de exportar
   pendingExport = $state<PendingExport | null>(null); // texto de uma exportação que o navegador não baixou (ExportDialog)
@@ -756,6 +764,15 @@ export class AppState {
     if (ids.length === 0) return;
     this.moveRequest = { ids: [...ids], ...options };
     this.dialog = 'move';
+  }
+
+  // Abre o detalhe de um solve (uma linha da lista). `sessionId` é o filtro da lista ('all' para todas as sessões do evento); sem ele, vale
+  // a sessão do próprio solve. Um id que não existe (já excluído) não abre nada.
+  openSolve(id: string, sessionId?: string): void {
+    const solve = this.solves.find((s) => s.id === id);
+    if (!solve) return;
+    this.solveRequest = { id, sessionId: sessionId ?? solve.sessionId };
+    this.dialog = 'solve';
   }
 
   // Junta duas sessões do mesmo evento (o diálogo das Sessões): os solves de `fromId` passam para `toId`, e ela vai para a lixeira. Se ela

@@ -76,3 +76,6 @@ export function rowAt(pool: readonly Solve[], i: number, series: Series, now: nu
     label,
   };
 }
+
+// O texto que o "Copiar" do detalhe leva: o tempo com a penalidade, o embaralhamento inteiro e a data com a hora ("0:15.24+ · U' F2 … · 19/10/2026 21:30").
+export const copyTextOf = (x: Solve): string => T.historico.copyText(formatSolve(x), x.scramble, `${fullDate(x.at)} ${timeOfDay(x.at)}`);
