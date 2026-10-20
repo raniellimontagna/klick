@@ -101,10 +101,11 @@ Antes do beta:
    (`{evt:'rows-cap-error'}` nos logs), a compactação não roda e a restauração volta `write-budget`.
 3. **A maior conta do beta:** conferir o tamanho dela. Até 10 mil solves cabe mesmo na leitura de 10 ms do limite de CPU (o primeiro
    despertar de cada conta do beta, uma vez, depois do deploy).
-4. **Publicar o beta** (`pnpm run deploy:beta`) e conferir as vars novas na saída do deploy (`SNAPSHOT_MAX_RECORDS` em `2247` no beta;
-   na raiz, `4747`; `RESTORE_MAX_RECORDS` em `5000`, `ROWS_WRITTEN_DAY_CAP` em `10000`).
-   A conta de teste das sondas (4.006 registros) passou do dia útil do beta: não tem mais cópia do dia ('size') nem restauração
-   ('too-big') lá, e não serve para o teste de fumaça do passo 6.
+4. **Publicar o beta** (`pnpm run deploy:beta`) e conferir as vars na saída do deploy: `SNAPSHOT_MAX_RECORDS` em `150000` (nos dois
+   ambientes, desde as cópias grandes: acima de 5.000 registros a cópia sai em partes), `RESTORE_MAX_RECORDS` em `5000` (agora em
+   mudanças da restauração, não em registros da conta) e `ROWS_WRITTEN_DAY_CAP` em `10000` (na raiz, `60000`).
+   A conta de teste das sondas (4.006 registros) passa do dia útil do beta (2.247): lá ela é uma conta grande, com a cópia semanal no dia
+   dela, e a restauração cujas mudanças passam do dia útil chega pelo aparelho. Não serve para o teste de fumaça do passo 6.
 5. **Quem usa o beta vê "Atualize o Klick"** até recarregar (o protocolo do sync subiu); a fila de cada aparelho fica guardada.
 6. **Teste de fumaça:** o código por e-mail, o sync e a lista das cópias na nuvem. No dia seguinte, a cópia do alarme e a linha
    `{evt:'cleanup', storage:N}` nos logs.
@@ -124,6 +125,17 @@ Antes da raiz:
     cada pedido que grava reserva antes exatamente as linhas dele, e o maior pedido de um dia segue o menor dos dois tetos (2.247
     registros no beta, 4.747 na raiz). Falta a regra do WAF.
 12. **`ACCOUNTS_ENABLED` em `"true"` na raiz** (`wrangler.jsonc`, `env.production`) e publicar (`pnpm run deploy:production`).
+
+Antes de subir `SNAPSHOT_MAX_RECORDS` acima de `150000` (as cópias grandes, `docs/superpowers/specs/2026-10-20-klick-copias-grandes-design.md`):
+
+13. **O tempo de relógio de uma conta de 100 mil solves, no beta.** A cópia e a restauração no servidor rodam dentro de
+    `blockConcurrencyWhile`, que tem 30 s de relógio (a CPU mais cada ida ao R2 e ao D1), e a medição só mediu a CPU. Com uma conta de
+    teste de 100 mil solves no beta, cronometrar a cópia semanal dela e uma restauração no servidor com `npx wrangler tail` (o `ms` das
+    linhas `{evt:'copy'}` e `{evt:'restore'}`) e conferir que as duas ficam abaixo de 15 s. Só então subir a var, nos dois ambientes.
+
+Voltar o Worker (rollback) depois das cópias em partes: um Worker de antes delas lista cada parte de uma cópia grande
+(`snap/<conta>/<nome>/001.json.gz`, ...) como uma cópia de "0 solves". Restaurar uma delas dá 400 `bad-name` (o nome com a barra não passa
+na rota), sem risco para os dados. Com o Worker novo publicado de novo, a lista volta ao normal.
 
 ## Por que o cubing.js é empacotado à parte
 
