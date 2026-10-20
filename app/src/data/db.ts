@@ -38,8 +38,12 @@ export interface KlickDB extends DBSchema {
   profile: { key: 'current'; value: DeviceProfile }; // só os ajustes do aparelho (spec 5.2); os da conta ficam em prefs
   // 'current' guarda o Meta; 'folderHandle', o handle da pasta de cópias (o IndexedDB guarda handles por clone estruturado); 'sync', o
   // estado do sync e o relógio do app (spec 5.4); 'held', as chaves `${store}/${id}` que a conta recusou pela cota e ficaram só neste
-  // aparelho, fora da fila (endurecimento, decisão 4).
-  meta: { key: 'current' | 'folderHandle' | 'sync' | 'held'; value: Meta | FileSystemDirectoryHandle | SyncState | string[] };
+  // aparelho, fora da fila (endurecimento, decisão 4); 'moved', os solves movidos que o servidor ainda não confirmou, pela sessão de onde
+  // saíram (a revisão final do histórico, C1 e I1; nunca sobe).
+  meta: {
+    key: 'current' | 'folderHandle' | 'sync' | 'held' | 'moved';
+    value: Meta | FileSystemDirectoryHandle | SyncState | string[] | Record<string, string[]>;
+  };
   backups: { key: string; value: BackupRecord; indexes: { byCreated: number } };
   // O treino de algoritmos (versão 2): uma tentativa por registro, fora dos solves.
   practice: { key: string; value: StoredPractice; indexes: { byCase: [string, number]; byAt: number } }; // [caseId, at]

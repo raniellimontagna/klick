@@ -21,6 +21,23 @@ async function fresh(account: string | null = 'conta-1'): Promise<{ db: IDBPData
 const keys = async (db: IDBPDatabase<KlickDB>): Promise<string[]> => ((await db.getAllKeys('outbox')) as string[]).sort();
 // Todos os registros de solves e sessões, como estão gravados (para ver que nada mudou).
 const snapshot = async (db: IDBPDatabase<KlickDB>) => ({ solves: await db.getAll('solves'), sessions: await db.getAll('sessions') });
+// O motor de um aparelho, ligado ao servidor falso (cada pedido como passaria pela rede: uma cópia na ida e outra na volta).
+const engineOn = (server: FakeServer) => (repo: Repository) =>
+  createSyncEngine({
+    repo: () => repo,
+    api: { sync: async (req) => structuredClone(server.sync(structuredClone(req))) },
+    now,
+    backup: async () => undefined,
+    onStatus: () => undefined,
+    sleep: async () => undefined,
+    log: () => undefined,
+  });
+// Onde cada solve está no servidor: [id, sessão, ativo].
+const onServer = (server: FakeServer, ids: readonly string[]) =>
+  ids.map((id) => {
+    const stored = server.records.get(`solves/${id}`)!;
+    return [id, (stored.data as { sessionId: string }).sessionId, stored.deletedAt === null];
+  });
 // Os avisos que o repositório deu, com os ids dos solves.
 function heard(repo: Repository): string[] {
   const out: string[] = [];
@@ -179,16 +196,7 @@ describe('lote no repositório', () => {
   it('juntar com o sync em pedidos de uma mudança: o servidor e o outro aparelho ficam com os solves na sessão de destino', async () => {
     const server = new FakeServer(1, { perRequest: 1 });
     server.now = t;
-    const engine = (repo: Repository) =>
-      createSyncEngine({
-        repo: () => repo,
-        api: { sync: async (req) => structuredClone(server.sync(structuredClone(req))) },
-        now,
-        backup: async () => undefined,
-        onStatus: () => undefined,
-        sleep: async () => undefined,
-        log: () => undefined,
-      });
+    const engine = engineOn(server);
     const phone = (await fresh()).repo;
     const desktop = (await fresh()).repo;
     const from = await phone.createSession({ event: '333', name: 'Antiga' });
@@ -212,6 +220,168 @@ describe('lote no repositório', () => {
     expect(server.records.get(`sessions/${from.id}`)!.deletedAt).not.toBeNull();
     expect((await desktop.listSolves()).map((s) => [s.id, s.sessionId])).toEqual([[f1.id, to.id], [f2.id, to.id]]);
     expect((await desktop.listSessions()).map((s) => s.id)).toEqual([to.id]);
+  });
+
+  // C1 da revisão final: editar um solve movido antes de ele subir o põe de novo na fila, atrás da exclusão da sessão de origem. A cascata
+  // dela no servidor o apagaria (ele ainda está na origem lá), e a edição, que vem depois, perderia para a exclusão. A exclusão espera na
+  // fila até o servidor confirmar a mudança de sessão de cada solve que saiu dela.
+  it('juntar e editar um solve movido antes de subir: a exclusão da origem espera, e os dois ficam ativos no destino', async () => {
+    const server = new FakeServer(1, { perRequest: 1 });
+    server.now = t;
+    const engine = engineOn(server);
+    const phone = (await fresh()).repo;
+    const desktop = (await fresh()).repo;
+    const from = await phone.createSession({ event: '333', name: 'Antiga' });
+    const to = await phone.createSession({ event: '333', name: 'Principal' });
+    const f1 = await phone.addSolve(ns(from.id, 1000));
+    const f2 = await phone.addSolve(ns(from.id, 2000));
+    await engine(phone).run();
+    await engine(desktop).run();
+    t += 10;
+    server.now = t;
+
+    await phone.mergeSessions(from.id, to.id);
+    t += 10;
+    await phone.updateSolve(f2.id, { note: 'depois de juntar' }); // volta para a fila, atrás da exclusão da origem
+    expect(await engine(phone).run()).toMatchObject({ phase: 'idle', pending: 0 });
+    expect(await engine(desktop).run()).toMatchObject({ phase: 'idle', pending: 0 });
+
+    expect(onServer(server, [f1.id, f2.id])).toEqual([[f1.id, to.id, true], [f2.id, to.id, true]]);
+    expect(server.records.get(`sessions/${from.id}`)!.deletedAt).not.toBeNull();
+    for (const repo of [phone, desktop]) {
+      expect((await repo.listSolves()).map((s) => [s.id, s.sessionId, s.note])).toEqual([[f1.id, to.id, ''], [f2.id, to.id, 'depois de juntar']]);
+      expect((await repo.listSessions()).map((s) => s.id)).toEqual([to.id]);
+    }
+  });
+
+  it('mover, excluir a sessão de origem e editar um solve movido: o mesmo, a exclusão espera a mudança de sessão', async () => {
+    const server = new FakeServer(1, { perRequest: 1 });
+    server.now = t;
+    const engine = engineOn(server);
+    const phone = (await fresh()).repo;
+    const desktop = (await fresh()).repo;
+    const from = await phone.createSession({ event: '333', name: 'Antiga' });
+    const to = await phone.createSession({ event: '333', name: 'Principal' });
+    const f1 = await phone.addSolve(ns(from.id, 1000));
+    const f2 = await phone.addSolve(ns(from.id, 2000));
+    await engine(phone).run();
+    await engine(desktop).run();
+    t += 10;
+    server.now = t;
+
+    await phone.moveSolves([f1.id, f2.id], to.id);
+    await phone.deleteSession(from.id);
+    t += 10;
+    await phone.updateSolve(f1.id, { penalty: '+2' });
+    expect(await engine(phone).run()).toMatchObject({ phase: 'idle', pending: 0 });
+    expect(await engine(desktop).run()).toMatchObject({ phase: 'idle', pending: 0 });
+
+    expect(onServer(server, [f1.id, f2.id])).toEqual([[f1.id, to.id, true], [f2.id, to.id, true]]);
+    expect(server.records.get(`sessions/${from.id}`)!.deletedAt).not.toBeNull();
+    for (const repo of [phone, desktop]) {
+      expect((await repo.listSolves()).map((s) => [s.id, s.sessionId, s.penalty])).toEqual([[f1.id, to.id, '+2'], [f2.id, to.id, null]]);
+      expect((await repo.listSessions()).map((s) => s.id)).toEqual([to.id]);
+    }
+  });
+
+  // I1 da revisão final: o destino está só neste aparelho (a conta o recusou pela cota). Os solves movidos ficam guardados com ele, e a
+  // exclusão da origem não pode subir sem eles: a cascata dela os apagaria no servidor, onde ainda estão na origem. Ela vai para a lista com
+  // eles (na fila, o motor pediria de novo sem ter o que mandar) e volta com eles em "Enviar de novo", depois deles.
+  it('juntar num destino que a cota guarda: nada vai para a lixeira, e a exclusão da origem segue os solves quando a conta os aceita', async () => {
+    const server = new FakeServer(1, { perRequest: 1, limits: { solves: 100, sessions: 2, practice: 10, duels: 10 } });
+    server.now = t;
+    const engine = engineOn(server);
+    const phone = (await fresh()).repo;
+    const desktop = (await fresh()).repo;
+    const from = await phone.createSession({ event: '333', name: 'Antiga' });
+    const other = await phone.createSession({ event: '333', name: 'Outra' });
+    const f1 = await phone.addSolve(ns(from.id, 1000));
+    const f2 = await phone.addSolve(ns(from.id, 2000));
+    await engine(phone).run();
+    const to = await phone.createSession({ event: '333', name: 'Principal' }); // a terceira: a conta a recusa
+    expect(await engine(phone).run()).toMatchObject({ phase: 'idle', pending: 0, notice: 'quota' });
+    expect(await phone.heldCount()).toBe(1);
+    await engine(desktop).run();
+    t += 10;
+    server.now = t;
+
+    await phone.mergeSessions(from.id, to.id);
+    expect(await engine(phone).run()).toMatchObject({ phase: 'idle', pending: 0, notice: 'quota' });
+    expect(await phone.heldCount()).toBe(4); // o destino, os dois solves e a exclusão da origem
+    expect(onServer(server, [f1.id, f2.id])).toEqual([[f1.id, from.id, true], [f2.id, from.id, true]]);
+    expect(server.records.get(`sessions/${from.id}`)!.deletedAt).toBeNull();
+    expect((await phone.listSolves()).map((s) => [s.id, s.sessionId])).toEqual([[f1.id, to.id], [f2.id, to.id]]);
+    expect((await phone.listTrash()).solves).toEqual([]);
+
+    // A conta ganha a vaga (outra sessão sai) e "Enviar de novo": o destino, os solves e, por último, a exclusão da origem.
+    t += 10;
+    server.now = t;
+    await phone.deleteSession(other.id);
+    expect(await phone.requeueHeld()).toBe(4);
+    expect(await engine(phone).run()).toMatchObject({ phase: 'idle', pending: 0, notice: null });
+    expect(await phone.heldCount()).toBe(0);
+    expect(await engine(desktop).run()).toMatchObject({ phase: 'idle', pending: 0 });
+
+    expect(onServer(server, [f1.id, f2.id])).toEqual([[f1.id, to.id, true], [f2.id, to.id, true]]);
+    expect(server.records.get(`sessions/${from.id}`)!.deletedAt).not.toBeNull();
+    for (const repo of [phone, desktop]) {
+      expect((await repo.listSolves()).map((s) => [s.id, s.sessionId])).toEqual([[f1.id, to.id], [f2.id, to.id]]);
+      expect((await repo.listSessions()).map((s) => s.id)).toEqual([to.id]);
+    }
+  });
+
+  // Restaurar a origem a deixa ativa: o registro dela sobe sem esperar. O mapa fica: excluída de novo antes de o solve movido subir, a
+  // exclusão volta a esperar por ele (soltar a anotação na restauração deixaria essa segunda exclusão passar na frente dele).
+  it('restaurar a sessão de origem: ela sobe ativa sem esperar, e excluída de novo volta a esperar o movido', async () => {
+    const { repo } = await fresh();
+    const from = await repo.createSession({ event: '333', name: 'Antiga' });
+    const to = await repo.createSession({ event: '333', name: 'Principal' });
+    const f1 = await repo.addSolve(ns(from.id, 1000));
+    await repo.confirmSent((await repo.outboxBatch(500)).sent);
+    await repo.mergeSessions(from.id, to.id);
+    await repo.restoreSession(from.id);
+
+    const restored = await repo.outboxBatch(500);
+    expect(restored.sent.map((e) => e.id).sort()).toEqual([from.id, f1.id].sort());
+    expect(restored.changes.find((c) => c.id === from.id)!.deletedAt).toBeNull();
+
+    await repo.deleteSession(from.id); // nada foi confirmado: f1 continua na fila
+    const again = await repo.outboxBatch(500);
+    expect(again.sent.map((e) => e.id)).toEqual([f1.id]);
+    await repo.confirmSent(again.sent);
+    expect((await repo.outboxBatch(500)).sent.map((e) => e.id)).toEqual([from.id]);
+  });
+
+  // Um lote menor que a fila: a exclusão que espera não ocupa o lugar do solve que está atrás dela (senão o motor pediria de novo, sem mandar
+  // nada, até a trava). E o mapa dos movidos só existe com conta, como a fila.
+  it('um lote de uma entrada pula a exclusão que espera e leva o solve de trás; sem conta, nada é anotado', async () => {
+    const { db, repo } = await fresh();
+    const from = await repo.createSession({ event: '333', name: 'Antiga' });
+    const to = await repo.createSession({ event: '333', name: 'Principal' });
+    const f1 = await repo.addSolve(ns(from.id, 1000));
+    const f2 = await repo.addSolve(ns(from.id, 2000));
+    await repo.confirmSent((await repo.outboxBatch(500)).sent);
+    await repo.mergeSessions(from.id, to.id);
+    await repo.updateSolve(f2.id, { note: 'atrás' });
+    expect((await db.getAllFromIndex('outbox', 'byQueued')).map((e) => e.id)).toEqual([f1.id, from.id, f2.id]);
+
+    const order: string[] = [];
+    for (;;) {
+      const batch = await repo.outboxBatch(1);
+      if (batch.sent.length === 0) break;
+      order.push(...batch.sent.map((e) => e.id));
+      await repo.confirmSent(batch.sent);
+    }
+    expect(order).toEqual([f1.id, f2.id, from.id]);
+    expect(await repo.outboxCount()).toBe(0);
+    expect(await db.get('meta', 'moved')).toBeUndefined(); // os confirmados saem do mapa, e a chave vazia também
+
+    const local = await fresh(null);
+    const a = await local.repo.createSession({ event: '333', name: 'A' });
+    const b = await local.repo.createSession({ event: '333', name: 'B' });
+    await local.repo.addSolve(ns(a.id, 1000));
+    await local.repo.mergeSessions(a.id, b.id);
+    expect(await local.db.get('meta', 'moved')).toBeUndefined();
   });
 
   // Decisão 3: a sessão que a cota guarda (só neste aparelho) não está no servidor, e não há cascata lá. A exclusão dela vai como em

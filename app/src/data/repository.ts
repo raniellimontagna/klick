@@ -98,13 +98,15 @@ export interface Repository {
   // Mover: a sessão de destino precisa existir, estar ativa e ser do evento de cada solve, senão rejeita (Error 'move-session' ou
   // 'move-event') e nada grava. O sync aceitaria um solve numa sessão de outro evento (checkChange só olha se há sessionId): quem recusa é
   // aqui. Só o solve ativo muda (o da lixeira fica onde está), e o que já está no destino também fica de fora. Muda a sessão e a data de
-  // edição; a exclusão (deletionStamp) fica. Devolve de onde cada um saiu, para o "Desfazer".
+  // edição; a exclusão (deletionStamp) fica. Devolve de onde cada um saiu, para o "Desfazer". Com conta, anota de onde cada um saiu (o mapa
+  // 'moved'): a exclusão da origem espera a confirmação deles (outboxBatch).
   moveSolves(ids: readonly string[], sessionId: string): Promise<{ id: string; from: string }[]>;
   deleteSolves(ids: readonly string[]): Promise<string[]>; // o lote de deleteSolve
   restoreSolves(ids: readonly string[]): Promise<string[]>; // o lote de restoreSolve: a sessão de um solve que volta, se está na lixeira, volta junto
   // Juntar (spec do histórico, seção 5): as duas ativas e do mesmo evento, senão rejeita (Error 'merge-session' ou 'merge-event') e nada
   // grava; juntar uma sessão com ela mesma também é 'merge-session'. Os solves ativos de `fromId` passam para `toId` e ela vai para a
-  // lixeira (com os solves dela que já estavam lá). Na fila, a exclusão dela vai depois das mudanças dos solves. Devolve quantos passaram.
+  // lixeira (com os solves dela que já estavam lá). Na fila, a exclusão dela vai depois das mudanças dos solves, e ela só sobe depois que o
+  // servidor confirma cada uma (o mapa 'moved', como em moveSolves). Devolve quantos passaram.
   mergeSessions(fromId: string, toId: string): Promise<number>;
   listTrash():Promise<{ sessions: Session[]; solves: Solve[]; duels: Duel[] }>; // o excluído mais recentemente primeiro, em cada lista
   // Apaga de vez o excluído antes de now - olderThanMs (no limite exato ainda fica), menos o que espera na fila de saída ou está só neste
@@ -125,13 +127,16 @@ export interface Repository {
   // e vai para o log local, só com store, id e motivo, contada em `refused`. A entrada de um registro que não existe mais também sai, contada
   // em `missing` e no log (store e id). Um solve cuja sessão está só neste aparelho (recusada pela cota) também não sobe, a não ser que a
   // sessão vá antes no mesmo lote: o servidor o aceitaria sem ela, e ele ficaria órfão nos outros aparelhos. Ele sai da fila e entra na lista
-  // com ela (contado em `held`, avisa 'sync'), e volta com ela em requeueHeld.
+  // com ela (contado em `held`, avisa 'sync'), e volta com ela em requeueHeld. A exclusão de uma sessão da qual mover ou juntar tirou solves
+  // que o servidor ainda não confirmou (o mapa 'moved') não sobe: com algum deles na fila, ela fica na fila, fora do lote (sem ocupar lugar
+  // nele), e o próximo lote confere de novo; com eles só na lista "só neste aparelho", ela entra na lista com eles (contada em `held`) e volta
+  // depois deles em requeueHeld. No servidor eles ainda estão nela, e a cascata da exclusão os apagaria.
   outboxBatch(limit: number): Promise<{ changes: Change[]; sent: OutboxEntry[]; refused: number; missing: number; held: number }>;
   // Numa transação (a fila e a lista dos recusados pela cota): tira da fila as entradas que não mudaram desde que saíram. As de `held` (as
   // que a conta recusou pela cota) que saíram da fila entram na lista "só neste aparelho". As de `refused` (recusadas por outro motivo) saem
   // da fila como qualquer recusa, e uma chave da lista continua nela: a conta não tem a versão dela, e apagar os dados continua recusando. As
   // outras (aceitas) saem da lista: a conta tem uma versão delas. Uma entrada gravada de novo durante o pedido fica na fila, e sobe no
-  // próximo lote. Avisa 'sync' quando a lista muda.
+  // próximo lote. Avisa 'sync' quando a lista muda. Um solve que saiu da fila e não ficou na lista sai também do mapa dos movidos ('moved').
   confirmSent(sent: readonly OutboxEntry[], held?: readonly OutboxEntry[], refused?: readonly OutboxEntry[]): Promise<void>;
   outboxCount(): Promise<number>;
   // A lista "só neste aparelho" (endurecimento, decisão 4): quantos registros daqui a conta recusou pela cota (de qualquer store, uma
@@ -451,6 +456,50 @@ async function saveHeld(tx: WriteTx, keys: Iterable<string>): Promise<void> {
   if (list.length > 0) await tx.objectStore('meta').put(list, 'held');
   else await tx.objectStore('meta').delete('held');
 }
+// Os solves movidos que o servidor ainda não confirmou, pela sessão de onde saíram (meta 'moved'; a revisão final do histórico, C1 e I1).
+// A exclusão de uma sessão espera enquanto algum solve que saiu dela ainda está na fila ou na lista "só neste aparelho": no servidor ele
+// ainda está nela, e a cascata da exclusão o apagaria (a mudança de sessão, que chega depois, perde para ela). Só existe neste aparelho e
+// nunca sobe. O que não for um mapa de listas de textos vale vazio.
+type MovedFrom = Map<string, string[]>;
+function movedList(stored: unknown): MovedFrom {
+  const moved: MovedFrom = new Map();
+  if (typeof stored !== 'object' || stored === null || Array.isArray(stored)) return moved;
+  for (const [sid, ids] of Object.entries(stored)) {
+    const list = Array.isArray(ids) ? [...new Set(ids.filter((id): id is string => typeof id === 'string'))] : [];
+    if (list.length > 0) moved.set(sid, list);
+  }
+  return moved;
+}
+const movedOf = async (tx: SyncTx): Promise<MovedFrom> => movedList(await tx.objectStore('meta').get('moved'));
+// Grava o mapa sem as listas vazias; vazio, a chave sai do meta.
+async function saveMoved(tx: WriteTx, moved: MovedFrom): Promise<void> {
+  const kept = [...moved].filter(([, ids]) => ids.length > 0);
+  if (kept.length > 0) await tx.objectStore('meta').put(Object.fromEntries(kept), 'moved');
+  else await tx.objectStore('meta').delete('moved');
+}
+// Tira do mapa os solves que já não esperam (confirmados pelo servidor, ou fora da fila de vez). Diz se mudou.
+function forgetMoved(moved: MovedFrom, settled: ReadonlySet<string>): boolean {
+  let changed = false;
+  for (const [sid, ids] of moved) {
+    const left = ids.filter((id) => !settled.has(id));
+    if (left.length === ids.length) continue;
+    changed = true;
+    if (left.length > 0) moved.set(sid, left);
+    else moved.delete(sid);
+  }
+  return changed;
+}
+// Mover e juntar anotam de onde saiu cada solve, na mesma transação, só com conta, como a fila (track): sem conta nada sobe, e o primeiro
+// login põe tudo na fila de uma vez.
+async function noteMoved(tx: WriteTx, ctx: SyncCtx, moves: readonly { id: string; from: string }[]): Promise<void> {
+  if (ctx.state().accountId === null || moves.length === 0) return;
+  const moved = await movedOf(tx);
+  const added = new Map<string, Set<string>>();
+  for (const { id, from } of moves) added.set(from, (added.get(from) ?? new Set(moved.get(from))).add(id));
+  for (const [sid, ids] of added) moved.set(sid, [...ids]);
+  await saveMoved(tx, moved);
+}
+
 // A store e o id de uma chave `${store}/${id}` (um id do sync não tem '/'); null se a store não é do sync.
 function keyParts(key: string): { store: SyncStore; id: string } | null {
   const at = key.indexOf('/');
@@ -1094,7 +1143,9 @@ export function createRepository(
         const at = ctx.stamp();
         await each(moving, (s) => solves.put({ ...s, sessionId, updatedAt: at }));
         await each(moving, (s) => ctx.track('solves', s.id));
-        return moving.map((s) => ({ id: s.id, from: s.sessionId }));
+        const moves = moving.map((s) => ({ id: s.id, from: s.sessionId }));
+        await noteMoved(tx, ctx, moves); // a exclusão de cada origem espera a confirmação deles (outboxBatch)
+        return moves;
       });
       if (moves.length > 0) announceSolves(moves.map((m) => m.id));
       return moves;
@@ -1149,10 +1200,17 @@ export function createRepository(
         const at = ctx.stamp();
         await each(live, (s) => solves.put({ ...s, sessionId: toId, updatedAt: at }));
         await each(live, (s) => ctx.track('solves', s.id));
+        await noteMoved(
+          tx,
+          ctx,
+          live.map((s) => ({ id: s.id, from: fromId })),
+        );
         // A exclusão da sessão sobe depois das mudanças de sessão dos solves (spec do histórico, seção 5), com a data seguinte do relógio,
         // como em deleteSession: antes delas, a cascata dela (no servidor, ou num aparelho que baixa um registro por vez) apagaria um solve
         // que ainda está nela, e a mudança dele perderia (a exclusão tem o deletionStamp maior). A sessão que a cota guarda (só neste
         // aparelho) vai na frente, com a mesma data, como lá: não há cascata dela no servidor, e atrás dos solves outboxBatch os guardaria.
+        // A ordem da fila não basta: um solve editado de novo antes de subir volta para trás da exclusão, e um destino guardado pela cota
+        // guarda os solves com ele. Por isso outboxBatch segura a exclusão até o servidor confirmar cada solve que saiu (noteMoved).
         const held = (await heldOf(tx)).includes(syncKey('sessions', fromId));
         if (live.length > 0 && !held) ctx.raise(ctx.stamp() + 1); // o relógio passa desta escrita: a exclusão tem uma data depois
         const gone = ctx.stamp();
@@ -1281,29 +1339,71 @@ export function createRepository(
       let missing = 0;
       const batch = await write(['outbox', 'solves', 'sessions', 'practice', 'duels', 'prefs', 'meta'], async (tx) => {
         const outbox = tx.objectStore('outbox');
-        const entries = await outbox.index('byQueued').getAll(undefined, limit);
+        const moved = await movedOf(tx);
+        // Uma exclusão que espera (abaixo) não ocupa lugar no lote: cada sessão está uma vez na fila, então ler mais tantas entradas quantas
+        // sessões o mapa tem garante `limit` entradas que andam (se a fila as tiver). Sem nada movido, o lote é o de sempre.
+        const entries = await outbox.index('byQueued').getAll(undefined, limit + moved.size);
         const current = await Promise.all(entries.map((e) => recordOf(tx, e.store, e.id)));
         const held = new Set(await heldOf(tx));
+        // A exclusão de uma sessão da qual saíram solves que o servidor ainda não confirmou (moved).
+        const waits = (c: Change | undefined): c is Change => c?.store === 'sessions' && c.deletedAt !== null && moved.has(c.id);
+        // Quais desses solves ainda estão na fila, lido antes de decidir (os deste lote também: só saem depois de confirmados).
+        const watched = [...new Set(current.filter(waits).flatMap((c) => moved.get(c.id)!.map((id) => syncKey('solves', id))))];
+        const queued = new Set<string>();
+        await Promise.all(
+          watched.map(async (key) => {
+            if ((await outbox.getKey(key)) !== undefined) queued.add(key);
+          }),
+        );
         const changes: Change[] = [];
         const sent: OutboxEntry[] = [];
-        const dropped: string[] = [];
-        const parked: string[] = []; // solves de uma sessão que está só neste aparelho
+        const dropped = new Set<string>();
+        const parked = new Set<string>(); // solves de uma sessão que está só neste aparelho, e exclusões que esperam por eles
         const sessions = new Set<string>(); // as sessões que já vão neste lote
-        entries.forEach((entry, i) => {
+        let movedChanged = false;
+        let taken = 0;
+        for (let i = 0; i < entries.length && taken < limit; i++) {
+          const entry = entries[i];
           const change = current[i];
+          const key = syncKey(entry.store, entry.id);
           const checked = change && checkChange(change);
           if (change && checked?.ok) {
+            if (waits(change)) {
+              // Os que saíram dela e ainda esperam: na fila (e não fora dela por este lote) ou na lista "só neste aparelho". Os outros saem do
+              // mapa. Com algum na fila, a exclusão fica nela, fora do lote, e o próximo lote confere de novo. Só na lista (o destino guardado
+              // pela cota, ou eles mesmos), ela vai para a lista com eles: na fila, o motor pediria de novo sem nada para mandar; e "Enviar de
+              // novo" a põe de volta depois deles (requeueHeld). Sem nenhum, sobe.
+              const ids = moved.get(change.id)!;
+              const inQueue = (id: string): boolean => {
+                const k = syncKey('solves', id);
+                return queued.has(k) && !dropped.has(k) && !parked.has(k);
+              };
+              const pending = ids.filter((id) => inQueue(id) || held.has(syncKey('solves', id)) || parked.has(syncKey('solves', id)));
+              if (pending.length !== ids.length) {
+                movedChanged = true;
+                if (pending.length > 0) moved.set(change.id, pending);
+                else moved.delete(change.id);
+              }
+              if (pending.some(inQueue)) continue;
+              if (pending.length > 0) {
+                taken++;
+                parked.add(key);
+                continue;
+              }
+            }
+            taken++;
             const sid = change.store === 'solves' ? sessionOfChange(change) : null;
             if (sid !== null && held.has(syncKey('sessions', sid)) && !sessions.has(sid)) {
-              parked.push(syncKey(entry.store, entry.id));
-              return;
+              parked.add(key);
+              continue;
             }
             if (change.store === 'sessions') sessions.add(change.id);
             changes.push(change);
             sent.push(entry);
-            return;
+            continue;
           }
-          dropped.push(syncKey(entry.store, entry.id));
+          taken++;
+          dropped.add(key);
           if (checked && !checked.ok) {
             refused++;
             lines.push(refusalLine(entry.store, entry.id, checked.reason));
@@ -1311,10 +1411,19 @@ export function createRepository(
             missing++;
             lines.push(missingLine(entry.store, entry.id));
           }
-        });
+        }
         await each([...dropped, ...parked], (key) => outbox.delete(key));
-        if (parked.length > 0) await saveHeld(tx, [...held, ...parked]);
-        return { changes, sent, held: parked.length };
+        if (parked.size > 0) await saveHeld(tx, [...held, ...parked]);
+        // Um solve que saiu da fila de vez (recusado ou sem registro) não espera mais: sai do mapa.
+        const gone = new Set(
+          [...dropped].flatMap((k) => {
+            const part = keyParts(k);
+            return part?.store === 'solves' ? [part.id] : [];
+          }),
+        );
+        if (forgetMoved(moved, gone)) movedChanged = true;
+        if (movedChanged) await saveMoved(tx, moved);
+        return { changes, sent, held: parked.size };
       });
       for (const line of lines) log(line);
       if (batch.held > 0) announce('sync');
@@ -1330,6 +1439,7 @@ export function createRepository(
         const other = new Set(refused.map((e) => syncKey(e.store, e.id)));
         const entries = new Map<string, OutboxEntry>();
         for (const e of [...sent, ...held, ...refused]) entries.set(syncKey(e.store, e.id), e);
+        const settled = new Set<string>(); // solves que saíram da fila e não ficaram na lista: a mudança de sessão deles não espera mais
         for (const [key, e] of entries) {
           const queued = await outbox.get(key);
           // Gravado de novo durante o pedido (outra data na fila): o que subiu já é velho, e a entrada fica para o próximo lote (e não entra na
@@ -1339,6 +1449,11 @@ export function createRepository(
           if (quota.has(key)) {
             if (same) list.add(key);
           } else if (!other.has(key)) list.delete(key); // aceito: a conta tem uma versão dele
+          if (same && e.store === 'solves' && !list.has(key)) settled.add(e.id);
+        }
+        if (settled.size > 0) {
+          const moved = await movedOf(tx);
+          if (forgetMoved(moved, settled)) await saveMoved(tx, moved);
         }
         if (list.size === before.length && before.every((k) => list.has(k))) return false;
         await saveHeld(tx, list);
@@ -1617,6 +1732,7 @@ export function createRepository(
         const state = syncStateOrDefault((await meta.get('sync')) as SyncState | undefined);
         await meta.put({ ...defaultSyncState(), clock: state.clock }, 'sync');
         await meta.delete('held'); // o que sobrou nela não tem registro (countLocalOnly só conta as chaves que existem)
+        await meta.delete('moved'); // a fila está vazia: nenhum solve movido espera
       });
       announce('all', 'sync');
     },
