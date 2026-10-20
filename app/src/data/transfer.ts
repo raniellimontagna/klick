@@ -96,6 +96,10 @@ const SETTING_CHECKS: Record<keyof Omit<Settings, 'sound'>, Check> = {
   dailyGoal: (v) => Number.isInteger(v) && (v as number) >= 1,
   scrambleImage: isBool,
   centro: oneOf(['animado', 'estatico', 'oculto']),
+  entry: oneOf(['timer', 'typing']),
+  phases: (v) => v === 0 || v === 2 || v === 3 || v === 4,
+  liveTime: oneOf(['full', 'seconds', 'hidden']),
+  inspVoice: isBool,
 };
 const SOUND_CHECKS: Record<keyof Settings['sound'], Check> = { klick: isBool, insp: isBool, pb: isBool };
 

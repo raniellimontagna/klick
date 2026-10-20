@@ -17,6 +17,7 @@ export interface Solve {
   createdAt: number;
   updatedAt: number;
   deletedAt: number | null; // marca de exclusão (lixeira); null enquanto o solve está ativo
+  phases?: number[]; // a duração de cada fase em ms, somando `ms`; só existe com as fases ligadas no timer
 }
 
 export interface Session {
@@ -45,6 +46,10 @@ export type Theme = 'system' | 'light' | 'dark';
 // O Centro no Timer (spec do sub-projeto 3, seção 6.5): animado, estático (sem movimento) ou oculto (fora do Timer).
 export type CentroMode = 'animado' | 'estatico' | 'oculto';
 
+export type EntryMode = 'timer' | 'typing';
+export type PhaseOption = 0 | 2 | 3 | 4;
+export type LiveTimeMode = 'full' | 'seconds' | 'hidden'; // tudo, só os segundos, ou escondido
+
 export interface Settings {
   inspection: boolean;
   holdMs: number; // quanto tempo segurar para armar
@@ -56,6 +61,11 @@ export interface Settings {
   dailyGoal: number;
   scrambleImage: boolean;
   centro: CentroMode;
+  // Do aparelho (DeviceSettings os leva sozinha; a conta não ganha chave nova):
+  entry: EntryMode; // como o tempo entra: cronometrando ou digitado
+  phases: PhaseOption; // quantas fases marcar por toque no cronômetro (0 = desligado)
+  liveTime: LiveTimeMode; // como o tempo aparece enquanto se resolve
+  inspVoice: boolean; // a inspeção fala "oito" e "doze" em vez do bipe
 }
 
 export type FinishId = 'fosco' | 'brilho' | 'gelo' | 'carbono';
@@ -160,6 +170,10 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   dailyGoal: 20,
   scrambleImage: true,
   centro: 'animado',
+  entry: 'timer',
+  phases: 0,
+  liveTime: 'full',
+  inspVoice: false,
 });
 
 // Cópia nova, profunda e mutável dos ajustes padrão, para montar um perfil ou um estado que a interface vá alterar.

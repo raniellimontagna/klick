@@ -51,6 +51,18 @@ describe('perfil da conta e do aparelho (spec 5.2)', () => {
     expect(joinProfile(device, profileFromPrefs([...prefsFromProfile(account)].map(([key, value]) => ({ key, value, updatedAt: 1 }))))).toEqual(p);
   });
 
+  it('os ajustes do timer são do aparelho, com padrão, e um perfil de antes (sem eles) lê os padrões', () => {
+    expect(defaultSettings()).toMatchObject({ entry: 'timer', phases: 0, liveTime: 'full', inspVoice: false });
+    const p = profile({ settings: { ...defaultSettings(), entry: 'typing', phases: 3, liveTime: 'seconds', inspVoice: true } });
+    const { device, account } = splitProfile(p);
+    expect(device.settings).toMatchObject({ entry: 'typing', phases: 3, liveTime: 'seconds', inspVoice: true });
+    expect(Object.keys(account.settings).sort()).toEqual(['dailyGoal', 'inspection']);
+    for (const key of ['entry', 'phases', 'liveTime', 'inspVoice']) expect(isPrefValue(`settings.${key}`, device.settings[key as 'entry'])).toBe(false);
+    const old = { ...device, settings: { ...device.settings } } as { settings: Record<string, unknown> };
+    for (const key of ['entry', 'phases', 'liveTime', 'inspVoice']) delete old.settings[key];
+    expect(joinProfile(old as typeof device, account).settings).toMatchObject({ entry: 'timer', phases: 0, liveTime: 'full', inspVoice: false });
+  });
+
   it('sem withDefaults, só as chaves fora do padrão; com ele, todas', () => {
     const { account } = splitProfile(profile({ trail: [false, true, false, false, false, false, false, false, false] }));
     expect([...prefsFromProfile(account).keys()]).toEqual(['trail.1']);

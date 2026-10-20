@@ -5,11 +5,15 @@
 // parar, a penalidade e os avisos da inspeção decidem por esse horário, e não pela hora em que o handler roda; sem ele, vale
 // now(). Os getters armProgress, inspectElapsed e elapsed servem só à tela e continuam em now().
 //
+// Fases (marcar etapas do solve por toque): com N fases ligadas (2, 3 ou 4), em RUNNING os N-1 primeiros toques só marcam a fase e o N-ésimo
+// para o cronômetro. Um toque a menos de PHASE_MIN_GAP_MS do anterior (ou da largada) não conta: é o quique do dedo, não uma fase. O número
+// de fases vale no próximo solve (setOptions no meio de um solve não o muda); sem fases (0, o padrão) o primeiro toque para como sempre.
+//
 // Um ouvinte que lança não derruba a máquina nem os outros ouvintes: o erro vai para onError. É no 'done' que o solve é
 // gravado, e ele sai mesmo que um ouvinte de 'state' quebre. O onError padrão relança o erro numa microtask, para ele
 // continuar visível no navegador. O espaço segurado antes da inspeção (o estado ainda é 'idle') sai pelo evento 'pending', para
 // quem precisa saber que o timer está ocupado mesmo sem mudança de estado.
-import type { Penalty } from './types';
+import type { Penalty, PhaseOption } from './types';
 
 export const STATES = Object.freeze({
   IDLE: 'idle',
@@ -22,9 +26,13 @@ export const STATES = Object.freeze({
 
 export type TimerState = (typeof STATES)[keyof typeof STATES];
 
+// Menor intervalo entre dois toques para o segundo contar como fase (ms).
+export const PHASE_MIN_GAP_MS = 300;
+
 export interface TimerResult {
   ms: number; // tempo bruto, sem a penalidade
   penalty: Penalty;
+  phases?: number[]; // a duração de cada fase, somando ms; só existe com fases ligadas
 }
 
 export interface Timer {
@@ -33,16 +41,18 @@ export interface Timer {
   tick(at?: number): void;
   cancel(): void; // abandona um segurar (ou o toque que iniciaria a inspeção) sem largar o timer
   reset(): void;
-  setOptions(o: { holdMs?: number; inspection?: boolean }): void;
+  setOptions(o: { holdMs?: number; inspection?: boolean; phases?: PhaseOption }): void;
   on(ev: 'state', fn: (next: TimerState, prev: TimerState) => void): () => void;
   on(ev: 'warn', fn: (ms: number) => void): () => void;
   on(ev: 'done', fn: (r: TimerResult) => void): () => void;
+  on(ev: 'phase', fn: (index: number, ms: number) => void): () => void; // uma fase marcada: o índice (de 0) e o tempo da marca desde a largada
   on(ev: 'pending', fn: (held: boolean) => void): () => void; // o espaço segurado antes da inspeção começou (true) ou acabou (false)
   readonly state: TimerState;
   readonly armProgress: number; // 0 a 1, para o anel de armar
   readonly inspectElapsed: number;
   readonly elapsed: number;
   readonly result: TimerResult | null;
+  readonly marks: readonly number[]; // as marcas da rodada, em ms desde a largada (sem a que para); zera na próxima largada
 }
 
 // Argumentos de cada evento, na ordem em que os ouvintes os recebem.
@@ -50,6 +60,7 @@ interface TimerEvents {
   state: [next: TimerState, prev: TimerState];
   warn: [ms: number];
   done: [result: TimerResult];
+  phase: [index: number, ms: number];
   pending: [held: boolean];
 }
 
@@ -85,10 +96,14 @@ export function createTimer(
   let penalty: Penalty = null;
   let result: TimerResult | null = null;
   let warned = new Set<number>();
+  let phases: PhaseOption = 0; // o que o próximo solve vai usar
+  let runPhases: PhaseOption = 0; // o do solve em curso, fixado na largada
+  let marks: number[] = [];
   const listeners: { [E in keyof TimerEvents]: Set<(...args: TimerEvents[E]) => void> } = {
     state: new Set(),
     warn: new Set(),
     done: new Set(),
+    phase: new Set(),
     pending: new Set(),
   };
 
@@ -117,7 +132,19 @@ export function createTimer(
   function press(at?: number): void {
     const t = at ?? now();
     if (state === STATES.RUNNING) {
-      result = { ms: Math.round(t - startAt), penalty };
+      const ms = Math.round(t - startAt);
+      if (runPhases > 0) {
+        // Colado no toque anterior (ou na largada): não conta nem como fase nem como parada.
+        if (ms - (marks[marks.length - 1] ?? 0) < PHASE_MIN_GAP_MS) return;
+        if (marks.length + 1 < runPhases) {
+          marks.push(ms);
+          emit('phase', marks.length - 1, ms);
+          return;
+        }
+        result = { ms, penalty, phases: [...marks, ms].map((m, i) => m - (marks[i - 1] ?? 0)) };
+      } else {
+        result = { ms, penalty };
+      }
       set(STATES.DONE);
       emit('done', result);
       return;
@@ -162,6 +189,8 @@ export function createTimer(
       const ie = base === STATES.INSPECT ? t - inspStart : 0;
       penalty = ie > DNF_AFTER ? 'DNF' : ie > PLUS2_AFTER ? '+2' : null;
       startAt = t;
+      runPhases = phases;
+      marks = [];
       base = STATES.IDLE;
       set(STATES.RUNNING);
     }
@@ -210,15 +239,20 @@ export function createTimer(
     get result() {
       return result;
     },
+    get marks() {
+      return marks.slice();
+    },
     setOptions(o) {
       if (o.holdMs !== undefined) holdMs = o.holdMs;
       if (o.inspection !== undefined) inspection = o.inspection;
+      if (o.phases !== undefined) phases = o.phases;
     },
     reset() {
       setPending(false);
       base = STATES.IDLE;
       result = null;
       penalty = null;
+      marks = [];
       set(STATES.IDLE);
     },
     // Abandona um segurar (ou o toque que iniciaria a inspeção) sem largar o timer.

@@ -204,6 +204,15 @@ describe('formato Klick', () => {
       expect(parseKlickJson(withProfile({ settings: { centro: 'girando' } })).profile).toEqual({ settings: {} });
     });
 
+    it('os ajustes do timer (entrada, fases, tempo ao vivo e voz) passam só com um valor conhecido', () => {
+      const ok = { entry: 'typing', phases: 4, liveTime: 'hidden', inspVoice: true };
+      expect(parseKlickJson(withProfile({ settings: ok })).profile).toEqual({ settings: ok });
+      const bad = { entry: 'voz', phases: 5, liveTime: 'meio', inspVoice: 'sim' };
+      expect(parseKlickJson(withProfile({ settings: bad })).profile).toEqual({ settings: {} });
+      for (const phases of [1, '3', 2.5, null, -2]) expect(parseKlickJson(withProfile({ settings: { phases } })).profile).toEqual({ settings: {} });
+      expect(parseKlickJson(withProfile({ settings: { phases: 0 } })).profile).toEqual({ settings: { phases: 0 } });
+    });
+
     it('trilha mais longa que a do Klick é cortada nas 9 etapas', () => {
       expect(parseKlickJson(withProfile({ trail: Array<boolean>(12).fill(true) })).profile).toEqual({ trail: Array<boolean>(9).fill(true) });
     });

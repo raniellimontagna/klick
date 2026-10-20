@@ -484,6 +484,11 @@ export const T = Object.freeze({
     plus2: '+2',
     plus2Suffix: '+',
   },
+  // Fases do solve (marcadas por toque no cronômetro): os nomes do CFOP (4 fases no 3×3) e o genérico dos outros casos.
+  fases: {
+    cfop: ['Cruz', 'F2L', 'OLL', 'PLL'],
+    n: (i: number) => `Fase ${i}`,
+  },
   actions: { plus2: '+2', dnf: 'DNF', note: 'Nota', delete: 'Excluir' },
   note: {
     label: 'Nota sobre este solve',

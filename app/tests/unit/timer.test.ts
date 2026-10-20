@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
-import { STATES, createTimer } from '../../src/core/timer';
+import { PHASE_MIN_GAP_MS, STATES, createTimer } from '../../src/core/timer';
 import type { TimerResult, TimerState } from '../../src/core/timer';
 import type { Penalty } from '../../src/core/types';
 
-function rig(opts: { holdMs?: number; inspection?: boolean } = {}) {
+function rig(opts: { holdMs?: number; inspection?: boolean; phases?: 0 | 2 | 3 | 4 } = {}) {
+  const { phases, ...ctor } = opts;
   let t = 0;
-  const timer = createTimer({ now: () => t, holdMs: 300, inspection: false, ...opts });
+  const timer = createTimer({ now: () => t, holdMs: 300, inspection: false, ...ctor });
+  if (phases !== undefined) timer.setOptions({ phases });
   const log: { warns: number[]; done: TimerResult[] } = { warns: [], done: [] };
   timer.on('warn', (w) => log.warns.push(w));
   timer.on('done', (r) => log.done.push(r));
@@ -490,5 +492,95 @@ describe('timer: espaço segurado antes da inspeção', () => {
     plain.timer.on('pending', (held) => more.push(held));
     plain.timer.press();
     expect(more).toEqual([]);
+  });
+});
+
+describe('fases', () => {
+  // Arma e larga em t = 0 (holdMs 300): o cronômetro começa em 300.
+  const start = (r: ReturnType<typeof rig>) => {
+    r.setTime(0);
+    r.timer.press(0);
+    r.timer.release(300);
+    expect(r.timer.state).toBe(STATES.RUNNING);
+  };
+
+  it('com 4 fases, três toques marcam e o quarto para, com as durações somando o tempo', () => {
+    const r = rig({ phases: 4 });
+    const marked: [number, number][] = [];
+    r.timer.on('phase', (i, ms) => marked.push([i, ms]));
+    start(r);
+    r.timer.press(300 + 2000);
+    r.timer.press(300 + 5500);
+    r.timer.press(300 + 9000);
+    expect(r.timer.state).toBe(STATES.RUNNING);
+    expect(marked).toEqual([[0, 2000], [1, 5500], [2, 9000]]);
+    expect(r.timer.marks).toEqual([2000, 5500, 9000]);
+    r.timer.press(300 + 12345);
+    expect(r.timer.state).toBe(STATES.DONE);
+    expect(r.log.done).toEqual([{ ms: 12345, penalty: null, phases: [2000, 3500, 3500, 3345] }]);
+    expect(r.log.done[0].phases?.reduce((a, b) => a + b, 0)).toBe(12345);
+  });
+
+  it('um toque a menos de 300 ms do anterior não conta', () => {
+    const r = rig({ phases: 2 });
+    start(r);
+    r.timer.press(300 + 4000);
+    r.timer.press(300 + 4000 + PHASE_MIN_GAP_MS - 1); // seria o toque que para: ignorado
+    expect(r.timer.state).toBe(STATES.RUNNING);
+    expect(r.timer.marks).toEqual([4000]);
+    r.timer.press(300 + 4000 + PHASE_MIN_GAP_MS); // no limite, conta
+    expect(r.timer.state).toBe(STATES.DONE);
+    expect(r.log.done[0].phases).toEqual([4000, PHASE_MIN_GAP_MS]);
+  });
+
+  it('um toque logo depois de largar também não conta', () => {
+    const r = rig({ phases: 3 });
+    start(r);
+    r.timer.press(300 + 100);
+    expect(r.timer.marks).toEqual([]);
+    expect(r.timer.state).toBe(STATES.RUNNING);
+  });
+
+  it('sem fases, o primeiro toque para como hoje', () => {
+    const r = rig();
+    start(r);
+    r.timer.press(300 + 150); // mesmo colado na largada
+    expect(r.timer.state).toBe(STATES.DONE);
+    expect(r.log.done).toEqual([{ ms: 150, penalty: null }]);
+    expect(r.log.done[0]).not.toHaveProperty('phases');
+    expect(r.timer.marks).toEqual([]);
+  });
+
+  it('setOptions de fases vale no próximo solve', () => {
+    const r = rig();
+    start(r);
+    r.timer.setOptions({ phases: 2 }); // no meio do solve: não muda este
+    r.timer.press(300 + 5000);
+    expect(r.timer.state).toBe(STATES.DONE);
+    expect(r.log.done[0].phases).toBeUndefined();
+    // O próximo já sai com duas fases, e as marcas da rodada anterior não vazam.
+    r.timer.reset();
+    start(r);
+    r.timer.press(300 + 3000);
+    expect(r.timer.state).toBe(STATES.RUNNING);
+    r.timer.press(300 + 7000);
+    expect(r.log.done[1]).toEqual({ ms: 7000, penalty: null, phases: [3000, 4000] });
+    r.timer.setOptions({ phases: 0 });
+    r.timer.reset();
+    start(r);
+    r.timer.press(300 + 900);
+    expect(r.log.done[2]).toEqual({ ms: 900, penalty: null });
+  });
+
+  it('a penalidade da inspeção continua no resultado com fases', () => {
+    const r = rig({ phases: 2, inspection: true });
+    r.setTime(0);
+    r.timer.press(0);
+    r.timer.release(0); // começa a inspeção
+    r.timer.press(15500);
+    r.timer.release(15900);
+    r.timer.press(15900 + 2000);
+    r.timer.press(15900 + 6000);
+    expect(r.log.done[0]).toEqual({ ms: 6000, penalty: '+2', phases: [2000, 4000] });
   });
 });

@@ -14,6 +14,10 @@ describe('ajustes padrão', () => {
       dailyGoal: 20,
       scrambleImage: true,
       centro: 'animado',
+      entry: 'timer',
+      phases: 0,
+      liveTime: 'full',
+      inspVoice: false,
     });
   });
 
