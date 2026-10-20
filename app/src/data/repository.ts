@@ -1858,16 +1858,18 @@ export function createRepository(
         // 1. as exclusões que não são de sessão (o acabamento das cópias grandes, A2: perto da cota, o servidor recusaria o que volta da
         //    lixeira ou chega antes de elas abrirem as vagas), e as das sessões que a cota guarda, na frente dos solves delas (a chave), como
         //    em deleteSession: elas não estão no servidor, não há cascata lá, e atrás dos solves outboxBatch os guardaria de novo;
-        // 2. as exclusões das outras sessões (a revisão do acabamento, como deleteSession e requeueHeld): a de uma sessão cuja cascata não cabe
-        //    num dia voltaria com a cota, e os solves dela esperariam com ela "só neste aparelho"; depois dos solves, ela chega sem solves
-        //    ativos no servidor;
-        // 3. o resto.
+        // 2. o resto (o que volta da lixeira, o que chega, o que a cópia regrava ou move de sessão);
+        // 3. as exclusões das outras sessões, por último (a revisão do acabamento, como deleteSession e requeueHeld): a de uma sessão cuja
+        //    cascata não cabe num dia voltaria com a cota, e os solves dela esperariam com ela "só neste aparelho"; depois dos solves, ela chega
+        //    sem solves ativos no servidor. E depois do resto: um solve que a cópia move para fora dela já está na outra sessão quando a
+        //    cascata dela roda lá (antes, a cascata o apagaria com a data da restauração, e a mudança dele empataria nela: excluído vence).
+        //    A cota não muda: os solves dela já saíram um a um no grupo 1, e a exclusão dela não abre vaga de solve.
         const queued = [...changes.filter((c) => checkChange(c).ok), ...restamped.filter((c) => waiting.has(syncKey(c.store, c.id)))];
-        const lastDeletion = (c: Change): boolean => c.store === 'sessions' && !held.has(syncKey(c.store, c.id));
+        const lastDeletion = (c: Change): boolean => c.deletedAt !== null && c.store === 'sessions' && !held.has(syncKey(c.store, c.id));
         const groups = [
           queued.filter((c) => c.deletedAt !== null && !lastDeletion(c)),
-          queued.filter((c) => c.deletedAt !== null && lastDeletion(c)),
           queued.filter((c) => c.deletedAt === null),
+          queued.filter(lastDeletion),
         ].filter((group) => group.length > 0);
         for (const [i, group] of groups.entries()) {
           if (i > 0) ctx.raise(ctx.stamp() + 1); // o track seguinte tem uma data depois

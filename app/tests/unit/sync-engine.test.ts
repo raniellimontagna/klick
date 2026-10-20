@@ -1251,6 +1251,36 @@ describe('a cota e o orçamento do dia (endurecimento 4.1 e decisões 4 e 6)', (
     expect(activeSolves(server).map((x) => x.id)).toEqual([kept.id]);
   });
 
+  // A revisão do acabamento: a cópia move o solve x da sessão S (que ela não tem) para a T. A mudança do x sobe antes da exclusão de S (as
+  // exclusões de sessão vão por último): senão a cascata de S, no servidor, apagaria o x gravado (ainda em S) com a data da restauração, e a
+  // mudança dele empataria nela (no empate, excluído vence). Em lotes pequenos, um registro por pedido.
+  it('restaurar no aparelho uma cópia que move um solve para fora de uma sessão que ela não tem: o solve fica ativo na outra', async () => {
+    const server = new FakeServer(500, { perRequest: 1 });
+    server.now = t;
+    const repo = await device();
+    const s = await repo.createSession({ event: '333', name: 'Sai' });
+    const target = await repo.createSession({ event: '333', name: 'Fica' });
+    const x = await repo.addSolve(ns(s.id, 1000, t));
+    const { engine } = engineFor(repo, network(server));
+    await engine.run();
+    const here = await repo.exportAll();
+    const copy = {
+      ...here,
+      sessions: here.sessions.filter((c) => c.id !== s.id),
+      solves: here.solves.map((c) => (c.id === x.id ? { ...c, sessionId: target.id } : c)),
+    };
+    t += 10;
+    server.now = t;
+    await repo.replaceAll(copy, { floor: true });
+    expect(await engine.run()).toMatchObject({ phase: 'idle', pending: 0, notice: null });
+    expect(await repo.heldCount()).toBe(0);
+    const moved = server.records.get(`solves/${x.id}`)!;
+    expect([moved.deletedAt, (moved.data as { sessionId: string }).sessionId]).toEqual([null, target.id]);
+    expect(server.records.get(`sessions/${s.id}`)!.deletedAt).not.toBeNull();
+    expect((await repo.listSolves()).map((c) => [c.id, c.sessionId])).toEqual([[x.id, target.id]]);
+    expect((await repo.listSessions()).map((c) => c.id)).toEqual([target.id]);
+  });
+
   // A sessão que a cota já guarda (só neste aparelho) não está no servidor: a exclusão dela vai com as dos solves, na frente deles (a chave),
   // como em deleteSession. Atrás deles, outboxBatch os guardaria de novo (a sessão ainda não estaria no lote).
   it('restaurar no aparelho uma cópia sem uma sessão que a cota guarda: ela vai na frente dos solves dela, e nada fica guardado', async () => {
