@@ -234,6 +234,7 @@ describe('diálogo de sessões', () => {
       await fireEvent.click(juntar);
       await vi.waitFor(() => expect(juntar).toBeEnabled());
       expect(screen.getByRole('combobox', { name: /^Juntar “Antiga”/ })).toBeInTheDocument();
+      expect(a.toast?.text).toBe(T.data.changeFailed);
       expect((await repo.listTrash()).sessions).toEqual([]);
       // De novo, agora de verdade.
       await fireEvent.click(juntar);

@@ -121,8 +121,8 @@
   }
 
   // Confirma: o AppState move os solves, manda a de origem para a lixeira e mostra o aviso. Depois o foco vai para a sessão de destino
-  // (a linha de origem some); se a gravação falhar, volta ao botão que abriu o passo. Se a junção lançar, o passo fica aberto e o botão
-  // volta a funcionar (o finally solta o mergeBusy de qualquer jeito).
+  // (a linha de origem some); se a gravação falhar, volta ao botão que abriu o passo. Se a junção lançar, o passo fica aberto, o botão
+  // volta a funcionar (o finally solta o mergeBusy de qualquer jeito) e o aviso de falha aparece, como numa gravação recusada.
   async function confirmMerge(from: Session, to: Session): Promise<void> {
     if (mergeBusy) return;
     mergeBusy = true;
@@ -130,6 +130,7 @@
     try {
       ok = await app.mergeSessions(from.id, to.id);
     } catch {
+      app.showToast(T.data.changeFailed);
       return;
     } finally {
       mergeBusy = false;
