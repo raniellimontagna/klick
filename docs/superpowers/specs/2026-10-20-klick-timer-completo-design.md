@@ -68,10 +68,11 @@ e não ver o cronômetro correndo durante o solve.
 
 ## 6. Voz na inspeção
 
-- Ajustes › Sons, o aviso da inspeção: "Bipe" (o de hoje), "Voz" ou desligado (o liga e desliga de hoje). O liga e desliga continua o
+- Ajustes › Aparência e som (onde os sons já ficam), o aviso da inspeção: "Bipe" (o de hoje), "Voz" ou desligado (o liga e desliga de hoje). O liga e desliga continua o
   mesmo campo de hoje; "Voz" é um campo novo do aparelho, para um app de antes nunca ler um valor que não conhece.
 - Com "Voz", o Klick fala "oito" aos 8 s e "doze" aos 12 s, em português, pela voz do sistema (Web Speech). Sem uma voz em português no
-  aparelho, volta ao bipe. O modo silencioso vale para a voz como vale para o bipe.
+  aparelho, volta ao bipe. A voz segue o mesmo liga e desliga do aviso (o modo silencioso de hoje só cala os textos do Centro, não os
+  sons, e continua assim).
 
 ## 7. Restrições
 
