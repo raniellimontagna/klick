@@ -634,7 +634,7 @@ export const T = Object.freeze({
   // Sessões (ui/dialogs/SessionsDialog.svelte): as sessões por evento; criar, escolher, renomear e excluir (excluir vai para a lixeira).
   sessions: Object.freeze({
     title: 'Sessões',
-    intro: 'Cada sessão guarda os solves de um evento. Excluir manda a sessão e os solves dela para a lixeira.',
+    intro: 'Cada sessão guarda os solves de um evento. Excluir manda a sessão e os solves dela para a lixeira. Juntar leva os solves para outra sessão do mesmo evento.',
     newEvent: 'Evento da nova sessão',
     newName: 'Nome da nova sessão',
     newNamePlaceholder: 'Nome (opcional)',
