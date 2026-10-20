@@ -9,6 +9,7 @@ const ORIGIN = `http://localhost:${PORT}`;
 const vars = [
   'ACCOUNTS_ENABLED:true',
   'E2E_MAILBOX:true',
+  'RESTORE_MAX_RECORDS:10', // as mudanças acima de 10 vão pelo aparelho (copies.spec.ts); o de produção é 5000
   `APP_ORIGIN:${ORIGIN}`,
   'TURNSTILE_SITE_KEY:1x00000000000000000000BB',
   'TURNSTILE_SECRET:1x0000000000000000000000000000000AA',

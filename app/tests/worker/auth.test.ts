@@ -3,8 +3,9 @@ import { getMigrations } from 'better-auth/db/migration';
 import { describe, expect, it, vi } from 'vitest';
 import { SYNC_PROTOCOL, type SyncResponse } from '../../src/core/sync/types';
 import { createAuth, SESSION_DAYS } from '../../worker/auth';
+import type { Env } from '../../worker/env';
 import { codeEmail, e2eMailbox, type Mailer } from '../../worker/mail';
-import { defaultDeps, handle, MAX_AUTH_BODY } from '../../worker/router';
+import { defaultDeps, handle, MAX_AUTH_BODY, type Deps } from '../../worker/router';
 import { accountOf, authDeps, call, fakeMailer, ORIGIN, postJson, signIn, T0, testDeps, testEnv } from './helpers';
 
 // `account`: a conta que o aparelho espera (C1), a da sessão quando o teste quer 200.
@@ -99,6 +100,21 @@ describe('login por código (spec 7.1 a 7.3)', () => {
     expect(await (await local('/api/__e2e/otp?email=e2e@exemplo.com')).json()).toEqual({ code: '654321' });
     const off = testEnv(); // em localhost, mas sem E2E_MAILBOX
     expect((await handle(new Request('http://localhost:8787/api/__e2e/otp?email=e2e@exemplo.com'), off, createExecutionContext(), defaultDeps(off))).status).toBe(404);
+  });
+
+  it('a rota da cópia do ponta a ponta é 404 sem E2E_MAILBOX ou fora do localhost, com sessão ou sem; em localhost com a variável, tira a cópia', async () => {
+    const post = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' };
+    const deps = testDeps({ user: 'e2e-copia' });
+    expect((await call('/api/__e2e/snapshot', post, { deps })).status).toBe(404); // sem a variável
+    const env = testEnv({ E2E_MAILBOX: 'true' });
+    expect((await call('/api/__e2e/snapshot', post, { env, deps })).status).toBe(404); // beta.klick..., não localhost
+    expect((await call('/api/__e2e/snapshot', post, { env })).status).toBe(404); // nem o 401 de quem não tem sessão revela a rota
+    const local = (d: Deps, e: Env) => handle(new Request('http://localhost:8787/api/__e2e/snapshot', post), e, createExecutionContext(), d);
+    expect((await local(deps, testEnv())).status).toBe(404); // em localhost, mas sem E2E_MAILBOX
+    expect((await local(testDeps(), env)).status).toBe(401); // liberada, mas pede a sessão
+    const res = await local(deps, env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: false }); // a conta ainda não tem nada para copiar
   });
 
   it('o código fica no D1 só em hash (decisão 23)', async () => {

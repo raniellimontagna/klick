@@ -128,10 +128,12 @@ async function authRoute(request: Request, path: string, env: Env, ctx: Executio
   return createAuth(env, ctx, deps.mailer).handler(forward);
 }
 
-// A caixa do ponta a ponta local (E2E_MAILBOX): só com a variável ligada e só em localhost. Na nuvem, 404.
+// As rotas do ponta a ponta local valem só com E2E_MAILBOX ligada e só em localhost. Na nuvem, 404.
+const e2eOn = (url: URL, env: Env): boolean => env.E2E_MAILBOX === 'true' && (url.hostname === 'localhost' || url.hostname === '127.0.0.1');
+
+// A caixa do ponta a ponta local: o código do e-mail, que o Worker local não envia.
 function e2eCode(url: URL, env: Env): Response {
-  const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
-  if (env.E2E_MAILBOX !== 'true' || !local) return fail(404, 'not-found');
+  if (!e2eOn(url, env)) return fail(404, 'not-found');
   return json({ code: e2eMailbox.get((url.searchParams.get('email') ?? '').toLowerCase()) ?? null });
 }
 
@@ -199,6 +201,7 @@ export async function handle(request: Request, env: Env, ctx: ExecutionContext, 
   if (path === '/api/health') return json({ ok: true, accounts: accountsOn(env), turnstileSiteKey: accountsOn(env) ? env.TURNSTILE_SITE_KEY : null });
   if (!accountsOn(env)) return fail(404, 'not-found');
   if (path === '/api/__e2e/otp') return e2eCode(url, env);
+  if (path === '/api/__e2e/snapshot' && !e2eOn(url, env)) return fail(404, 'not-found'); // antes da sessão: na nuvem nem o 401 a revela
   if (!authSecretOk(env)) {
     log({ evt: 'auth-secret-missing' });
     return fail(503, 'unavailable');
@@ -244,6 +247,14 @@ export async function handle(request: Request, env: Env, ctx: ExecutionContext, 
     const unread: Record<string, number> = res.readsDeferred ? { unread: 1 } : {}; // o orçamento de leituras do dia acabou: nada foi lido
     log({ evt: 'sync', user: user.id, pushed: req.changes.length, rejected: res.rejected.length, deferred, pulled: res.changes.length, ...unread, ms: deps.now() - started });
     return json(res);
+  }
+
+  // A cópia do dia tirada na hora, só para o ponta a ponta local (a de verdade sai no alarme do dia), para a conta da sessão: `ok` diz se
+  // uma cópia nova foi gravada.
+  if (path === '/api/__e2e/snapshot' && request.method === 'POST') {
+    const guard = writeGuard(request, env);
+    if (guard) return guard;
+    return json({ ok: await account.snapshot(deps.now()) });
   }
 
   // As cópias na nuvem (spec 8.3). Listar e restaurar passam pela mesma rajada do sync: cada pedido custa operações no R2. A lista vem do
