@@ -84,8 +84,8 @@
 ### Task 3: A lista inteira na Evolução, com seleção
 
 **Files:**
-- Create: `app/src/ui/evolucao/SolveList.svelte`, `app/src/ui/evolucao/rows.ts`, `app/src/ui/longpress.ts`
-- Modify: `app/src/ui/evolucao/EvolucaoScreen.svelte`, `app/src/styles/screens.css` (ou o CSS onde a tabela de hoje mora), `app/src/strings.ts`
+- Create: `app/src/ui/evolucao/SolveList.svelte`, `app/src/ui/evolucao/rows.ts`, `app/src/ui/longpress.ts`, `app/src/ui/dialogs/MoveDialog.svelte`
+- Modify: `app/src/ui/evolucao/EvolucaoScreen.svelte`, `app/src/ui/state/app.svelte.ts` (`DialogId` ganha `'move'`, e os ids a mover), `app/src/styles/screens.css` (ou o CSS onde a tabela de hoje mora), `app/src/strings.ts`
 - Test: `app/tests/unit/solve-list.test.ts` (novo), `app/tests/unit/evolucao-screen.test.ts`
 
 **Interfaces:**
@@ -95,10 +95,11 @@
   - `longpress.ts`: `longpress(node, { ms: number; onLong: () => void })` (ação Svelte; cancela ao mover mais de 10 px, ao soltar ou no scroll); `LONG_PRESS_MS = 450`.
   - `SolveList.svelte`: props `{ app, pool, series, onOpen: (id: string) => void }`; altura de linha fixa; desenha só as linhas visíveis mais uma margem; cabeçalho grudado; o mais novo em cima; setas andam, Enter abre; "Selecionar" e o toque longo entram na seleção; barra de lote com a contagem, "Mover para…" e "Excluir" (segundo toque); `MAX_SELECTION = 1_000` (acima disso, a caixa não marca e o aviso `T.historico.selectionCap` aparece).
   - `EvolucaoScreen` troca a tabela (`TABLE_ROWS`, `rows`) pela `SolveList` sobre o `pool` inteiro do filtro; a contagem ("10.482 solves") no topo da lista; mudar o filtro limpa a seleção.
+  - `app.openMove(ids: string[])` abre `MoveDialog`: as sessões do mesmo evento com a contagem (`toLocaleString('pt-BR')`), a de origem marcada; tocar move (`app.moveSolves`) e mostra o toast com "Desfazer". A barra de lote e, na Task 4, o detalhe do solve usam a mesma folha.
 
-- [ ] **Step 1: Testes que falham** — `solve-list.test.ts`: `'com 100 mil solves, desenha só as linhas da tela'` (conta `<tr>`/linhas no DOM ≤ 60; Review Focus 4); `'a linha mostra nº, tempo com +2 e DNF, ao5, ao12, data e o sinal de nota'`; `'data do mesmo ano sem o ano, de outro ano com o ano completo'`; `'setas e Enter abrem o solve'`; `'Selecionar e o toque longo entram na seleção; Excluir pede o segundo toque'`; `'acima de 1.000, a caixa não marca e o aviso aparece'`; `'mudar o filtro limpa a seleção'` (Review Focus 5). `evolucao-screen.test.ts`: os testes da tabela passam a olhar a lista.
+- [ ] **Step 1: Testes que falham** — `solve-list.test.ts`: `'Mover para… lista só as sessões do mesmo evento e move com Desfazer'`; `'com 100 mil solves, desenha só as linhas da tela'` (conta `<tr>`/linhas no DOM ≤ 60; Review Focus 4); `'a linha mostra nº, tempo com +2 e DNF, ao5, ao12, data e o sinal de nota'`; `'data do mesmo ano sem o ano, de outro ano com o ano completo'`; `'setas e Enter abrem o solve'`; `'Selecionar e o toque longo entram na seleção; Excluir pede o segundo toque'`; `'acima de 1.000, a caixa não marca e o aviso aparece'`; `'mudar o filtro limpa a seleção'` (Review Focus 5). `evolucao-screen.test.ts`: os testes da tabela passam a olhar a lista.
 - [ ] **Step 2: Rode e confira que falham** → FAIL.
-- [ ] **Step 3: Implemente** como nas Interfaces e na maquete (estados 1a–1c, 2a–2b, 7).
+- [ ] **Step 3: Implemente** como nas Interfaces e na maquete (estados 1a–1c, 2a–2b, 4, 7).
 - [ ] **Step 4: Rode e confira que passam** — a unit, o check e `tests/e2e/a11y.spec.ts` → PASS.
 - [ ] **Step 5: Commit** — `feat(historico): a lista inteira na Evolução, com seleção`.
 
@@ -107,21 +108,20 @@
 ### Task 4: O detalhe do solve e a folha de mover
 
 **Files:**
-- Create: `app/src/ui/dialogs/SolveDialog.svelte`, `app/src/ui/dialogs/MoveDialog.svelte`, `app/src/ui/clipboard.ts`
-- Modify: `app/src/ui/state/app.svelte.ts` (`DialogId` ganha `'solve' | 'move'`, e o id do solve aberto), `app/src/ui/duel/send.ts` (usa `copyText`), `app/src/ui/evolucao/EvolucaoScreen.svelte` (`onOpen`), `app/src/strings.ts`
+- Create: `app/src/ui/dialogs/SolveDialog.svelte`, `app/src/ui/clipboard.ts`
+- Modify: `app/src/ui/state/app.svelte.ts` (`DialogId` ganha `'solve'`, e o id do solve aberto), `app/src/ui/duel/send.ts` (usa `copyText`), `app/src/ui/evolucao/EvolucaoScreen.svelte` (`onOpen`), `app/src/strings.ts`
 - Test: `app/tests/unit/solve-dialog.test.ts` (novo)
 
 **Interfaces:**
-- Consumes: Task 1 (`records`, `rollingAverages`), Task 2 (`moveSolves`, `deleteSolve`, `setPenalty`, `setNote`).
+- Consumes: Task 1 (`records`, `rollingAverages`), Task 2 (`deleteSolve`, `setPenalty`, `setNote`), Task 3 (`app.openMove`, `MoveDialog`).
 - Produces:
   - `clipboard.ts`: `copyText(text: string, nav = navigator): Promise<'copied' | 'failed'>` (o `copyLink` de hoje, generalizado; chamado dentro do gesto).
-  - `app.openSolve(id: string)`, `app.openMove(ids: string[])` — abrem as folhas.
+  - `app.openSolve(id: string)` abre a folha; "Mover" chama `app.openMove([id])` (Task 3).
   - `SolveDialog`: o tempo grande, a penalidade (`.seg` OK/+2/DNF), data e hora, sessão e evento, o embaralhamento com `ScrambleImage` (o ajuste que esconde a imagem vale), a nota (maxlength 80, como `ResultActions`), a ao5 e a ao12 que terminam nele, o selo `T.historico.inRecord(kind)` quando ele está numa janela de recorde (Task 1, `bestEnd`), e as ações Mover, Copiar (`T.historico.copyText(solve)`: tempo, penalidade, embaralhamento e data) e Excluir (segundo toque).
-  - `MoveDialog`: as sessões do mesmo evento com a contagem (`toLocaleString('pt-BR')`), a de origem marcada; tocar move e mostra o toast com "Desfazer".
 
-- [ ] **Step 1: Testes que falham** — `solve-dialog.test.ts`: `'abre com tempo, data, sessão, embaralhamento e a ao5/ao12 que terminam nele'`; `'OK/+2/DNF muda a penalidade de um solve antigo e a lista e os recordes acompanham'`; `'a nota se edita e salva'`; `'Excluir pede o segundo toque e manda para a lixeira com Desfazer'`; `'Copiar copia o texto do solve'`; `'Mover lista só as sessões do mesmo evento e move com Desfazer'`; `'o selo aparece no solve que faz parte do recorde de ao12'`.
+- [ ] **Step 1: Testes que falham** — `solve-dialog.test.ts`: `'abre com tempo, data, sessão, embaralhamento e a ao5/ao12 que terminam nele'`; `'OK/+2/DNF muda a penalidade de um solve antigo e a lista e os recordes acompanham'`; `'a nota se edita e salva'`; `'Excluir pede o segundo toque e manda para a lixeira com Desfazer'`; `'Copiar copia o texto do solve'`; `'Mover abre a folha de mover com este solve'`; `'o selo aparece no solve que faz parte do recorde de ao12'`.
 - [ ] **Step 2: Rode e confira que falham** → FAIL.
-- [ ] **Step 3: Implemente** como nas Interfaces e na maquete (estados 3, 4, 8b–8c).
+- [ ] **Step 3: Implemente** como nas Interfaces e na maquete (estados 3, 8b–8c).
 - [ ] **Step 4: Rode e confira que passam** — a unit, o check e o e2e de acessibilidade → PASS.
 - [ ] **Step 5: Commit** — `feat(historico): o detalhe de qualquer solve e a folha de mover`.
 
