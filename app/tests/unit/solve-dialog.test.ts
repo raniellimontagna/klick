@@ -171,6 +171,10 @@ describe('o detalhe de um solve', () => {
     await fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
     await sleep(30);
     expect(live(a, x.id).note).toBe('esqueci o AUF no fim');
+    // O Safari termina a composição com um Enter sem isComposing, mas com keyCode 229: também só confirma a letra.
+    await fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 });
+    await sleep(30);
+    expect(live(a, x.id).note).toBe('esqueci o AUF no fim');
 
     // Sair do campo salva.
     await fireEvent.blur(input);
@@ -241,6 +245,25 @@ describe('o detalhe de um solve', () => {
     vi.stubGlobal('navigator', { ...navigator, clipboard: undefined });
     await fireEvent.click(within(d).getByRole('button', { name: T.historico.copy }));
     await waitFor(() => expect(a.toast).toMatchObject({ text: T.historico.copyFailed }));
+  });
+
+  // Sair do campo sem mudar a nota (ou só com espaços em volta) não grava nada: nem a data de edição nem a fila do sync andam.
+  it('sair da nota sem mudar nada não grava', async () => {
+    const a = await app();
+    const solves = await seed(a, [10_000]);
+    await a.setNote(solves[0]!.id, 'cruz');
+    render(SolveDialog, { app: a });
+    a.openSolve(solves[0]!.id);
+    const input = within(await screen.findByRole('dialog')).getByLabelText('Nota') as HTMLInputElement;
+    expect(input.value).toBe('cruz');
+    const setNote = vi.spyOn(a, 'setNote');
+    await fireEvent.focus(input);
+    await fireEvent.blur(input);
+    await fireEvent.input(input, { target: { value: '  cruz ' } });
+    await fireEvent.blur(input);
+    await sleep(30);
+    expect(setNote).not.toHaveBeenCalled();
+    expect(input.value).toBe('cruz');
   });
 
   it('Mover abre a folha de mover com este solve', async () => {

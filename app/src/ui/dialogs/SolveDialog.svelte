@@ -145,11 +145,11 @@
   }
 
   // Enter salva e Esc volta à nota gravada; o Esc não chega à folha (que fecharia com o rascunho). Com composição de texto em andamento
-  // (IME), o Enter só confirma a letra.
+  // (IME), o Enter só confirma a letra: o Safari a termina com um Enter sem isComposing, mas com keyCode 229.
   function onNoteKey(e: KeyboardEvent): void {
     if (e.key === 'Enter') {
       e.preventDefault();
-      if (!e.isComposing) void saveNote();
+      if (!e.isComposing && e.keyCode !== 229) void saveNote();
     } else if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
