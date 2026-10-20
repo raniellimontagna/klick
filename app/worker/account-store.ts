@@ -587,7 +587,8 @@ export class AccountStore extends DurableObject<Env> {
       const { response, rows } = this.ctx.storage.transactionSync(() => {
         const from = req.cursor > Number(this.getState('rev') ?? '0') ? 0 : req.cursor;
         const batch = this.batch();
-        const result = applyChanges(batch.view, cut.read, { mode: 'server', quota: { active: usage.active }, admit: bytesCap(batch, usage.bytes) });
+        const floor = Number(this.getState('restoreFloor') ?? '0'); // a última restauração no servidor (I1): o que vem de antes dela perde
+        const result = applyChanges(batch.view, cut.read, { mode: 'server', quota: { active: usage.active }, admit: bytesCap(batch, usage.bytes), floor });
         const rows = this.commit(result, batch, usage);
         const size = req.changes.length > 0 ? PULL_PAGE_WITH_PUSH : PULL_PAGE;
         const found = this.sql.exec<Row>('SELECT * FROM records WHERE rev > ? ORDER BY rev LIMIT ?', from, size + 1).toArray();
@@ -987,6 +988,7 @@ export class AccountStore extends DurableObject<Env> {
       if (changes.length > limit) return device ? onDevice() : 'too-big';
       if (changes.length === 0) {
         counted(); // a cópia já é a conta: nada a gravar, nem a cópia de antes
+        this.raiseFloor(stamp); // mas o que espera nas filas, de antes dela, perde como numa restauração que gravou
         return 'ok';
       }
       const rows = rowsOf(changes.length);
@@ -1008,6 +1010,7 @@ export class AccountStore extends DurableObject<Env> {
         const wrote = this.commit(applyChanges(batch.view, changes, { mode: 'server' }), batch, usage);
         this.countReads(batch.rows(), now);
         counted();
+        this.raiseFloor(stamp);
         return wrote;
       });
       await this.settleRows(rows, wrote, now);
@@ -1015,6 +1018,15 @@ export class AccountStore extends DurableObject<Env> {
     });
     this.saveReads(now);
     return outcome;
+  }
+
+  // O piso da restauração (a revisão final das cópias grandes, I1): a data da última restauração no servidor, que só sobe. O sync o passa a
+  // applyChanges: a mudança de antes dele (as duas datas abaixo), de um registro que a conta tem, perde, e a versão da conta volta com as
+  // datas no piso (apply.ts). A restauração por diferenças deixa como está o que a cópia já tem; sem o piso, uma edição offline ou a fila de
+  // uma restauração pelo aparelho, mais velhas que ela, venceriam esses registros.
+  private raiseFloor(stamp: number): void {
+    const floor = Number(this.getState('restoreFloor') ?? '0');
+    if (stamp > floor) this.setState('restoreFloor', String(stamp));
   }
 
   // Os registros de agora da faixa de chaves (lo, hi] de uma restauração, sem os ajustes, em páginas de SLICE_PAGE na ordem da chave (lo

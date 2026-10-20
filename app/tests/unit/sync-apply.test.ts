@@ -750,3 +750,73 @@ describe('os desafios no sync', () => {
     expect(canonicalJson(worst.data).length).toBeLessThan(MAX_DATA_CHARS);
   });
 });
+
+// O piso da restauração (a revisão final das cópias grandes, I1): a restauração por diferenças não regrava o que a cópia já tem, então uma
+// mudança de antes dela (uma edição offline, a fila longa de uma restauração pelo aparelho) venceria o registro que ela deixou como estava.
+// No servidor, com `floor` (a data da última restauração), a mudança com as duas datas abaixo dele, de um registro que a conta já tem, perde:
+// a versão da conta fica, com as datas no piso, e volta para quem mandou e para todos os aparelhos, que então convergem.
+describe('o piso da restauração (cópias grandes, I1)', () => {
+  const FLOOR = 100;
+  const restored = solve('a', { updatedAt: 40, deletionStamp: 40 }); // a restauração o deixou como estava: datas abaixo do piso
+  const edited = solve('a', { updatedAt: 60, deletionStamp: 60, data: { ...(solve('a').data as object), note: 'offline' } });
+  const trashed = solve('a', { updatedAt: 40, deletedAt: 60, deletionStamp: 60 });
+
+  it('uma mudança abaixo do piso, de um registro que a conta tem, perde: a versão da conta volta com as datas no piso', () => {
+    for (const late of [edited, trashed]) {
+      const out = applyChanges(viewOf(session('s1'), restored), [late], { mode: 'server', floor: FLOOR });
+      expect(out.writes, late.deletedAt === null ? 'edit' : 'trash').toEqual([{ ...restored, updatedAt: FLOOR, deletionStamp: FLOOR }]);
+      expect(out.rejected).toEqual([]);
+      expect(out.activeDelta).toEqual({ solves: 0, sessions: 0, practice: 0, duels: 0 });
+      expect(out.deletedSolves).toBe(0);
+    }
+    // A exclusão de uma sessão abaixo do piso também perde, e a cascata não apaga nada.
+    const out = applyChanges(viewOf(session('s1'), restored), [session('s1', { updatedAt: 60, deletedAt: 60, deletionStamp: 60 })], { mode: 'server', floor: FLOOR });
+    expect(out.writes).toEqual([session('s1', { updatedAt: FLOOR, deletionStamp: FLOOR })]);
+  });
+
+  it('o aparelho que mandou a mudança converge: juntar a volta deixa a versão da conta, e os outros aparelhos também', () => {
+    const atServer = applyChanges(viewOf(session('s1'), restored), [edited], { mode: 'server', floor: FLOOR });
+    const back = atServer.writes[0];
+    // Quem mandou: o registro daqui é a edição, que ainda pode estar na fila.
+    const sender = applyChanges(viewOf(session('s1'), edited), [back], { mode: 'client', pending: () => true });
+    expect(sender.writes).toEqual([back]);
+    // Outro aparelho, com a versão de antes da conta.
+    const other = applyChanges(viewOf(session('s1'), restored), [back], { mode: 'client', pending: () => false });
+    expect(other.writes).toEqual([back]);
+    // E de novo no servidor, a mesma mudança velha não muda mais nada além de voltar a versão da conta.
+    const again = applyChanges(viewOf(session('s1'), back), [edited], { mode: 'server', floor: FLOOR });
+    expect(again.writes).toEqual([back]);
+  });
+
+  it('um registro que a conta não tem passa (criado offline); uma mudança no piso ou acima segue o merge de sempre', () => {
+    const fresh = solve('novo', { updatedAt: 60, deletionStamp: 60 });
+    expect(applyChanges(viewOf(session('s1')), [fresh], { mode: 'server', floor: FLOOR }).writes).toEqual([fresh]);
+    for (const at of [FLOOR, FLOOR + 1]) {
+      const late = solve('a', { updatedAt: at, deletionStamp: at, data: { ...(solve('a').data as object), note: 'depois' } });
+      expect(applyChanges(viewOf(session('s1'), restored), [late], { mode: 'server', floor: FLOOR }).writes, String(at)).toEqual([late]);
+    }
+    // Uma das datas no piso já basta: a mudança é de depois da restauração.
+    const undelete = solve('a', { updatedAt: 60, deletionStamp: FLOOR });
+    expect(applyChanges(viewOf(session('s1'), trashed), [undelete], { mode: 'server', floor: FLOOR }).writes).toEqual([undelete]);
+  });
+
+  it('a mudança que não mudaria nada não regrava no piso: igual, ou já perdendo para a versão da conta', () => {
+    // O primeiro login de um aparelho que já tinha a conta manda tudo de novo, com as datas da conta: nada vira escrita.
+    expect(applyChanges(viewOf(session('s1'), restored), [restored], { mode: 'server', floor: FLOOR }).writes).toEqual([]);
+    // Uma versão mais velha que a da conta volta a da conta, como sempre, sem tocar nas datas.
+    const older = solve('a', { updatedAt: 10, deletionStamp: 10, data: { ...(solve('a').data as object), note: 'velha' } });
+    expect(applyChanges(viewOf(session('s1'), restored), [older], { mode: 'server', floor: FLOOR }).writes).toEqual([restored]);
+  });
+
+  it('a temporada não tem piso: o servidor continua decidindo por mergeSeason', () => {
+    const stored = seasonPref(season([rec(1, 100)]), 5);
+    const more = seasonPref(season([rec(1, 100), rec(2, 200)]), 9);
+    const out = applyChanges(viewOf(stored), [more], { mode: 'server', floor: FLOOR });
+    expect((out.writes[0].data as SeasonProgress).past).toHaveLength(2);
+    expect(out.writes[0].updatedAt).toBe(9);
+  });
+
+  it('sem piso (o aparelho, a restauração), nada muda', () => {
+    expect(applyChanges(viewOf(session('s1'), restored), [edited], { mode: 'server' }).writes).toEqual([edited]);
+  });
+});

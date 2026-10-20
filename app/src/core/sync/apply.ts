@@ -24,6 +24,14 @@ export interface ApplyOptions {
   // um solve do lote já pediu), e o teto só a conta. `asks`: a sessão cuja vaga este solve pede, na primeira vez no lote (a sessão que vier
   // depois dele vai passar como obrigatória: o teto a paga adiantado aqui); null nos outros casos.
   admit?: (before: Change | undefined, next: Change, required: boolean, asks: string | null) => boolean;
+  // O piso da restauração, no servidor (worker/account-store.ts, restoreFloor: a data da última restauração no servidor). A restauração por
+  // diferenças não regrava o que a cópia já tem, e uma mudança de antes dela (uma edição offline, a fila de uma restauração pelo aparelho)
+  // venceria o registro que ela deixou como estava. Com as duas datas abaixo do piso, uma mudança que mudaria um registro que a conta já tem
+  // perde: a versão da conta fica, com as datas subidas ao piso, e volta para quem mandou e para os outros aparelhos (o merge de cada um vê
+  // a data do piso acima da dele, e todos convergem). A que não mudaria nada (igual, ou já perdendo pelo merge) segue como sempre: o
+  // primeiro login de um aparelho que já tinha a conta manda tudo de novo, e nada vira escrita. O registro que a conta não tem passa (criado
+  // offline), e a temporada fica com mergeSeason.
+  floor?: number;
 }
 
 export interface ApplyResult {
@@ -121,6 +129,10 @@ export function applyChanges(view: RecordView, incoming: readonly unknown[], opt
       else next = before && opts.pending?.('prefs', 'season') ? before : change;
     } else {
       next = before ? merge(before, change) : change;
+      const floor = opts.floor ?? 0;
+      if (before && change.updatedAt < floor && change.deletionStamp < floor && !sameChange(before, next)) {
+        next = { ...before, updatedAt: Math.max(before.updatedAt, floor), deletionStamp: Math.max(before.deletionStamp, floor) };
+      }
     }
     const store = next.store;
     const seat = count || opts.admit ? seatFor(before, next) : null;

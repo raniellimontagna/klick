@@ -5,10 +5,12 @@
 import { runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
 import { env } from 'cloudflare:workers';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { applyChanges, type RecordView } from '../../src/core/sync/apply';
+import { sessionOfChange } from '../../src/core/sync/records';
 import { restoreChanges } from '../../src/core/sync/restore';
 import { assembleCopy, isManifest, sliceOf, type CopyManifest, type CopyPart } from '../../src/core/sync/copy-parts';
 import { accountPrefsOf, exportFromRecords } from '../../src/core/sync/snapshot';
-import { ACCOUNT_HEADER, SYNC_PROTOCOL, type Change, type CloudCopies, type SyncResponse } from '../../src/core/sync/types';
+import { ACCOUNT_HEADER, SYNC_PROTOCOL, syncKey, type Change, type CloudCopies, type SyncResponse } from '../../src/core/sync/types';
 import type { KlickExport } from '../../src/core/types';
 import { storageUsed } from '../../worker/budget';
 import type { Env } from '../../worker/env';
@@ -1144,8 +1146,9 @@ describe('a restauração por diferenças e a resposta pelo aparelho', () => {
     expect([await opsOf('A'), await writesOf(user), await dayRows(T0 + 1000)]).toEqual([opsA, writes, day]);
     const after = await accountOf(user);
     expect(after.records).toEqual(account.records);
-    expect(after.state.filter((r) => r.key !== 'restores')).toEqual(account.state);
+    expect(after.state.filter((r) => r.key !== 'restores' && r.key !== 'restoreFloor')).toEqual(account.state);
     expect(await restoresOf(user)).toEqual({ day: utcDay(T0), n: 2 });
+    expect(await stateOf(user, 'restoreFloor')).toBe(String(T0 + 2000)); // o piso sobe mesmo sem gravar (I1)
   });
 
   it('parte que sumiu: 404, nada gravado', async () => {
@@ -1227,5 +1230,95 @@ describe('a restauração por diferenças e a resposta pelo aparelho', () => {
     expect((await part(small, day, 0, T0, {})).status).toBe(400);
     expect((await part(small, day, 1000)).status).toBe(404);
     expect((await part(small, day, 'x')).status).toBe(404);
+  });
+});
+
+// O piso da restauração (a revisão final das cópias grandes, I1): a restauração por diferenças não regrava o que a cópia já tem. Sem o piso,
+// uma mudança de antes dela (uma edição offline na fila, ou a fila longa de uma restauração pelo aparelho) venceria cada registro que ela
+// deixou como estava, e "a última restauração vale" deixaria de valer. A restauração no servidor guarda a data dela (restoreFloor), a de
+// 0 mudanças inclusive; no sync, a mudança com as duas datas abaixo dele, de um registro que a conta tem, perde, e a versão da conta volta
+// com as datas no piso, gravada (e contada) como qualquer escrita: quem mandou e os outros aparelhos a recebem e convergem.
+describe('o piso da restauração (cópias grandes, I1)', () => {
+  const writesOf = async (user: string): Promise<number> => (JSON.parse((await stateOf(user, 'writes')) ?? 'null') as { n: number } | null)?.n ?? 0;
+  const recordsOf = (user: string): Promise<Map<string, Change>> =>
+    runInDurableObject(stubOf(user), (_o, state) =>
+      new Map(state.storage.sql.exec<Row>("SELECT * FROM records WHERE store <> 'prefs'").toArray().map((r) => [syncKey(r.store, r.id), rowToChange(r)])),
+    );
+  // O aparelho junta a volta do servidor como o repositório faz (applyRemote: applyChanges no modo do aparelho, com o que ele mandou ainda
+  // contado como na fila), sobre os registros dele.
+  const deviceApply = (local: Map<string, Change>, changes: readonly Change[]): void => {
+    const view: RecordView = {
+      get: (store, id) => local.get(syncKey(store, id)),
+      solvesOf: (sid) => [...local.values()].filter((c) => c.store === 'solves' && sessionOfChange(c) === sid),
+    };
+    for (const c of applyChanges(view, changes, { mode: 'client', pending: () => true }).writes) local.set(syncKey(c.store, c.id), c);
+  };
+  const localOf = (...list: Change[]): Map<string, Change> => new Map(list.map((c) => [syncKey(c.store, c.id), c]));
+
+  it('uma edição velha na fila, de um registro que a restauração deixou como estava, perde: a conta fica com a restaurada, no piso, e o aparelho converge', async () => {
+    const user = 'piso-edicao-velha';
+    await sync(user, [session, solve('a'), solve('b')]);
+    expect(await stubOf(user).snapshot(T0)).toBe(true);
+    const offline: Change = { ...solve('a', 7000), updatedAt: T0 + 500 }; // editado offline, na fila, antes da restauração
+    const at = T0 + 1000;
+    expect(await restore(user, dayOf(T0), at)).toEqual({ status: 204, body: null }); // a cópia é a conta: nada gravado, e o piso fica
+    expect(await stateOf(user, 'restoreFloor')).toBe(String(at));
+    const [writes, day] = [await writesOf(user), await dayRows(at)];
+
+    const res = await sync(user, [offline], at + 100);
+    const kept: Change = { ...solve('a'), updatedAt: at, deletionStamp: at };
+    expect(res.accepted).toBe(1);
+    expect(res.changes.filter((c) => c.id === 'a')).toEqual([kept]); // a volta leva a versão da conta, no piso
+    expect((await recordsOf(user)).get('solves/a')).toEqual(kept);
+    // A regravação no piso é uma escrita como as outras: conta no dia da conta e no teto do ambiente.
+    expect([await writesOf(user), await dayRows(at)]).toEqual([writes + rowsOf(1), day + rowsOf(1)]);
+    // O aparelho junta a volta e fica igual à conta.
+    const device = localOf(session, offline, solve('b'));
+    deviceApply(device, res.changes);
+    expect(device).toEqual(await recordsOf(user));
+  });
+
+  it('um registro novo abaixo do piso passa; uma mudança com uma das datas no piso ou acima segue o merge de sempre', async () => {
+    const user = 'piso-novo-e-depois';
+    await sync(user, [session, solve('a'), solve('b')]);
+    expect(await stubOf(user).snapshot(T0)).toBe(true);
+    const at = T0 + 1000;
+    expect((await restore(user, dayOf(T0), at)).status).toBe(204);
+    const fresh: Change = { ...solve('novo'), updatedAt: T0 + 600, deletionStamp: T0 + 600 }; // criado offline antes da restauração
+    const later: Change = { ...solve('b', 8000), updatedAt: at }; // editado depois dela
+    const res = await sync(user, [fresh, later], at + 100);
+    expect(res.accepted).toBe(2);
+    const records = await recordsOf(user);
+    expect([records.get('solves/novo'), records.get('solves/b')]).toEqual([fresh, later]);
+  });
+
+  it('restaurar X pelo aparelho e depois Y no servidor: a fila de X perde, e a conta e o aparelho terminam em Y', async () => {
+    const user = 'piso-x-depois-y';
+    await sync(user, [session, solve('a'), solve('b')]);
+    expect(await stubOf(user).snapshot(T0)).toBe(true); // X: s1, a, b
+    const t1 = T0 + DAY;
+    await sync(user, [{ ...solve('a'), updatedAt: t1, deletedAt: t1, deletionStamp: t1 }, solve('c')], t1);
+    expect(await stubOf(user).snapshot(t1)).toBe(true); // Y: s1, a na lixeira, b, c
+    await sync(user, [{ ...solve('b', 8000), updatedAt: t1 + 100 }, solve('d')], t1 + 100); // agora: b editado e d novo
+
+    // O aparelho restaura X nele (as mudanças com a data dele, na fila: a de volta, b como era, c e d para a lixeira) e ainda não sincronizou.
+    const read = async (name: string): Promise<KlickExport> => (await gunzipJson(await (await env.SNAPSHOTS.get(snapshotKey(user, name)))!.arrayBuffer())) as KlickExport;
+    const copyOf = (data: KlickExport) => ({ sessions: data.sessions, solves: data.solves, practice: data.practice ?? null, duels: data.duels ?? null });
+    const device = await recordsOf(user);
+    const queued = restoreChanges([...device.values()], copyOf(await read(dayOf(T0))), null, t1 + 200);
+    expect(queued.map((c) => `${c.id}:${c.deletedAt === null ? 'ativo' : 'lixeira'}`).sort()).toEqual(['a:ativo', 'b:ativo', 'c:lixeira', 'd:lixeira']);
+    for (const c of queued) device.set(syncKey(c.store, c.id), c);
+
+    // Outro aparelho restaura Y no servidor, depois.
+    expect((await restore(user, dayOf(t1), t1 + 300)).status).toBe(204);
+    const y = copyOf(await read(dayOf(t1)));
+    expect(restoreChanges([...(await recordsOf(user)).values()], y, null, 0)).toEqual([]); // a conta é Y
+
+    // A fila de X sobe: tudo abaixo do piso perde, e a conta continua Y.
+    const res = await sync(user, queued, t1 + 400);
+    expect(res.accepted).toBe(queued.length);
+    expect(restoreChanges([...(await recordsOf(user)).values()], y, null, 0)).toEqual([]);
+    deviceApply(device, res.changes);
+    expect(device).toEqual(await recordsOf(user));
   });
 });
