@@ -121,12 +121,19 @@
   }
 
   // Confirma: o AppState move os solves, manda a de origem para a lixeira e mostra o aviso. Depois o foco vai para a sessão de destino
-  // (a linha de origem some); se a gravação falhar, volta ao botão que abriu o passo.
+  // (a linha de origem some); se a gravação falhar, volta ao botão que abriu o passo. Se a junção lançar, o passo fica aberto e o botão
+  // volta a funcionar (o finally solta o mergeBusy de qualquer jeito).
   async function confirmMerge(from: Session, to: Session): Promise<void> {
     if (mergeBusy) return;
     mergeBusy = true;
-    const ok = await app.mergeSessions(from.id, to.id);
-    mergeBusy = false;
+    let ok: boolean;
+    try {
+      ok = await app.mergeSessions(from.id, to.id);
+    } catch {
+      return;
+    } finally {
+      mergeBusy = false;
+    }
     merging = null;
     await tick();
     focusKey(ok ? `switch:${to.id}` : `merge:${from.id}`);

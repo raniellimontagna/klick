@@ -178,6 +178,81 @@ describe('diálogo de sessões', () => {
       await fireEvent.click(await screen.findByRole('button', { name: 'Cancelar' }));
       await vi.waitFor(() => expect(screen.queryByRole('combobox', { name: /^Juntar “Antiga”/ })).toBeNull());
       expect((await repo.listTrash()).sessions).toEqual([]);
+      await vi.waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Juntar Antiga com outra sessão' })));
+    });
+
+    it('se a sessão escolhida sai com o passo aberto, o select cai noutra; se sai a última, o passo fecha', async () => {
+      const { a } = await app();
+      await a.createSession('333', 'A');
+      const idA = a.currentSession!.id;
+      await a.createSession('333', 'B');
+      render(SessionsDialog, { app: a, open: true });
+      await fireEvent.click(await screen.findByRole('button', { name: 'Juntar B com outra sessão' }));
+      const escolha = (await screen.findByRole('combobox', { name: /^Juntar “B”/ })) as HTMLSelectElement;
+      await fireEvent.change(escolha, { target: { value: idA } });
+      await screen.findByText('“B” não tem solves e vai para a lixeira.');
+      expect(escolha.value).toBe(idA);
+      // Outra aba apaga o destino escolhido: sobra "Sessão 1", e o select e a frase seguem ela.
+      await a.deleteSession(idA);
+      await vi.waitFor(() => expect([...escolha.options].map((o) => o.textContent)).toEqual(['Sessão 1 · 0 solves']));
+      expect(escolha.value).toBe(a.sessions.find((s) => s.name === 'Sessão 1')!.id);
+      // E apaga o último destino: o passo fecha sozinho, o botão Juntar com… some (B ficou sozinha no evento).
+      await a.deleteSession(a.sessions.find((s) => s.name === 'Sessão 1')!.id);
+      await vi.waitFor(() => expect(screen.queryByRole('combobox', { name: /^Juntar “B”/ })).toBeNull());
+      expect(screen.queryByRole('button', { name: 'Juntar B com outra sessão' })).toBeNull();
+    });
+
+    it('dois toques rápidos em Juntar fazem uma junção só', async () => {
+      const { a } = await app();
+      await a.createSession('333', 'Antiga');
+      const real = a.mergeSessions.bind(a);
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      const spy = vi.spyOn(a, 'mergeSessions').mockImplementation(async (from, to) => {
+        await gate;
+        return real(from, to);
+      });
+      render(SessionsDialog, { app: a, open: true });
+      await fireEvent.click(await screen.findByRole('button', { name: 'Juntar Antiga com outra sessão' }));
+      const juntar = await screen.findByRole('button', { name: /^Juntar “Antiga”/ });
+      void fireEvent.click(juntar);
+      void fireEvent.click(juntar); // sem esperar o primeiro: o segundo chega antes de a tela desabilitar o botão
+      await sleep(20);
+      release();
+      await vi.waitFor(() => expect(screen.queryByRole('combobox', { name: /^Juntar “Antiga”/ })).toBeNull(), { timeout: 3000 });
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    it('se a junção lança, o passo continua aberto e o Juntar volta a funcionar', async () => {
+      const { a, repo } = await app();
+      await a.createSession('333', 'Antiga');
+      const old = a.currentSession!;
+      vi.spyOn(a, 'mergeSessions').mockRejectedValueOnce(new Error('falhou'));
+      render(SessionsDialog, { app: a, open: true });
+      await fireEvent.click(await screen.findByRole('button', { name: 'Juntar Antiga com outra sessão' }));
+      const juntar = await screen.findByRole('button', { name: /^Juntar “Antiga”/ });
+      await fireEvent.click(juntar);
+      await vi.waitFor(() => expect(juntar).toBeEnabled());
+      expect(screen.getByRole('combobox', { name: /^Juntar “Antiga”/ })).toBeInTheDocument();
+      expect((await repo.listTrash()).sessions).toEqual([]);
+      // De novo, agora de verdade.
+      await fireEvent.click(juntar);
+      await vi.waitFor(async () => expect((await repo.listTrash()).sessions.map((s) => s.id)).toContain(old.id), { timeout: 3000 });
+    });
+
+    it('abrir Juntar com um Renomear aberto em outra linha fecha o Renomear, e o contrário também', async () => {
+      const { a } = await app();
+      await a.createSession('333', 'Treino');
+      render(SessionsDialog, { app: a, open: true });
+      await fireEvent.click(await screen.findByRole('button', { name: 'Renomear Sessão 1' }));
+      expect(await screen.findByRole('textbox', { name: /Novo nome para Sessão 1/ })).toBeInTheDocument();
+      await fireEvent.click(screen.getByRole('button', { name: 'Juntar Treino com outra sessão' }));
+      expect(await screen.findByRole('combobox', { name: /^Juntar “Treino”/ })).toBeInTheDocument();
+      expect(screen.queryByRole('textbox', { name: /Novo nome para/ })).toBeNull();
+      // O contrário: com o Juntar aberto, Renomear em outra linha fecha o passo de juntar.
+      await fireEvent.click(screen.getByRole('button', { name: 'Renomear Sessão 1' }));
+      expect(await screen.findByRole('textbox', { name: /Novo nome para Sessão 1/ })).toBeInTheDocument();
+      expect(screen.queryByRole('combobox', { name: /^Juntar “Treino”/ })).toBeNull();
     });
 
     it('com conta e mais de 4.000 solves, avisa que o resto sobe pelo sync; sem conta, ou com 4.000, não', async () => {
