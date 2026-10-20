@@ -9,11 +9,12 @@
   // da lista, em vez de a lista passar o seu). Se o solve some com a folha aberta (excluído em outra aba), ela fecha sem aviso.
   import { untrack } from 'svelte';
   import { eventInfo } from '../../core/events';
-  import { effectiveMs, formatMs, formatSolve, RECORD_SIZES, records, rollingAverages } from '../../core/stats';
+  import { effectiveMs, formatMs, formatSolve, RECORD_SIZES } from '../../core/stats';
   import type { Penalty } from '../../core/types';
   import { T } from '../../strings';
   import { copyText } from '../clipboard';
   import { confirmReady } from '../confirm';
+  import { poolStats } from '../evolucao/pool-stats';
   import { copyTextOf } from '../evolucao/rows';
   import { dateLabel, timeOfDay } from '../format';
   import type { AppState, RecordKind } from '../state/app.svelte';
@@ -49,24 +50,22 @@
     });
   });
 
-  // Tudo o que a folha mostra do solve, de uma passada só e só com ela aberta: o número no filtro, as médias que terminam nele e em que
-  // recordes ele está (o melhor single, ou uma janela da melhor média). O pool é o do filtro da lista; se o solve já não cai nele (outra
-  // aba o moveu), a sessão dele.
+  // Tudo o que a folha mostra do solve, só com ela aberta: o número no filtro, as médias que terminam nele e em que recordes ele está (o
+  // melhor single, ou uma janela da melhor média). O pool é o do filtro da lista; se o solve já não cai nele (outra aba o moveu), a sessão
+  // dele. As médias e os recordes são a conta da lista (pool-stats.ts): aberta da lista, a folha não refaz nada.
   const view = $derived.by(() => {
     if (!solve || !request) return null;
-    const inFilter = (s: { event: string; sessionId: string }) =>
-      s.event === solve.event && (request.sessionId === 'all' || s.sessionId === request.sessionId);
-    let pool = app.solves.filter(inFilter);
-    let at = pool.findIndex((s) => s.id === solve.id);
     let sessionId = request.sessionId; // o filtro da conta (o do selo, também)
+    let stats = poolStats(app.solves, solve.event, sessionId);
+    let at = stats.pool.findIndex((s) => s.id === solve.id);
     if (at < 0) {
       sessionId = solve.sessionId;
-      pool = app.solves.filter((s) => s.sessionId === solve.sessionId);
-      at = pool.findIndex((s) => s.id === solve.id);
+      stats = poolStats(app.solves, solve.event, sessionId);
+      at = stats.pool.findIndex((s) => s.id === solve.id);
     }
-    const ao5 = rollingAverages(pool, 5)[at] ?? null;
-    const ao12 = rollingAverages(pool, 12)[at] ?? null;
-    const best = records(pool);
+    const ao5 = stats.series.ao5[at] ?? null;
+    const ao12 = stats.series.ao12[at] ?? null;
+    const best = stats.records;
     // O selo é um só, como na maquete: o maior recorde em que ele está (a janela de uma média de n termina em bestEnd e tem n solves); sem
     // nenhuma média, o recorde de single, se for o caso.
     let record: RecordKind | null = best.single.bestEnd === at ? 'single' : null;

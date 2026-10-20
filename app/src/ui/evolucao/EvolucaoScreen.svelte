@@ -17,7 +17,6 @@
     meanOf,
     officialAverage,
     officialAverageLabel,
-    pbFlags,
     rollingAverages,
     stdDevMs,
   } from '../../core/stats';
@@ -30,7 +29,7 @@
   import { scoreOf } from '../state/duel.svelte';
   import DuelList from './DuelList.svelte';
   import DuelMatch from './DuelMatch.svelte';
-  import type { Series } from './rows';
+  import { poolStats } from './pool-stats';
   import RecordsBoard from './RecordsBoard.svelte';
   import SolveList from './SolveList.svelte';
 
@@ -84,8 +83,11 @@
     sessionPick = select.value;
   }
 
-  // Os solves do filtro: o evento escolhido e, se houver, a sessão.
-  const pool = $derived(app.solves.filter((s) => s.event === event && (sessionId === 'all' || s.sessionId === sessionId)));
+  // Os solves do filtro (o evento escolhido e, se houver, a sessão), com as médias de 5 e de 12 em cada ponto (as colunas da lista), os
+  // recordes da época e os recordes do quadro: uma conta por mudança, a mesma do detalhe e da folha do recorde (pool-stats.ts). A lista só
+  // formata as linhas que desenha.
+  const stats = $derived(poolStats(app.solves, event, sessionId));
+  const pool = $derived(stats.pool);
 
   // O período parte o filtro: os solves antes dele são a comparação dos indicadores.
   const split = $derived.by(() => {
@@ -95,16 +97,13 @@
     return { first, before: pool.slice(0, first), inPeriod: pool.slice(first) };
   });
 
-  const flags = $derived(pbFlags(pool));
+  const series = $derived(stats.series);
+  const flags = $derived(series.pb);
   const times = $derived(split.inPeriod.map(effectiveMs));
-  // Médias de 5 e de 12 em cada ponto (as colunas da lista), uma vez por filtro: a lista só formata as linhas que desenha.
-  const ao5Series = $derived(rollingAverages(pool, 5));
-  const ao12Series = $derived(rollingAverages(pool, 12));
-  const series = $derived<Series>({ ao5: ao5Series, ao12: ao12Series, pb: flags });
   // Média oficial em cada ponto (Ao5, ou Mo3 no 6×6, no 7×7 e no 3BLD): a linha do gráfico. Na Ao5, é a mesma série da lista.
-  const officialSeries = $derived(official.kind === 'ao' && official.n === 5 ? ao5Series : rollingOfficial(pool, official));
+  const officialSeries = $derived(official.kind === 'ao' && official.n === 5 ? series.ao5 : rollingOfficial(pool, official));
 
-  function rollingOfficial(list: Solve[], { n, kind }: { n: number; kind: 'ao' | 'mo' }): (number | null)[] {
+  function rollingOfficial(list: Solve[], { n, kind }: { n: number; kind: 'ao' | 'mo' }): readonly (number | null)[] {
     if (kind === 'ao') return rollingAverages(list, n);
     return list.map((_, i) => (i + 1 < n ? null : meanOf(list.slice(i + 1 - n, i + 1), n)));
   }
@@ -306,7 +305,7 @@
       {/each}
     </div>
 
-    <RecordsBoard solves={pool} all={sessionId === 'all'} onOpen={openRecord} />
+    <RecordsBoard records={stats.records} all={sessionId === 'all'} onOpen={openRecord} />
 
     <div class="evo-grid">
       <div class="card">

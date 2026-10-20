@@ -7,8 +7,9 @@
   // Abre por app.openRecord(kind, sessionId, event): o recorde é lido ao vivo de app.solves, com o mesmo filtro da lista (evento e sessão, como
   // o SolveDialog). Se o recorde some com a folha aberta (os solves foram excluídos noutra aba), ela fecha sem aviso.
   import { untrack } from 'svelte';
-  import { formatMs, formatSolve, pbFlags, records, windowOf } from '../../core/stats';
+  import { formatMs, formatSolve, windowOf } from '../../core/stats';
   import { T } from '../../strings';
+  import { poolStats } from '../evolucao/pool-stats';
   import { dateLabel, fullDate, shortDate, timeOfDay } from '../format';
   import type { AppState, ListJump } from '../state/app.svelte';
   import { modal } from './modal';
@@ -21,12 +22,12 @@
 
   const request = $derived(app.recordRequest);
 
-  // Tudo o que a folha mostra, de uma passada só e só com ela aberta. O recorde de um filtro sem solves (ou sem janela válida) é nulo.
+  // Tudo o que a folha mostra, só com ela aberta. O recorde de um filtro sem solves (ou sem janela válida) é nulo. Os recordes são a conta
+  // do quadro (pool-stats.ts): aberta dele, a folha não refaz nada.
   const data = $derived.by(() => {
     if (app.dialog !== 'record' || !request) return null;
     const { kind, event, sessionId } = request;
-    const pool = app.solves.filter((s) => s.event === event && (sessionId === 'all' || s.sessionId === sessionId));
-    const rec = records(pool);
+    const { pool, series, records: rec } = poolStats(app.solves, event, sessionId);
     const entry = kind === 'single' ? rec.single : rec.averages[kind];
     if (entry.best === null || entry.bestEnd === null) return null;
     const size = kind === 'single' ? 1 : kind;
@@ -38,8 +39,7 @@
     let times: { number: number; text: string; out: boolean; pb: boolean }[] | null = null;
     if (kind !== 'single' && kind <= 12) {
       const { trimmed } = windowOf(pool, kind, end);
-      const flags = pbFlags(pool);
-      times = span.map((s, j) => ({ number: first + j + 1, text: formatSolve(s), out: trimmed[j]!, pb: flags[first + j]! }));
+      times = span.map((s, j) => ({ number: first + j + 1, text: formatSolve(s), out: trimmed[j]!, pb: series.pb[first + j]! }));
     }
     return { title, size, span, first, end, id: pool[end]!.id, event, sessionId, times, rule: kind === 'single' ? '' : T.historico.recordRule(kind), sub: sub(kind, first, end, span) };
   });

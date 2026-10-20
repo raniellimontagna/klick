@@ -51,7 +51,7 @@ describe('o quadro de recordes', () => {
     const solves = make('x', ramp());
     solves[14] = { ...solves[14]!, ms: 9_000, penalty: 'DNF' }; // o último solve é DNF: o atual do single é DNF, e a melhor média continua valendo
     const rec = records(solves);
-    render(RecordsBoard, { solves, onOpen: () => {} });
+    render(RecordsBoard, { records: rec, onOpen: () => {} });
     const region = board();
     expect(within(region).getByText(T.historico.recordsScope)).toBeInTheDocument();
     expect(within(region).getByRole('heading', { name: T.historico.recordsTitle })).toBeInTheDocument();
@@ -76,16 +76,16 @@ describe('o quadro de recordes', () => {
     const six = make('x', [10_000, 11_000, 12_000, 13_000, 14_000, 15_000]);
     six[4] = { ...six[4]!, penalty: 'DNF' };
     six[5] = { ...six[5]!, penalty: 'DNF' };
-    const { unmount } = render(RecordsBoard, { solves: six, onOpen: () => {} });
+    const { unmount } = render(RecordsBoard, { records: records(six), onOpen: () => {} });
     expect(rowBtn(/^Média de 5:/).querySelector('em')).toHaveTextContent('atual DNF');
     unmount();
-    render(RecordsBoard, { solves: [], onOpen: () => {} });
+    render(RecordsBoard, { records: records([]), onOpen: () => {} });
     expect(screen.queryByRole('region', { name: T.historico.recordsTitle })).toBeNull();
   });
 
   it('tocar numa linha avisa qual recorde', async () => {
     const onOpen = vi.fn();
-    render(RecordsBoard, { solves: make('x', ramp()), onOpen });
+    render(RecordsBoard, { records: records(make('x', ramp())), onOpen });
     await fireEvent.click(rowBtn(/^Single:/));
     await fireEvent.click(rowBtn(/^Média de 12:/));
     await fireEvent.click(rowBtn(/^Média de 5:/));

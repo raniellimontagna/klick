@@ -294,8 +294,9 @@ export interface Records {
   averages: Record<(typeof RECORD_SIZES)[number], RecordEntry>;
 }
 
-// Mesma regra de bestSingle e bestAverage (DNF não conta como melhor); no empate fica o recorde mais antigo.
-export function records(solves: readonly Solve[]): Records {
+// Mesma regra de bestSingle e bestAverage (DNF não conta como melhor); no empate fica o recorde mais antigo. `known`: médias móveis destes
+// mesmos solves que quem chama já tem (rollingAverages), por tamanho; elas não são feitas de novo.
+export function records(solves: readonly Solve[], known: Partial<Record<number, readonly (number | null)[]>> = {}): Records {
   const eff = solves.map(effectiveMs);
   const single: RecordEntry = { best: null, bestEnd: null, current: eff.length > 0 ? eff[eff.length - 1]! : null };
   eff.forEach((e, i) => {
@@ -307,7 +308,7 @@ export function records(solves: readonly Solve[]): Records {
   const averages = {} as Records['averages'];
   for (const n of RECORD_SIZES) {
     const entry: RecordEntry = { best: null, bestEnd: null, current: null };
-    const rolling = rollingTrimmed(eff, n);
+    const rolling = known[n] ?? rollingTrimmed(eff, n);
     rolling.forEach((v, i) => {
       if (v !== null && v !== Infinity && (entry.best === null || v < entry.best)) {
         entry.best = v;
