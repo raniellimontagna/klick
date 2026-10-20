@@ -9,7 +9,13 @@ import type { SyncApi } from './api';
 // O objeto 0 é a cópia inteira (um arquivo só) ou o manifesto das partes. As partes 1..N (o N é do manifesto) vêm uma de cada vez e em ordem,
 // para a memória ter só uma parte aberta além das já juntas. Rejeita sem devolver nada o que não passa na conferência (bytes que não são
 // gzip, uma parte torta, um manifesto torto, um arquivo que não é do Klick); o 404 do ApiError chega como está, e quem chama decide.
-export async function downloadCopy(api: Pick<SyncApi, 'copyPart'>, name: string, account: string): Promise<KlickExport> {
+// `progress`, antes de cada parte: k de N (o diálogo mostra o andamento de um download que pode levar minutos).
+export async function downloadCopy(
+  api: Pick<SyncApi, 'copyPart'>,
+  name: string,
+  account: string,
+  progress?: (k: number, n: number) => void,
+): Promise<KlickExport> {
   const main = await gunzipJson(await api.copyPart(name, 0, account));
   if (!isManifest(main)) {
     if (!isKlickExport(main)) throw new Error('A cópia não está no formato do Klick.');
@@ -17,6 +23,7 @@ export async function downloadCopy(api: Pick<SyncApi, 'copyPart'>, name: string,
   }
   const parts: CopyPart[] = [];
   for (let i = 1; i <= main.parts.length; i++) {
+    progress?.(i, main.parts.length);
     const part = await gunzipJson(await api.copyPart(name, i, account));
     if (!isCopyPart(part)) throw new Error(`A parte ${i} da cópia não está no formato do Klick.`);
     parts.push(part);

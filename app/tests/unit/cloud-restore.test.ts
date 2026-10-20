@@ -46,6 +46,15 @@ describe('downloadCopy', () => {
     expect(f.asked).toEqual([0]);
   });
 
+  it('o andamento: antes de cada parte, k de N; um arquivo só não tem partes', async () => {
+    const steps: [number, number][] = [];
+    await downloadCopy(fake([manifest(3), part(['s1'], ['a']), part([], ['b']), part([], ['c'])]).api, '2026-10-15', 'conta-1', (k, n) => steps.push([k, n]));
+    expect(steps).toEqual([[1, 3], [2, 3], [3, 3]]);
+    steps.length = 0;
+    await downloadCopy(fake([whole()]).api, '2026-10-15', 'conta-1', (k, n) => steps.push([k, n]));
+    expect(steps).toEqual([]);
+  });
+
   it('manifesto: baixa 1..N em ordem, uma de cada vez, e junta', async () => {
     const f = fake([manifest(3), part(['s1'], ['a']), part([], ['b']), part([], ['c'])]);
     const copy = await downloadCopy(f.api, '2026-10-15', 'conta-1');

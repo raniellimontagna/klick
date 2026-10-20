@@ -2,7 +2,9 @@
   // As cópias na nuvem (spec 8.3 e 9.1): os últimos 30 dias, com o número de solves de cada um. Restaurar pede um segundo clique: troca a
   // conta inteira, em todos os aparelhos. A cópia que não existe mais (passou dos 30 dias) avisa e a lista relê. As cópias pausadas dizem
   // por quê no topo, e cada recusa da restauração tem a mensagem dela, sem nada mudar (endurecimento 4.2 e decisões 1, 2, 3 e 6). Uma cópia em partes (conta grande)
-  // avisa, no primeiro clique, que a restauração chega primeiro a este aparelho; 'device' (a restauração foi feita aqui) tem o toast dele.
+  // avisa, no primeiro clique, que a restauração pode chegar primeiro a este aparelho (o aviso descreve o botão armado); 'device' (a
+  // restauração foi feita aqui) tem o toast dele, e o download, o andamento numa região aria-live, com a lista ocupada (aria-busy); 'stale'
+  // (a rodada de sync de antes não terminou limpa) pede para sincronizar antes.
   import type { CopiesPaused, RestoreRefusal } from '../../core/sync/types';
   import { T } from '../../strings';
   import { ApiError, type CloudCopy } from '../../sync/api';
@@ -20,6 +22,7 @@
   let asking = $state<string | null>(null); // a cópia que espera o segundo clique
   let armedAt: number | null = null; // a hora do primeiro clique: o segundo, antes de CONFIRM_DELAY_MS, é o clique duplo e não vale
   let busy = $state(false);
+  let progress = $state<{ k: number; n: number } | null>(null); // o download da restauração pelo aparelho, parte a parte
   // A pausa no topo: a da lista, quando ela carregou (a mais nova; 'ops' também é a lista que não se renovou este mês) ou quando não carregou
   // por falta de operações do R2 no mês; antes, ou numa falha sem pausa, a do último sync.
   const paused = $derived(loaded && (!failed || listPaused !== null) ? listPaused : (app.account?.sync.copiesPaused ?? null));
@@ -75,7 +78,7 @@
     if (!confirmReady(armedAt, Date.now())) return;
     busy = true;
     try {
-      const outcome = await account.restoreCloudCopy(c.name);
+      const outcome = await account.restoreCloudCopy(c.name, (k, n) => (progress = { k, n }));
       if (outcome === 'ok' || outcome === 'device') {
         app.showToast(outcome === 'ok' ? T.conta.cloudRestored : T.conta.cloudRestoredHere);
         dialogEl?.close();
@@ -89,6 +92,7 @@
     } finally {
       busy = false;
       asking = null;
+      progress = null;
     }
   }
 </script>
@@ -103,24 +107,27 @@
     {#if loaded && !failed && copies.length === 0}
       <p class="muted">{T.conta.cloudEmpty}</p>
     {/if}
-    <ul class="sheet-list">
-      {#each copies as c (c.name)}
+    <ul class="sheet-list" aria-busy={progress !== null}>
+      {#each copies as c, i (c.name)}
         {@const label = T.conta.cloudDay(c.day, c.kind)}
+        {@const warned = asking === c.name && c.parts > 0}
         <li class="setting">
           <span
             >{label}<small>{T.backupsDialog.solves(c.solves)}</small>
-            {#if asking === c.name && c.parts > 0}<small data-cloud-big>{T.conta.cloudBig}</small>{/if}</span
+            {#if warned}<small data-cloud-big id="cloud-big-{i}">{T.conta.cloudBig}</small>{/if}</span
           >
           <button
             type="button"
             class="btn{asking === c.name ? ' danger' : ''}"
             disabled={busy}
             aria-label={asking === c.name ? undefined : T.conta.cloudRestoreAria(label)}
+            aria-describedby={warned ? `cloud-big-${i}` : undefined}
             onclick={() => restore(c)}>{asking === c.name ? T.conta.confirmAgain : T.conta.cloudRestore}</button
           >
         </li>
       {/each}
     </ul>
+    <p class="muted" data-cloud-progress aria-live="polite">{progress ? T.conta.cloudDownloading(progress.k, progress.n) : ''}</p>
     <div class="row">
       <button type="button" class="btn" onclick={() => dialogEl?.close()}>{T.dialog.close}</button>
     </div>

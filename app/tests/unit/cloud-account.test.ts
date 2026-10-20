@@ -540,6 +540,36 @@ describe('a restauração pelo aparelho', () => {
     expect(await app.account!.restoreCloudCopy('2026-10-15')).toBe('device');
   });
 
+  it('com outra restauração em andamento (o portão do app), held avisa que ela já está em andamento', async () => {
+    const { app, repo } = await setup();
+    const solves = await repo.listSolves();
+    (app as unknown as { restoreBusy: boolean }).restoreBusy = true; // a cópia local restaurando agora
+    expect(await app.account!.restoreCloudCopy('2026-10-15')).toBe('held');
+    expect(app.toast?.text).toBe(T.conta.cloudRestoreBusy);
+    expect(T.conta.cloudRestoreBusy).toBe('Uma restauração já está em andamento. Espere ela terminar.');
+    expect(await repo.listSolves()).toEqual(solves);
+  });
+
+  it('o limite de partes do dia (429 restore-limit) ou das operações (503 r2-budget) no download é a recusa dela, não failed', async () => {
+    const { net, app, repo } = await setup();
+    const solves = await repo.listSolves();
+    for (const [status, code] of [[429, 'restore-limit'], [503, 'r2-budget']] as const) {
+      net.api.copyPart = async (_name, index) => {
+        if (index === 1) throw new ApiError(status === 429 ? 'client' : 'server', status, code);
+        return net.cloud.partBytes[index].slice(0);
+      };
+      expect(await app.account!.restoreCloudCopy('2026-10-15'), code).toBe(code);
+    }
+    expect(await repo.listSolves()).toEqual(solves);
+  });
+
+  it('o andamento do download: k de N, com N das partes da resposta', async () => {
+    const { app } = await setup();
+    const steps: [number, number][] = [];
+    expect(await app.account!.restoreCloudCopy('2026-10-15', (k, n) => steps.push([k, n]))).toBe('device');
+    expect(steps).toEqual([[1, 2], [1, 2], [2, 2]]);
+  });
+
   it('numa aba que não lidera: espera a rodada da líder pedida depois do clique; limpa, segue; com erro ou sem resposta, stale', async () => {
     const net = fakeApi(new FakeServer());
     net.cloud.answer = { restore: 'device', parts: 0 };
@@ -642,7 +672,12 @@ describe('o diálogo das cópias grandes', () => {
     const big = document.querySelectorAll('[data-cloud-big]');
     expect(big).toHaveLength(1);
     expect(big[0]).toHaveTextContent(T.conta.cloudBig);
+    expect(T.conta.cloudBig).toBe('Esta conta é grande: se a restauração não couber no dia, ela chega a este aparelho na hora e aos outros nos próximos dias.');
     expect(big[0].closest('li')).toHaveTextContent('90000 solves');
+    // O aviso descreve o botão armado (o leitor de tela o lê junto com "Tem certeza?").
+    const armed = screen.getByRole('button', { name: 'Tem certeza? Clique de novo' });
+    expect(armed.getAttribute('aria-describedby')).toBe(big[0].id);
+    expect(big[0].id).not.toBe('');
     expect(net.cloud.restored).toEqual([]); // o primeiro clique só arma
   });
 
@@ -663,6 +698,36 @@ describe('o diálogo das cópias grandes', () => {
     await vi.waitFor(() => expect(app.toast?.text).toBe(T.conta.cloudRestoredHere));
     expect(T.conta.cloudRestoredHere).toBe('Restaurado neste aparelho. Os outros recebem nos próximos dias, pelo sync.');
     await vi.waitFor(() => expect(screen.queryByRole('heading', { name: 'Cópias na nuvem' })).toBeNull());
+  });
+
+  it('enquanto baixa, o andamento numa região aria-live, e a lista ocupada (aria-busy)', async () => {
+    const net = fakeApi(new FakeServer());
+    net.cloud.copies = [{ name: '2026-10-15', day: '2026-10-15', kind: 'daily', solves: 5, parts: 1 }];
+    net.cloud.answer = { restore: 'device', parts: 1 };
+    const { app, repo } = await appWithAccount(net.api, { signedIn: true });
+    const whole: KlickExport = { ...(await repo.exportAll()), solves: [] };
+    net.cloud.partBytes = [await gzipJson(whole)];
+    const gate = deferred();
+    const part = net.api.copyPart;
+    net.api.copyPart = async (name, index, account) => {
+      await gate.promise;
+      return part(name, index, account);
+    };
+    render(AjustesScreen, { app });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Ver cópias na nuvem' }));
+    await screen.findByText('5 solves');
+    const live = document.querySelector('[data-cloud-progress]')!;
+    expect(live.getAttribute('aria-live')).toBe('polite');
+    expect(live).toHaveTextContent('');
+    fakeClock();
+    await fireEvent.click(screen.getByRole('button', { name: 'Restaurar a cópia de 2026-10-15' }));
+    later();
+    await fireEvent.click(screen.getByRole('button', { name: 'Tem certeza? Clique de novo' }));
+    await vi.waitFor(() => expect(live).toHaveTextContent(T.conta.cloudDownloading(1, 1)));
+    expect(T.conta.cloudDownloading(3, 23)).toBe('Baixando a cópia (3 de 23)…');
+    expect(live.closest('dialog')!.querySelector('ul')!.getAttribute('aria-busy')).toBe('true');
+    gate.resolve();
+    await vi.waitFor(() => expect(app.toast?.text).toBe(T.conta.cloudRestoredHere));
   });
 
   it('stale (a rodada de antes não terminou limpa) avisa para sincronizar antes, e nada muda', async () => {

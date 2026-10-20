@@ -768,6 +768,8 @@ export class AppState {
   // cópia local: espera a importação, confere a fila, fecha as gravações durante a troca e tem o prazo. Devolve false quando ele a
   // segurou (o aviso já saiu; passando do prazo, a troca ainda termina).
   restoreFromCloud(data: KlickExport): Promise<boolean> {
+    // Outra troca em andamento: o aviso é daqui (o diálogo das cópias na nuvem não avisa nada no 'held').
+    if (this.restoreRunning) this.showToast(T.conta.cloudRestoreBusy);
     return this.restoreGuarded(() => this.replaceFromCloud(data));
   }
 

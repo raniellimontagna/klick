@@ -675,7 +675,10 @@ export class AccountState {
   // muda: um download que falha (ou uma cópia torta) é 'failed', e o 404 de qualquer objeto, 'gone'. A gravação passa pelo portão da cópia
   // local (host.restoreExport: a importação em curso, a fila de gravação, o prazo): se ele a segura, 'held' (o aviso já saiu, nada
   // sincroniza); passando do prazo ela ainda termina, e o sync de depois sobe o que ela gravar.
-  async restoreCloudCopy(name: string): Promise<'ok' | 'device' | 'stale' | 'held' | 'gone' | 'failed' | RestoreRefusal> {
+  async restoreCloudCopy(
+    name: string,
+    progress?: (k: number, n: number) => void,
+  ): Promise<'ok' | 'device' | 'stale' | 'held' | 'gone' | 'failed' | RestoreRefusal> {
     const since = this.host.now(); // o clique: a rodada que vale para a restauração pelo aparelho começa depois dele
     let answer: RestoreAnswer;
     let account: string;
@@ -694,10 +697,13 @@ export class AccountState {
     if (!(await this.freshSync(since))) return 'stale';
     let applied: boolean;
     try {
-      const data = await downloadCopy(this.deps.api, name, account);
+      progress?.(1, Math.max(1, answer.parts)); // o andamento desde o primeiro objeto (o manifesto ou o arquivo só)
+      const data = await downloadCopy(this.deps.api, name, account, progress);
       applied = await this.host.restoreExport(data);
     } catch (err) {
-      return err instanceof ApiError && err.status === 404 ? 'gone' : 'failed';
+      if (!(err instanceof ApiError)) return 'failed';
+      if (err.status === 404) return 'gone';
+      return isRefusal(err.code) ? err.code : 'failed'; // o limite de partes do dia (restore-limit) ou das operações (r2-budget)
     }
     if (!applied) return 'held';
     void this.syncNow();
