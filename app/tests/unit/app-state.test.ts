@@ -229,19 +229,33 @@ describe('estado do app', () => {
     expect(where(app.solves)).toEqual([[x.id, first.id], [y.id, treino.id]]);
     expect(where(await repo.listSolves())).toEqual([[x.id, first.id], [y.id, treino.id]]);
 
-    // A sessão de onde y veio foi para a lixeira no meio (outra aba): a volta dele é recusada e o aviso diz; x volta.
+    // A sessão de onde y veio foi para a lixeira no meio (outra aba): a volta dele é recusada, com o aviso próprio; x volta, e a temporada é
+    // conferida (o que voltou mudou as contas da sessão dele).
     await app.moveSolves([x.id, y.id], dest.id);
     await repo.deleteSession(treino.id);
+    const season = vi.spyOn(app, 'checkSeason');
     expect(await app.undoLast()).toBe(false);
-    expect(app.toast?.text).toBe(T.data.changeFailed);
+    expect(app.toast?.text).toBe(T.historico.undoMoveRefused);
+    expect(T.historico.undoMoveRefused).toBe('Alguns solves não voltaram: a sessão de origem foi excluída.');
+    expect(season).toHaveBeenCalledTimes(1);
     expect(where(await repo.listSolves())).toEqual([[x.id, first.id], [y.id, dest.id]]);
     expect(where(app.solves)).toEqual([[x.id, first.id], [y.id, dest.id]]);
+
+    // Nenhuma sessão de origem existe mais: nada volta, o aviso diz, e não há o que conferir.
+    await app.moveSolves([y.id], first.id);
+    await repo.deleteSession(dest.id);
+    season.mockClear();
+    expect(await app.undoLast()).toBe(false);
+    expect(app.toast?.text).toBe(T.historico.undoNothing);
+    expect(T.historico.undoNothing).toBe('Nada para desfazer: as sessões de origem não existem mais.');
+    expect(season).not.toHaveBeenCalled();
+    expect(where(app.solves)).toEqual([[x.id, first.id], [y.id, first.id]]);
 
     // Para outro evento, o repositório recusa: nada muda, nem a memória.
     await app.createSession('sq1');
     expect(await app.moveSolves([x.id], app.currentSession!.id)).toBe(false);
     expect(app.toast?.text).toBe(T.data.changeFailed);
-    expect(where(app.solves)).toEqual([[x.id, first.id], [y.id, dest.id]]);
+    expect(where(app.solves)).toEqual([[x.id, first.id], [y.id, first.id]]);
   });
 
   // Review Focus 3: um solve novo encerra o "Desfazer" pendente, seja de um, de lote ou de mover.

@@ -269,6 +269,9 @@ export const T = Object.freeze({
     deleted: (n: number) => (n === 1 ? '1 solve excluído' : `${n.toLocaleString('pt-BR')} solves excluídos`),
     moved: (n: number, session: string) =>
       n === 1 ? `Solve movido para ${session}` : `${n.toLocaleString('pt-BR')} solves movidos para ${session}`,
+    // O "Desfazer" de mover quando a sessão de onde algum solve veio foi excluída no meio (outra aba): os outros voltam; nenhuma, nada volta.
+    undoMoveRefused: 'Alguns solves não voltaram: a sessão de origem foi excluída.',
+    undoNothing: 'Nada para desfazer: as sessões de origem não existem mais.',
     merged: (n: number, session: string) =>
       n === 0
         ? `Sessões juntadas em ${session}`

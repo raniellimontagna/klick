@@ -835,32 +835,56 @@ export class AppState {
 
   // O "Desfazer" do aviso e da tecla Z, se o prazo ainda não passou. Qualquer resposta encerra a janela: desfazer uma vez não se repete.
   // Uma exclusão volta da lixeira numa transação. Uma mudança de sessão volta um pedido por sessão de origem: a volta para uma sessão que foi
-  // para a lixeira no meio (outra aba) é recusada, com o aviso de falha, e as outras voltam. Devolve se tudo voltou.
+  // para a lixeira no meio (outra aba) é recusada e as outras voltam, com o aviso de que alguns não voltaram; se nenhuma origem existe mais,
+  // o aviso diz que não há o que desfazer. A temporada é conferida quando algo voltou. Devolve se tudo voltou.
   async undoLast(): Promise<boolean> {
     const undo = this.undo;
     this.closeUndo();
     if (!undo || this.now() > undo.until) return false;
     let ok = true;
+    let changed = true; // algo voltou: as contas mudaram
     let ids: string[];
     if (undo.kind === 'delete') {
       ids = undo.ids;
       ok = await this.write(() => this.repo.restoreSolves(undo.ids));
+      changed = ok;
     } else {
       ids = undo.moves.map((m) => m.id);
-      const back = new Map<string, string[]>();
-      for (const m of undo.moves) {
-        const group = back.get(m.from);
-        if (group) group.push(m.id);
-        else back.set(m.from, [m.id]);
-      }
-      for (const [from, group] of back) ok = (await this.write(() => this.repo.moveSolves(group, from))) && ok;
+      const result = await this.moveBack(undo.moves);
+      ok = result.ok;
+      changed = result.moved;
     }
     // A memória lê só os solves do lote, como ficaram (os que voltaram e os que não). Restaurar pode reviver a sessão deles, se outra aba a
     // mandou para a lixeira: relê as sessões também.
     await this.refreshSolveIds(ids);
     if (undo.kind === 'delete') await this.refreshKinds(['sessions']);
-    if (ok) await this.checkSeason();
+    if (changed) await this.checkSeason();
     return ok;
+  }
+
+  // A volta de uma mudança de sessão, um pedido por sessão de origem. A origem que foi para a lixeira (ou sumiu) recusa a volta
+  // ('move-session'): os outros voltam, e o aviso diz o que aconteceu; outra falha tem o aviso de sempre.
+  private async moveBack(moves: readonly { id: string; from: string }[]): Promise<{ ok: boolean; moved: boolean }> {
+    const back = new Map<string, string[]>();
+    for (const m of moves) {
+      const group = back.get(m.from);
+      if (group) group.push(m.id);
+      else back.set(m.from, [m.id]);
+    }
+    let moved = false;
+    let refused = false;
+    let failed = false;
+    for (const [from, group] of back) {
+      try {
+        if ((await this.repo.moveSolves(group, from)).length > 0) moved = true;
+      } catch (err) {
+        if (err instanceof Error && err.message === 'move-session') refused = true;
+        else failed = true;
+      }
+    }
+    if (failed) this.showToast(T.data.changeFailed);
+    else if (refused) this.showToast(moved ? T.historico.undoMoveRefused : T.historico.undoNothing);
+    return { ok: !failed && !refused, moved };
   }
 
   async createSession(event: EventId, name?: string): Promise<void> {
