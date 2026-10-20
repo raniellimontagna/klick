@@ -1636,6 +1636,7 @@ export class AppState {
       penalty: s.penalty,
       at,
       scramble: s.scramble,
+      ...(s.phases ? { phases: [...s.phases] } : {}), // as fases do solve na fila também vão no arquivo
       note: '',
       createdAt: at,
       updatedAt: at,

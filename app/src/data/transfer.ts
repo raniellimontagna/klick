@@ -212,12 +212,12 @@ function csPhases(times: unknown[], ms: number): number[] | undefined {
   return durations;
 }
 
-// O inverso, para a exportação. Só sai multiphase quando as fases fecham o tempo (duas ou mais, somando `ms`): o csTimer calcula a
+// O inverso, para a exportação. Só sai multiphase quando as fases fecham o tempo (duas ou mais, nenhuma negativa, somando `ms`: o que a importação aceita): o csTimer calcula a
 // última fase como o total menos o último acumulado, e fases que não somam desenhariam um tempo que o solve não teve.
 function csTimeVector(s: Solve): number[] {
   const head = [penaltyToCs(s.penalty), s.ms];
   const phases = s.phases;
-  if (!phases || phases.length < 2 || !phases.every(isNum) || phases.reduce((a, b) => a + b, 0) !== s.ms) return head;
+  if (!phases || phases.length < 2 || !phases.every((d) => isNum(d) && d >= 0) || phases.reduce((a, b) => a + b, 0) !== s.ms) return head;
   const cumulative: number[] = [];
   let sum = 0;
   for (const d of phases.slice(0, -1)) cumulative.push((sum += d));

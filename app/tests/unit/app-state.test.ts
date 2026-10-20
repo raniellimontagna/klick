@@ -644,6 +644,17 @@ describe('estado do app: robustez (brief 9b)', () => {
     expect(data.solves[0].id).toMatch(/^[0-9a-z]{17}$/);
   });
 
+  it('exportData leva as fases do solve que ainda não foi gravado, e o que não tem fases não ganha o campo', async () => {
+    const { app, repo } = await setup();
+    repo.addSolve = async () => { throw new Error('quota'); };
+    await app.addSolve({ ms: 12_000, penalty: null, at: t, phases: [3_000, 4_000, 5_000] });
+    await app.addSolve({ ms: 9_000, penalty: null, at: t + 1 });
+    const data = await app.exportData();
+    expect(data.solves).toHaveLength(2);
+    expect(data.solves[0].phases).toEqual([3_000, 4_000, 5_000]);
+    expect('phases' in data.solves[1]).toBe(false);
+  });
+
   it('exportData não duplica o solve que o banco já tem, quando a gravação só pareceu falhar', async () => {
     const { app, repo } = await setup();
     const original = repo.addSolve.bind(repo);

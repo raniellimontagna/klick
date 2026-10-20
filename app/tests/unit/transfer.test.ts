@@ -372,15 +372,18 @@ describe('csTimer', () => {
       mkSolve({ id: 'b', ms: 10_000, at: AT + 1_000, penalty: '+2', phases: [4_000, 6_000] }),
       mkSolve({ id: 'c', ms: 9_000, at: AT + 2_000 }),
       mkSolve({ id: 'd', ms: 9_000, at: AT + 3_000, phases: [4_000, 4_000] }), // não soma o tempo: sai sem fases
+      mkSolve({ id: 'e', ms: 9_000, at: AT + 4_000, phases: [10_000, -1_000] }), // soma, mas uma duração negativa: o csTimer a leria torta
+      mkSolve({ id: 'f', ms: 11_000, at: AT + 5_000, penalty: 'DNF', phases: [5_000, 6_000] }), // DNF: o código -1 e as fases convivem
     ];
     const file = JSON.parse(toCsTimerJson([mkSession()], solves)) as Record<string, unknown[][]>;
-    expect(file.session1.map((row) => row[0])).toEqual([[0, 12_000, 7_000, 3_000], [2000, 10_000, 4_000], [0, 9_000], [0, 9_000]]);
+    expect(file.session1.map((row) => row[0])).toEqual([[0, 12_000, 7_000, 3_000], [2000, 10_000, 4_000], [0, 9_000], [0, 9_000], [0, 9_000], [-1, 11_000, 5_000]]);
     const back = parseCsTimer(toCsTimerJson([mkSession()], solves))[0].solves;
-    expect(back.map((s) => s.phases)).toEqual([[3_000, 4_000, 5_000], [4_000, 6_000], undefined, undefined]);
+    expect(back.map((s) => s.phases)).toEqual([[3_000, 4_000, 5_000], [4_000, 6_000], undefined, undefined, undefined, [5_000, 6_000]]);
+    expect(back.map((s) => s.penalty)).toEqual([null, '+2', null, null, null, 'DNF']);
     // E o caminho inteiro: do arquivo para o Klick, com as fases no solve novo.
     const imported = csTimerToKlick(parseCsTimer(toCsTimerJson([mkSession()], solves)), {}, ctx()).solves;
-    expect(imported.map((s) => s.phases)).toEqual([[3_000, 4_000, 5_000], [4_000, 6_000], undefined, undefined]);
-    expect(imported.every((s, i) => i < 2 || !('phases' in s))).toBe(true);
+    expect(imported.map((s) => s.phases)).toEqual([[3_000, 4_000, 5_000], [4_000, 6_000], undefined, undefined, undefined, [5_000, 6_000]]);
+    expect(imported.every((s, i) => (i >= 2 && i <= 4) !== ('phases' in s))).toBe(true);
   });
 
   describe('leitura do arquivo', () => {
