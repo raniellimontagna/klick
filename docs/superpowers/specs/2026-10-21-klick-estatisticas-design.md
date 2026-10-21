@@ -42,7 +42,7 @@ melhorando?" e "o que eu quero alcançar?": a evolução semana a semana, o ano 
 - A média da semana: os solves sem DNF, com o corte de 5% de cada lado (a regra das médias de hoje); com menos de 5 solves sem DNF, "—".
   Os DNF contam no número de solves e aparecem à parte ("2 DNF").
 - Uma linha de resumo no topo compara os últimos 28 dias com os 28 anteriores, pela mesma média: "Nos últimos 28 dias, sua média caiu
-  0,42 s" (ou subiu, ou ficou igual; sem dados suficientes, a linha não aparece). O aviso de semana do Centro, que já existe, não muda.
+  0.42 s" (ou subiu, ou ficou igual; sem dados suficientes, a linha não aparece). O aviso de semana do Centro, que já existe, não muda.
 - Semanas sem solves aparecem vazias, para o ritmo ficar visível.
 
 ## 4. O ano
@@ -61,7 +61,7 @@ melhorando?" e "o que eu quero alcançar?": a evolução semana a semana, o ano 
   para qualquer evento. A ao5 e a ao12 são sempre as médias com corte de 5% (como a coluna da lista), mesmo nos eventos cuja média
   oficial é a Mo3; o +2 conta e o DNF nunca alcança.
 - Cada uma mostra o melhor de agora para aquele tipo e evento (do histórico inteiro, todas as sessões do evento), o quanto falta e uma
-  barra de progresso.
+  barra de progresso, que vai do melhor de quando a meta foi criada (guardado na própria meta) até o alvo.
 - **Alcançada:** a data fica guardada na própria meta e não volta atrás (nem se o solve que a alcançou for excluído depois).
   - Ao criar uma meta que o histórico já alcança, ela nasce alcançada, com a data do primeiro solve (ou da primeira média) que a
     alcançou, sem comemoração.
@@ -105,3 +105,5 @@ melhorando?" e "o que eu quero alcançar?": a evolução semana a semana, o ano 
 10. A data de alcance fica guardada e não volta; meta já alcançada ao nascer não comemora; só o aparelho do solve comemora.
 11. A média da semana tira os DNF antes do corte; o resumo compara 28 dias com os 28 anteriores.
 12. Meta do dia de antes, fora das cinco opções, vira uma sexta opção marcada.
+13. (Maquete aprovada em 21/10) Ao alcançar, basta a mensagem do Centro no lugar da de recorde; tempos com ponto ("0.42 s"), como no resto
+    do app; a meta guarda o melhor do dia em que foi criada, para a barra.
