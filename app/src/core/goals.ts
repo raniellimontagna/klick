@@ -109,6 +109,10 @@ function series(eventSolves: readonly Solve[], kind: GoalKind): (number | null)[
 
 // O que as metas de um evento e tipo leem da série, numa passada só (com 100 mil solves, cada passada custa): o melhor valor (sem DNF), o
 // primeiro valor finito (o começo de uma meta sem startMs) e o alcance de qualquer alvo.
+// As datas e o começo da meta em ms inteiros e dentro do formato (isGoal): um solve importado pode ter `at` fracionário ou de antes de 1970,
+// e um tempo de 0 ms; fora do formato, o perfil gravaria o padrão (null) por cima da meta.
+const dateOf = (at: number): number => Math.max(0, Math.round(at));
+
 export interface GoalSeries {
   best: number | null;
   first: number | null;
@@ -124,7 +128,7 @@ export function goalSeries(eventSolves: readonly Solve[], kind: GoalKind): GoalS
   values.forEach((v, i) => {
     if (v === null || !(v < (recordValue[recordValue.length - 1] ?? Infinity))) return;
     recordValue.push(v);
-    recordAt.push(Math.round(eventSolves[i]!.at));
+    recordAt.push(dateOf(eventSolves[i]!.at));
   });
   const reach = (targetMs: number): number | null => {
     let lo = 0;
@@ -149,7 +153,7 @@ export function goalBest(eventSolves: readonly Solve[], kind: GoalKind): number 
 export function firstReach(eventSolves: readonly Solve[], kind: GoalKind, targetMs: number): number | null {
   const values = series(eventSolves, kind);
   const i = values.findIndex((v) => v !== null && v < targetMs);
-  return i < 0 ? null : Math.round(eventSolves[i]!.at);
+  return i < 0 ? null : dateOf(eventSolves[i]!.at);
 }
 
 export interface GoalInput {
@@ -166,7 +170,7 @@ export function makeGoal(input: GoalInput, eventSolves: readonly Solve[], now: n
     kind: input.kind,
     event: input.event,
     targetMs: input.targetMs,
-    startMs: s.best === null ? null : Math.round(s.best),
+    startMs: s.best === null ? null : Math.max(1, Math.round(s.best)),
     createdAt: Math.round(now),
     reachedAt: s.reach(input.targetMs),
   };
@@ -237,7 +241,7 @@ export function goalsReachedBy(goals: Readonly<Record<string, Goal>>, history: r
     }
     if (value === null || !(value < g.targetMs)) continue;
     const before = firstReach(history, g.kind, g.targetMs);
-    out.push(before === null ? { id, at: Math.round(solve.at), celebrate: true } : { id, at: before, celebrate: false });
+    out.push(before === null ? { id, at: dateOf(solve.at), celebrate: true } : { id, at: before, celebrate: false });
   }
   return out;
 }

@@ -206,6 +206,16 @@ describe('metas: criar e refazer', () => {
     expect(goalSeries(list, 'single').reach(13000)).toBe(201);
   });
 
+  // Um arquivo torto pode trazer um solve de 0 ms ou com data antes de 1970: a meta continua no formato (começo de 1 ms, data 0).
+  it('makeGoal e goalsReachedBy não saem do formato com 0 ms ou data negativa', () => {
+    const list = [sv(0, null, '333', -50.4)];
+    const g = makeGoal({ kind: 'single', event: '333', targetMs: 13000 }, list, 777);
+    expect(g).toMatchObject({ startMs: 1, reachedAt: 0 });
+    expect(isGoal(g)).toBe(true);
+    const marks = goalsReachedBy({ abc: goal() }, [], sv(0.2, null, '333', -3));
+    expect(marks).toEqual([{ id: 'abc', at: 0, celebrate: true }]);
+  });
+
   it('makeGoal nasce alcançada com a data do primeiro solve que chegou', () => {
     const list = run([14000, 12000, 15000]);
     const g = makeGoal({ kind: 'single', event: '333', targetMs: 13000 }, list, 777);

@@ -1546,7 +1546,7 @@ export class AppState {
       for (const { id, at } of marks) {
         const g = goals[id];
         if (g && g.reachedAt === null) {
-          goals[id] = { ...g, reachedAt: Math.round(at) };
+          goals[id] = { ...g, reachedAt: Math.max(0, Math.round(at)) };
           changed = true;
         }
       }
