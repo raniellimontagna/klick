@@ -8,6 +8,7 @@ import { cleanDuelName } from '../../core/duel/link';
 import { eventInfo } from '../../core/events';
 import { createSeasonTracker, defaultSeason, type MarkStatus, planAdvance, seasonKey } from '../../core/season';
 import { dayKey, type RECORD_SIZES } from '../../core/stats';
+import { isTypedDnf } from '../../core/typed';
 import type { CaseSet, TrailStep } from '../../core/trail/types';
 import { defaultSettings } from '../../core/types';
 import type { Duel, EventId, Meta, Penalty, Practice, Profile, SeasonState, Session, Solve } from '../../core/types';
@@ -734,6 +735,9 @@ export class AppState {
   }
 
   async setPenalty(id: string, penalty: Penalty): Promise<void> {
+    // O DNF digitado (ms 0) não tem tempo por trás: não vira OK nem +2 por caminho nenhum (o Timer, o detalhe, o atalho P). Sem gravar.
+    const current = this.solves.find((x) => x.id === id);
+    if (current && penalty !== 'DNF' && isTypedDnf(current)) return;
     await this.editSolve(() => this.repo.updateSolve(id, { penalty }));
   }
 

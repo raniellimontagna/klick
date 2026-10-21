@@ -11,7 +11,7 @@ export interface Sound {
   speak(text: string): boolean; // fala com uma voz em português; false sem a API ou sem voz em português (quem chamou cai no bipe)
   warn(ms: number, voice: boolean): void; // o aviso da inspeção aos 8 e 12 s: "oito"/"doze" com voz, o bipe sem ela; segue sound.insp
   chord(): void; // recorde
-  unlock(voice?: boolean): void; // chamar num gesto da pessoa: o navegador só libera o áudio depois de um; com `voice`, prepara também a fala (o iOS descarta o primeiro speak fora de um gesto)
+  unlock(voice?: boolean, activation?: boolean): void; // chamar num gesto da pessoa: o navegador só libera o áudio depois de um; com `voice`, prepara também a fala (o iOS descarta o primeiro speak fora de um gesto); `activation` é o gesto que o iOS conta (pointerup, keyup), que prepara mais uma vez
   close(): void; // devolve o AudioContext ao navegador (o iOS limita quantos a página abre); depois disso o som fica em silêncio
   setEnabled(group: SoundGroup, on: boolean): void;
 }
@@ -22,10 +22,8 @@ type AudioContextClass = typeof AudioContext;
 type Speech = Pick<SpeechSynthesis, 'getVoices' | 'cancel' | 'speak' | 'addEventListener' | 'removeEventListener'>;
 export interface SoundOptions {
   speech?: Speech | null; // omitido: o speechSynthesis do navegador, se houver
+  words?: Readonly<Record<number, string>>; // o que se fala em cada tempo de aviso (ms → palavra; strings.ts); sem a palavra, o aviso é o bipe
 }
-
-// A fala do aviso por tempo de inspeção.
-const WARN_WORDS: Readonly<Record<number, string>> = { 8000: 'oito', 12000: 'doze' };
 
 function browserSpeech(): Speech | null {
   return typeof speechSynthesis === 'undefined' ? null : speechSynthesis;
@@ -171,8 +169,16 @@ export function createSound(initial: SoundGroups = { klick: true, insp: true, pb
 
   // O iOS só libera a fala depois de um speak dentro de um gesto: sem isso o primeiro "oito", que sai do laço do timer, some em silêncio.
   // Uma fala muda por som, e só quando há voz em português (sem ela, tenta de novo no próximo gesto).
+  // O gesto de ativação (pointerup, keyup) prepara mais uma vez: o do pointerdown pode ter sido descartado, e o iOS só conta o de ativação.
   let primed = false;
-  function prime(): void {
+  let primedOnActivation = false;
+  function prime(activation: boolean): void {
+    if (activation) {
+      if (primedOnActivation) return;
+      primedOnActivation = utter(' ', 0, false);
+      primed ||= primedOnActivation;
+      return;
+    }
     if (primed) return;
     primed = utter(' ', 0, false);
   }
@@ -185,16 +191,16 @@ export function createSound(initial: SoundGroups = { klick: true, insp: true, pb
     speak,
     warn(ms, voiceOn) {
       if (!enabled.insp) return;
-      const word = WARN_WORDS[ms];
+      const word = options.words?.[ms];
       if (voiceOn && word && speak(word)) return;
       tone(1320, 0.05, 0.15);
     },
     chord() {
       if (enabled.pb) [523.25, 659.25, 783.99].forEach((f, i) => tone(f, 0.35, 0.12, i * 0.04));
     },
-    unlock(voiceOn = false) {
+    unlock(voiceOn = false, activation = false) {
       ensure();
-      if (voiceOn) prime();
+      if (voiceOn) prime(activation);
     },
     // Fecha o contexto, se algum foi aberto; chamar de novo não faz nada, e um som fechado não abre outro.
     close() {

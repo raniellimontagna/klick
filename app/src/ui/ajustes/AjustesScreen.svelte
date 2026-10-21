@@ -5,7 +5,7 @@
   // a primeira da lista no celular e, no desktop, a primeira da coluna da direita.
   import type { ProfilePatch } from '../../data/repository';
   import { T } from '../../strings';
-  import { hasPortugueseVoice, watchVoices } from '../sound';
+  import { createSound, hasPortugueseVoice, watchVoices } from '../sound';
   import type { AppState } from '../state/app.svelte';
   import AccountSection from './AccountSection.svelte';
   import DataSection from './DataSection.svelte';
@@ -19,6 +19,13 @@
   // O aparelho tem voz em português? Muda a dica do "Som do aviso". As vozes podem chegar depois da tela, então escuta o `voiceschanged`.
   let voiceOk = $state(hasPortugueseVoice());
   $effect(() => watchVoices(() => (voiceOk = hasPortugueseVoice())));
+  // A amostra da voz: escolher "Voz" fala "oito" (o clique é um gesto de ativação, que libera a fala no iOS para a página toda).
+  const sound = createSound(undefined, { words: { 8000: T.timer.voice8, 12000: T.timer.voice12 } });
+  $effect(() => () => sound.close());
+  function pickInspVoice(value: boolean): void {
+    void app.updateSettings({ inspVoice: value });
+    if (value) sound.speak(T.timer.voice8);
+  }
   const phasesHint = $derived(s.phases === 0 ? T.ajustes.phasesHintOff : s.phases === 4 ? T.ajustes.phasesHint4 : T.ajustes.phasesHint);
 
   // Um switch grava na hora. Se a gravação falha, a caixa volta ao que está salvo (o aviso já saiu pela casca).
@@ -177,7 +184,7 @@
                   data-set="inspVoice"
                   data-val={String(value)}
                   aria-pressed={s.inspVoice === value ? 'true' : 'false'}
-                  onclick={() => app.updateSettings({ inspVoice: value })}>{label}</button
+                  onclick={() => pickInspVoice(value)}>{label}</button
                 >
               {/each}
             </div>

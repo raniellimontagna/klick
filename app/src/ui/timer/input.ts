@@ -17,6 +17,8 @@ export interface InputTarget {
   dialogOpen(): boolean;
   onAction(name: ActionName): void;
   onWake(): void;
+  // Um evento de ativação (soltar o espaço, soltar o dedo): o iOS só libera a fala da página num deles, não no pointerdown. Opcional.
+  onActivate?(): void;
   // O espaço pode armar agora? Sem a função, sempre (o Timer de sempre). No desafio, B confere a penalidade e vê o ponto antes do próximo
   // embaralhamento: o espaço não arma nem é segurado (fica para o botão com o foco), e os atalhos de letra seguem.
   canArm?(): boolean;
@@ -140,6 +142,7 @@ export function createInputController(
 
   // Todo espaço que armou recebe o seu soltar, mesmo se a aba mudou ou um diálogo abriu no meio.
   function onKeyUp(e: KeyboardEvent) {
+    if (e.code === 'Space') t.onActivate?.();
     if (e.code !== 'Space' || !spaceHeld) return;
     spaceHeld = false;
     e.preventDefault();
@@ -175,6 +178,7 @@ export function createInputController(
   }
 
   function onPointerUp(e: PointerEvent) {
+    t.onActivate?.();
     const z = zoneOf.get(e.pointerId);
     if (!z) return;
     zoneOf.delete(e.pointerId);

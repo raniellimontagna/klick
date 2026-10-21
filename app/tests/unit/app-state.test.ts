@@ -2050,6 +2050,20 @@ describe('estado do app: escritas próprias e avisos por tipo (parte B)', () => 
     await vi.waitFor(() => expect(app.solves.map((s) => s.id)).toContain('de-outra-aba'));
   });
 
+  it('o DNF digitado (ms 0) não vira OK nem +2 por nenhum caminho: setPenalty recusa e não grava; o DNF do cronômetro volta', async () => {
+    const { app, repo } = await setup();
+    const typed = (await app.addSolve({ ms: 0, penalty: 'DNF', at: t }))!;
+    const timed = (await app.addSolve({ ms: 12_000, penalty: 'DNF', at: t + 1_000 }))!;
+    const update = vi.spyOn(repo, 'updateSolve');
+    await app.setPenalty(typed.id, null);
+    await app.setPenalty(typed.id, '+2');
+    expect(update).not.toHaveBeenCalled();
+    expect(app.solves.find((x) => x.id === typed.id)).toMatchObject({ ms: 0, penalty: 'DNF' });
+    await app.setPenalty(typed.id, 'DNF'); // o mesmo DNF segue permitido
+    await app.setPenalty(timed.id, '+2');
+    expect(app.solves.find((x) => x.id === timed.id)?.penalty).toBe('+2');
+  });
+
   it('a penalidade e a nota atualizam o solve na memória, sem reler os solves', async () => {
     const { app, repo } = await setup();
     const s = (await app.addSolve({ ms: 61_000, penalty: null, at: t }))!;

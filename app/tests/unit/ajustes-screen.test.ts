@@ -118,6 +118,30 @@ describe('Ajustes: os ajustes novos do timer', () => {
     await vi.waitFor(async () => expect((await repo.getProfile()).settings.inspVoice).toBe(false));
   });
 
+  // Escolher "Voz" fala uma amostra ("oito"): o clique é um gesto de ativação, que libera a fala no iOS para a página.
+  it('escolher Voz fala "oito" de amostra; escolher Bipe, não', async () => {
+    const said: string[] = [];
+    vi.stubGlobal('speechSynthesis', {
+      getVoices: () => [{ lang: 'pt-BR', name: 'Brasil' }],
+      cancel() {},
+      speak: (u: { text: string }) => void said.push(u.text),
+      addEventListener() {},
+      removeEventListener() {},
+    });
+    vi.stubGlobal('SpeechSynthesisUtterance', class { voice = null; lang = ''; volume = 1; constructor(public text: string) {} });
+    try {
+      const { a } = await app();
+      render(AjustesScreen, { app: a });
+      await fireEvent.click(await screen.findByRole('button', { name: 'Voz' }));
+      expect(said).toEqual([T.timer.voice8]);
+      expect(T.timer.voice8).toBe('oito');
+      await fireEvent.click(screen.getByRole('button', { name: 'Bipe' }));
+      expect(said).toEqual(['oito']);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('sem voz em português no aparelho, a dica do Som do aviso diz que toca o bipe', async () => {
     const { a } = await app();
     render(AjustesScreen, { app: a }); // o jsdom não tem speechSynthesis

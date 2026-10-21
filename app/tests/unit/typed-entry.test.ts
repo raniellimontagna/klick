@@ -137,6 +137,25 @@ describe('digitar o tempo no Timer', () => {
     expect(a.solves).toHaveLength(0);
   });
 
+  // A linha de baixo é descrição do campo (aria-describedby); só o erro é anunciado, sem o leitor ler a prévia a cada tecla.
+  it('só o erro é anunciado: a prévia e a dica ficam como descrição do campo, sem região viva', async () => {
+    await typing();
+    expect(message()).not.toHaveAttribute('aria-live');
+    expect(screen.queryByRole('alert')).toBeNull();
+    type('1234'); // a prévia
+    expect(message().textContent).toBe('Fica 0:12.34.');
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(message().querySelector('[aria-live]')).toBeNull();
+    type('12.3.4');
+    enter();
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(T.timer.typedError);
+    expect(message()).toContainElement(alert); // e o erro segue na descrição
+    expect(field().getAttribute('aria-describedby')).toBe(message().id);
+    type('1234'); // digitar de novo: o erro some
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
   it('salvar com o campo vazio não grava nem reclama: só devolve o foco ao campo', async () => {
     const a = await typing();
     await fireEvent.click(screen.getByRole('button', { name: T.timer.typedSave }));

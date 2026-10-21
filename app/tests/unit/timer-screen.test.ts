@@ -1055,6 +1055,41 @@ describe('tela do Timer: o aviso da inspeção', () => {
     expect(mudas).toEqual([0]);
   });
 
+  it('com Voz, soltar o espaço e o pointerup também preparam a fala (o gesto de ativação do iOS), uma vez cada', async () => {
+    const mudas: number[] = [];
+    vi.stubGlobal('SpeechSynthesisUtterance', class { voice = null; lang = ''; volume = 1; constructor(public text: string) {} });
+    (speechSynthesis as unknown as { speak: (u: { volume: number }) => void }).speak = (u) => void mudas.push(u.volume);
+    const { a } = await app();
+    await a.updateSettings({ inspVoice: true });
+    render(TimerScreen, { app: a });
+    await screen.findByText('333 R U');
+    key('keydown', 'KeyA', 'a'); // o primeiro gesto (pointerdown/keydown): a preparação do iOS pode ser descartada aqui
+    await sleep(30);
+    expect(mudas).toEqual([0]);
+    key('keyup', 'KeyA', 'a'); // soltar uma tecla qualquer não é a ativação do espaço
+    await sleep(30);
+    expect(mudas).toEqual([0]);
+    key('keyup', 'Space', ' ');
+    await sleep(30);
+    expect(mudas).toEqual([0, 0]); // o keyup do espaço, a ativação
+    window.dispatchEvent(new Event('pointerup'));
+    await sleep(30);
+    expect(mudas).toEqual([0, 0]); // uma vez só por som
+  });
+
+  it('com Voz, o pointerup prepara a fala se foi o primeiro gesto de ativação', async () => {
+    const mudas: number[] = [];
+    vi.stubGlobal('SpeechSynthesisUtterance', class { voice = null; lang = ''; volume = 1; constructor(public text: string) {} });
+    (speechSynthesis as unknown as { speak: (u: { volume: number }) => void }).speak = (u) => void mudas.push(u.volume);
+    const { a } = await app();
+    await a.updateSettings({ inspVoice: true });
+    render(TimerScreen, { app: a });
+    await screen.findByText('333 R U');
+    window.dispatchEvent(new Event('pointerup'));
+    await sleep(30);
+    expect(mudas).toEqual([0]);
+  });
+
   it('sem Voz, o aviso é o bipe e nada é falado', async () => {
     await inspecting({ inspVoice: false });
     const antes = oscillators;

@@ -113,7 +113,7 @@
   // efeito de ajustes, logo na montagem, antes de qualquer toque.
   const inspectionOn = (): boolean => app.profile.settings.inspection && eventInfo(playEvent).inspection;
   const timer: Timer = createTimer({ now: () => performance.now() });
-  const sound = createSound();
+  const sound = createSound(undefined, { words: { 8000: T.timer.voice8, 12000: T.timer.voice12 } });
   const touch = createTouchArm({
     press: (at) => {
       if (timer.state === 'running' || armable()) timer.press(at);
@@ -989,6 +989,10 @@
         dialogOpen: () => document.querySelector('dialog[open]') !== null,
         onAction,
         onWake,
+        onActivate: () => {
+          const st = app.profile.settings;
+          sound.unlock(st.inspVoice && st.sound.insp, true); // soltar o espaço ou o dedo: o gesto que o iOS conta para liberar a fala
+        },
         canArm: armable,
         typedMode: () => typingOn,
         typeChar: (c) => typedEntry?.put(c),

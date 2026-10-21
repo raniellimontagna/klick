@@ -282,7 +282,8 @@ describe('voz', () => {
     }
     vi.stubGlobal('window', { AudioContext: FakeCtx });
     try {
-      const s = createSound(undefined, { speech: synth as unknown as SpeechSynthesis });
+      const words = { 8000: 'oito', 12000: 'doze' };
+      const s = createSound(undefined, { speech: synth as unknown as SpeechSynthesis, words });
       s.warn(8000, true);
       s.warn(12000, true);
       expect(synth.said.map((x) => x.text)).toEqual(['oito', 'doze']);
@@ -291,7 +292,7 @@ describe('voz', () => {
       expect(made.osc).toBe(1);
       synth.voices = [];
       s.close();
-      const t = createSound(undefined, { speech: synth as unknown as SpeechSynthesis });
+      const t = createSound(undefined, { speech: synth as unknown as SpeechSynthesis, words });
       t.warn(8000, true); // sem voz em português: o bipe
       expect(made.osc).toBe(2);
       t.setEnabled('insp', false);
@@ -335,6 +336,44 @@ describe('voz', () => {
       expect(synth.said).toHaveLength(1); // só uma vez por som
       expect(s.speak('oito')).toBe(true);
       expect(synth.said.map((x) => x.text.trim())).toEqual(['', 'oito']);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  // O iOS só vale a fala num evento de ativação (pointerup, keyup): a preparação do pointerdown pode ter sido descartada, então o primeiro
+  // unlock de ativação prepara de novo, uma vez, mesmo com o do gesto anterior já feito.
+  it('unlock(true, true), o gesto de ativação, prepara a fala mais uma vez depois do pointerdown, e só uma', () => {
+    const { synth, Utterance } = fakeSpeech([{ lang: 'pt-BR', name: 'Brasil' }]);
+    vi.stubGlobal('SpeechSynthesisUtterance', Utterance);
+    try {
+      const s = createSound(undefined, { speech: synth as unknown as SpeechSynthesis });
+      s.unlock(true); // pointerdown
+      expect(synth.said).toHaveLength(1);
+      s.unlock(true, true); // pointerup
+      expect(synth.said).toHaveLength(2);
+      s.unlock(true, true);
+      s.unlock(true);
+      expect(synth.said).toHaveLength(2);
+      const off = createSound(undefined, { speech: synth as unknown as SpeechSynthesis });
+      off.unlock(false, true); // sem Voz, nada
+      expect(synth.said).toHaveLength(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('as palavras do aviso vêm de quem cria o som (strings.ts); sem elas, o aviso é só o bipe', () => {
+    const { synth, Utterance } = fakeSpeech([{ lang: 'pt-BR', name: 'Brasil' }]);
+    vi.stubGlobal('SpeechSynthesisUtterance', Utterance);
+    try {
+      const s = createSound(undefined, { speech: synth as unknown as SpeechSynthesis, words: { 8000: 'eight', 12000: 'twelve' } });
+      s.warn(8000, true);
+      s.warn(12000, true);
+      expect(synth.said.map((x) => x.text)).toEqual(['eight', 'twelve']);
+      const bare = createSound(undefined, { speech: synth as unknown as SpeechSynthesis });
+      bare.warn(8000, true);
+      expect(synth.said).toHaveLength(2);
     } finally {
       vi.unstubAllGlobals();
     }

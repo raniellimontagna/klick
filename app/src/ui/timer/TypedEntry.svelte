@@ -85,7 +85,9 @@
     />
     <button type="button" class="btn primary" onclick={save}>{T.timer.typedSave}</button>
   </div>
-  <p class="tc-msg" class:err={error !== null} id="{uid}-m" aria-live="polite">
-    {#if error}{error === 'long' ? T.timer.typedTooLong : T.timer.typedError}{:else if preview}{T.timer.typedFica} <b>{preview.time}</b>{preview.plus2 ? T.timer.typedFicaPlus2(preview.raw) : '.'}{:else}{phone.current ? T.timer.typedHint : T.timer.typedHintLong}{/if}
+  <!-- A linha é a descrição do campo (aria-describedby: a dica e a prévia são lidas com ele, sem região viva, para o leitor não repetir a prévia a
+       cada tecla); só o erro é anunciado (role="alert"). -->
+  <p class="tc-msg" class:err={error !== null} id="{uid}-m">
+    {#if error}<span role="alert">{error === 'long' ? T.timer.typedTooLong : T.timer.typedError}</span>{:else if preview}{T.timer.typedFica} <b>{preview.time}</b>{preview.plus2 ? T.timer.typedFicaPlus2(preview.raw) : '.'}{:else}{phone.current ? T.timer.typedHint : T.timer.typedHintLong}{/if}
   </p>
 </div>

@@ -508,6 +508,8 @@ export const T = Object.freeze({
     // O modo Digitar (o tempo vem de um timer de fora): o campo, a linha embaixo dele (a dica, como o tempo fica ou o erro) e o motivo do
     // DNF digitado ter OK e +2 desligados.
     hintsTyped: 'Enter salva · Esc solta o campo e volta aos atalhos (P, D, M, ⌫, N, Z) · ? atalhos',
+    voice8: 'oito', // o que a voz do aviso da inspeção fala aos 8 s e aos 12 s (e de amostra, ao escolher Voz no Ajustes)
+    voice12: 'doze',
     typedLabel: 'Seu tempo',
     typedSave: 'Salvar',
     typedHint: 'Só os números: 1234 vira 12.34.',
