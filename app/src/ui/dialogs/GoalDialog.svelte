@@ -34,6 +34,7 @@
   let armedAt: number | null = null; // a hora do primeiro: o segundo antes de CONFIRM_DELAY_MS é o toque duplo e não vale
   let busy = $state(false);
   let loaded: GoalRequest | null = null; // o pedido cujos valores estão nos campos
+  let initial: { text: string; ms: number } | null = null; // o alvo da meta de editar, como abriu: sem mexer no texto, vai o de antes
 
   const request = $derived(app.goalRequest);
   const editId = $derived(request?.id ?? null);
@@ -56,6 +57,7 @@
       kind = goal?.kind ?? 'single';
       event = goal?.event ?? r.event;
       text = goal ? formatTarget(goal.targetMs).replace(/ s$/, '') : '';
+      initial = goal ? { text, ms: goal.targetMs } : null;
       error = null;
       disarm();
     });
@@ -88,6 +90,7 @@
   function onclose(): void {
     disarm();
     loaded = null;
+    initial = null;
     seen = null;
     error = null;
     if (app.dialog === 'goal') app.dialog = null;
@@ -98,7 +101,8 @@
 
   async function save(): Promise<void> {
     if (busy || !request) return;
-    const p = parseGoalTarget(text);
+    // O texto do tempo como abriu vale o alvo de antes, e não o que ele lê: editar só o tipo ou o evento não mexe no alvo.
+    const p = initial !== null && text === initial.text ? ({ ok: true, ms: initial.ms } as const) : parseGoalTarget(text);
     if (!p.ok) {
       // Vazio não é erro: o campo volta a ter o foco.
       if (p.reason === 'empty') inputEl?.focus();

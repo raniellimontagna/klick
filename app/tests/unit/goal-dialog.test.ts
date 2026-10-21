@@ -241,6 +241,39 @@ describe('a folha da meta', () => {
     expect(Object.keys(a.profile.goals)).toHaveLength(2);
   });
 
+  // Um alvo fora do centésimo (uma meta que veio de fora) reabre exato, e salvar sem mexer no tempo não refaz a meta.
+  it('alvo 13005 alcançado com 13000 reabre como 13.005, e salvar sem mudar não a desfaz', async () => {
+    const reached = day(9, 2);
+    const mine = goal({ targetMs: 13_005, startMs: 14_000, createdAt: 7, reachedAt: reached });
+    const { a, repo } = await app({ ab1: mine }, [sv('333', 14_000, day(9, 1)), sv('333', 13_000, day(9, 2))]);
+    a.openGoal('ab1', '333');
+    render(GoalDialog, { app: a, open: true });
+    await screen.findByRole('dialog', { name: T.metas.editTitle });
+    expect(field().value).toBe('13.005');
+    expect(lines()[0]!.textContent).toBe('Fica single abaixo de 13.005 s.');
+    await save();
+    await waitFor(() => expect(a.dialog).toBeNull());
+    expect((await repo.getProfile()).goals.ab1).toEqual(mine);
+  });
+
+  it('editar sem mudar o texto do tempo manda o alvo de antes', async () => {
+    const mine = goal({ kind: 'ao5', targetMs: 13_005, createdAt: 7 });
+    const { a } = await app({ ab1: mine });
+    const sent: unknown[] = [];
+    const saveGoal = a.saveGoal.bind(a);
+    a.saveGoal = (input) => {
+      sent.push(input);
+      return saveGoal(input);
+    };
+    a.openGoal('ab1', '333');
+    render(GoalDialog, { app: a, open: true });
+    await screen.findByRole('dialog', { name: T.metas.editTitle });
+    await fireEvent.click(kindButton('Single'));
+    await save();
+    await waitFor(() => expect(a.dialog).toBeNull());
+    expect(sent).toEqual([{ id: 'ab1', kind: 'single', event: '333', targetMs: 13_005 }]);
+  });
+
   it('a meta que some com a folha aberta (excluída em outro aparelho) fecha a folha', async () => {
     const { a } = await app({ ab1: goal() });
     a.openGoal('ab1', '333');

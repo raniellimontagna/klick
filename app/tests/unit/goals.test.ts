@@ -100,7 +100,12 @@ describe('metas: texto do alvo', () => {
     expect(ms('59:59.99')).toEqual({ ok: true, ms: 3_599_990 });
     expect(ms('')).toEqual({ ok: false, reason: 'empty' });
     expect(ms('   ')).toEqual({ ok: false, reason: 'empty' });
-    for (const t of ['12..5', 'abc', '0', '0.00', '0:00', '1:5', '1:60', '1.234', '1:02.345', '-5', '12 s', '.5', '15.', '1:2:3', '1e3']) {
+    // Até três casas (o alvo exato de uma meta que veio de fora, como 13.005).
+    expect(ms('13.005')).toEqual({ ok: true, ms: 13005 });
+    expect(ms('1.234')).toEqual({ ok: true, ms: 1234 });
+    expect(ms('1:02.345')).toEqual({ ok: true, ms: 62345 });
+    expect(ms('59:59.999')).toEqual({ ok: true, ms: 3_599_999 });
+    for (const t of ['12..5', 'abc', '0', '0.00', '0.000', '0:00', '1:5', '1:60', '1.2345', '1:02.3456', '-5', '12 s', '.5', '15.', '1:2:3', '1e3']) {
       expect(ms(t), t).toEqual({ ok: false, reason: 'bad' });
     }
     expect(ms('3600')).toEqual({ ok: false, reason: 'range' });
@@ -118,6 +123,16 @@ describe('metas: texto do alvo', () => {
     expect(formatTarget(90000)).toBe('1:30');
     expect(formatTarget(62500)).toBe('1:02.5');
     expect(formatTarget(3_599_990)).toBe('59:59.99');
+    // Fora do centésimo, o valor exato (até três casas, sem zeros à direita): o que se lê é o que se salva.
+    expect(formatTarget(13005)).toBe('13.005 s');
+    expect(formatTarget(12505)).toBe('12.505 s');
+    expect(formatTarget(12001)).toBe('12.001 s');
+    expect(formatTarget(62345)).toBe('1:02.345');
+    expect(formatTarget(3_599_999)).toBe('59:59.999');
+    for (const target of [1, 999, 13005, 12505, 59_999, 60_001, 62_345, 3_599_999]) {
+      const text = formatTarget(target).replace(/ s$/, '');
+      expect(parseGoalTarget(text), text).toEqual({ ok: true, ms: target });
+    }
     expect(goalName({ kind: 'ao12', targetMs: 13000 })).toBe('Média de 12 abaixo de 13 s');
     expect(goalName({ kind: 'ao5', targetMs: 60000 })).toBe('Média de 5 abaixo de 1:00');
     expect(goalName({ kind: 'single', targetMs: 12500 })).toBe('Single abaixo de 12.5 s');
@@ -181,6 +196,16 @@ describe('metas: a série numa passada', () => {
 });
 
 describe('metas: criar e refazer', () => {
+  // Um tempo fracionário (um solve importado, 12345.5 ms) não pode deixar a meta fora do formato: o perfil gravaria o padrão (null) por cima.
+  it('makeGoal arredonda o começo e as datas ao milissegundo', () => {
+    const list = [sv(14000, null, '333', 100.4), sv(12345.5, null, '333', 200.5)];
+    const g = makeGoal({ kind: 'single', event: '333', targetMs: 13000 }, list, 777.6);
+    expect(g).toEqual({ kind: 'single', event: '333', targetMs: 13000, startMs: 12346, createdAt: 778, reachedAt: 201 });
+    expect(isGoal(g)).toBe(true);
+    expect(firstReach(list, 'single', 13000)).toBe(201);
+    expect(goalSeries(list, 'single').reach(13000)).toBe(201);
+  });
+
   it('makeGoal nasce alcançada com a data do primeiro solve que chegou', () => {
     const list = run([14000, 12000, 15000]);
     const g = makeGoal({ kind: 'single', event: '333', targetMs: 13000 }, list, 777);
@@ -313,6 +338,13 @@ describe('metas: o solve novo', () => {
       mm: goal({ createdAt: 20, targetMs: 11000 }),
     };
     expect(goalsReachedBy(goals, [], solve).map((r) => r.id)).toEqual(['aa', 'mm', 'zz']);
+  });
+
+  it('a data do alcance sai arredondada ao milissegundo', () => {
+    const solve = sv(10000, null, '333', 5_000.5);
+    expect(goalsReachedBy({ a01: goal() }, [], solve)).toEqual([{ id: 'a01', at: 5_001, celebrate: true }]);
+    const history = [sv(12000, null, '333', 3_000.5)];
+    expect(goalsReachedBy({ a01: goal() }, history, sv(10000))).toEqual([{ id: 'a01', at: 3_001, celebrate: false }]);
   });
 
   it('um DNF novo não alcança nada', () => {

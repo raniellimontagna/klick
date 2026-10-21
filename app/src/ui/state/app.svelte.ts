@@ -1536,8 +1536,8 @@ export class AppState {
     });
   }
 
-  // Grava a data de quem alcançou, só onde a meta ainda não tem uma (reachedAt não volta atrás). Sem mudança, não grava; sem marca, nem chega
-  // ao repositório.
+  // Grava a data de quem alcançou, só onde a meta ainda não tem uma (reachedAt não volta atrás), arredondada ao milissegundo (fracionária, a
+  // meta sairia do formato e o perfil gravaria o padrão por cima). Sem mudança, não grava; sem marca, nem chega ao repositório.
   markGoalsReached(marks: readonly { id: string; at: number }[]): Promise<boolean> {
     if (marks.length === 0) return Promise.resolve(true);
     return this.trailJob(() => (base) => {
@@ -1546,7 +1546,7 @@ export class AppState {
       for (const { id, at } of marks) {
         const g = goals[id];
         if (g && g.reachedAt === null) {
-          goals[id] = { ...g, reachedAt: at };
+          goals[id] = { ...g, reachedAt: Math.round(at) };
           changed = true;
         }
       }

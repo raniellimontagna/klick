@@ -101,6 +101,30 @@ describe('metas no AppState', () => {
   });
 });
 
+// Tempos e datas fracionários (um solve importado) não deixam a meta fora do formato: o perfil gravaria o padrão (null) por cima dela.
+describe('metas com valores fracionários', () => {
+  beforeEach(() => {
+    t = 1_791_500_000_000;
+  });
+
+  it('um solve de 12345.5 ms: saveGoal grava, e a meta continua depois de reler o repositório', async () => {
+    const { app, repo } = await setup();
+    await app.addSolve({ ms: 12_345.5, penalty: null, at: 200.5 });
+    expect(await app.saveGoal({ kind: 'single', event: '333', targetMs: 13_000 })).toBe(true);
+    await app.reload();
+    expect(Object.values(app.profile.goals)).toEqual([{ kind: 'single', event: '333', targetMs: 13_000, startMs: 12_346, createdAt: t, reachedAt: 201 }]);
+    expect((await repo.getProfile()).goals).toEqual(app.profile.goals);
+  });
+
+  it('markGoalsReached com at 100.5 não apaga a meta', async () => {
+    const { app, repo } = await setup();
+    await repo.saveProfile({ goals: { ab1: goal() } });
+    await app.reload();
+    expect(await app.markGoalsReached([{ id: 'ab1', at: 100.5 }])).toBe(true);
+    expect((await repo.getProfile()).goals).toEqual({ ab1: goal({ reachedAt: 101 }) });
+  });
+});
+
 // Um lote do sync que grava uma meta entre a leitura do perfil e a gravação daqui (antes de a memória se refazer) não é desfeito: as três
 // operações trabalham pela vaga sobre as metas gravadas, dentro da transação, e a memória fica com o perfil que a transação devolve.
 describe('metas com um lote do sync no meio', () => {

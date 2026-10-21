@@ -64,17 +64,18 @@ export function freeGoalId(taken: ReadonlySet<string>, rand: () => number = Math
   throw new Error('sem vaga livre para a meta');
 }
 
-// Decimais "5" ou "05" em ms: um dígito vale décimos, dois valem centésimos.
-const fraction = (digits: string | undefined): number => (digits ? Number.parseInt(digits.padEnd(2, '0'), 10) * 10 : 0);
+// Decimais "5", "05" ou "005" em ms: um dígito vale décimos, dois valem centésimos, três valem milésimos.
+const fraction = (digits: string | undefined): number => (digits ? Number.parseInt(digits.padEnd(3, '0'), 10) : 0);
 
 export type ParsedTarget = { ok: true; ms: number } | { ok: false; reason: 'empty' | 'bad' | 'range' };
 
-// Segundos como se fala: "15", "14,5", "90", "1:30", "1:02.5". Até duas casas; depois do ":" os segundos têm dois dígitos e ficam abaixo de 60.
+// Segundos como se fala: "15", "14,5", "90", "1:30", "1:02.5". Até três casas (a terceira é a do alvo exato de uma meta que veio de fora,
+// como formatTarget o mostra); depois do ":" os segundos têm dois dígitos e ficam abaixo de 60.
 export function parseGoalTarget(text: string): ParsedTarget {
   const t = text.trim().replace(',', '.');
   if (t === '') return { ok: false, reason: 'empty' };
-  const plain = /^(\d+)(?:\.(\d{1,2}))?$/.exec(t);
-  const clock = /^(\d+):(\d{2})(?:\.(\d{1,2}))?$/.exec(t);
+  const plain = /^(\d+)(?:\.(\d{1,3}))?$/.exec(t);
+  const clock = /^(\d+):(\d{2})(?:\.(\d{1,3}))?$/.exec(t);
   let ms: number;
   if (plain) ms = Number.parseInt(plain[1]!, 10) * 1000 + fraction(plain[2]);
   else if (clock && Number.parseInt(clock[2]!, 10) < 60) ms = (Number.parseInt(clock[1]!, 10) * 60 + Number.parseInt(clock[2]!, 10)) * 1000 + fraction(clock[3]);
@@ -84,10 +85,11 @@ export function parseGoalTarget(text: string): ParsedTarget {
   return { ok: true, ms };
 }
 
-// O alvo para mostrar: "13 s", "12.5 s", "14.55 s" abaixo de um minuto; "1:00", "1:30", "1:02.5" daí em diante. Centésimos, sem zeros à direita.
+// O alvo para mostrar: "13 s", "12.5 s", "14.55 s" abaixo de um minuto; "1:00", "1:30", "1:02.5" daí em diante. Sem zeros à direita, até o
+// milésimo: o alvo fora do centésimo (13005, de uma meta que veio de fora) aparece exato, "13.005 s", e reabre na folha como ele é.
 export function formatTarget(ms: number): string {
-  const cs = Math.floor(ms / 10) % 100;
-  const decimals = cs === 0 ? '' : `.${String(cs).padStart(2, '0').replace(/0$/, '')}`;
+  const frac = ms % 1000;
+  const decimals = frac === 0 ? '' : `.${String(frac).padStart(3, '0').replace(/0+$/, '')}`;
   const total = Math.floor(ms / 1000);
   if (total < 60) return `${total}${decimals} s`;
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}${decimals}`;
@@ -123,7 +125,7 @@ export function goalSeries(eventSolves: readonly Solve[], kind: GoalKind): GoalS
   values.forEach((v, i) => {
     if (v === null || !(v < (recordValue[recordValue.length - 1] ?? Infinity))) return;
     recordValue.push(v);
-    recordAt.push(eventSolves[i]!.at);
+    recordAt.push(Math.round(eventSolves[i]!.at));
   });
   const reach = (targetMs: number): number | null => {
     let lo = 0;
@@ -144,11 +146,12 @@ export function goalBest(eventSolves: readonly Solve[], kind: GoalKind): number 
   return kind === 'single' ? bestSingle(list) : bestAverage(list, AVERAGE_SIZE[kind]);
 }
 
-// O `at` do primeiro solve cujo valor (o single, ou a média que termina nele) ficou abaixo do alvo. DNF (Infinity) nunca fica.
+// O `at` do primeiro solve cujo valor (o single, ou a média que termina nele) ficou abaixo do alvo. DNF (Infinity) nunca fica. As datas da
+// meta saem arredondadas ao milissegundo (um solve importado pode ter `at` fracionário, e a meta só vale com inteiros).
 export function firstReach(eventSolves: readonly Solve[], kind: GoalKind, targetMs: number): number | null {
   const values = series(eventSolves, kind);
   const i = values.findIndex((v) => v !== null && v < targetMs);
-  return i < 0 ? null : eventSolves[i]!.at;
+  return i < 0 ? null : Math.round(eventSolves[i]!.at);
 }
 
 export interface GoalInput {
@@ -158,14 +161,15 @@ export interface GoalInput {
 }
 
 // A meta nova: o ponto de partida é o melhor de agora e, se o histórico já passou do alvo, ela nasce alcançada com a data de quem chegou.
+// Tudo em ms inteiros: um single fracionário (12345.5, de um solve importado) deixaria a meta fora do formato, e o perfil gravaria o padrão.
 export function makeGoal(input: GoalInput, eventSolves: readonly Solve[], now: number): Goal {
   const s = goalSeries(eventSolves, input.kind);
   return {
     kind: input.kind,
     event: input.event,
     targetMs: input.targetMs,
-    startMs: s.best,
-    createdAt: now,
+    startMs: s.best === null ? null : Math.round(s.best),
+    createdAt: Math.round(now),
     reachedAt: s.reach(input.targetMs),
   };
 }
@@ -221,7 +225,7 @@ export function goalsReachedBy(goals: Readonly<Record<string, Goal>>, history: r
     }
     if (value === null || !(value < g.targetMs)) continue;
     const before = firstReach(history, g.kind, g.targetMs);
-    out.push(before === null ? { id, at: solve.at, celebrate: true } : { id, at: before, celebrate: false });
+    out.push(before === null ? { id, at: Math.round(solve.at), celebrate: true } : { id, at: before, celebrate: false });
   }
   return out;
 }
