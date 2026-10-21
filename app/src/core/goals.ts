@@ -209,12 +209,26 @@ export interface GoalReach {
 
 // As metas do evento que este solve deixou abaixo do alvo e que ainda não tinham reachedAt, na ordem em que nasceram. `history` são os
 // solves anteriores do evento do solve. Se o histórico já tinha chegado (veio de fora), a data é a antiga e não comemora; senão é a deste solve.
+// Um alcance de fora sem solve novo abaixo do alvo fica sem reachedAt na meta até um solve daqui chegar abaixo dele: quem mostra lê pelo
+// goalStatus, que já o vê alcançado (a data do primeiro solve que chegou).
 export function goalsReachedBy(goals: Readonly<Record<string, Goal>>, history: readonly Solve[], solve: Solve): GoalReach[] {
   const out: GoalReach[] = [];
   const now = effectiveMs(solve);
   const live = Object.entries(goals)
     .filter(([, g]) => g.event === solve.event && g.reachedAt === null)
     .sort(([ia, a], [ib, b]) => a.createdAt - b.createdAt || (ia < ib ? -1 : 1));
+  // O relógio de outro aparelho adiantado deixa no histórico um solve com data depois da deste: ele não é o último. A conta vai para a
+  // lista junta, em ordem (o solve no lugar dele), e a data é a do primeiro alcance nela; comemora só se o histórico sozinho não chegava.
+  // Aqui toda meta que a lista junta alcança ganha a data (a que o histórico já alcançava, calada).
+  if ((history[history.length - 1]?.at ?? -Infinity) > solve.at) {
+    const i = history.findIndex((x) => x.at > solve.at);
+    const merged = [...history.slice(0, i), solve, ...history.slice(i)];
+    for (const [id, g] of live) {
+      const at = firstReach(merged, g.kind, g.targetMs);
+      if (at !== null) out.push({ id, at, celebrate: firstReach(history, g.kind, g.targetMs) === null });
+    }
+    return out;
+  }
   for (const [id, g] of live) {
     // O valor depois do solve: só a janela que termina nele conta.
     let value: number | null = now;

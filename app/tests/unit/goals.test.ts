@@ -347,6 +347,22 @@ describe('metas: o solve novo', () => {
     expect(goalsReachedBy({ a01: goal() }, history, sv(10000))).toEqual([{ id: 'a01', at: 3_001, celebrate: false }]);
   });
 
+  // Um solve de outro aparelho com o relógio adiantado já está no histórico com data depois do solve novo: a conta é na lista em ordem, com
+  // o solve no lugar dele, e não na janela que supõe que ele é o último.
+  it('relógio adiantado: com solve do histórico depois do novo, a conta é na lista junta e em ordem', () => {
+    const at = (ms: number, when: number) => sv(ms, null, '333', when);
+    const g = goal({ kind: 'ao5', targetMs: 12000 });
+    const history = [at(9000, 1), at(9000, 2), at(9000, 3), at(15000, 4), at(15000, 10)];
+    // Em ordem: 9, 9, 9, 15, 9 (o novo, em 5) já fica abaixo de 12; o histórico sozinho chegou em 10 (veio de fora): não comemora.
+    expect(goalsReachedBy({ a01: g }, history, at(9000, 5))).toEqual([{ id: 'a01', at: 5, celebrate: false }]);
+    // Sem alcance antes dele, o novo comemora com a data do primeiro alcance da lista em ordem.
+    const fresh = [at(15000, 1), at(15000, 2), at(9000, 3), at(9000, 4), at(15000, 10)];
+    expect(firstReach(fresh, 'ao5', 12000)).toBeNull();
+    expect(goalsReachedBy({ a01: g }, fresh, at(9000, 5))).toEqual([{ id: 'a01', at: 5, celebrate: true }]);
+    // E fora de ordem nada que a lista em ordem não alcança.
+    expect(goalsReachedBy({ a01: g }, [at(15000, 1), at(15000, 2), at(15000, 3), at(9000, 10)], at(9000, 5))).toEqual([]);
+  });
+
   it('um DNF novo não alcança nada', () => {
     expect(goalsReachedBy({ a1: goal() }, run([14000]), sv(9000, 'DNF'))).toEqual([]);
   });
