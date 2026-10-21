@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { decodeDuelLink, duelPayloadOf, encodeDuelLink } from '../../src/core/duel/link';
@@ -415,5 +415,74 @@ describe('Evolução: Desafios', () => {
     await waitFor(() => expect(a.duel.phase).toBe('reply'));
     expect(a.tab).toBe('timer');
     expect(await repo.getDuel(SENT.id)).toMatchObject({ status: 'done', theirName: 'Bia' });
+  });
+});
+
+// O quadro "Semanas" (a maquete aprovada, 1a–1c): segue o evento e a sessão, sem o período, logo depois de Fases.
+describe('Evolução: o quadro Semanas', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const NOW = new Date(2026, 9, 21, 12).getTime(); // quarta, 21/10/2026
+  const day = (m: number, d: number) => new Date(2026, m, d, 12).getTime();
+  const mk = (sessionId: string, event: '333' | '222', ms: number, when: number, i: number) => ({
+    id: `${sessionId}-${i}-${when}`, sessionId, event, ms, penalty: null, at: when, scramble: 'R U', note: '', createdAt: when, updatedAt: when, deletedAt: null,
+  });
+  const nSolves = (sessionId: string, event: '333' | '222', count: number, when: number) => Array.from({ length: count }, (_, i) => mk(sessionId, event, 12_000 + i * 100, when, i));
+  const weeks = () => screen.queryByRole('table', { name: T.semanas.title });
+
+  it('Semanas segue o evento e a sessão, não o período', async () => {
+    const a = await app();
+    await a.createSession('333', 'Segunda');
+    await a.createSession('222', 'Dois');
+    const [s1, s2, s3] = [a.sessions[0]!.id, a.sessions[1]!.id, a.sessions[2]!.id];
+    a.solves = [
+      ...nSolves(s1, '333', 3, NOW), // esta semana, sessão 1
+      ...nSolves(s2, '333', 2, NOW), // esta semana, sessão 2
+      ...nSolves(s1, '333', 5, day(9, 6)), // duas semanas atrás: fora de 7 dias, dentro das 12 semanas
+      ...nSolves(s3, '222', 4, NOW), // outro evento: fica de fora
+    ];
+    vi.useFakeTimers({ now: NOW, toFake: ['Date', 'setInterval', 'clearInterval'] });
+    render(EvolucaoScreen, { app: a });
+    await tick();
+    const evento = screen.getByLabelText('Evento') as HTMLSelectElement;
+    const escolhe = async (v: string) => {
+      evento.value = v;
+      evento.dispatchEvent(new Event('change', { bubbles: true }));
+      await tick();
+    };
+    await escolhe('333'); // a tela abre no evento da sessão atual (a última criada, 2×2)
+    const cells = () => within(weeks()!).getAllByRole('row').slice(1).map((r) => within(r).getAllByRole('cell')[0]!.textContent);
+    // 3×3, todas as sessões: 5 solves esta semana, a semana de 12/10 vazia e a de 5/10 com 5
+    expect(cells()).toEqual(['5 solves', 'sem solves', '5 solves']);
+    // o período de 7 dias não mexe no quadro
+    (document.querySelector('[data-period="7"]') as HTMLButtonElement).click();
+    await tick();
+    expect(cells()).toEqual(['5 solves', 'sem solves', '5 solves']);
+    // uma sessão só
+    const sessao = screen.getByLabelText('Sessão') as HTMLSelectElement;
+    sessao.value = s2;
+    sessao.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick();
+    expect(cells()).toEqual(['2 solves']);
+    // outro evento
+    await escolhe('222');
+    expect(cells()).toEqual(['4 solves']);
+  });
+
+  it('Semanas vem depois de Fases e antes do gráfico', async () => {
+    const a = await app();
+    const s = a.profile.currentSessionId!;
+    a.solves = Array.from({ length: 6 }, (_, i) => ({ ...mk(s, '333', 12_000, NOW - i * 60_000, i), phases: [3000, 3000, 3000, 3000] }));
+    vi.useFakeTimers({ now: NOW, toFake: ['Date', 'setInterval', 'clearInterval'] });
+    render(EvolucaoScreen, { app: a });
+    await tick();
+    const fases = screen.getByRole('region', { name: T.fases.boardTitle });
+    const semanas = screen.getByRole('region', { name: T.semanas.title });
+    const grafico = document.querySelector('.bars')!;
+    expect(fases.compareDocumentPosition(semanas) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(semanas.compareDocumentPosition(grafico) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(semanas.closest('.evo-grid.es-grid')).not.toBeNull();
   });
 });

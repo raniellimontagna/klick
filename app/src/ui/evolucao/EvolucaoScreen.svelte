@@ -33,6 +33,7 @@
   import { poolStats } from './pool-stats';
   import RecordsBoard from './RecordsBoard.svelte';
   import SolveList from './SolveList.svelte';
+  import WeeksBoard from './WeeksBoard.svelte';
 
   type Period = keyof typeof T.evolucao.periods;
   interface Kpi {
@@ -309,6 +310,11 @@
 
     <RecordsBoard records={stats.records} all={sessionId === 'all'} onOpen={openRecord} />
     <PhasesBoard phases={stats.phases} {event} />
+
+    <!-- Semanas segue o evento e a sessão, sem o período, como os dois quadros de cima; o quadro de Metas entra ao lado (2fr e 1fr). -->
+    <div class="evo-grid es-grid">
+      <WeeksBoard {pool} {now} />
+    </div>
 
     <div class="evo-grid">
       <div class="card">

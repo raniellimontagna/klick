@@ -552,6 +552,33 @@ export const T = Object.freeze({
     boardScope: (used: number, n: number) => `${used === 1 ? 'o último' : used >= 12 ? `as últimas ${used}` : `os ${used} últimos`} com ${n} fases`,
     boardTop: (name: string, pct: number, ms: number) => `A fase ${name} é a que mais pesa: ${pct}% do tempo, ${phaseDur(ms)} em média.`,
   },
+  // O quadro "Semanas" da Evolução (a maquete aprovada, 1a–1c, 6a, 6c e 7a): as últimas 12 semanas de seg a dom, a média de cada uma e a mudança
+  // sobre a anterior (▼ mais rápida, ▲ mais lenta; os símbolos não têm cor). No celular as partes "solves" e "melhor" perdem a coluna e voltam
+  // por extenso (as `ph`); o cabeçalho das colunas fica só para o leitor de tela.
+  semanas: {
+    title: 'Semanas',
+    scope: 'de seg a dom',
+    now: 'Esta semana',
+    // A linha dos últimos 28 dias: o número vai em negrito, entre a frase e o ponto.
+    sumFell: 'Nos últimos 28 dias, sua média caiu ',
+    sumRose: 'Nos últimos 28 dias, sua média subiu ',
+    sumSame: 'Nos últimos 28 dias, sua média ficou igual.',
+    sumEnd: '.',
+    cols: { week: 'Semana', solves: 'Solves', mean: 'Média', best: 'Melhor', change: 'Mudança' },
+    // "41 solves · 2 DNF": o número na coluna, a palavra e o "·" na parte do celular (`solvesWord`, `dot`), os DNF depois.
+    none: 'sem solves',
+    solvesWord: (n: number) => (n === 1 ? ' solve' : ' solves'),
+    dot: ' ·',
+    dnf: (n: number) => ` ${n} DNF`,
+    bestWord: 'melhor ',
+    dash: '—',
+    record: 'recorde',
+    diff: (ms: number) => `${sec(ms)} s`,
+    faster: ' mais rápida',
+    slower: ' mais lenta',
+    same: 'igual',
+    rule: 'A média da semana deixa os DNF de fora e tira 5% de cada lado; com menos de 5 solves, fica “—”.',
+  },
   actions: { plus2: '+2', dnf: 'DNF', note: 'Nota', delete: 'Excluir' },
   note: {
     label: 'Nota sobre este solve',

@@ -141,7 +141,7 @@ export function rollingAverages(solves: Solve[], n: number): (number | null)[] {
   return rollingTrimmed(solves.map(effectiveMs), n);
 }
 
-export function bestSingle(solves: Solve[]): number | null {
+export function bestSingle(solves: readonly Solve[]): number | null {
   let best: number | null = null;
   for (const x of solves) {
     const e = effectiveMs(x);

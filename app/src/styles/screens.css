@@ -366,6 +366,32 @@ body.solving .t-coach {
   margin-top: 12px;
 }
 
+/* Semanas e Metas lado a lado na grade do gráfico (2fr e 1fr; abaixo de 1024 px uma embaixo da outra, pelo .evo-grid). Sem o quadro, a grade some
+   (sem a margem de cima). */
+.es-grid { align-items: start; }
+.es-grid:not(:has(> .card)) { display: none; }
+.es-grid > .card { min-width: 0; }
+
+/* es-weeks (spec §3): a linha do resumo e a tabela das 12 semanas. No desktop, colunas como as da lista (cabeçalho de 11 px, linhas de 36 px).
+   A tabela é de papéis ARIA (role="table"), como a lista: assim o celular pode arrumar as células em duas linhas sem perder a tabela. */
+.es-sum { margin-top: 8px; font-size: 14px; color: var(--ink-2); }
+.es-sum b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.es-wks { --es-cols: minmax(0, 1fr) 112px 84px 96px 88px; position: relative; margin-top: 8px; }
+.es-wk-h, .es-wk { display: grid; grid-template-columns: var(--es-cols); column-gap: 10px; align-items: center; }
+.es-wk-h { padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 11px; font-weight: 600; line-height: 1.3; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.es-wk { min-height: 36px; border-bottom: 1px solid var(--line); font-size: 14px; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.es-wks [role='rowgroup']:last-child .es-wk:last-child { border-bottom: 0; }
+.es-wk > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.es-wk[data-now] .es-w { color: var(--ink); font-weight: 600; }
+.es-a { color: var(--ink); }
+.es-dnf { margin-left: 8px; font-size: 12px; color: var(--muted); }
+.es-b .hx-pb { margin-left: 6px; vertical-align: 1px; }
+/* a mudança: ▼ mais rápida, ▲ mais lenta (como os chips e os indicadores, sem verde nem vermelho); "igual" e "—" em cinza */
+.es-c[data-d='same'], .es-c[data-d='none'], .es-wk[data-empty] .es-n { color: var(--muted); }
+/* o nome das partes que no celular perdem a coluna ("solves", "melhor"): só lá aparece */
+.es-ph { display: none; }
+.es-rule { margin-top: 10px; }
+
 .chart {
   display: block;
   width: 100%;
@@ -1107,6 +1133,17 @@ body:has(.hx-bulk) .toast {
 }
 
 @media (max-width: 639px) {
+  /* Semanas no celular: o cabeçalho fica só para o leitor; cada semana em duas linhas (a média e a mudança em cima, solves e melhor embaixo) */
+  .es-wk-h { position: absolute; width: 1px; height: 1px; padding: 0; border: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .es-wk { grid-template-columns: minmax(0, 1fr) auto 4.4em; grid-template-areas: 'w a c' 'n b c'; row-gap: 1px; align-items: baseline; min-height: 44px; padding: 8px 0; }
+  .es-w { grid-area: w; }
+  .es-n { grid-area: n; font-size: 12px; color: var(--muted); }
+  .es-a { grid-area: a; justify-self: end; font-size: 15px; font-weight: 600; }
+  .es-b { grid-area: b; justify-self: end; font-size: 12px; color: var(--muted); }
+  .es-c { grid-area: c; align-self: center; justify-self: end; font-size: 12px; }
+  .es-ph { display: inline; }
+  .es-dnf { margin-left: 0; }
+
   /* Seletor segmentado na linha de baixo do rótulo e na largura toda: lado a lado, os rótulos dos botões quebravam ("0,3 / s"). */
   .setting:has(> .seg) { flex-wrap: wrap; gap: 8px; }
   .setting:has(> .seg) > span:first-child { flex-basis: 100%; }

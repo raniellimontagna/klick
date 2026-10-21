@@ -58,3 +58,13 @@ export function shortDate(ts: number): string {
 export function fullDate(ts: number): string {
   return `${shortDate(ts)}/${new Date(ts).getFullYear()}`;
 }
+
+// "12–18 out": a semana que começa na segunda `start`, até o domingo; entre meses, "28 set–4 out". Sem o ano, mesmo na virada. O domingo
+// vem por setDate (dia de calendário), não somando 6 × 86 400 000 ms (horário de verão).
+export function weekLabel(start: number): string {
+  const a = new Date(start);
+  const b = new Date(start);
+  b.setDate(b.getDate() + 6);
+  const month = (d: Date): string => T.date.monthsShort[d.getMonth()];
+  return a.getMonth() === b.getMonth() ? `${a.getDate()}–${b.getDate()} ${month(b)}` : `${a.getDate()} ${month(a)}–${b.getDate()} ${month(b)}`;
+}
