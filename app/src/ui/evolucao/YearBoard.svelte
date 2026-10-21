@@ -36,6 +36,8 @@
     const inside = from >= cal.start && to <= todayTs;
     return T.constancia.range((inside ? shortDate : fullDate)(from), (inside ? shortDate : fullDate)(to));
   });
+  // A atual pela mesma regra: termina hoje ou ontem, então só o começo pode cair antes da primeira coluna (e aí leva o ano).
+  const currentSince = $derived(cal.current.from === null ? '' : (cal.current.from >= cal.start ? shortDate : fullDate)(cal.current.from));
   const monthLabel = (ts: number): { name: string; year: number } => {
     const d = new Date(ts);
     return { name: T.date.months[d.getMonth()]!, year: d.getFullYear() };
@@ -114,6 +116,13 @@
     hide();
   }
 
+  // A dica é de um dia desta grade: outro calendário (o dia virou, ou chegou solve) a fecha. No mesmo dia, com a mesma lista, yearCalendar
+  // devolve o mesmo objeto, e o relógio de minuto da Evolução não a mexe.
+  $effect(() => {
+    void cal;
+    untrack(hide);
+  });
+
   // Abre na semana de hoje (a última coluna): só importa quando a grade passa da largura, no celular.
   $effect(() => {
     const el = scroller;
@@ -153,7 +162,7 @@
       <div class="es-cal-d">
         <span>{T.date.weekdaysShort[1]}</span><span></span><span>{T.date.weekdaysShort[3]}</span><span></span><span>{T.date.weekdaysShort[5]}</span><span></span><span></span>
       </div>
-      <div class="es-cal-s" data-scroll-end data-more={more ? '' : undefined} bind:this={scroller} onscroll={onScroll}>
+      <div class="es-cal-s" data-more={more ? '' : undefined} bind:this={scroller} onscroll={onScroll}>
         <div class="es-cal-m">
           {#each labels as l (l.col)}
             <span style="grid-column:{l.col}">{l.name}</span>
@@ -172,7 +181,7 @@
     <dl class="es-stats">
       <div>
         <dt>{T.constancia.current}</dt>
-        <dd>{T.constancia.days(cal.current.days)}{#if cal.current.days > 0}<em>{T.constancia.since(shortDate(cal.current.from!))}</em>{/if}</dd>
+        <dd>{T.constancia.days(cal.current.days)}{#if cal.current.days > 0}<em>{T.constancia.since(currentSince)}</em>{/if}</dd>
       </div>
       <div>
         <dt>{T.constancia.best}</dt>

@@ -54,7 +54,6 @@ describe('o ano de treino', () => {
     const months = [...document.querySelectorAll<HTMLElement>('.es-cal-m span')];
     expect(months.map((s) => s.textContent)).toEqual(['out', 'nov', 'dez', 'jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out']);
     expect(months.map((s) => s.style.gridColumn)).toEqual(['1', '3', '7', '12', '16', '20', '25', '29', '33', '38', '42', '47', '51']);
-    expect(document.querySelector('.es-cal-s')!.hasAttribute('data-scroll-end')).toBe(true);
     // a legenda e os números de baixo
     expect(document.querySelector('.es-legend')!.textContent).toBe('menosmais');
     expect(document.querySelectorAll('.es-legend i')).toHaveLength(4);
@@ -138,6 +137,28 @@ describe('o ano de treino', () => {
     expect(stat('Maior sequência').querySelector('dd')!.firstChild!.textContent).toBe('6 dias');
     expect(stat('Maior sequência').querySelector('em')!.textContent).toBe('10/01/2025 a 15/01/2025');
     expect(document.querySelector('p.sr-only')!.textContent).toContain('Maior sequência: 6 dias, de 10/01/2025 a 15/01/2025.');
+  });
+
+  it('sequência atual que começou antes do período mostra o ano, como a maior', () => {
+    render(YearBoard, { solves: run(new Date(2025, 9, 1), new Date(2026, 9, 21)), now: NOW });
+    expect(stat('Sequência atual').querySelector('em')!.textContent).toBe('desde 01/10/2025');
+    expect(stat('Maior sequência').querySelector('em')!.textContent).toBe('01/10/2025 a 21/10/2026');
+  });
+
+  // A dica é de um dia da grade de agora: com outro dia (o relógio da Evolução virou a meia-noite) ou outro calendário, ela some.
+  it('a dica some quando o dia ou o calendário mudam', async () => {
+    const solves = history();
+    const { rerender } = render(YearBoard, { solves, now: NOW });
+    await fireEvent.click(cells()[23]!);
+    expect(document.querySelector('.es-tip')).not.toBeNull();
+    await rerender({ solves, now: NOW + 60_000 }); // o mesmo dia: fica
+    expect(document.querySelector('.es-tip')).not.toBeNull();
+    await rerender({ solves, now: at(2026, 9, 22) });
+    expect(document.querySelector('.es-tip')).toBeNull();
+    await fireEvent.click(cells()[23]!);
+    expect(document.querySelector('.es-tip')).not.toBeNull();
+    await rerender({ solves: [...solves, sv(at(2026, 9, 22))], now: at(2026, 9, 22) });
+    expect(document.querySelector('.es-tip')).toBeNull();
   });
 
   it('conta todos os eventos, não o filtro', () => {
