@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Goal } from '../../src/core/goals';
 import { seasonOne } from '../../src/core/season';
 import type { SyncState } from '../../src/core/sync/types';
-import type { SeasonRecord } from '../../src/core/types';
+import type { Profile, SeasonRecord } from '../../src/core/types';
 import { openKlickDb } from '../../src/data/db';
 import { createRepository, defaultSyncState } from '../../src/data/repository';
 
@@ -74,6 +74,29 @@ describe('perfil dividido (spec 5.2): o aparelho na store profile, a conta em pr
       { key: 'goal.b02', value: ao12, updatedAt: before },
     ]);
     expect((await repo.getProfile()).goals).toEqual({ a01: edited, b02: ao12 });
+  });
+
+  it('saveProfile com função: o remendo sai do perfil gravado, na transação; null não grava nem avisa e devolve o gravado', async () => {
+    const { db, repo } = await fresh();
+    await repo.saveProfile({ goals: { a01: single } });
+    let announced = 0;
+    repo.onChange((kind) => {
+      if (kind === 'profile') announced += 1;
+    });
+    const seen: Profile[] = [];
+    t += 1000;
+    const saved = await repo.saveProfile((base) => {
+      seen.push(base);
+      return { goals: { ...base.goals, b02: ao12 } };
+    });
+    expect(seen[0]!.goals).toEqual({ a01: single });
+    expect(saved.goals).toEqual({ a01: single, b02: ao12 });
+    expect(announced).toBe(1);
+    const items = await db.getAll('prefs');
+    t += 1000;
+    expect((await repo.saveProfile(() => null)).goals).toEqual({ a01: single, b02: ao12 });
+    expect(announced).toBe(1);
+    expect(await db.getAll('prefs')).toEqual(items);
   });
 
   it('virar a temporada grava o item "season"', async () => {

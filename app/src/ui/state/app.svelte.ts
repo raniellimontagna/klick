@@ -176,6 +176,9 @@ export interface ImportSummary {
 
 // O que o "Desfazer" desfaz (o aviso e a tecla Z): uma exclusão (de um solve ou de um lote) volta da lixeira; uma mudança de sessão volta
 // cada solve para a sessão de onde ele saiu.
+// Um remendo do perfil pela fila da trilha: pronto, ou uma função que o monta sobre o perfil gravado, dentro da transação (null: nada a gravar).
+type ProfileJob = Partial<Omit<Profile, 'settings'>> | ((base: Profile) => Partial<Omit<Profile, 'settings'>> | null);
+
 type UndoAction = { kind: 'delete'; ids: string[] } | { kind: 'move'; moves: { id: string; from: string }[] };
 
 const DEFAULT_EVENT: EventId = '333';
@@ -1433,8 +1436,10 @@ export class AppState {
   // Antes, espera uma restauração em curso (o remendo não parte da memória de antes da troca nem cai no meio do replaceAll). O
   // remendo é calculado e gravado dentro da fila das leituras (serial): uma leitura em voo termina antes e deixa o perfil que leu na
   // memória, e a gravação parte dele; uma que entra depois lê o que acabou de ser gravado. Assim nenhuma leitura velha desfaz a marca.
-  // Serve a qualquer remendo do perfil (as metas também passam por aqui); o remendo null é "nada a gravar" e devolve true sem tocar no repositório.
-  private trailJob(job: () => Partial<Omit<Profile, 'settings'>> | null): Promise<boolean> {
+  // Serve a qualquer remendo do perfil; o remendo null é "nada a gravar" e devolve true sem tocar no repositório. As metas mandam uma função,
+  // que o repositório roda sobre o perfil gravado dentro da transação: elas mudam pela vaga, e um lote do sync que gravou uma meta depois da
+  // última leitura não é desfeito pela memória de antes dele.
+  private trailJob(job: () => ProfileJob | null): Promise<boolean> {
     const run = this.trailWrites.then(async () => {
       while (this.restoring) await this.restoring;
       const ok = await this.write(() =>
@@ -1495,41 +1500,49 @@ export class AppState {
     });
   }
 
-  // --- Metas (spec 5 e 6). Pela mesma fila de escrita do perfil: o remendo é o mapa inteiro, e uma meta apagada sai da chave. ---
+  // --- Metas (spec 5 e 6). Pela mesma fila de escrita do perfil, pela vaga: cada operação parte das metas gravadas (dentro da transação, não
+  // da memória), muda só a sua, e uma meta apagada sai da chave. ---
 
   // Cria (sem id) ou edita (com id) uma meta. Os solves do evento saem de todas as sessões. Recusa criar com GOAL_MAX vivas (as que vieram
   // do sync contam, mesmo passando de seis) e editar uma que sumiu (apagada em outro aparelho); em nenhum dos dois casos grava.
   saveGoal(input: GoalInput & { id?: string }): Promise<boolean> {
     let refused = false;
     return this.trailJob(() => {
-      const goals = $state.snapshot(this.profile.goals); // cópia simples: o perfil da memória é um proxy, que o IndexedDB não clona
       const eventSolves = this.solves.filter((s) => s.event === input.event);
       const at = this.now();
-      if (input.id === undefined) {
-        if (Object.keys(goals).length >= GOAL_MAX) refused = true;
-        else goals[freeGoalId(new Set(Object.keys(goals)))] = makeGoal(input, eventSolves, at);
-      } else {
-        const old = goals[input.id];
-        if (old) goals[input.id] = remakeGoal(old, input, eventSolves, at);
-        else refused = true;
-      }
-      return refused ? null : { goals };
+      return (base) => {
+        const goals = { ...base.goals };
+        refused = false;
+        if (input.id === undefined) {
+          if (Object.keys(goals).length >= GOAL_MAX) refused = true;
+          else goals[freeGoalId(new Set(Object.keys(goals)))] = makeGoal(input, eventSolves, at);
+        } else {
+          const old = goals[input.id];
+          if (old) goals[input.id] = remakeGoal(old, input, eventSolves, at);
+          else refused = true;
+        }
+        return refused ? null : { goals };
+      };
     }).then((ok) => ok && !refused);
   }
 
+  // Uma meta que já não existe não grava nada (e a resposta é true: ela já não está lá).
   deleteGoal(id: string): Promise<boolean> {
-    return this.trailJob(() => {
-      const goals = $state.snapshot(this.profile.goals);
+    return this.trailJob(() => (base) => {
+      if (!(id in base.goals)) return null;
+      const goals = { ...base.goals };
       delete goals[id];
       return { goals };
     });
   }
 
-  // Grava a data de quem alcançou, só onde a meta ainda não tem uma (reachedAt não volta atrás). Sem mudança, não grava.
+  // Grava a data de quem alcançou, só onde a meta ainda não tem uma (reachedAt não volta atrás). Sem mudança, não grava; sem marca, nem chega
+  // ao repositório.
   markGoalsReached(marks: readonly { id: string; at: number }[]): Promise<boolean> {
-    let changed = false;
-    return this.trailJob(() => {
-      const goals = $state.snapshot(this.profile.goals);
+    if (marks.length === 0) return Promise.resolve(true);
+    return this.trailJob(() => (base) => {
+      const goals = { ...base.goals };
+      let changed = false;
       for (const { id, at } of marks) {
         const g = goals[id];
         if (g && g.reachedAt === null) {

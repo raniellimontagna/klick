@@ -17,7 +17,9 @@ async function app(goals: Record<string, Goal> = {}, solves: Solve[] = []) {
   const repo = createRepository(await openKlickDb(`gd-${++n}`), { channel: null });
   const a = new AppState({ repo, queue: createScrambleQueue({ generate: async () => 'R U' }), storage: null, storageManager: null });
   await a.init();
-  a.profile.goals = goals;
+  // As metas gravadas (as operações partem do perfil gravado); os solves, só na memória.
+  await repo.saveProfile({ goals });
+  await a.reload();
   a.solves = solves;
   return { a, repo };
 }
@@ -145,9 +147,10 @@ describe('a folha da meta', () => {
   });
 
   it('se saveGoal recusa (seis metas vieram do sync com a folha aberta), a folha fica aberta', async () => {
-    const { a } = await app();
+    const { a, repo } = await app();
     await openNew(a);
-    a.profile.goals = Object.fromEntries(Array.from({ length: 6 }, (_, i) => [`a${i}`, goal({ createdAt: i })]));
+    // O lote do sync grava as seis antes de a memória se refazer.
+    await repo.saveProfile({ goals: Object.fromEntries(Array.from({ length: 6 }, (_, i) => [`a0${i}`, goal({ createdAt: i })])) });
     await type('10');
     await save();
     await sleep(50);

@@ -117,7 +117,10 @@ export interface Repository {
   // marcas do treino saem junto, sem contar.
   purgeTrash(olderThanMs: number): Promise<number>;
   getProfile(): Promise<Profile>; // padrão se ausente (e não grava o padrão)
-  saveProfile(patch: ProfilePatch): Promise<Profile>; // settings faz merge raso, sound faz merge
+  // settings faz merge raso, sound faz merge. Com uma função, o remendo sai do perfil gravado, lido dentro da transação (ela não muda o que
+  // recebe; null é "nada a gravar", e a resposta é o perfil gravado): quem muda uma parte pela chave (as metas) não grava por cima do que o
+  // sync gravou depois da última leitura da memória.
+  saveProfile(patch: ProfilePatch | ((base: Profile) => ProfilePatch | null)): Promise<Profile>;
   // Vira a temporada (spec 5.5) numa transação: só grava se a temporada gravada ainda for fromN. Se outra aba já virou, não grava nem
   // avisa e devolve o perfil gravado.
   advanceSeason(fromN: number, record: SeasonRecord, next: SeasonState): Promise<Profile>;
@@ -1308,13 +1311,15 @@ export function createRepository(
     },
 
     async saveProfile(patch) {
-      const profile = await syncWrite(['profile', 'prefs'], async (tx, ctx) => {
+      const { profile, saved } = await syncWrite(['profile', 'prefs'], async (tx, ctx) => {
         const base = await storedProfile(tx);
-        const merged = mergeProfile(base, patch);
+        const p = typeof patch === 'function' ? patch(base) : patch;
+        if (p === null) return { profile: base, saved: false };
+        const merged = mergeProfile(base, p);
         await writeProfile(tx, base, merged, ctx);
-        return merged;
+        return { profile: merged, saved: true };
       });
-      announce('profile');
+      if (saved) announce('profile');
       return structuredClone(profile); // a trilha do patch não fica compartilhada com quem recebe o perfil
     },
 
