@@ -34,6 +34,7 @@
   import RecordsBoard from './RecordsBoard.svelte';
   import SolveList from './SolveList.svelte';
   import WeeksBoard from './WeeksBoard.svelte';
+  import YearBoard from './YearBoard.svelte';
 
   type Period = keyof typeof T.evolucao.periods;
   interface Kpi {
@@ -315,6 +316,9 @@
     <div class="evo-grid es-grid">
       <WeeksBoard {pool} {now} />
     </div>
+
+    <!-- O ano de treino conta além do filtro (todos os eventos e sessões) e diz isso no cabeçalho; na largura toda. -->
+    <YearBoard solves={app.solves} {now} />
 
     <div class="evo-grid">
       <div class="card">

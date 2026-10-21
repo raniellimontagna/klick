@@ -485,4 +485,35 @@ describe('Evolução: o quadro Semanas', () => {
     expect(semanas.compareDocumentPosition(grafico) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(semanas.closest('.evo-grid.es-grid')).not.toBeNull();
   });
+
+  it('o ano vem depois de Semanas e Metas e antes do gráfico', async () => {
+    const a = await app();
+    const s = a.profile.currentSessionId!;
+    a.solves = Array.from({ length: 6 }, (_, i) => ({ ...mk(s, '333', 12_000, NOW - i * 60_000, i), phases: [3000, 3000, 3000, 3000] }));
+    vi.useFakeTimers({ now: NOW, toFake: ['Date', 'setInterval', 'clearInterval'] });
+    render(EvolucaoScreen, { app: a });
+    await tick();
+    const semanas = screen.getByRole('region', { name: T.semanas.title });
+    const ano = screen.getByRole('region', { name: T.constancia.title });
+    const grafico = document.querySelector('.bars')!;
+    // depois do .es-grid (Semanas; as Metas entram ali ao lado) e antes do gráfico, na largura toda (fora da grade)
+    expect(semanas.compareDocumentPosition(ano) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(ano.compareDocumentPosition(grafico) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(ano.closest('.es-grid')).toBeNull();
+    expect(ano.previousElementSibling!.classList.contains('es-grid')).toBe(true);
+  });
+
+  it('o ano conta todos os eventos e sessões, mesmo com o filtro em outro evento', async () => {
+    const a = await app();
+    const s = a.profile.currentSessionId!;
+    a.solves = [mk(s, '333', 12_000, NOW, 0), mk(s, '333', 12_000, NOW - 60_000, 1), mk(s, '222', 3_000, NOW - 120_000, 2)];
+    vi.useFakeTimers({ now: NOW, toFake: ['Date', 'setInterval', 'clearInterval'] });
+    render(EvolucaoScreen, { app: a });
+    await tick();
+    const evento = screen.getByLabelText('Evento') as HTMLSelectElement;
+    evento.value = '222';
+    evento.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick();
+    expect(document.querySelector('.es-year p.sr-only')!.textContent).toContain('1 dia com solves, 3 solves.');
+  });
 });

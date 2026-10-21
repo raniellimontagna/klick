@@ -43,6 +43,8 @@ export const FINISH_INFO = Object.freeze({
 
 // "1 solve", "2.304 solves": a contagem com o ponto de milhar, no singular quando é um só.
 const solvesLabel = (n: number): string => `${n.toLocaleString('pt-BR')} ${n === 1 ? 'solve' : 'solves'}`;
+// "1 dia", "6 dias", "1.231 dias": a contagem no singular quando é um só.
+const daysLabel = (n: number): string => `${n.toLocaleString('pt-BR')} ${n === 1 ? 'dia' : 'dias'}`;
 // O "Cancelar" das listas de sessões (as Sessões, a seleção do histórico e a folha de mover): o mesmo texto nos três.
 const cancelLabel = 'Cancelar';
 
@@ -578,6 +580,32 @@ export const T = Object.freeze({
     slower: ' mais lenta',
     same: 'igual',
     rule: 'A média da semana deixa os DNF de fora e tira 5% de cada lado; com menos de 5 solves, fica “—”.',
+  },
+  // O ano de treino da Evolução (a maquete aprovada, 1b, 1c, 2a, 6c e 7b): 53 colunas de seg a dom com a intensidade de cada dia, a sequência atual,
+  // a maior e os dias treinados. A grade é só desenho (aria-hidden): o leitor ouve o texto do período e um item por mês (`period`, `month`).
+  constancia: {
+    title: 'Constância · todos os eventos',
+    scope: '53 semanas',
+    less: 'menos',
+    more: 'mais',
+    current: 'Sequência atual',
+    best: 'Maior sequência',
+    trained: 'Dias treinados',
+    // Os números ("6 dias", "1 dia", "0 dias") e as linhas de baixo: "desde 16/10", "10/08 a 01/09", "de 367".
+    days: daysLabel,
+    since: (date: string) => `desde ${date}`,
+    range: (from: string, to: string) => `${from} a ${to}`,
+    of: (n: number) => `de ${n.toLocaleString('pt-BR')}`,
+    // O texto do leitor: o período com os totais e as duas sequências ("23 dias, de 10/08 a 01/09"; sem sequência, "0 dias"), e um item por
+    // mês ("novembro de 2025: 17 dias, 132 solves").
+    streakSr: (days: number, range: string) => (days === 0 ? daysLabel(0) : `${daysLabel(days)}, de ${range}`),
+    period: (from: string, to: string, days: number, solves: number, current: string, best: string) =>
+      `Calendário de ${from} a ${to}, todos os eventos: ${daysLabel(days)} com solves, ${solvesLabel(solves)}. Sequência atual: ${current}. Maior sequência: ${best}.`,
+    month: (name: string, year: number, days: number, solves: number) =>
+      solves === 0 ? `${name} de ${year}: nenhum solve` : `${name} de ${year}: ${daysLabel(days)}, ${solvesLabel(solves)}`,
+    // A dica do dia (toque ou mouse): "31 solves" em negrito (`tipCount`), depois "· qua, 14/10/2026" (`tipDay`).
+    tipCount: (n: number) => (n === 0 ? 'nenhum solve' : solvesLabel(n)),
+    tipDay: (weekday: string, date: string) => ` · ${weekday}, ${date}`,
   },
   actions: { plus2: '+2', dnf: 'DNF', note: 'Nota', delete: 'Excluir' },
   note: {
