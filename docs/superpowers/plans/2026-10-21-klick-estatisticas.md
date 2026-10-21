@@ -8,7 +8,7 @@
 
 **Tech Stack:** Svelte 5 (runes), TypeScript strict, `idb`, Cloudflare Worker + DO SQLite (só aceita as chaves novas), Vitest (jsdom e Workers), Playwright, axe.
 
-**Spec:** `docs/superpowers/specs/2026-10-21-klick-estatisticas-design.md` · **Maquete aprovada:** `docs/design/2026-10-21-estatisticas-maquete.html` (respostas do Ranielli: ao alcançar, só a mensagem do Centro; tempos com ponto; a meta guarda o melhor de quando nasceu, para a barra). A maquete pesa 765 KB (fontes embutidas): o controlador deixa no workspace do SDD `maquete-es.css` (as regras `es-*`) e `maquete-frames.html` (o HTML dos quadros, sem estilo nem as células repetidas do calendário). Leia esses dois, não a maquete inteira.
+**Spec:** `docs/superpowers/specs/2026-10-21-klick-estatisticas-design.md` · **Maquete aprovada:** `docs/design/2026-10-21-estatisticas-maquete.html` (respostas do Ranielli: ao alcançar, só a mensagem do Centro; tempos com ponto; a meta guarda o melhor de quando nasceu, para a barra). A maquete pesa 765 KB (fontes embutidas): o controlador deixa no workspace do SDD `maquete-es.css` (as regras `es-*`) e `frames/<quadro>.html` (o HTML de cada quadro, de `1a` a `7f`, sem estilo e com as células do calendário resumidas). Leia esses, não a maquete inteira.
 
 ## Global Constraints
 
