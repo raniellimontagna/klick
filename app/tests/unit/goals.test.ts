@@ -310,6 +310,18 @@ describe('metas: o solve novo', () => {
     expect(got).toEqual([{ id: id1, at: history[1]!.at, celebrate: false }]);
   });
 
+  it('alcance de fora numa ao5: o solve novo que fecha a janela abaixo grava a data antiga e não comemora', () => {
+    // O histórico (de fora) já tinha uma média de 5 abaixo de 12: 15, 15, 9, 9, 9 dá 11, no 5º solve.
+    const history = run([15000, 15000, 9000, 9000, 9000, 20000]);
+    const g = goal({ kind: 'ao5', targetMs: 12000 });
+    expect(firstReach(history, 'ao5', 12000)).toBe(history[4]!.at);
+    // 9, 9, 9, 20 + 9: a janela do solve novo dá 9, abaixo de 12.
+    expect(goalsReachedBy({ a01: g }, history, sv(9000))).toEqual([{ id: 'a01', at: history[4]!.at, celebrate: false }]);
+    // 9, 9, 9, 20 + 30 dá 12.67: a janela fica acima, e nada é gravado. A meta segue sem reachedAt (o goalStatus já a mostra alcançada).
+    expect(goalsReachedBy({ a01: g }, history, sv(30000))).toEqual([]);
+    expect(goalStatus(g, history).reachedAt).toBe(history[4]!.at);
+  });
+
   it('meta já alcançada ou de outro evento fica de fora', () => {
     const solve = sv(10000);
     const goals = {

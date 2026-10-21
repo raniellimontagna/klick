@@ -137,7 +137,7 @@ function rollingTrimmed(eff: number[], n: number): (number | null)[] {
   return out;
 }
 
-export function rollingAverages(solves: Solve[], n: number): (number | null)[] {
+export function rollingAverages(solves: readonly Solve[], n: number): (number | null)[] {
   return rollingTrimmed(solves.map(effectiveMs), n);
 }
 
@@ -159,7 +159,7 @@ export function bestSingleSolve(solves: Solve[]): Solve | null {
   return best;
 }
 
-export function bestAverage(solves: Solve[], n: number): number | null {
+export function bestAverage(solves: readonly Solve[], n: number): number | null {
   let best: number | null = null;
   for (const v of rollingAverages(solves, n)) if (v !== null && v !== Infinity && (best === null || v < best)) best = v;
   return best;

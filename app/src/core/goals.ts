@@ -104,8 +104,7 @@ export function goalPhrase(g: Pick<Goal, 'kind' | 'targetMs'>): string {
 
 // A série da meta, solve a solve: o tempo do solve (single) ou a média que termina nele (null até haver solves para a janela).
 function series(eventSolves: readonly Solve[], kind: GoalKind): (number | null)[] {
-  const list = [...eventSolves];
-  return kind === 'single' ? list.map(effectiveMs) : rollingAverages(list, AVERAGE_SIZE[kind]);
+  return kind === 'single' ? eventSolves.map(effectiveMs) : rollingAverages(eventSolves, AVERAGE_SIZE[kind]);
 }
 
 // O que as metas de um evento e tipo leem da série, numa passada só (com 100 mil solves, cada passada custa): o melhor valor (sem DNF), o
@@ -142,8 +141,7 @@ export function goalSeries(eventSolves: readonly Solve[], kind: GoalKind): GoalS
 
 // O melhor valor do tipo (sem DNF), ou null sem tempo válido.
 export function goalBest(eventSolves: readonly Solve[], kind: GoalKind): number | null {
-  const list = [...eventSolves];
-  return kind === 'single' ? bestSingle(list) : bestAverage(list, AVERAGE_SIZE[kind]);
+  return kind === 'single' ? bestSingle(eventSolves) : bestAverage(eventSolves, AVERAGE_SIZE[kind]);
 }
 
 // O `at` do primeiro solve cujo valor (o single, ou a média que termina nele) ficou abaixo do alvo. DNF (Infinity) nunca fica. As datas da
