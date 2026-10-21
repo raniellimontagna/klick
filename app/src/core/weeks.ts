@@ -18,12 +18,16 @@ export interface WeekRow {
   change: number | null; // mean − mean da semana anterior (negativo é mais rápida); null se falta uma das duas
 }
 
+// O começo do dia `offset` dias depois (ou antes) do de ts, pelas partes da data: num dia de horário de verão cuja meia-noite não existe,
+// é o primeiro instante dele (setHours(0) cairia na 01:00 do mesmo dia e levaria a hora errada aos outros dias).
+function dayStart(ts: number, offset = 0): number {
+  const d = new Date(ts);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + offset).getTime();
+}
+
 // Segunda-feira 00:00 local da semana de ts.
 export function weekStart(ts: number): number {
-  const d = new Date(ts);
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
-  return d.getTime();
+  return dayStart(ts, -((new Date(ts).getDay() + 6) % 7));
 }
 
 // Média da semana: só os tempos válidos (DNF sai antes do corte), no corte de 5% das médias.
@@ -79,12 +83,8 @@ export function weekRows(pool: readonly Solve[], nowTs: number, count = WEEKS): 
 
 // Média dos últimos 28 dias (hoje e os 27 anteriores, de 00:00 até agora) menos a dos 28 antes deles; null se falta uma.
 export function periodSummary(pool: readonly Solve[], nowTs: number): number | null {
-  const d = new Date(nowTs);
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() - 27);
-  const recentFrom = d.getTime();
-  d.setDate(d.getDate() - 28);
-  const beforeFrom = d.getTime();
+  const recentFrom = dayStart(nowTs, -27);
+  const beforeFrom = dayStart(nowTs, -55);
   const recent = pool.filter((x) => x.at >= recentFrom && x.at <= nowTs);
   const before = pool.filter((x) => x.at >= beforeFrom && x.at < recentFrom);
   const a = weekMean(recent);

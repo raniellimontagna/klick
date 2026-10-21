@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { dayKey } from '../../src/core/stats';
 import type { Solve } from '../../src/core/types';
 import { YEAR_WEEKS, yearCalendar } from '../../src/core/year';
@@ -88,5 +88,31 @@ describe('calendário do ano', () => {
     expect(yearCalendar(list, NOW + 3600_000)).toBe(a);
     expect(yearCalendar(list, at(2026, 9, 22))).not.toBe(a);
     expect(yearCalendar([...list], NOW)).not.toBe(a);
+  });
+});
+
+// O horário de verão de Santiago começa no domingo 06/09/2026 (a meia-noite pula para 01:00): o domingo da virada fica no lugar dele, na
+// coluna de 31/08. O fuso troca só neste bloco (o Node relê process.env.TZ na hora).
+describe('o ano no fuso de Santiago (o domingo 06/09/2026 começa à 01:00)', () => {
+  const tz = process.env.TZ;
+  beforeAll(() => {
+    process.env.TZ = 'America/Santiago';
+  });
+  afterAll(() => {
+    if (tz === undefined) delete process.env.TZ;
+    else process.env.TZ = tz;
+  });
+
+  it('a semana de 31/08 a 06/09 conta os 4 solves da segunda e do domingo', () => {
+    const solves = [sv(at(2026, 7, 31, 9)), sv(at(2026, 7, 31, 20)), sv(new Date(2026, 8, 6, 1, 30).getTime()), sv(at(2026, 8, 6, 22))];
+    for (const now of [at(2026, 8, 6, 23), at(2026, 8, 9)]) {
+      const cal = yearCalendar(solves, now);
+      const week = cal.weeks.find((w) => dayKey(w[0]!.ts) === '2026-08-31')!;
+      expect(week.map((d) => dayKey(d.ts))).toEqual(['2026-08-31', '2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04', '2026-09-05', '2026-09-06']);
+      expect(week.map((d) => d.count)).toEqual([2, 0, 0, 0, 0, 0, 2]);
+      expect(cal.solves).toBe(4);
+      expect(new Date(cal.start).getDay()).toBe(1);
+      expect(new Date(cal.start).getHours()).toBe(0);
+    }
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { periodSummary, WEEKS, weekMean, weekRows, weekStart } from '../../src/core/weeks';
 import type { Solve } from '../../src/core/types';
 
@@ -90,5 +90,39 @@ describe('semanas', () => {
     expect(periodSummary(recent, NOW)).toBeNull();
     expect(periodSummary(before, NOW)).toBeNull();
     expect(periodSummary([], NOW)).toBeNull();
+  });
+});
+
+// O horário de verão de Santiago começa no domingo 06/09/2026: a meia-noite não existe, e o relógio pula para 01:00. O domingo da virada é da
+// semana de 31/08, e os cortes de dia ficam no começo do dia. O fuso troca só neste bloco (o Node relê process.env.TZ na hora).
+describe('semanas no fuso de Santiago (o domingo 06/09/2026 começa à 01:00)', () => {
+  const tz = process.env.TZ;
+  beforeAll(() => {
+    process.env.TZ = 'America/Santiago';
+  });
+  afterAll(() => {
+    if (tz === undefined) delete process.env.TZ;
+    else process.env.TZ = tz;
+  });
+  const local = (m: number, d: number, h = 12, min = 0) => new Date(2026, m, d, h, min).getTime();
+
+  it('os solves da segunda 31/08 e do domingo 06/09 contam 4 na mesma semana', () => {
+    expect(new Date(local(8, 6, 0, 0)).getHours()).toBe(1); // a meia-noite da virada não existe
+    const monday = local(7, 31, 0);
+    expect(weekStart(local(8, 6, 10))).toBe(monday);
+    expect(weekStart(local(8, 6, 23, 59))).toBe(monday);
+    expect(weekStart(local(8, 7, 0))).toBe(local(8, 7, 0));
+    const pool = [sv(10000, local(7, 31, 9)), sv(10000, local(7, 31, 20)), sv(10000, local(8, 6, 1, 30)), sv(10000, local(8, 6, 22))];
+    // No próprio domingo e na semana seguinte.
+    for (const now of [local(8, 6, 23), local(8, 9)]) {
+      expect(weekRows(pool, now).find((r) => r.start === monday)?.count).toBe(4);
+    }
+  });
+
+  it('periodSummary corta no começo do dia de 28 dias antes, mesmo no dia da virada', () => {
+    const now = local(8, 6, 12);
+    const recent = five(local(7, 10, 0, 30), 10000); // 10/08 00:30: o primeiro dos 28 dias
+    const before = five(local(6, 13, 0, 30), 11000); // 13/07 00:30: o primeiro dos 28 anteriores
+    expect(periodSummary([...before, ...recent], now)).toBe(-1000);
   });
 });
