@@ -20,16 +20,21 @@ test('a Evolução mostra Semanas com Esta semana e o ano com o dia de hoje', as
   await expect(year).toBeVisible();
   await expect(year.locator('.today')).toHaveCount(1);
   await expect(year.getByText(/^Calendário de /)).toBeAttached();
-  // A ordem da tela: Semanas e Metas lado a lado, o ano depois, o gráfico no fim.
+  // A ordem da tela: Semanas e Metas lado a lado (a mesma .es-grid, nessa ordem), o ano depois, o gráfico no fim.
   const order = await screen.evaluate((root) => {
     const at = (sel: string) => {
       const el = root.querySelector(sel);
       return el ? el.getBoundingClientRect().top + window.scrollY : Number.NaN;
     };
-    return { weeks: at('.es-weeks'), metas: at('.es-metas'), year: at('.es-year') };
+    const weeksEl = root.querySelector('.es-weeks');
+    const grid = weeksEl?.parentElement;
+    const sameGrid = !!grid?.classList.contains('es-grid') && grid.querySelector(':scope > .es-metas') === weeksEl?.nextElementSibling;
+    return { weeks: at('.es-weeks'), metas: at('.es-metas'), year: at('.es-year'), chart: at('.bars'), sameGrid };
   });
+  expect(order.sameGrid).toBe(true);
   expect(order.year).toBeGreaterThan(order.weeks);
   expect(order.year).toBeGreaterThan(order.metas);
+  expect(order.chart).toBeGreaterThan(order.year);
 });
 
 test('criar uma meta pela folha, alcançar no Digitar com 9.50 e ver a mensagem no Centro e "✓ alcançada em" no quadro', async ({ page }) => {

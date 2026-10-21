@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { T } from '../../src/strings';
+import { CONFIRM_DELAY_MS } from '../../src/ui/confirm';
 import { device, signIn, syncNow } from './helpers';
 
 // As metas viajam como ajustes da conta (`goal.<id>`, spec 11): criada num aparelho, aparece no outro; excluída no outro, some do primeiro.
@@ -37,7 +38,7 @@ test('meta criada no aparelho A aparece no B; excluída no B some do A', async (
   await edit.getByRole('button', { name: T.metas.remove }).click();
   const again = edit.getByRole('button', { name: T.metas.confirmAgain });
   await expect(again).toBeVisible();
-  await b.waitForTimeout(500);
+  await b.waitForTimeout(CONFIRM_DELAY_MS + 100);
   await again.click();
   await expect(edit).toBeHidden();
   await expect(board(b).getByRole('button', { name: T.metas.create })).toBeVisible();
