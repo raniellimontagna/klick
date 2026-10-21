@@ -267,3 +267,51 @@ for (const scheme of ['light', 'dark'] as const) {
     expect(await serious('resultado com fases')).toEqual([]);
   });
 }
+
+// As estatísticas que ensinam (a maquete aprovada de 21/10), nos dois temas: a Evolução com Semanas, Metas (uma em andamento e uma já
+// alcançada) e o ano; e a folha da meta, nova e com o tempo torto. As metas nascem pela folha, como para quem usa.
+for (const scheme of ['light', 'dark'] as const) {
+  test(`a Evolução com Semanas, Metas e o ano, e a folha da meta nova e com o tempo torto, sem violações sérias no tema ${scheme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await fresh(page);
+    await importHistory(page);
+    await page.getByRole('button', { name: 'Evolução', exact: true }).first().click();
+    const screen = page.locator('[data-screen="evolucao"]');
+    const board = screen.getByRole('region', { name: T.metas.title });
+    const serious = async (where: string) => {
+      const r = await new AxeBuilder({ page }).analyze();
+      return r.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${where}: ${v.id}`);
+    };
+    // Duas metas: "abaixo de 10" (o melhor do arquivo é 0:12.00: em andamento) e "abaixo de 13" (já nasce alcançada).
+    for (const [i, target] of ['10', '13'].entries()) {
+      await board.getByRole('button', { name: i === 0 ? T.metas.create : T.metas.new }).click();
+      const sheet = page.getByRole('dialog', { name: T.metas.newTitle });
+      await sheet.getByLabel(T.metas.targetLabel).fill(target);
+      await sheet.getByRole('button', { name: T.metas.save }).click();
+      await expect(sheet).toBeHidden();
+    }
+    await expect(board.getByRole('button', { name: /^Single abaixo de 10 s, / })).toContainText('faltam 2.00 s');
+    await expect(board.getByRole('button', { name: /^Single abaixo de 13 s, / })).toContainText('✓ alcançada em');
+    await expect(screen.getByRole('region', { name: T.semanas.title })).toBeVisible();
+    await expect(screen.getByRole('region', { name: T.constancia.title })).toBeVisible();
+    expect(await serious('Evolução com Semanas, Metas e o ano')).toEqual([]);
+    // A folha nova, depois com o tempo torto (o erro só aparece ao salvar).
+    await board.getByRole('button', { name: T.metas.new }).click();
+    const sheet = page.getByRole('dialog', { name: T.metas.newTitle });
+    await expect(sheet).toBeVisible();
+    expect(await serious('folha nova')).toEqual([]);
+    await sheet.getByLabel(T.metas.targetLabel).fill('12.3.4');
+    await sheet.getByRole('button', { name: T.metas.save }).click();
+    await expect(sheet.getByText(T.metas.bad)).toBeVisible();
+    await expect(sheet.getByLabel(T.metas.targetLabel)).toHaveAttribute('aria-invalid', 'true');
+    expect(await serious('folha com o tempo torto')).toEqual([]);
+    await sheet.getByRole('button', { name: T.metas.cancel }).click();
+    await expect(sheet).toBeHidden();
+    // Editar uma meta e armar o "Excluir" (a folha de editar, com o aviso de confirmação).
+    await board.getByRole('button', { name: /^Single abaixo de 10 s, / }).click();
+    const edit = page.getByRole('dialog', { name: T.metas.editTitle });
+    await edit.getByRole('button', { name: T.metas.remove }).click();
+    await expect(edit.getByRole('button', { name: T.metas.confirmAgain })).toBeVisible();
+    expect(await serious('folha de editar armada')).toEqual([]);
+  });
+}
