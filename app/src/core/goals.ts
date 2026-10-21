@@ -21,7 +21,7 @@ export const GOAL_MAX = 6; // metas vivas no app (o servidor aceita qualquer nú
 export const GOAL_ID = /^[0-9a-z]{3}$/; // 46.656 vagas: dois aparelhos que criam ao mesmo tempo quase nunca sorteiam a mesma
 export const GOAL_TARGET_MAX = 3_599_999; // 59:59.999, abaixo de uma hora
 
-const KINDS: readonly GoalKind[] = ['single', 'ao5', 'ao12'];
+export const KINDS: readonly GoalKind[] = ['single', 'ao5', 'ao12']; // na ordem da folha
 const KEYS = ['kind', 'event', 'targetMs', 'startMs', 'createdAt', 'reachedAt'];
 const AVERAGE_SIZE = { ao5: 5, ao12: 12 } as const;
 

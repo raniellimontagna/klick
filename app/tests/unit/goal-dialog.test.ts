@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
-import type { Goal } from '../../src/core/goals';
+import { type Goal, GOAL_MAX } from '../../src/core/goals';
 import { rollingAverages } from '../../src/core/stats';
 import type { EventId, Solve } from '../../src/core/types';
 import { openKlickDb } from '../../src/data/db';
@@ -9,6 +9,7 @@ import { createScrambleQueue } from '../../src/scramble/queue';
 import { T } from '../../src/strings';
 import { CONFIRM_DELAY_MS } from '../../src/ui/confirm';
 import GoalDialog from '../../src/ui/dialogs/GoalDialog.svelte';
+import GoalsBoard from '../../src/ui/evolucao/GoalsBoard.svelte';
 import { AppState } from '../../src/ui/state/app.svelte';
 
 // As médias passam por rollingAverages: um espião que deixa a conta de verdade e conta as passadas pela série.
@@ -186,6 +187,11 @@ describe('a folha da meta', () => {
     expect(a.dialog).toBe('goal');
     expect(sheet()).toBeInTheDocument();
     expect(Object.keys(a.profile.goals)).toHaveLength(6);
+    // O motivo na primeira linha, no lugar de como a meta fica; mexer no campo o tira.
+    expect(lines()[0]!.textContent).toBe(T.metas.full(GOAL_MAX));
+    expect(field()).not.toHaveAttribute('aria-invalid');
+    await type('11');
+    expect(lines()[0]!.textContent).toBe('Fica single abaixo de 11 s.');
   });
 
   it('nasce alcançada avisa a data', async () => {
@@ -279,6 +285,24 @@ describe('a folha da meta', () => {
     await save();
     await waitFor(() => expect(a.dialog).toBeNull());
     expect(sent).toEqual([{ id: 'ab1', kind: 'single', event: '333', targetMs: 13_005 }]);
+  });
+
+  // O modal devolve o foco a quem abriu a folha; a linha da meta excluída saiu da tela, e o foco vai para o botão de criar do quadro.
+  it('excluir pela folha deixa o foco no botão de criar do quadro', async () => {
+    const { a } = await app({ ab1: goal() });
+    render(GoalsBoard, { app: a, event: '333' });
+    render(GoalDialog, { app: a, open: true });
+    const row = screen.getByRole('button', { name: /^Single abaixo de 11 s, 3×3/ });
+    row.focus();
+    await fireEvent.click(row);
+    await screen.findByRole('dialog', { name: T.metas.editTitle });
+    const remove = within(sheet()).getByRole('button', { name: T.metas.remove });
+    await fireEvent.click(remove);
+    await sleep(CONFIRM_DELAY_MS + 50);
+    await fireEvent.click(remove);
+    await waitFor(() => expect(a.dialog).toBeNull());
+    await waitFor(() => expect(document.activeElement).toHaveClass('es-new'));
+    expect(document.activeElement).toHaveTextContent(T.metas.create);
   });
 
   it('a meta que some com a folha aberta (excluída em outro aparelho) fecha a folha', async () => {

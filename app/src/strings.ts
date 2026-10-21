@@ -49,6 +49,8 @@ const solvesLabel = (n: number): string => `${n.toLocaleString('pt-BR')} ${n ===
 const daysLabel = (n: number): string => `${n.toLocaleString('pt-BR')} ${n === 1 ? 'dia' : 'dias'}`;
 // O "Cancelar" das listas de sessões (as Sessões, a seleção do histórico e a folha de mover): o mesmo texto nos três.
 const cancelLabel = 'Cancelar';
+// O que cada tipo de meta mede, no meio da frase: "ainda sem média de 5" (o quadro), "Você ainda não tem média de 5 no 3×3." (a folha).
+const goalNoun = { single: 'tempo', ao5: 'média de 5', ao12: 'média de 12' } as const;
 
 export const T = Object.freeze({
   coach: {
@@ -93,15 +95,16 @@ export const T = Object.freeze({
     left: (ms: number) => `faltam ${secLeft(ms)} s`,
     best: (time: string) => ` · melhor ${time}`,
     reached: (date: string) => `✓ alcançada em ${date}`,
-    none: { single: 'ainda sem tempo', ao5: 'ainda sem média de 5', ao12: 'ainda sem média de 12' },
+    none: { single: `ainda sem ${goalNoun.single}`, ao5: `ainda sem ${goalNoun.ao5}`, ao12: `ainda sem ${goalNoun.ao12}` },
     rowGoing: (name: string, event: string, best: string, ms: number, pct: number, start: string) =>
       `${name}, ${event}: melhor ${best}, faltam ${secLeft(ms)} s, ${pct}% do caminho desde ${start}. Editar a meta`,
     rowReached: (name: string, event: string, date: string, best: string | null) =>
       `${name}, ${event}: alcançada em ${date}${best === null ? '' : `, melhor ${best}`}. Editar a meta`,
     rowNone: (name: string, event: string, none: string) => `${name}, ${event}: ${none}. Editar a meta`,
     new: 'Nova meta',
-    // O motivo do "Nova meta" desligado: o limite é o GOAL_MAX de core/goals.ts (6), que o sync pode passar (sete metas de dois aparelhos).
-    full: 'São 6 metas, o máximo. Exclua uma para criar outra.',
+    // O motivo do "Nova meta" desligado (e da folha nova que o limite recusa): o limite é o GOAL_MAX de core/goals.ts (6), que o sync pode
+    // passar (sete metas de dois aparelhos).
+    full: (max: number) => `São ${max} metas, o máximo. Exclua uma para criar outra.`,
     empty: 'Escolha um tempo para buscar: um single, uma média de 5 ou de 12, em qualquer evento. O Klick mostra quanto falta e guarda o dia em que você chegar.',
     create: 'Criar uma meta',
     // A folha (3a, 3b, 3d, 3e): tipo, evento e o tempo. Embaixo do tempo, duas linhas: como a meta fica ("Fica " + a meta em negrito + ".";
@@ -122,8 +125,7 @@ export const T = Object.freeze({
     bestNow: 'Seu melhor agora: ',
     leftNow: (ms: number) => ` Faltam ${secLeft(ms)} s.`,
     born: (date: string) => `Seu melhor já está abaixo: ela nasce alcançada, com a data de ${date}.`,
-    noTime: (kind: 'single' | 'ao5' | 'ao12', event: string) =>
-      `Você ainda não tem ${kind === 'single' ? 'tempo' : kind === 'ao5' ? 'média de 5' : 'média de 12'} no ${event}.`,
+    noTime: (kind: keyof typeof goalNoun, event: string) => `Você ainda não tem ${goalNoun[kind]} no ${event}.`,
     save: 'Salvar',
     remove: 'Excluir',
     confirmAgain: 'Tem certeza? Clique de novo',

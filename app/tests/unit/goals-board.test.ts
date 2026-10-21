@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
-import type { Goal } from '../../src/core/goals';
+import { type Goal, GOAL_MAX } from '../../src/core/goals';
 import { rollingAverages } from '../../src/core/stats';
 import type { EventId, Solve } from '../../src/core/types';
 import { openKlickDb } from '../../src/data/db';
@@ -128,8 +128,8 @@ describe('o quadro Metas', () => {
     const button = within(region()).getByRole('button', { name: T.metas.new });
     expect(button).toHaveAttribute('aria-disabled', 'true');
     expect(button).not.toBeDisabled(); // continua no Tab
-    expect(button).toHaveAccessibleDescription(T.metas.full);
-    expect(T.metas.full).toBe('São 6 metas, o máximo. Exclua uma para criar outra.');
+    expect(button).toHaveAccessibleDescription(T.metas.full(GOAL_MAX));
+    expect(T.metas.full(GOAL_MAX)).toBe('São 6 metas, o máximo. Exclua uma para criar outra.');
     await fireEvent.click(button);
     expect(a.dialog).toBeNull();
     expect(a.goalRequest).toBeNull();
@@ -145,7 +145,7 @@ describe('o quadro Metas', () => {
     render(GoalsBoard, { app: five, event: '444' });
     const button = within(region()).getByRole('button', { name: T.metas.new });
     expect(button).not.toHaveAttribute('aria-disabled');
-    expect(within(region()).queryByText(T.metas.full)).toBeNull();
+    expect(within(region()).queryByText(T.metas.full(GOAL_MAX))).toBeNull();
     await fireEvent.click(button);
     expect(five.dialog).toBe('goal');
     expect(five.goalRequest).toEqual({ id: null, event: '444' });

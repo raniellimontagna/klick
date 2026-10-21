@@ -2,15 +2,15 @@
   // A folha de uma meta (a maquete aprovada, 3a, 3b, 3d, 3e e 7c, 7d, 7f; spec §5): o tipo (single, média de 5 ou de 12), o evento e o tempo
   // ("abaixo de"). Embaixo do tempo, duas linhas que seguem o que se digita: como a meta fica (vazio ou torto, a dica; o erro só ao salvar,
   // como no Digitar, e some assim que o campo muda) e o seu melhor agora no tipo e no evento escolhidos, com o quanto falta, ou a data com que
-  // ela nasce alcançada. Salvar fecha e a meta entra no quadro (sem comemorar); se o AppState recusa (o limite, ou a meta sumiu), a folha fica.
-  // Editar tem Excluir, que pede o segundo toque (como as outras exclusões) e fecha.
+  // ela nasce alcançada. Salvar fecha e a meta entra no quadro (sem comemorar); se o AppState recusa (o limite, que a primeira linha explica,
+  // ou a meta sumiu), a folha fica. Editar tem Excluir, que pede o segundo toque (como as outras exclusões) e fecha.
   //
   // Abre por app.openGoal(id, event): a nova começa em Single, no evento do filtro da Evolução; a de editar, com o tipo, o evento e o alvo da
   // própria meta (o alvo como se digita: "13", "12.5", "1:30"). A meta é lida ao vivo de app.profile.goals: se some com a folha aberta
   // (excluída noutro aparelho), ela fecha sem aviso.
   import { tick, untrack } from 'svelte';
   import { EVENTS, eventInfo } from '../../core/events';
-  import { formatTarget, type GoalKind, goalPhrase, type GoalSeries, goalSeries, parseGoalTarget } from '../../core/goals';
+  import { formatTarget, GOAL_MAX, type GoalKind, goalPhrase, type GoalSeries, goalSeries, KINDS, parseGoalTarget } from '../../core/goals';
   import { formatMs } from '../../core/stats';
   import type { EventId, Solve } from '../../core/types';
   import { T } from '../../strings';
@@ -22,14 +22,12 @@
   let { app, open }: { app: AppState; open: boolean } = $props();
   const uid = $props.id();
 
-  const KINDS: readonly GoalKind[] = ['single', 'ao5', 'ao12'];
-
   let dialogEl = $state<HTMLDialogElement>();
   let inputEl = $state<HTMLInputElement>();
   let kind = $state<GoalKind>('single');
   let event = $state<EventId>('333');
   let text = $state('');
-  let error = $state<'bad' | 'range' | null>(null); // só ao salvar
+  let error = $state<'bad' | 'range' | 'full' | null>(null); // só ao salvar ('full': a folha nova que o limite de metas recusou)
   let armed = $state(false); // "Excluir" espera o segundo toque
   let armedAt: number | null = null; // a hora do primeiro: o segundo antes de CONFIRM_DELAY_MS é o toque duplo e não vale
   let busy = $state(false);
@@ -113,6 +111,8 @@
     try {
       const ok = await app.saveGoal({ ...(request.id === null ? {} : { id: request.id }), kind, event, targetMs: p.ms });
       if (ok) dialogEl?.close();
+      // A nova recusada pelo limite (as metas que o sync trouxe com a folha aberta): o motivo na primeira linha, como no "Nova meta".
+      else if (request.id === null && Object.keys(app.profile.goals).length >= GOAL_MAX) error = 'full';
     } finally {
       busy = false;
     }
@@ -181,14 +181,14 @@
         enterkeyhint="done"
         placeholder={T.metas.placeholder}
         aria-describedby="{uid}-m {uid}-b"
-        aria-invalid={error ? 'true' : undefined}
+        aria-invalid={error === 'bad' || error === 'range' ? 'true' : undefined}
         bind:value={text}
         bind:this={inputEl}
         oninput={() => (error = null)}
         onkeydown={onKey}
       />
       <!-- Como a meta fica (a região viva, como na maquete: o erro ao salvar é lido) e o seu melhor agora. -->
-      <p class="tc-msg" class:err={error !== null} id="{uid}-m" aria-live="polite">{#if error}{error === 'range' ? T.metas.range : T.metas.bad}{:else if parsed.ok}{T.metas.fica}<b>{goalPhrase({ kind, targetMs: parsed.ms })}</b>{T.metas.end}{:else}{T.metas.hint}{/if}</p>
+      <p class="tc-msg" class:err={error !== null} id="{uid}-m" aria-live="polite">{#if error}{error === 'full' ? T.metas.full(GOAL_MAX) : error === 'range' ? T.metas.range : T.metas.bad}{:else if parsed.ok}{T.metas.fica}<b>{goalPhrase({ kind, targetMs: parsed.ms })}</b>{T.metas.end}{:else}{T.metas.hint}{/if}</p>
       <p class="tc-msg" id="{uid}-b">{#if best === null}{T.metas.noTime(kind, eventInfo(event).name)}{:else if reach !== null}{T.metas.born(fullDate(reach))}{:else}{T.metas.bestNow}<b>{formatMs(best)}</b>{T.metas.end}{#if parsed.ok}{T.metas.leftNow(best - parsed.ms)}{/if}{/if}</p>
     </div>
 

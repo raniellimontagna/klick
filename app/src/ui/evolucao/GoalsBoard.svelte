@@ -97,6 +97,6 @@
       aria-describedby={full ? `${uid}-why` : undefined}
       onclick={create}>{T.metas.new}</button
     >
-    {#if full}<p class="tc-why" id="{uid}-why">{T.metas.full}</p>{/if}
+    {#if full}<p class="tc-why" id="{uid}-why">{T.metas.full(GOAL_MAX)}</p>{/if}
   {/if}
 </section>
