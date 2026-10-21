@@ -81,14 +81,14 @@ function fullProfile(old: Partial<Profile> | undefined): Profile {
 // A cópia "antes da v3" (migrateToV3) e o export do banco que não atualizou (exportStuckDb) saem desta função, e por isso têm o mesmo formato.
 // As metas vieram depois da versão 3: o perfil sai sem `goals`, como uma cópia de antes delas, e restaurá-lo não apaga as de agora.
 function beforeV3File(at: number, solves: Solve[], sessions: Session[], practice: Practice[], stored: Partial<Profile> | undefined): KlickExport {
-  const { goals: _g, ...profile } = fullProfile(stored);
+  const withoutGoals = ({ goals: _g, ...profile }: Profile): Omit<Profile, 'goals'> => profile;
   return {
     format: 'klick',
     version: 1,
     exportedAt: at,
     sessions: [...sessions].sort((a, b) => a.order - b.order),
     solves: [...solves].sort((a, b) => a.at - b.at),
-    profile: stored ? profile : null,
+    profile: stored ? withoutGoals(fullProfile(stored)) : null,
     practice: [...practice].sort((a, b) => a.at - b.at),
   };
 }

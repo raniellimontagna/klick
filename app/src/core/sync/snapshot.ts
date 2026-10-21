@@ -1,5 +1,6 @@
 // A cópia diária da conta (spec 8.3), no formato do export do Klick (KlickExport): o Worker a escreve a partir dos registros, e o app a lê
 // como qualquer arquivo. Puro, para o Worker e os testes de unidade.
+import { goalsFrom } from '../goals';
 import type { Duel, KlickExport, Practice, Profile, ProfilePatch, Session, Solve } from '../types';
 import { defaultDeviceProfile, joinProfile, prefsFromProfile, profileFromPrefs, splitProfile } from './prefs';
 import { changeToPref, fromChange, isCompacted, type StampedRecord } from './records';
@@ -41,7 +42,8 @@ export function exportFromRecords(records: readonly Change[], at: number): Klick
 // O nome dos desafios e as metas são as chaves mais novas que as cópias na nuvem: uma cópia de antes deles (o perfil sem `duelName` ou sem
 // `goals`) fica com os da conta, lidos dos registros de agora (`current`). O padrão por baixo gravaria '' por cima do nome, e null por cima
 // de cada meta, com a data da restauração, e o sync os levaria a todos os aparelhos. É o que o aparelho faz ao restaurar (replaceAll); a
-// cópia que os traz vale (com `goals: {}`, as metas de agora voltam ao padrão: prefsRestoreChanges).
+// cópia que os traz vale (com `goals: {}`, as metas de agora voltam ao padrão: prefsRestoreChanges). A cópia chega crua (não passa por
+// parseKlickJson): `goals` que não é objeto vale como sem o campo, e dentro dele só as metas de vaga e valor válidos (goalsFrom).
 export function accountPrefsOf(profile: ProfilePatch | null, current: readonly Change[]): Map<string, unknown> | null {
   if (!profile) return null;
   const here = profileFromPrefs(current.filter((c) => c.store === 'prefs').map(changeToPref));
@@ -49,6 +51,7 @@ export function accountPrefsOf(profile: ProfilePatch | null, current: readonly C
   const full: Profile = {
     ...base,
     ...Object.fromEntries(Object.entries(profile).filter(([, v]) => v !== undefined)),
+    goals: goalsFrom(profile.goals) ?? here.goals,
     settings: { ...base.settings, ...profile.settings, sound: { ...base.settings.sound, ...profile.settings?.sound } },
   };
   return prefsFromProfile(splitProfile(full).account, { withDefaults: true });

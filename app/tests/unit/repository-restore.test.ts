@@ -572,6 +572,23 @@ describe('restaurar uma cópia de antes das metas', () => {
     expect(await db.get('prefs', 'goal.b02')).toMatchObject({ value: null });
     expect(await db.getAllKeys('outbox')).toEqual(expect.arrayContaining(['prefs/goal.a01', 'prefs/goal.b02']));
   });
+
+  // Uma cópia crua (a da nuvem não passa por parseKlickJson) com `goals` que não é objeto não derruba a restauração: vale como sem o campo.
+  it('restaurar cópia com goals null ou torto mantém as metas', async () => {
+    const { db, repo } = await fresh('conta-1');
+    await repo.saveProfile({ goals: { a01: single } });
+    const saved = await db.get('prefs', 'goal.a01');
+    for (const goals of [null, 'metas', 5, [single]]) {
+      t += 1000;
+      await repo.replaceAll(copy({ finish: 'fosco', goals } as unknown as KlickExport['profile']));
+      expect((await repo.getProfile()).goals, JSON.stringify(goals)).toEqual({ a01: single });
+      expect(await db.get('prefs', 'goal.a01')).toEqual(saved);
+    }
+    // Dentro do objeto, a meta torta fica de fora e a válida vale, como no arquivo.
+    t += 1000;
+    await repo.replaceAll(copy({ goals: { b02: ao5, c03: { ...ao5, extra: 1 }, abcd: ao5 } } as unknown as KlickExport['profile']));
+    expect((await repo.getProfile()).goals).toEqual({ b02: ao5 });
+  });
 });
 
 // O acabamento (A1): a restauração pelo aparelho é "a última restauração vence". Dentro da transação dela, o aparelho tira uma data do

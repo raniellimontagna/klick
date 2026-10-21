@@ -2051,7 +2051,8 @@ export function createRepository(
         const local = composeProfile(device, items);
         // O que é do treino e a cópia não traz (uma cópia de antes do treino) fica o daqui; o nome dos desafios e as metas também (uma cópia de
         // antes deles gravaria '' por cima do nome e null por cima de cada meta, com a data da restauração, e subiria para a conta). A cópia que
-        // os traz vale: `profile` vem depois (com `goals: {}`, as metas daqui voltam ao padrão).
+        // os traz vale: `profile` vem depois (com `goals: {}`, as metas daqui voltam ao padrão). A cópia da nuvem chega crua: `goals` que não
+        // é objeto vale como sem o campo, e dentro dele só as metas de vaga e valor válidos (goalsFrom).
         const kept: ProfilePatch = {
           lessonAt: local.lessonAt,
           algChoice: local.algChoice,
@@ -2059,7 +2060,7 @@ export function createRepository(
           duelName: local.duelName,
           goals: local.goals,
         };
-        const restored = profile ? mergeProfile(defaultProfile(), { ...kept, ...profile }) : null;
+        const restored = profile ? mergeProfile(defaultProfile(), { ...kept, ...profile, goals: goalsFrom(profile.goals) ?? local.goals }) : null;
         const season = moreAdvanced(local.season, seasonFrom(profile?.season));
         // Sem perfil na cópia e sem temporada a guardar, o perfil volta aos padrões, como sempre foi. Sem perfil na cópia e com temporada a
         // guardar, o perfil é o padrão com o acabamento daqui; com perfil, vale o acabamento da cópia. Nos dois, só se estiver liberado

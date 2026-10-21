@@ -5,7 +5,7 @@ import { compacted, fromChange, prefToChange, toChange, type StampedRecord } fro
 import { prefsRestoreChanges, restoreChanges } from '../../src/core/sync/restore';
 import { accountPrefsOf, exportFromRecords } from '../../src/core/sync/snapshot';
 import { syncKey, type Change } from '../../src/core/sync/types';
-import type { SeasonProgress } from '../../src/core/types';
+import type { ProfilePatch, SeasonProgress } from '../../src/core/types';
 import { MapView } from './sync-fakes';
 
 const T0 = 1_791_500_000_000;
@@ -86,6 +86,13 @@ describe('a cópia diária no formato do export (spec 8.3)', () => {
     expect(prefsRestoreChanges(current, wipe, stamp)).toEqual([
       { store: 'prefs', id: 'goal.a01', data: null, updatedAt: stamp, deletedAt: null, deletionStamp: stamp },
     ]);
+
+    // Uma cópia crua com `goals` que não é objeto vale como sem o campo: fica com as da conta.
+    for (const goals of [null, 'metas', [goal]]) {
+      const raw = accountPrefsOf({ ...before, goals } as unknown as ProfilePatch, current)!;
+      expect(raw.get('goal.a01'), JSON.stringify(goals)).toEqual(goal);
+      expect(prefsRestoreChanges(current, raw, stamp)).toEqual([]);
+    }
 
     const other: Goal = { ...goal, kind: 'single', targetMs: 9_000 };
     const swap = accountPrefsOf({ ...before, goals: { c03: other, abcd: other } }, current)!; // a vaga torta não vira item
