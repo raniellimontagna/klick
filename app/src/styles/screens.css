@@ -221,8 +221,9 @@ body.solving .centro * {
   align-items: flex-start;
   gap: 6px;
   margin: -4px 0 14px;
-  /* A linha tem a altura da barra das fases (52 px, mais os 4 px da margem de cima): as zonas de toque e o que está embaixo não pulam quando
-     a barra do solve anterior dá lugar às marcas, na largada e no fim. */
+  /* A linha tem a altura da barra das fases (.tc-split em components.css: a tira de 6 px de `li::before` com 7 px de margem, o `b` de 14 px e o
+     `small` de 12 px, uns 52 px, mais os 4 px da margem de cima): as zonas de toque e o que está embaixo não pulam quando a barra do solve
+     anterior dá lugar às marcas, na largada e no fim. O e2e "ocupam a mesma altura" confere isso medindo os chips. */
   min-height: 56px;
 }
 

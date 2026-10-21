@@ -208,6 +208,53 @@ describe('digitar o tempo no Timer', () => {
     await waitFor(() => expect(a.solves[0]!.penalty).toBe('+2'));
   });
 
+  // I2 da revisão final: com o campo solto (Esc, ou um clique fora), os números do tempo digitado caem no campo em vez de trocar de aba.
+  it('com o campo solto, números e separadores vão para o campo (não trocam de aba) e o foco volta a ele', async () => {
+    const a = await typing();
+    expect(field()).not.toHaveFocus();
+    const press = (k: string, code: string): KeyboardEvent => {
+      const e = new KeyboardEvent('keydown', { key: k, code, bubbles: true, cancelable: true });
+      document.body.dispatchEvent(e);
+      return e;
+    };
+    const e = press('2', 'Digit2');
+    expect(e.defaultPrevented).toBe(true);
+    await waitFor(() => expect(field()).toHaveValue('2'));
+    expect(field()).toHaveFocus();
+    expect(a.tab).toBe('timer');
+    // Com o campo em foco o resto é do navegador; solta de novo e continua de onde parou, com os separadores também.
+    field().blur();
+    press('3', 'Digit3');
+    field().blur();
+    press(',', 'Comma');
+    field().blur();
+    press('4', 'Digit4');
+    await waitFor(() => expect(field()).toHaveValue('23,4'));
+    expect(a.tab).toBe('timer');
+    expect(message().textContent).toContain('0:23.40');
+  });
+
+  it('com o campo solto, o espaço não rola a página nem arma; p, d, m, z, n e ? seguem valendo', async () => {
+    const a = await typing();
+    const space = new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true, cancelable: true });
+    document.body.dispatchEvent(space);
+    expect(space.defaultPrevented).toBe(true);
+    expect(document.body.dataset.tstate).toBe('idle');
+    // Com um botão em foco, o espaço é do botão (o clique de Salvar não pode sumir).
+    const save = screen.getByRole('button', { name: T.timer.typedSave });
+    const onButton = new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true, cancelable: true });
+    save.dispatchEvent(onButton);
+    expect(onButton.defaultPrevented).toBe(false);
+    type('1234');
+    enter();
+    await waitFor(() => expect(a.solves).toHaveLength(1));
+    await waitFor(() => expect(actions()).not.toHaveAttribute('hidden'));
+    field().blur();
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', code: 'KeyP', bubbles: true, cancelable: true }));
+    await waitFor(() => expect(a.solves[0]!.penalty).toBe('+2'));
+    expect(field()).toHaveValue(''); // a letra de atalho não vai para o campo
+  });
+
   it('com o campo solto, o espaço não arma o cronômetro: não há o que cronometrar', async () => {
     await typing();
     document.body.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true, cancelable: true }));

@@ -89,6 +89,7 @@
   const reveal = $derived(duelPhase === 'reveal' && duel && app.duel.score ? revealOf(duel, app.duel.score, app.duel.index) : null);
   const revealTime = $derived(reveal ? splitTime(reveal.time) : null);
   // O modo Digitar (o tempo vem de um timer de fora): o campo no lugar do tempo grande, sem zonas e sem armar. Não vale no desafio.
+  let typedEntry = $state<ReturnType<typeof TypedEntry>>(); // o campo, para o caractere que chega com ele solto (typeChar da entrada)
   const typingOn = $derived(app.profile.settings.entry === 'typing' && !duelOn);
   const wide = wideLayout(); // no desktop, o placar do desafio vai para a coluna da direita
   // A dica de teclado do desktop. Na confirmação e na revelação o espaço não arma: fica só o que vale ali.
@@ -989,6 +990,8 @@
         onAction,
         onWake,
         canArm: armable,
+        typedMode: () => typingOn,
+        typeChar: (c) => typedEntry?.put(c),
       },
       { coarse: () => coarseMq, armMode: () => app.profile.settings.mobileArm },
     );
@@ -1123,7 +1126,7 @@
       </div>
     {/if}
     {#if typingOn}
-      <TypedEntry onSave={saveTyped} closeKeyboard={coarseMq} />
+      <TypedEntry bind:this={typedEntry} onSave={saveTyped} closeKeyboard={coarseMq} />
       {#if typedParts}
         <!-- O último solve embaixo do campo (a maquete, 2d): o tempo do detalhe, e depois os chips e as ações de sempre. -->
         <div class="tc-last hx-time" aria-hidden="true"><span class="int">{typedParts.int}</span><span class="dec">{typedParts.dec}</span></div>

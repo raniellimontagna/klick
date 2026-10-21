@@ -79,6 +79,28 @@ test('com Escondido, o tempo não aparece correndo e aparece inteiro no fim', as
   await page.keyboard.press('Space');
   await expect(page.locator('[data-actions]')).toBeVisible();
   await expect(time).toHaveText(/^\d:\d\d\.\d\d$/);
+  // O tempo que aparece é o que correu: passou de 1,2 s (a espera de cima), não um zero.
+  const [m, sec, cs] = (await time.textContent())!.split(/[:.]/).map(Number);
+  expect(m! * 60_000 + sec! * 1000 + cs! * 10).toBeGreaterThanOrEqual(1_200);
+});
+
+// I2 da revisão final: com o campo solto, digitar no computador põe os números no campo (não troca de aba) e o Enter grava.
+test('no computador, com o campo solto, 1 2 3 4 e Enter gravam 0:12.34 e ficam no Timer', async ({ page, isMobile }) => {
+  test.skip(isMobile, 'teclado só no desktop');
+  await fresh(page);
+  await setTimerSetting(page, T.ajustes.entry, TYPING);
+  const field = page.getByLabel(T.timer.typedLabel);
+  await field.press('Escape'); // solto: nada em foco
+  await expect(field).not.toBeFocused();
+  await page.locator('body').click({ position: { x: 2, y: 2 } });
+  for (const k of ['1', '2', '3', '4']) await page.keyboard.press(k);
+  await expect(field).toHaveValue('1234');
+  await expect(page.getByRole('button', { name: T.timer.typedSave })).toBeVisible(); // continua no Timer
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.tc-last')).toContainText('0:12.34');
+  await page.getByRole('button', { name: 'Evolução', exact: true }).first().click();
+  await expect(page.locator('.hx-row')).toHaveCount(1);
+  await expect(page.locator('.hx-row').first()).toContainText('0:12.34');
 });
 
 test('o desafio continua com o cronômetro com os ajustes novos ligados', async ({ page, isMobile }) => {
@@ -142,9 +164,9 @@ test('no celular (390 px), o campo de digitar e o resultado com fases cabem sem 
   expect(await overflow()).toBeLessThanOrEqual(0);
 });
 
-// O que está embaixo do tempo (os chips, as ações, as zonas de toque) não pula quando a barra das fases do solve anterior dá lugar às marcas,
+// O que está embaixo do tempo (aqui se mede o topo dos chips; as ações e as zonas de toque vão junto) não pula quando a barra das fases do solve anterior dá lugar às marcas,
 // na largada, nem quando a barra volta, no fim (a linha das marcas tem a altura da barra). Vale no celular e no desktop.
-test('a barra das fases e as marcas ocupam a mesma altura: nada embaixo pula na largada nem no fim', async ({ page }) => {
+test('a barra das fases e as marcas ocupam a mesma altura: os chips de baixo ficam no mesmo lugar na largada e no fim', async ({ page }) => {
   await fresh(page);
   await noInspection(page);
   await setTimerSetting(page, T.ajustes.phases, FOUR);

@@ -41,6 +41,14 @@
     else inputEl?.focus();
   }
 
+  // Um caractere do tempo que chegou com o campo solto (o teclado do computador, I2 da revisão final): o foco vai para o campo e o caractere entra
+  // no fim, como se a pessoa já estivesse nele. Quem chama é a tela do Timer (o atalho de números não pode trocar de aba nesse modo).
+  export function put(c: string): void {
+    text += c;
+    error = null;
+    inputEl?.focus();
+  }
+
   // Enter salva (com composição de texto em andamento, o IME só confirma a letra: o Safari a termina com um Enter de keyCode 229); Esc solta
   // o campo e devolve os atalhos do Timer.
   function onKey(e: KeyboardEvent): void {

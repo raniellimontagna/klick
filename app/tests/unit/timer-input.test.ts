@@ -3,14 +3,15 @@ import { createTimer } from '../../src/core/timer';
 import { createTouchArm } from '../../src/core/touch';
 import { createInputController } from '../../src/ui/timer/input';
 
-function setup(o: { coarse?: boolean; mode?: 'two' | 'one'; inspection?: boolean; canArm?: () => boolean } = {}) {
+function setup(o: { coarse?: boolean; mode?: 'two' | 'one'; inspection?: boolean; canArm?: () => boolean; typedMode?: () => boolean; tabIsTimer?: () => boolean } = {}) {
   let t = 0;
   const timer = createTimer({ now: () => t, holdMs: 300, inspection: o.inspection ?? false });
   const touch = createTouchArm({ press: () => timer.press(), release: () => timer.release(), cancel: () => timer.cancel(), getState: () => timer.state, getInspection: () => o.inspection ?? false, mode: o.mode ?? 'two' });
   const actions: string[] = [];
+  const typed: string[] = [];
   let dialog = false;
   const ctl = createInputController(
-    { timer, touch, tabIsTimer: () => true, dialogOpen: () => dialog, onAction: (a) => actions.push(a), onWake: () => {}, canArm: o.canArm },
+    { timer, touch, tabIsTimer: o.tabIsTimer ?? (() => true), dialogOpen: () => dialog, onAction: (a) => actions.push(a), onWake: () => {}, canArm: o.canArm, typedMode: o.typedMode, typeChar: (c) => typed.push(c) },
     { coarse: () => o.coarse ?? false, armMode: () => o.mode ?? 'two' },
   );
   document.body.innerHTML = '<section data-screen="timer"><span data-time>0</span><div data-zones><div data-zone="left"></div><div data-zone="right"></div></div><button data-act="plus2">+2</button><input data-note /></section>';
@@ -19,10 +20,67 @@ function setup(o: { coarse?: boolean; mode?: 'two' | 'one'; inspection?: boolean
   const detach = ctl.attach(document, window, zones, screen);
   const key = (type: 'keydown' | 'keyup', code: string, k: string, target: EventTarget = document.body, repeat = false) =>
     target.dispatchEvent(new KeyboardEvent(type, { code, key: k, bubbles: true, cancelable: true, repeat }));
-  return { timer, actions, key, setT: (v: number) => { t = v; }, setDialog: (v: boolean) => { dialog = v; }, zones, screen, detach, ctl };
+  return { timer, actions, typed, key, setT: (v: number) => { t = v; }, setDialog: (v: boolean) => { dialog = v; }, zones, screen, detach, ctl };
 }
 
 describe('teclado', () => {
+  // O modo Digitar (I2 da revisão final): com o campo solto, os caracteres do tempo vão para o campo, não para as abas.
+  describe('modo Digitar com o campo solto', () => {
+    const press = (s: ReturnType<typeof setup>, k: string, code: string, target: EventTarget = document.body): KeyboardEvent => {
+      const e = new KeyboardEvent('keydown', { code, key: k, bubbles: true, cancelable: true });
+      target.dispatchEvent(e);
+      return e;
+    };
+
+    it('dígitos, ponto, vírgula, dois-pontos e + vão para o campo; as abas 1–5 não disparam', () => {
+      const s = setup({ typedMode: () => true });
+      for (const [k, code] of [['1', 'Digit1'], ['5', 'Digit5'], ['.', 'Period'], [',', 'Comma'], [':', 'Semicolon'], ['+', 'Equal']] as const) {
+        expect(press(s, k, code).defaultPrevented).toBe(true);
+      }
+      expect(s.typed).toEqual(['1', '5', '.', ',', ':', '+']);
+      expect(s.actions).toEqual([]);
+    });
+
+    it('o espaço não rola a página e não arma; com um botão em foco o espaço é do botão', () => {
+      const s = setup({ typedMode: () => true, canArm: () => false });
+      expect(press(s, ' ', 'Space').defaultPrevented).toBe(true);
+      expect(press(s, ' ', 'Space', document.querySelector('button')!).defaultPrevented).toBe(false);
+      expect(s.timer.state).toBe('idle');
+    });
+
+    it('os atalhos de letra e o ? seguem valendo', () => {
+      const s = setup({ typedMode: () => true });
+      press(s, 'p', 'KeyP');
+      press(s, 'd', 'KeyD');
+      press(s, 'n', 'KeyN');
+      press(s, 'z', 'KeyZ');
+      press(s, '?', 'Slash');
+      expect(s.actions).toEqual(['plus2', 'dnf', 'next', 'undo', 'shortcuts']);
+      expect(s.typed).toEqual([]);
+    });
+
+    it('com Ctrl ou Cmd, ou fora da aba do Timer, ou sem o modo, os números seguem trocando de aba', () => {
+      const s = setup({ typedMode: () => true });
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'Digit2', key: '2', ctrlKey: true, bubbles: true, cancelable: true }));
+      expect(s.typed).toEqual([]);
+      const off = setup({ typedMode: () => true, tabIsTimer: () => false });
+      press(off, '3', 'Digit3');
+      expect(off.actions).toEqual(['tab3']);
+      expect(off.typed).toEqual([]);
+      const plain = setup();
+      press(plain, '4', 'Digit4');
+      expect(plain.actions).toEqual(['tab4']);
+    });
+
+    it('com o campo em foco nada disso acontece: é do navegador', () => {
+      const s = setup({ typedMode: () => true });
+      const input = document.querySelector('[data-note]') as HTMLInputElement;
+      input.focus();
+      expect(press(s, '2', 'Digit2', input).defaultPrevented).toBe(false);
+      expect(s.typed).toEqual([]);
+    });
+  });
+
   it('segurar espaço arma, soltar no verde larga, qualquer tecla para', () => {
     const s = setup();
     s.key('keydown', 'Space', ' ');

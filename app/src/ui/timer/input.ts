@@ -20,6 +20,10 @@ export interface InputTarget {
   // O espaço pode armar agora? Sem a função, sempre (o Timer de sempre). No desafio, B confere a penalidade e vê o ponto antes do próximo
   // embaralhamento: o espaço não arma nem é segurado (fica para o botão com o foco), e os atalhos de letra seguem.
   canArm?(): boolean;
+  // O modo Digitar (o tempo vem de um campo): com o campo solto, os caracteres de um tempo (números, ponto, vírgula, dois-pontos e +) não são
+  // atalhos de aba, vão para o campo (typeChar, que também o põe em foco), e o espaço não rola a página. Sem as funções, nada muda.
+  typedMode?(): boolean;
+  typeChar?(c: string): void;
 }
 
 export interface InputController {
@@ -29,6 +33,7 @@ export interface InputController {
 
 const EVENT_WINDOW_MS = 60_000;
 const CONTROLS = 'button, a, input, select, textarea, label, dialog, [data-noteform]';
+const TIME_CHAR = /^[0-9.,:+]$/; // os caracteres de um tempo digitado (as letras de DNF ficam como atalhos: D é o DNF do último, N o próximo)
 const TAB_KEYS = new Map<string, ActionName>([
   ['1', 'tab1'],
   ['2', 'tab2'],
@@ -97,7 +102,13 @@ export function createInputController(
       return;
     }
     if (typing(e)) return;
+    const typedHere = t.typedMode?.() === true && t.tabIsTimer();
     if (e.code === 'Space') {
+      // Digitar: o espaço não arma e não rola a página; com um botão em foco ele é do botão (Salvar), que o navegador trata.
+      if (typedHere) {
+        if (closestOf(e.target, CONTROLS) === null) e.preventDefault();
+        return;
+      }
       if (!t.tabIsTimer() || t.canArm?.() === false) return;
       e.preventDefault();
       if (e.repeat) return;
@@ -108,6 +119,11 @@ export function createInputController(
     }
     if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
     if (e.key === '?') return t.onAction('shortcuts');
+    if (typedHere && TIME_CHAR.test(e.key)) {
+      e.preventDefault(); // o caractere entra no campo pelo typeChar, que o põe em foco: nenhum número vira atalho de aba aqui
+      t.typeChar?.(e.key);
+      return;
+    }
     const tab = TAB_KEYS.get(e.key);
     if (tab) return t.onAction(tab);
     if (!t.tabIsTimer() || t.timer.state === 'inspect') return;
