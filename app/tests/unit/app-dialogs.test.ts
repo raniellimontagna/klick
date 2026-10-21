@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openKlickDb } from '../../src/data/db';
@@ -105,6 +105,30 @@ describe('ligação dos diálogos na casca', () => {
     a.dialog = 'install';
     await fireEvent.click(await screen.findByRole('button', { name: 'Instalar o app' }));
     expect(prompt).toHaveBeenCalledTimes(1);
+  });
+
+  it('openGoal abre a folha nova e a de editar', async () => {
+    const { a, repo } = await makeApp();
+    await repo.saveProfile({ goals: { ab: { kind: 'ao5', event: '444', targetMs: 60_000, startMs: null, createdAt: 1, reachedAt: null } } });
+    await a.reload();
+    hooks.boot = async () => a;
+    render(App);
+    await screen.findByRole('button', { name: 'Timer' });
+    // O quadro Metas da Evolução: "Nova meta" abre a folha nova, no evento do filtro (o da sessão atual, 3×3).
+    await fireEvent.click(document.querySelector('nav.tabs [data-tab="evolucao"]') as HTMLElement);
+    await fireEvent.click(await screen.findByRole('button', { name: T.metas.new }));
+    expect(a.dialog).toBe('goal');
+    expect(a.goalRequest).toEqual({ id: null, event: '333' });
+    const fresh = await screen.findByRole('dialog', { name: T.metas.newTitle });
+    expect((within(fresh).getByLabelText(T.metas.eventLabel) as HTMLSelectElement).value).toBe('333');
+    await fireEvent.click(within(fresh).getByRole('button', { name: T.metas.cancel }));
+    expect(a.dialog).toBeNull();
+    // A linha da meta abre a de editar, com o evento dela.
+    await fireEvent.click(screen.getByRole('button', { name: /^Média de 5 abaixo de 1:00, 4×4/ }));
+    expect(a.goalRequest).toEqual({ id: 'ab', event: '333' });
+    const edit = await screen.findByRole('dialog', { name: T.metas.editTitle });
+    expect((within(edit).getByLabelText(T.metas.eventLabel) as HTMLSelectElement).value).toBe('444');
+    expect(within(edit).getByRole('button', { name: T.metas.remove })).toBeInTheDocument();
   });
 
   it('tocar em Importar do csTimer chama o seletor dentro do toque; o arquivo escolhido cai no mesmo diálogo de importar', async () => {

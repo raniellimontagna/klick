@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -494,13 +497,52 @@ describe('Evolução: o quadro Semanas', () => {
     render(EvolucaoScreen, { app: a });
     await tick();
     const semanas = screen.getByRole('region', { name: T.semanas.title });
+    const metas = screen.getByRole('region', { name: T.metas.title });
     const ano = screen.getByRole('region', { name: T.constancia.title });
     const grafico = document.querySelector('.bars')!;
-    // depois do .es-grid (Semanas; as Metas entram ali ao lado) e antes do gráfico, na largura toda (fora da grade)
-    expect(semanas.compareDocumentPosition(ano) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Semanas e Metas lado a lado no .es-grid (2fr e 1fr), nessa ordem
+    expect([...semanas.parentElement!.children]).toEqual([semanas, metas]);
+    expect(metas.parentElement!.matches('.evo-grid.es-grid')).toBe(true);
+    // depois do .es-grid e antes do gráfico, na largura toda (fora da grade)
+    expect(metas.compareDocumentPosition(ano) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(ano.compareDocumentPosition(grafico) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(ano.closest('.es-grid')).toBeNull();
     expect(ano.previousElementSibling!.classList.contains('es-grid')).toBe(true);
+  });
+
+  // O jsdom não mede a página: a folha de estilo entra no documento e o teste confere a coluna que a regra dá ao quadro.
+  it('sem Semanas (nenhum solve nas 12 semanas), Metas fica sozinho no .es-grid, na largura toda; Nova meta leva o evento do filtro', async () => {
+    const style = document.createElement('style');
+    style.textContent = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/styles/screens.css'), 'utf8');
+    document.head.append(style);
+    try {
+      const a = await app();
+      const s = a.profile.currentSessionId!;
+      a.solves = [mk(s, '333', 12_000, day(3, 1), 0)]; // abril: fora das 12 semanas
+      vi.useFakeTimers({ now: NOW, toFake: ['Date', 'setInterval', 'clearInterval'] });
+      render(EvolucaoScreen, { app: a });
+      await tick();
+      expect(weeks()).toBeNull();
+      const metas = screen.getByRole('region', { name: T.metas.title });
+      const grid = metas.parentElement!;
+      expect(grid.matches('.evo-grid.es-grid')).toBe(true);
+      expect([...grid.children]).toEqual([metas]);
+      expect(getComputedStyle(metas).gridColumn).toBe('1 / -1');
+      // Com Semanas ao lado, Metas fica na coluna dela (1fr).
+      a.solves = [...a.solves, mk(s, '333', 12_000, NOW, 1)];
+      await tick();
+      expect(weeks()).not.toBeNull();
+      expect(getComputedStyle(metas).gridColumn).not.toBe('1 / -1');
+
+      const evento = screen.getByLabelText('Evento') as HTMLSelectElement;
+      evento.value = '222';
+      evento.dispatchEvent(new Event('change', { bubbles: true }));
+      await tick();
+      await fireEvent.click(within(metas).getByRole('button', { name: T.metas.create }));
+      expect(a.goalRequest).toEqual({ id: null, event: '222' });
+    } finally {
+      style.remove();
+    }
   });
 
   it('o ano conta todos os eventos e sessões, mesmo com o filtro em outro evento', async () => {

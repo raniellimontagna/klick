@@ -29,6 +29,7 @@
   import { scoreOf } from '../state/duel.svelte';
   import DuelList from './DuelList.svelte';
   import DuelMatch from './DuelMatch.svelte';
+  import GoalsBoard from './GoalsBoard.svelte';
   import PhasesBoard from './PhasesBoard.svelte';
   import { poolStats } from './pool-stats';
   import RecordsBoard from './RecordsBoard.svelte';
@@ -312,9 +313,11 @@
     <RecordsBoard records={stats.records} all={sessionId === 'all'} onOpen={openRecord} />
     <PhasesBoard phases={stats.phases} {event} />
 
-    <!-- Semanas segue o evento e a sessão, sem o período, como os dois quadros de cima; o quadro de Metas entra ao lado (2fr e 1fr). -->
+    <!-- Semanas segue o evento e a sessão, sem o período, como os dois quadros de cima; Metas fica ao lado (2fr e 1fr), conta além do filtro
+         (todas as sessões do evento de cada meta) e diz isso no cabeçalho. A meta nova começa no evento do filtro. -->
     <div class="evo-grid es-grid">
       <WeeksBoard {pool} {now} />
+      <GoalsBoard {app} {event} />
     </div>
 
     <!-- O ano de treino conta além do filtro (todos os eventos e sessões) e diz isso no cabeçalho; na largura toda. -->

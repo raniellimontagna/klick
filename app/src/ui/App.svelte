@@ -15,6 +15,7 @@
   import CentroScreen from './centro/CentroScreen.svelte';
   import EvolucaoScreen from './evolucao/EvolucaoScreen.svelte';
   import InstallGuide from './dialogs/InstallGuide.svelte';
+  import GoalDialog from './dialogs/GoalDialog.svelte';
   import MoveDialog from './dialogs/MoveDialog.svelte';
   import RecordDialog from './dialogs/RecordDialog.svelte';
   import SolveDialog from './dialogs/SolveDialog.svelte';
@@ -420,6 +421,8 @@ import SyncIndicator from './SyncIndicator.svelte';
       <SolveDialog {app} />
       <!-- A folha de um recorde: abre por app.openRecord (uma linha do quadro de recordes; o selo do detalhe). -->
       <RecordDialog {app} />
+      <!-- A folha de uma meta: abre por app.openGoal (o quadro Metas da Evolução: uma linha, ou "Nova meta"). -->
+      <GoalDialog {app} open={app.dialog === 'goal'} />
       {#if app.account}
         <SignInDialog {app} open={app.dialog === 'signin'} />
       {/if}

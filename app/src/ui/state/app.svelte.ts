@@ -58,8 +58,9 @@ export type TrailView = { kind: 'home' } | { kind: 'lesson'; step: TrailStep } |
 // da Trilha, fica no AppState: "Ver em Desafios", no fim de uma partida, abre a lista de outra aba.
 export type EvolucaoView = { kind: 'stats' } | { kind: 'duels' } | { kind: 'duel'; id: string };
 // 'duel': a folha da pílula do modo desafio (continuar, sair ou descartar). 'move': a folha de mover solves para outra sessão (app.moveRequest).
-// 'solve': o detalhe de um solve (app.solveRequest). 'record': a folha de um recorde da sessão (app.recordRequest).
-export type DialogId = 'sessions' | 'shortcuts' | 'onboarding' | 'export' | 'import' | 'backups' | 'trash' | 'install' | 'signin' | 'signout' | 'cloud' | 'deleteAccount' | 'duel' | 'move' | 'solve' | 'record';
+// 'solve': o detalhe de um solve (app.solveRequest). 'record': a folha de um recorde da sessão (app.recordRequest). 'goal': a folha de uma meta,
+// nova ou para editar (app.goalRequest).
+export type DialogId = 'sessions' | 'shortcuts' | 'onboarding' | 'export' | 'import' | 'backups' | 'trash' | 'install' | 'signin' | 'signout' | 'cloud' | 'deleteAccount' | 'duel' | 'move' | 'solve' | 'record' | 'goal';
 // O que a folha de mover move: os ids (a seleção da lista, ou o solve do detalhe), o número do solve no filtro quando é um só (o título
 // "Mover o solve #10.471") e quem pediu, avisado quando o lote passou para a outra sessão (a lista sai da seleção). `back`: aberta pelo
 // detalhe, devolve o foco à linha da lista de onde o detalhe abriu (ou à que ficou no lugar dela) quando a folha fecha, por qualquer caminho.
@@ -85,6 +86,12 @@ export interface RecordRequest {
   kind: RecordKind;
   event: EventId;
   sessionId: string;
+}
+// A meta que a folha edita (null: uma nova) e o evento do filtro da Evolução, onde a nova começa. A de editar lê a própria meta ao vivo, de
+// app.profile.goals.
+export interface GoalRequest {
+  id: string | null;
+  event: EventId;
 }
 // "Ver na lista": o último solve da janela do recorde, quantos solves ela tem (as linhas que a lista marca) e o filtro onde ele está. A
 // Evolução atende o pedido (ajusta o filtro e o período, e rola a lista) e o apaga.
@@ -303,6 +310,7 @@ export class AppState {
   moveRequest = $state.raw<MoveRequest | null>(null); // o que a folha de mover leva (dialog 'move')
   solveRequest = $state.raw<SolveRequest | null>(null); // o solve do detalhe (dialog 'solve')
   recordRequest = $state.raw<RecordRequest | null>(null); // o recorde da folha (dialog 'record')
+  goalRequest = $state.raw<GoalRequest | null>(null); // a meta da folha (dialog 'goal')
   listJump = $state.raw<ListJump | null>(null); // o pedido de rolar a lista da Evolução até um solve ("Ver na lista")
   v1Available = $state(false); // há dados da v1 ainda não oferecidos
   exportReminder = $state(false); // mostrar o lembrete de exportar
@@ -812,6 +820,13 @@ export class AppState {
     const session = id === 'all' ? undefined : this.sessions.find((s) => s.id === id);
     this.recordRequest = { kind, event: event ?? session?.event ?? this.event, sessionId: id };
     this.dialog = 'record';
+  }
+
+  // Abre a folha de uma meta (uma linha do quadro Metas, ou "Nova meta" com id null). `event` é o do filtro da Evolução: a meta nova começa
+  // nele; a de editar abre com o evento dela.
+  openGoal(id: string | null, event: EventId): void {
+    this.goalRequest = { id, event };
+    this.dialog = 'goal';
   }
 
   // "Ver na lista": a Evolução abre (a aba e a vista dos números) e a lista rola até o solve. Se a tela já está montada, atende na hora;

@@ -83,6 +83,49 @@ export const T = Object.freeze({
   metas: {
     kind: { single: 'Single', ao5: 'Média de 5', ao12: 'Média de 12' },
     below: (kind: string, target: string) => `${kind} abaixo de ${target}`,
+    // O quadro da Evolução (a maquete aprovada, 1b, 1c, 3c, 6b, 7b e 7e): uma linha por meta, com o quanto falta ("faltam 0.58 s" em negrito,
+    // depois "· melhor 0:13.58"), a data em que chegou ou o que ainda não existe ("ainda sem média de 12"). O nome lido é a linha por extenso,
+    // com o caminho da barra ("59% do caminho desde 0:14.41"), e termina no que o toque faz.
+    title: 'Metas',
+    scope: 'todos os eventos',
+    left: (ms: number) => `faltam ${sec(ms)} s`,
+    best: (time: string) => ` · melhor ${time}`,
+    reached: (date: string) => `✓ alcançada em ${date}`,
+    none: { single: 'ainda sem tempo', ao5: 'ainda sem média de 5', ao12: 'ainda sem média de 12' },
+    rowGoing: (name: string, event: string, best: string, ms: number, pct: number, start: string) =>
+      `${name}, ${event}: melhor ${best}, faltam ${sec(ms)} s, ${pct}% do caminho desde ${start}. Editar a meta`,
+    rowReached: (name: string, event: string, date: string, best: string | null) =>
+      `${name}, ${event}: alcançada em ${date}${best === null ? '' : `, melhor ${best}`}. Editar a meta`,
+    rowNone: (name: string, event: string, none: string) => `${name}, ${event}: ${none}. Editar a meta`,
+    new: 'Nova meta',
+    // O motivo do "Nova meta" desligado: o limite é o GOAL_MAX de core/goals.ts (6), que o sync pode passar (sete metas de dois aparelhos).
+    full: 'São 6 metas, o máximo. Exclua uma para criar outra.',
+    empty: 'Escolha um tempo para buscar: um single, uma média de 5 ou de 12, em qualquer evento. O Klick mostra quanto falta e guarda o dia em que você chegar.',
+    create: 'Criar uma meta',
+    // A folha (3a, 3b, 3d, 3e): tipo, evento e o tempo. Embaixo do tempo, duas linhas: como a meta fica ("Fica " + a meta em negrito + ".";
+    // vazio ou torto, a dica; o erro só ao salvar) e o seu melhor de agora ("Seu melhor agora: " + o tempo em negrito + "." e o quanto falta).
+    newTitle: 'Nova meta',
+    newIntro: 'Um tempo para buscar. O Klick mostra quanto falta.',
+    editTitle: 'Editar meta',
+    editIntro: 'Mudar o tipo, o evento ou o tempo refaz a meta pelo seu histórico.',
+    kindLabel: 'Tipo',
+    eventLabel: 'Evento',
+    targetLabel: 'Abaixo de',
+    placeholder: '15',
+    hint: 'Em segundos: 15 é sub-15, e 90 é 1:30.',
+    fica: 'Fica ',
+    end: '.',
+    bad: 'Esse tempo não parece certo. Tente 15, 14.5 ou 90.',
+    range: 'Até 59:59.99.',
+    bestNow: 'Seu melhor agora: ',
+    leftNow: (ms: number) => ` Faltam ${sec(ms)} s.`,
+    born: (date: string) => `Seu melhor já está abaixo: ela nasce alcançada, com a data de ${date}.`,
+    noTime: (kind: 'single' | 'ao5' | 'ao12', event: string) =>
+      `Você ainda não tem ${kind === 'single' ? 'tempo' : kind === 'ao5' ? 'média de 5' : 'média de 12'} no ${event}.`,
+    save: 'Salvar',
+    remove: 'Excluir',
+    confirmAgain: 'Tem certeza? Clique de novo',
+    cancel: 'Cancelar',
   },
   chips: {
     vsAvg: (diffMs: number, n: number) => `${diffMs <= 0 ? '▼' : '▲'} ${sec(Math.abs(diffMs))} s vs média de ${n}`,

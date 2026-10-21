@@ -366,11 +366,12 @@ body.solving .t-coach {
   margin-top: 12px;
 }
 
-/* Semanas e Metas lado a lado na grade do gráfico (2fr e 1fr; abaixo de 1024 px uma embaixo da outra, pelo .evo-grid). Sem o quadro, a grade some
-   (sem a margem de cima). */
+/* Semanas e Metas lado a lado na grade do gráfico (2fr e 1fr; abaixo de 1024 px uma embaixo da outra, pelo .evo-grid). Sem nenhum quadro, a
+   grade some (sem a margem de cima); sem Semanas (nenhum solve nas 12 semanas), Metas fica sozinho e toma a largura toda, em vez da coluna 2fr. */
 .es-grid { align-items: start; }
 .es-grid:not(:has(> .card)) { display: none; }
 .es-grid > .card { min-width: 0; }
+.es-grid > .card:only-child { grid-column: 1 / -1; }
 
 /* es-weeks (spec §3): a linha do resumo e a tabela das 12 semanas. No desktop, colunas como as da lista (cabeçalho de 11 px, linhas de 36 px).
    A tabela é de papéis ARIA (role="table"), como a lista: assim o celular pode arrumar as células em duas linhas sem perder a tabela. */
@@ -391,6 +392,26 @@ body.solving .t-coach {
 /* o nome das partes que no celular perdem a coluna ("solves", "melhor"): só lá aparece */
 .es-ph { display: none; }
 .es-rule { margin-top: 10px; }
+/* es-goals (spec §5): uma meta por linha; a linha inteira é o botão que abre a folha (como um recorde no celular). O nome no jeito dos marcos,
+   o evento na etiqueta, o quanto falta e a barra. A barra é a da peça das fases (6 px, --cube-off), cheia na tinta; alcançada, no dourado
+   dos marcos feitos. */
+.es-goals { list-style: none; padding: 0; margin-top: 4px; }
+.es-goal { display: grid; grid-template-columns: minmax(0, 1fr) 10px; grid-template-areas: 'n x' 'v x' 'p x'; column-gap: 12px; width: 100%; min-height: 44px; padding: 10px 0 12px; border: 0; border-bottom: 1px solid var(--line); background: none; text-align: left; color: var(--ink-2); font-size: 14px; cursor: pointer; }
+.es-goals li:last-child .es-goal { border-bottom: 0; }
+.es-goal:focus-visible { outline-offset: -2px; }
+.es-goal-n { grid-area: n; color: var(--ink); }
+.es-goal-n .tag { vertical-align: 1px; }
+.es-goal-v { grid-area: v; margin-top: 1px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.es-goal-v b { color: var(--ink-2); font-weight: 600; }
+.es-goal[data-done] .es-goal-v { color: var(--pb-ink); }
+.es-bar { grid-area: p; display: block; height: 6px; margin-top: 8px; border-radius: 3px; background: var(--cube-off); }
+.es-bar i { display: block; width: var(--p); height: 100%; border-radius: 3px; background: var(--ink); }
+.es-goal[data-done] .es-bar i { background: var(--pb); }
+.es-goal .dz-chev { grid-area: x; align-self: center; font-size: 18px; }
+.es-new { margin-top: 10px; }
+.es-empty { margin-top: 8px; font-size: 14px; color: var(--ink-2); }
+/* o motivo embaixo de "Nova meta": vence o .tc-why sem margem da quebra do celular */
+.es-metas .tc-why { margin-top: 8px; }
 
 /* es-year (spec §4): 53 colunas de seg a dom, um quadradinho por dia nos tons do mapa do mês (.heat: os mesmos limites, 1–4, 5–14, 15+).
    O quadradinho divide a largura (consulta de contêiner) e não fica abaixo de 12 px: no celular, a grade rola para o lado e abre na semana
@@ -425,6 +446,21 @@ body.solving .t-coach {
 .es-tip { position: absolute; z-index: 3; padding: 6px 10px; border-radius: var(--r-btn); background: var(--ink); color: var(--bg); font-size: 12px; white-space: nowrap; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25); pointer-events: none; }
 .es-tip b { color: inherit; font-weight: 600; }
 .es-tip::after { content: ''; position: absolute; left: var(--ax, 50%); top: 100%; width: 10px; height: 10px; margin-left: -5px; margin-top: -5px; background: var(--ink); transform: rotate(45deg); border-radius: 0 0 2px 0; }
+/* es-sheet (spec §5): a folha da meta. Os rótulos pequenos das seções do detalhe (.hx-sec > .label); o tipo no seletor segmentado na largura
+   toda; evento e tempo nos campos das folhas da conta (.sheet .field input), com 16 px, como o campo do código: abaixo disso o Safari do
+   iPhone aproxima a página no foco. Embaixo do tempo, a linha do Digitar (.tc-msg): como a meta fica, e o erro só ao salvar. Sem o max-width
+   do <dialog> (como o .hx-sheet), a folha tem a largura do .sheet. */
+.es-sheet { max-width: none; }
+.es-sheet h2 { margin-bottom: 4px; }
+.es-sheet .es-intro { font-size: 14px; }
+.es-sheet .seg { display: flex; }
+.es-sheet .seg button { flex: 1; }
+/* a classe vem junto do seletor de .sheet input[type='text'] (as folhas de hoje), para vencer a borda, a altura e o recuo dele */
+.es-field, .sheet input[type='text'].es-field { display: block; width: 100%; min-height: 44px; padding: 9px 12px; border: 1px solid var(--line); border-radius: var(--r-btn); background: var(--bg); color: var(--ink); font-size: 16px; font-variant-numeric: tabular-nums; }
+.es-field[aria-invalid='true'], .sheet input[type='text'].es-field[aria-invalid='true'] { border-color: var(--arm); }
+.es-sheet .tc-msg { min-height: 0; margin-top: 6px; }
+.es-sheet .tc-msg + .tc-msg { margin-top: 2px; }
+.es-sheet .row { margin-top: 18px; }
 
 .chart {
   display: block;
