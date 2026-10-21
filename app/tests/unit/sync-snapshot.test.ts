@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import type { Goal } from '../../src/core/goals';
 import { applyChanges } from '../../src/core/sync/apply';
 import { compacted, fromChange, prefToChange, toChange, type StampedRecord } from '../../src/core/sync/records';
-import { restoreChanges } from '../../src/core/sync/restore';
+import { prefsRestoreChanges, restoreChanges } from '../../src/core/sync/restore';
 import { accountPrefsOf, exportFromRecords } from '../../src/core/sync/snapshot';
 import { syncKey, type Change } from '../../src/core/sync/types';
 import type { SeasonProgress } from '../../src/core/types';
@@ -65,6 +66,33 @@ describe('a cópia diária no formato do export (spec 8.3)', () => {
     expect(out.has('sessions/s')).toBe(false);
     expect(out.get('prefs/season')).toMatchObject({ data: closed, updatedAt: stamp }); // a cópia tem a temporada do começo; a daqui fica
     expect([...out.keys()].filter((k) => !k.startsWith('prefs/')).sort()).toEqual(['solves/a', 'solves/extra']);
+  });
+
+  // As metas (estatísticas, spec 5): a cópia as leva no perfil; uma cópia de antes delas (o perfil sem `goals`) fica com as da conta, como
+  // o nome dos desafios; a que traz `goals`, mesmo vazio, vale.
+  it('accountPrefsOf de cópia sem goals não apaga as metas da conta', () => {
+    const goal: Goal = { kind: 'ao5', event: '333', targetMs: 12_000, startMs: 13_100, createdAt: T0, reachedAt: null };
+    const current = [prefToChange({ key: 'goal.a1', value: goal, updatedAt: T0 }), prefToChange({ key: 'goal.b2', value: null, updatedAt: T0 })];
+    expect(exportFromRecords([session, ...current], T0 + 9).profile?.goals).toEqual({ a1: goal });
+    const { goals: _g, ...before } = exportFromRecords([session], T0).profile!;
+    const stamp = T0 + 1000;
+
+    const keep = accountPrefsOf(before, current)!;
+    expect(keep.get('goal.a1')).toEqual(goal);
+    expect(prefsRestoreChanges(current, keep, stamp)).toEqual([]);
+
+    const wipe = accountPrefsOf({ ...before, goals: {} }, current)!;
+    expect(wipe.has('goal.a1')).toBe(false);
+    expect(prefsRestoreChanges(current, wipe, stamp)).toEqual([
+      { store: 'prefs', id: 'goal.a1', data: null, updatedAt: stamp, deletedAt: null, deletionStamp: stamp },
+    ]);
+
+    const other: Goal = { ...goal, kind: 'single', targetMs: 9_000 };
+    const swap = accountPrefsOf({ ...before, goals: { c3: other, abc: other } }, current)!; // a vaga torta não vira item
+    expect(prefsRestoreChanges(current, swap, stamp)).toEqual([
+      { store: 'prefs', id: 'goal.c3', data: other, updatedAt: stamp, deletedAt: null, deletionStamp: stamp },
+      { store: 'prefs', id: 'goal.a1', data: null, updatedAt: stamp, deletedAt: null, deletionStamp: stamp },
+    ]);
   });
 
   // Os desafios (spec do desafio, seção 7): a cópia os leva com a lixeira, como os solves, e restaurá-la os troca pela regra de

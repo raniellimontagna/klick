@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { Goal } from '../../src/core/goals';
 import { prefToChange, toChange } from '../../src/core/sync/records';
 import { checkChange } from '../../src/core/sync/shape';
 import type { Practice, Profile, Session, Solve } from '../../src/core/types';
@@ -183,8 +184,8 @@ describe('as datas que a migração grava são inteiros seguros >= 0 (shape.ts),
   it('só itens da conta que o servidor aceita: um caso que não existe mais ou uma escolha fora dos algoritmos fica só na cópia "antes da v3"', async () => {
     const name = `stamps-${++n}`;
     const v2 = await openKlickDb(name, {}, 2);
-    const profile: Omit<Profile, 'duelName'> = {
-      settings: defaultSettings(), // como a versão 2 gravava, antes do nome dos desafios
+    const profile: Omit<Profile, 'duelName' | 'goals'> = {
+      settings: defaultSettings(), // como a versão 2 gravava, antes do nome dos desafios e das metas
       trail: Array<boolean>(9).fill(false),
       finish: 'fosco',
       onboarded: false,
@@ -208,8 +209,8 @@ describe('as datas que a migração grava são inteiros seguros >= 0 (shape.ts),
   it('restaurar a cópia "antes da v3" (que guarda os valores de antes como vieram) não grava item da conta que o servidor recusa', async () => {
     const name = `stamps-${++n}`;
     const v2 = await openKlickDb(name, {}, 2);
-    const profile: Omit<Profile, 'duelName'> = {
-      settings: defaultSettings(), // como a versão 2 gravava, antes do nome dos desafios
+    const profile: Omit<Profile, 'duelName' | 'goals'> = {
+      settings: defaultSettings(), // como a versão 2 gravava, antes do nome dos desafios e das metas
       trail: [true, false, false, false, false, false, false, false, false],
       finish: 'fosco',
       onboarded: true,
@@ -225,7 +226,8 @@ describe('as datas que a migração grava são inteiros seguros >= 0 (shape.ts),
     const repo = createRepository(db, { now, channel: null });
     const copy = (await repo.listBackups()).find((r) => r.label === 'v3')!;
     t += 1000;
-    await repo.saveProfile({ trainOff: [], algChoice: {}, lessonAt: {} }); // mexe em tudo antes de restaurar
+    const goal: Goal = { kind: 'single', event: '333', targetMs: 11_000, startMs: null, createdAt: t, reachedAt: null };
+    await repo.saveProfile({ trainOff: [], algChoice: {}, lessonAt: {}, goals: { a1: goal } }); // mexe em tudo antes de restaurar
     t += 1000;
     await restoreBackup(repo, copy.id, t);
     const prefs = await db.getAll('prefs');
@@ -235,5 +237,6 @@ describe('as datas que a migração grava são inteiros seguros >= 0 (shape.ts),
     expect(keys).not.toContain('lessonAt.12');
     expect(prefs.find((p) => p.key === 'algChoice.oll2-sune')?.value ?? 0).toBe(0);
     expect(await repo.getProfile()).toMatchObject({ trainOff: ['pll2-t'], algChoice: { 'oll2-h': 1 }, lessonAt: { 1: 2 }, onboarded: true });
+    expect((await repo.getProfile()).goals).toEqual({ a1: goal }); // a cópia é de antes das metas: não as apaga
   });
 });

@@ -32,8 +32,8 @@ function fixture() {
     solve('d', 'gone', 5, at(50)), // saiu junto com a sessão
   ];
   const practice: Practice[] = [{ id: 'p1', caseId: 'oll2-sune', ms: 2500, ok: true, helped: false, at: at(10) }];
-  // Como a versão 2 o gravava, antes do nome dos desafios: ao ler, ele ganha o padrão ('').
-  const profile: Omit<Profile, 'duelName'> = {
+  // Como a versão 2 o gravava, antes do nome dos desafios e das metas: ao ler, eles ganham o padrão ('' e {}).
+  const profile: Omit<Profile, 'duelName' | 'goals'> = {
     settings: { ...defaultSettings(), inspection: false, dailyGoal: 30, theme: 'dark', holdMs: 550, sound: { klick: false, insp: true, pb: true } },
     trail: [true, true, true, false, false, false, false, false, false],
     finish: 'gelo',
@@ -51,8 +51,10 @@ function fixture() {
     trainOff: ['pll2-t'],
   };
   const meta = { schemaVersion: 1, deviceId: 'dev', solvesSinceBackup: 3, trailPromptDismissed: true } as Partial<Meta>;
-  const migrated: Profile = { ...profile, duelName: '' };
-  return { sessions, solves, practice, profile, migrated, meta };
+  // O arquivo de um banco de antes da v3 sai sem as metas, que vieram depois: restaurá-lo não apaga as de agora.
+  const copied: Omit<Profile, 'goals'> = { ...profile, duelName: '' };
+  const migrated: Profile = { ...copied, goals: {} };
+  return { sessions, solves, practice, profile, copied, migrated, meta };
 }
 
 // Grava a fixture direto na versão 2, como o app daquela versão gravava.
@@ -147,7 +149,7 @@ describe('migração para a versão 3 (spec 5.6)', () => {
       exportedAt: MIGRATED_AT,
       sessions: data.sessions,
       solves: [...data.solves].sort((a, b) => a.at - b.at),
-      profile: data.migrated,
+      profile: data.copied,
       practice: data.practice,
     });
     // Reaberto na versão 2 (sem pedir a 3), o banco continua como estava: a versão, as stores e os registros.
@@ -185,7 +187,7 @@ describe('migração para a versão 3 (spec 5.6)', () => {
     const file = await exportStuckDb(name, MIGRATED_AT);
     expect(file.sessions).toEqual(data.sessions);
     expect(file.solves).toHaveLength(4);
-    expect(file.profile).toEqual(data.migrated);
+    expect(file.profile).toEqual(data.copied);
     expect(file.practice).toEqual([]);
     const db = await openKlickDb(name, {}, 1);
     try {

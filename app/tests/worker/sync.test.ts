@@ -239,4 +239,28 @@ describe('POST /api/sync (spec 6.1 e 8.2)', () => {
     const old = await call('/api/sync', postJson({ v: 2, account: user, deviceId: 'd9', cursor: 0, clock: T0, changes: [] }), { deps: testDeps({ user }) });
     expect(old.status).toBe(426);
   });
+
+  // As metas (estatísticas, spec 5 e 7): chaves novas do catálogo da conta (goal.<id>), sem nada novo no servidor além de isPrefValue,
+  // que o Worker importa do app. A meta torta volta recusada com o motivo de sempre; apagar é gravar o padrão (null).
+  it('o Worker aceita goal.<id> e recusa o torto com valor inválido para a chave', async () => {
+    const user = 'conta-metas';
+    const goal = { kind: 'single', event: '333', targetMs: 11_000, startMs: 12_500, createdAt: T0, reachedAt: null };
+    const pref = (id: string, data: unknown, at = T0): Change => ({ store: 'prefs', id, data, updatedAt: at, deletedAt: null, deletionStamp: at });
+    const crooked = [
+      pref('goal.abc', goal), // vaga de 3 caracteres
+      pref('goal.b2', { ...goal, extra: 1 }), // chave a mais
+      pref('goal.c3', { ...goal, targetMs: 0 }),
+      pref('goal.d4', { ...goal, targetMs: 3_600_000 }),
+      pref('goal.e5', { ...goal, event: 'fto' }),
+    ];
+    const first = await sync(user, [pref('goal.a1', goal), ...crooked]);
+    expect(first.accepted).toBe(1);
+    expect(first.rejected).toEqual(crooked.map((c) => ({ store: 'prefs', id: c.id, reason: 'valor inválido para a chave' })));
+    const other = await sync(user, [], 0, 'd2');
+    expect(other.changes).toEqual([pref('goal.a1', goal)]);
+    // Apagar a meta é voltar a chave ao padrão: o outro aparelho recebe o null.
+    await sync(user, [pref('goal.a1', null, T0 + 10)]);
+    const back = await sync(user, [], other.cursor, 'd2');
+    expect(back.changes).toEqual([pref('goal.a1', null, T0 + 10)]);
+  });
 });

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { Goal } from '../../src/core/goals';
 import { defaultSeason } from '../../src/core/season';
 import { defaultDeviceProfile, defaultPrefValue, isPrefValue, joinProfile, prefsFromProfile, profileFromPrefs, splitProfile } from '../../src/core/sync/prefs';
 import { changeToPref, fromChange, prefToChange, stampOf, toChange } from '../../src/core/sync/records';
@@ -17,6 +18,7 @@ const profile = (o: Partial<Profile> = {}): Profile => ({
   algChoice: {},
   trainOff: [],
   duelName: '',
+  goals: {},
   ...o,
 });
 
@@ -137,8 +139,55 @@ describe('perfil da conta e do aparelho (spec 5.2)', () => {
     expect(profileFromPrefs([{ key: 'duelName', value: family, updatedAt: 1 }]).duelName).toBe(family);
   });
 
+  // As metas (estatísticas, spec 5): uma chave por meta, goal.<id> com id de 2 caracteres, e o valor estrito ou null (o padrão, que apaga).
+  const goal: Goal = { kind: 'ao12', event: '333', targetMs: 13_000, startMs: 15_200, createdAt: 1_791_000_000_000, reachedAt: null };
+
+  it('goal.<id> válida passa; id de 3 caracteres, chave a mais e alvo fora não', () => {
+    expect(defaultPrefValue('goal.a1')).toBeNull();
+    expect(isPrefValue('goal.a1', goal)).toBe(true);
+    expect(isPrefValue('goal.zz', { ...goal, kind: 'single', event: 'clock', startMs: null, reachedAt: 1_791_000_000_500 })).toBe(true);
+    expect(isPrefValue('goal.09', null)).toBe(true); // a meta apagada
+    for (const key of ['goal.abc', 'goal.a', 'goal.A1', 'goal.a-', 'goal.', 'goals.a1']) expect(isPrefValue(key, goal), key).toBe(false);
+    const { reachedAt: _r, ...short } = goal;
+    for (const bad of [{ ...goal, extra: 1 }, short, { ...goal, targetMs: 0 }, { ...goal, targetMs: 3_600_000 }, { ...goal, event: 'fto' }, { ...goal, kind: 'ao100' }, 'meta', 0, false, [goal], undefined]) {
+      expect(isPrefValue('goal.a1', bad), JSON.stringify(bad)).toBe(false);
+    }
+    // Vale para o servidor: o item passa pela mesma checagem de forma que o sync usa.
+    const item = (id: string, data: unknown): Change => ({ store: 'prefs', id, data, updatedAt: 3, deletedAt: null, deletionStamp: 3 });
+    expect(checkChange(item('goal.a1', goal)).ok).toBe(true);
+    expect(checkChange(item('goal.a1', null)).ok).toBe(true);
+    expect(checkChange(item('goal.abc', goal))).toEqual({ ok: false, reason: 'valor inválido para a chave' });
+    expect(checkChange(item('goal.a1', { ...goal, extra: 1 }))).toEqual({ ok: false, reason: 'valor inválido para a chave' });
+    expect(checkChange(item('goal.a1', { ...goal, targetMs: 3_600_000 }))).toEqual({ ok: false, reason: 'valor inválido para a chave' });
+  });
+
+  it('o round trip conta → itens → conta leva as metas, e null não vira meta', () => {
+    const reached: Goal = { ...goal, kind: 'single', targetMs: 11_000, reachedAt: 1_791_000_000_900 };
+    const p = profile({ goals: { a1: goal, k9: reached } });
+    const { device, account } = splitProfile(p);
+    expect(account.goals).toEqual({ a1: goal, k9: reached });
+    const items = [...prefsFromProfile(account)];
+    expect(items.filter(([key]) => key.startsWith('goal.'))).toEqual([['goal.a1', goal], ['goal.k9', reached]]);
+    expect(joinProfile(device, profileFromPrefs(items.map(([key, value]) => ({ key, value, updatedAt: 1 }))))).toEqual(p);
+    // A meta apagada (null) não volta como meta; a torta (id longo, chave a mais) fica de fora, como as outras chaves.
+    const read = profileFromPrefs([
+      { key: 'goal.a1', value: null, updatedAt: 1 },
+      { key: 'goal.k9', value: reached, updatedAt: 1 },
+      { key: 'goal.abc', value: goal, updatedAt: 1 },
+      { key: 'goal.b2', value: { ...goal, extra: 1 }, updatedAt: 1 },
+    ]);
+    expect(read.goals).toEqual({ k9: reached });
+    expect(profileFromPrefs([]).goals).toEqual({});
+    // O app não grava valor torto: a meta fora do formato vale o padrão (null, que apaga), e a vaga que não serve não vira item.
+    const crooked = prefsFromProfile({ ...account, goals: { a1: { ...goal, targetMs: 0 }, abc: goal, k9: reached } }, { withDefaults: true });
+    expect(crooked.get('goal.a1')).toBeNull();
+    expect(crooked.has('goal.abc')).toBe(false);
+    expect(crooked.get('goal.k9')).toEqual(reached);
+    expect(prefsFromProfile({ ...account, goals: { a1: { ...goal, targetMs: 0 } } }).has('goal.a1')).toBe(false); // no padrão: sem item
+  });
+
   it('o valor padrão de cada família de chaves', () => {
-    expect(['trail.0', 'lessonAt.1', 'algChoice.x', 'trainOff.x', 'finish', 'settings.inspection'].map(defaultPrefValue)).toEqual([false, null, 0, false, 'fosco', true]);
+    expect(['trail.0', 'lessonAt.1', 'algChoice.x', 'trainOff.x', 'goal.a1', 'finish', 'settings.inspection'].map(defaultPrefValue)).toEqual([false, null, 0, false, null, 'fosco', true]);
     expect(isPrefValue('season', defaultSeason())).toBe(true);
     expect(isPrefValue('season', { past: 'x' })).toBe(false);
   });

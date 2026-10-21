@@ -8,6 +8,7 @@ import {
 } from '../../src/data/transfer';
 import type { CsTimerSession, CsTimerSolve } from '../../src/data/transfer';
 import { EVENT_IDS, eventInfo } from '../../src/core/events';
+import type { Goal } from '../../src/core/goals';
 import { defaultSettings } from '../../src/core/types';
 import type { Duel, DuelTime, EventId, Session, Solve } from '../../src/core/types';
 import { createRepository, type KlickExport } from '../../src/data/repository';
@@ -129,6 +130,82 @@ describe('formato Klick', () => {
     expect(parseKlickJson(withName('')).profile).toEqual({ duelName: '' });
     await to.importAll({ ...file, profile: { duelName: 'x'.repeat(21) } });
     expect((await to.getProfile()).duelName).toBe('Ana');
+  });
+
+  // As metas (estatísticas, spec 5): o arquivo as leva no perfil; na leitura e na importação, a meta torta fica de fora e o resto passa.
+  const goal = (over: Partial<Goal> = {}): Goal => ({
+    kind: 'single', event: '333', targetMs: 11_000, startMs: 12_400, createdAt: 1_791_000_000_000, reachedAt: null, ...over,
+  });
+
+  it('o arquivo leva as metas e o import ignora a torta', async () => {
+    const from = createRepository(await openKlickDb('transfer-metas-a'), { now: () => NOW, channel: null });
+    const goals = { a1: goal(), b2: goal({ kind: 'ao12', event: 'pyram', targetMs: 4_000, startMs: null, reachedAt: 1_791_000_000_500 }) };
+    await from.saveProfile({ goals });
+    const file = parseKlickJson(toKlickJson(await from.exportAll()));
+    expect(file.profile?.goals).toEqual(goals);
+    const to = createRepository(await openKlickDb('transfer-metas-b'), { now: () => NOW, channel: null });
+    await to.importAll(file);
+    expect((await to.getProfile()).goals).toEqual(goals);
+
+    // Na leitura, só as metas com vaga e valor válidos; um arquivo de antes das metas (ou com algo que não é objeto) fica sem o campo.
+    const withGoals = (value: unknown): string => JSON.stringify({ ...fullExport(), profile: { goals: value } });
+    const crooked = {
+      a1: goal(),
+      abc: goal(), // vaga de 3 caracteres
+      b2: { ...goal(), extra: 1 }, // chave a mais
+      c3: goal({ targetMs: 0 }),
+      d4: goal({ targetMs: 3_600_000 }),
+      e5: goal({ event: 'fto' as never }),
+      f6: null,
+      g7: 'meta',
+    };
+    expect(parseKlickJson(withGoals(crooked)).profile).toEqual({ goals: { a1: goal() } });
+    expect(parseKlickJson(withGoals({})).profile).toEqual({ goals: {} });
+    expect(parseKlickJson(withGoals([goal()])).profile).toEqual({});
+    expect('goals' in parseKlickJson(toKlickJson(fullExport())).profile!).toBe(false);
+
+    // A importação confere de novo (o repositório recebe o arquivo de outros caminhos): a torta não entra nem apaga a daqui.
+    await to.importAll({ ...file, profile: { goals: { a1: { ...goal(), extra: 1 } as never, abc: goal(), h8: goal({ targetMs: 0 }) } } });
+    expect((await to.getProfile()).goals).toEqual(goals);
+  });
+
+  it('importar com merge junta por id e fica com o reachedAt mais antigo', async () => {
+    const repo = createRepository(await openKlickDb('transfer-metas-merge'), { now: () => NOW, channel: null });
+    const mine = {
+      a1: goal({ reachedAt: 5_000 }),
+      b2: goal({ kind: 'ao5', reachedAt: null }),
+      c3: goal({ kind: 'ao12', reachedAt: 9_000 }),
+      d4: goal({ event: '222', targetMs: 4_000 }),
+    };
+    await repo.saveProfile({ goals: mine });
+    const file: KlickExport = {
+      format: 'klick', version: 1, exportedAt: NOW, sessions: [], solves: [],
+      profile: {
+        goals: {
+          a1: goal({ targetMs: 99_000, reachedAt: 3_000 }), // a mesma vaga, alcançada antes lá: fica a daqui, com a data de lá
+          b2: goal({ kind: 'ao5', targetMs: 98_000, reachedAt: 4_000 }), // a daqui ainda sem data: fica a daqui, com a de lá
+          c3: goal({ kind: 'ao12', targetMs: 97_000, reachedAt: 10_000 }), // a de lá é mais nova: fica a daqui inteira
+          d4: goal({ event: '222', targetMs: 96_000, reachedAt: null }), // a de lá sem data: fica a daqui inteira
+          e5: goal({ event: '444', targetMs: 60_000 }),
+          f6: goal({ event: '555', targetMs: 90_000 }),
+          g7: goal({ event: 'clock', targetMs: 8_000 }), // a sétima: a importação, como o sync, não tira meta nenhuma
+        },
+      },
+    };
+    await repo.importAll(file);
+    expect((await repo.getProfile()).goals).toEqual({
+      a1: { ...mine.a1, reachedAt: 3_000 },
+      b2: { ...mine.b2, reachedAt: 4_000 },
+      c3: mine.c3,
+      d4: mine.d4,
+      e5: file.profile!.goals!.e5,
+      f6: file.profile!.goals!.f6,
+      g7: file.profile!.goals!.g7,
+    });
+    // Um arquivo sem metas (de antes delas) não mexe nas daqui.
+    const now = (await repo.getProfile()).goals;
+    await repo.importAll({ ...file, profile: { finish: 'fosco' } });
+    expect((await repo.getProfile()).goals).toEqual(now);
   });
 
   it('arquivo com desafios entra; desafio inválido fica de fora; arquivo sem duels continua valendo', () => {

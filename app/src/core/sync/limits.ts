@@ -8,7 +8,7 @@ export type ActiveCounts = Record<CountedStore, number>;
 
 // Folgados para uso real (100 mil solves são anos de treino diário; uma sessão por dia leva uns 27 anos até as 10 mil, bem depois dos 100
 // mil solves; um desafio por dia também) e apertados para lixo. Os ajustes (prefs) não têm teto: isPrefValue só aceita as chaves do catálogo
-// (trilha, lições, casos), então o número deles já é limitado.
+// (trilha, lições, casos e as metas, goal.<id> com id de 2 caracteres: 1.296 vagas), então o número deles já é limitado.
 export const ACCOUNT_LIMITS: Readonly<ActiveCounts> = Object.freeze({ solves: 100_000, sessions: 10_000, practice: 100_000, duels: 10_000 });
 
 // O motivo, em `rejected`, de um registro recusado pela cota: o aparelho o guarda fora da fila ("só neste aparelho"), em vez de tratá-lo

@@ -43,6 +43,13 @@ export function isGoal(v: unknown): v is Goal {
   );
 }
 
+// As metas de um perfil de fora (o arquivo, a cópia): só as de vaga e valor válidos, o resto fica de fora. undefined quando o campo não é um
+// objeto (um perfil de antes das metas): quem lê distingue "sem o campo" de "sem metas" ({}).
+export function goalsFrom(v: unknown): Record<string, Goal> | undefined {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return undefined;
+  return Object.fromEntries(Object.entries(v).filter(([id, g]) => GOAL_ID.test(id) && isGoal(g))) as Record<string, Goal>;
+}
+
 // Sorteia uma das vagas de 2 caracteres que ninguém tomou. Sem vaga livre não há o que devolver.
 export function freeGoalId(taken: ReadonlySet<string>, rand: () => number = Math.random): string {
   const free: string[] = [];

@@ -1,5 +1,6 @@
 import type { IDBPDatabase } from 'idb';
 import { describe, expect, it } from 'vitest';
+import type { Goal } from '../../src/core/goals';
 import { merge } from '../../src/core/sync/merge';
 import { prefToChange, toChange, type RecordStore } from '../../src/core/sync/records';
 import { checkChange } from '../../src/core/sync/shape';
@@ -538,6 +539,38 @@ describe('restaurar uma cópia de antes do nome dos desafios', () => {
     t += 1000;
     await repo.replaceAll(copy({ duelName: '' }));
     expect((await repo.getProfile()).duelName).toBe('');
+  });
+});
+
+// As metas (estatísticas, spec 5), do mesmo jeito: uma cópia de antes delas (o perfil sem `goals`) não as apaga; a que traz `goals`, mesmo
+// vazio, vale, e apagar é gravar o padrão (null) na chave da meta.
+describe('restaurar uma cópia de antes das metas', () => {
+  const copy = (profile: KlickExport['profile']): KlickExport => ({ format: 'klick', version: 1, exportedAt: t, sessions: [], solves: [], profile });
+  const single: Goal = { kind: 'single', event: '333', targetMs: 11_000, startMs: 12_400, createdAt: 1_791_000_000_000, reachedAt: null };
+  const ao5: Goal = { kind: 'ao5', event: '222', targetMs: 4_000, startMs: null, createdAt: 1_791_000_000_100, reachedAt: 1_791_000_000_200 };
+
+  it('restaurar cópia sem goals mantém as metas; com goals {} apaga', async () => {
+    const { db, repo } = await fresh('conta-1');
+    await repo.saveProfile({ goals: { a1: single } });
+    const saved = await db.get('prefs', 'goal.a1');
+    await db.clear('outbox');
+    t += 1000;
+    await repo.replaceAll(copy({ finish: 'fosco', onboarded: true, trail: Array<boolean>(9).fill(false) }));
+    expect((await repo.getProfile()).goals).toEqual({ a1: single });
+    expect(await db.get('prefs', 'goal.a1')).toEqual(saved); // nem regravada, nem na fila
+    expect(await db.getAllKeys('outbox')).not.toContain('prefs/goal.a1');
+
+    // A cópia que traz metas vale: a de agora que ela não tem volta ao padrão, e a dela entra.
+    t += 1000;
+    await repo.replaceAll(copy({ goals: { b2: ao5 } }));
+    expect((await repo.getProfile()).goals).toEqual({ b2: ao5 });
+    expect(await db.get('prefs', 'goal.a1')).toMatchObject({ value: null });
+
+    t += 1000;
+    await repo.replaceAll(copy({ goals: {} }));
+    expect((await repo.getProfile()).goals).toEqual({});
+    expect(await db.get('prefs', 'goal.b2')).toMatchObject({ value: null });
+    expect(await db.getAllKeys('outbox')).toEqual(expect.arrayContaining(['prefs/goal.a1', 'prefs/goal.b2']));
   });
 });
 

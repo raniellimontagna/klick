@@ -1,4 +1,5 @@
 // Tipos do domínio, compartilhados por core, data e ui. Em tempo de execução só existem DEFAULT_SETTINGS e defaultSettings().
+import type { Goal } from './goals';
 import type { TrailStep } from './trail/types';
 
 export type Penalty = null | '+2' | 'DNF';
@@ -120,6 +121,9 @@ export interface Profile {
   // O nome que a pessoa mostra nos links de desafio (spec do desafio, seção 5): texto simples de uma linha, aparado, até 20 caracteres. É da
   // conta (vai no sync, como o acabamento e o tour), não do aparelho. Um perfil de antes dos desafios, sem ele, lê ''.
   duelName: string;
+  // As metas (estatísticas, spec 5): vaga de 2 caracteres → meta. São da conta, uma chave por meta (goal.<id>). Um perfil de antes, sem
+  // elas, lê {}.
+  goals: Record<string, Goal>;
 }
 
 // Estado local deste aparelho: versão do esquema, contadores e marcas das cópias de segurança, e sinalizadores de avisos já tratados.

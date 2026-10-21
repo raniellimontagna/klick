@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { Goal } from '../../src/core/goals';
 import { seasonOne } from '../../src/core/season';
 import type { SyncState } from '../../src/core/sync/types';
 import type { SeasonRecord } from '../../src/core/types';
@@ -37,6 +38,42 @@ describe('perfil dividido (spec 5.2): o aparelho na store profile, a conta em pr
     const items = Object.fromEntries((await db.getAll('prefs')).map((p) => [p.key, p.value]));
     expect(items).toMatchObject({ 'lessonAt.2': null, 'algChoice.oll2-h': 0, 'trainOff.pll2-t': false });
     expect(await repo.getProfile()).toMatchObject({ lessonAt: {}, algChoice: {}, trainOff: [] });
+  });
+
+  // As metas (estatísticas, spec 5): uma chave por meta. Duas metas mexidas em aparelhos diferentes não se sobrescrevem porque cada gravação
+  // só leva a chave da meta que mudou.
+  const single: Goal = { kind: 'single', event: '333', targetMs: 11_000, startMs: 12_400, createdAt: 1_791_000_000_000, reachedAt: null };
+  const ao12: Goal = { kind: 'ao12', event: '222', targetMs: 5_000, startMs: null, createdAt: 1_791_000_000_100, reachedAt: null };
+
+  it('excluir uma meta grava null na chave dela e só nela', async () => {
+    const { db, repo } = await fresh();
+    await repo.saveProfile({ goals: { a1: single, b2: ao12 } });
+    expect(await db.getAll('prefs')).toEqual([
+      { key: 'goal.a1', value: single, updatedAt: t },
+      { key: 'goal.b2', value: ao12, updatedAt: t },
+    ]);
+    const before = t;
+    t += 1000;
+    await repo.saveProfile({ goals: { b2: ao12 } });
+    expect(await db.getAll('prefs')).toEqual([
+      { key: 'goal.a1', value: null, updatedAt: t },
+      { key: 'goal.b2', value: ao12, updatedAt: before },
+    ]);
+    expect((await repo.getProfile()).goals).toEqual({ b2: ao12 });
+  });
+
+  it('editar uma meta não regrava as outras', async () => {
+    const { db, repo } = await fresh();
+    await repo.saveProfile({ goals: { a1: single, b2: ao12 } });
+    const before = t;
+    t += 1000;
+    const edited: Goal = { ...single, targetMs: 10_500 };
+    await repo.saveProfile({ goals: { a1: edited, b2: ao12 } });
+    expect(await db.getAll('prefs')).toEqual([
+      { key: 'goal.a1', value: edited, updatedAt: t },
+      { key: 'goal.b2', value: ao12, updatedAt: before },
+    ]);
+    expect((await repo.getProfile()).goals).toEqual({ a1: edited, b2: ao12 });
   });
 
   it('virar a temporada grava o item "season"', async () => {

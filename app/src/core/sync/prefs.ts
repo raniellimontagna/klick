@@ -1,6 +1,7 @@
 // Os ajustes da conta (store prefs) e os do aparelho (store profile), spec 5.2. O app monta o mesmo Profile de sempre a partir das
 // duas partes (joinProfile), e as telas não percebem a divisão. Cada chave da conta segue "o mais recente vence", com a temporada à parte.
 import { isDuelName } from '../duel/link';
+import { GOAL_ID, isGoal, type Goal } from '../goals';
 import { defaultSeason, seasonFrom } from '../season';
 import { caseById } from '../trail/cases';
 import { defaultSettings, type FinishId, type Profile, type SeasonProgress, type Settings } from '../types';
@@ -10,7 +11,7 @@ import type { DeviceProfile, DeviceSettings, PrefItem } from './types';
 export const TRAIL_STEPS = 9;
 const FINISHES: readonly FinishId[] = ['fosco', 'brilho', 'gelo', 'carbono'];
 
-// O que do perfil é da conta: trilha, aulas, treino, acabamento, tour, inspeção, meta diária, temporada e o nome dos desafios.
+// O que do perfil é da conta: trilha, aulas, treino, acabamento, tour, inspeção, meta diária, temporada, o nome dos desafios e as metas.
 export interface AccountProfile {
   trail: boolean[];
   lessonAt: Profile['lessonAt'];
@@ -20,6 +21,7 @@ export interface AccountProfile {
   onboarded: boolean;
   season: SeasonProgress;
   duelName: string;
+  goals: Profile['goals'];
   settings: Pick<Settings, 'inspection' | 'dailyGoal'>;
 }
 
@@ -29,10 +31,11 @@ const stepOf = (key: string, prefix: string): number | null => {
   return /^[0-8]$/.test(m) ? Number(m) : null;
 };
 
-// O valor que uma chave tem quando ninguém a gravou. Sumir uma aula, uma escolha ou um caso fora do sorteio é gravar este valor.
+// O valor que uma chave tem quando ninguém a gravou. Sumir uma aula, uma escolha, um caso fora do sorteio ou uma meta é gravar este valor.
 export function defaultPrefValue(key: string): unknown {
   if (key.startsWith('trail.')) return false;
   if (key.startsWith('lessonAt.')) return null;
+  if (key.startsWith('goal.')) return null;
   if (key.startsWith('algChoice.')) return 0;
   if (key.startsWith('trainOff.')) return false;
   switch (key) {
@@ -62,6 +65,8 @@ export function isPrefValue(key: string, value: unknown): boolean {
     return c !== undefined && isWhole(value, 0) && value < c.algs.length;
   }
   if (key.startsWith('trainOff.')) return caseById(key.slice('trainOff.'.length)) !== undefined && typeof value === 'boolean';
+  // A meta: vaga de 2 caracteres (o número de chaves continua limitado) e o valor estrito, ou null (apagada).
+  if (key.startsWith('goal.')) return GOAL_ID.test(key.slice('goal.'.length)) && (value === null || isGoal(value));
   switch (key) {
     case 'finish':
       return typeof value === 'string' && (FINISHES as readonly string[]).includes(value);
@@ -87,15 +92,16 @@ export function prefsFromProfile(p: AccountProfile, { withDefaults = false }: { 
   for (const [step, at] of Object.entries(p.lessonAt)) if (at !== undefined) out.set(`lessonAt.${step}`, at);
   for (const [id, index] of Object.entries(p.algChoice)) if (index !== 0) out.set(`algChoice.${id}`, index);
   for (const id of p.trainOff) out.set(`trainOff.${id}`, true);
+  for (const [id, goal] of Object.entries(p.goals)) out.set(`goal.${id}`, goal);
   out.set('finish', p.finish);
   out.set('onboarded', p.onboarded);
   out.set('settings.inspection', p.settings.inspection);
   out.set('settings.dailyGoal', p.settings.dailyGoal);
   out.set('season', p.season);
   out.set('duelName', p.duelName);
-  // O que o app grava o servidor aceita (spec 6.6). Um valor fora do tipo da chave (uma escolha além dos algoritmos do caso) vale o padrão,
-  // que é como a tela já o lia; uma chave que esta versão não conhece (um caso que saiu do catálogo) não vira item. Todo caminho que grava
-  // a conta passa por aqui (a migração e writeProfile), e todos filtram igual.
+  // O que o app grava o servidor aceita (spec 6.6). Um valor fora do tipo da chave (uma escolha além dos algoritmos do caso, uma meta fora do
+  // formato) vale o padrão, que é como a tela já o lia; uma chave que esta versão não conhece (um caso que saiu do catálogo, uma meta numa
+  // vaga que não serve) não vira item. Todo caminho que grava a conta passa por aqui (a migração e writeProfile), e todos filtram igual.
   for (const [key, value] of out) {
     if (isPrefValue(key, value)) continue;
     const fallback = defaultPrefValue(key);
@@ -119,6 +125,7 @@ export function profileFromPrefs(items: Iterable<PrefItem>): AccountProfile {
     onboarded: false,
     season: defaultSeason(),
     duelName: '',
+    goals: {},
     settings: { inspection: true, dailyGoal: 20 },
   };
   const off: PrefItem[] = [];
@@ -132,6 +139,8 @@ export function profileFromPrefs(items: Iterable<PrefItem>): AccountProfile {
       if (value !== 0) p.algChoice[key.slice('algChoice.'.length)] = value as number;
     } else if (key.startsWith('trainOff.')) {
       if (value === true) off.push(item);
+    } else if (key.startsWith('goal.')) {
+      if (value !== null) p.goals[key.slice('goal.'.length)] = value as Goal;
     } else if (key === 'finish') p.finish = value as FinishId;
     else if (key === 'onboarded') p.onboarded = value as boolean;
     else if (key === 'settings.inspection') p.settings.inspection = value as boolean;
@@ -164,6 +173,7 @@ export function splitProfile(p: Profile): { device: DeviceProfile; account: Acco
       onboarded: p.onboarded,
       season: p.season,
       duelName: p.duelName,
+      goals: p.goals,
       settings: { inspection, dailyGoal },
     },
   };
@@ -184,5 +194,6 @@ export function joinProfile(device: DeviceProfile | undefined, account: AccountP
     lessonAt: account.lessonAt,
     algChoice: account.algChoice,
     trainOff: account.trainOff,
+    goals: account.goals,
   };
 }

@@ -6,6 +6,7 @@
 // O que fica de fora por falta de dados (sessão sem evento) também volta contado no resultado.
 import { duelsFrom } from '../core/duel/validate';
 import { EVENT_IDS, eventFromCsTimer, eventInfo } from '../core/events';
+import { goalsFrom } from '../core/goals';
 import { seasonFrom } from '../core/season';
 import { isPrefValue } from '../core/sync/prefs';
 import { stampOf } from '../core/sync/records';
@@ -129,6 +130,9 @@ function profileOf(v: Record<string, unknown>): ProfilePatch {
   if (algChoice) profile.algChoice = algChoice;
   const trainOff = trainOffFrom(v.trainOff);
   if (trainOff) profile.trainOff = trainOff;
+  // As metas: só as de vaga e valor válidos. Sem o campo (um arquivo de antes delas), o perfil fica sem ele, e quem grava deixa as daqui.
+  const goals = goalsFrom(v.goals);
+  if (goals) profile.goals = goals;
   return profile;
 }
 

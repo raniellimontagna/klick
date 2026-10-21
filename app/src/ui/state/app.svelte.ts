@@ -265,6 +265,7 @@ const placeholderProfile = (): Profile => ({
   algChoice: {},
   trainOff: [],
   duelName: '',
+  goals: {},
 });
 
 // Quem tem dados da v1 para oferecer: os que batem, ou só registros que não batem (a oferta mostra quantos ficaram de fora). Uma

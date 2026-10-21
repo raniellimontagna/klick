@@ -13,6 +13,7 @@
 // Leitura: o que sai do IndexedDB já é cópia. Os padrões (perfil e meta) são montados novos a cada chamada, nunca compartilhados.
 import type { IDBPDatabase, IDBPObjectStore, IDBPTransaction, StoreNames } from 'idb';
 import { duelsFrom } from '../core/duel/validate';
+import { goalsFrom, type Goal } from '../core/goals';
 import { defaultSeason, finishUnlocked, moreAdvanced, seasonFrom } from '../core/season';
 import { applyChanges, sameChange, type ApplyOptions, type ApplyResult, type RecordView } from '../core/sync/apply';
 import { canonicalJson } from '../core/sync/merge';
@@ -292,6 +293,7 @@ function defaultProfile(): Profile {
     algChoice: {},
     trainOff: [],
     duelName: '',
+    goals: {},
   };
 }
 
@@ -307,6 +309,19 @@ function mergeProfile(base: Profile, patch: ProfilePatch | undefined): Profile {
     ...definedOnly(rest),
     settings: { ...base.settings, ...definedOnly(settings), sound: { ...base.settings.sound, ...definedOnly(settings?.sound) } },
   };
+}
+
+// As metas de um arquivo importado juntam com as daqui pela vaga (estatísticas, spec 5): entra a que só o arquivo tem; na mesma vaga fica a
+// daqui, com a data de alcance mais antiga das duas (o alcance não volta atrás). Sem o teto de metas vivas: como o sync, importar não tira
+// meta nenhuma. As daqui vêm primeiro, e um arquivo com as mesmas metas devolve o mesmo objeto, chave por chave.
+function joinGoals(mine: Profile['goals'], theirs: Profile['goals'] | undefined): Profile['goals'] {
+  const out = { ...mine };
+  for (const [id, goal] of Object.entries(theirs ?? {})) {
+    const here: Goal | undefined = out[id];
+    if (!here) out[id] = goal;
+    else if (goal.reachedAt !== null && (here.reachedAt === null || goal.reachedAt < here.reachedAt)) out[id] = { ...here, reachedAt: goal.reachedAt };
+  }
+  return out;
 }
 
 // O perfil da tela (spec 5.2): os ajustes do aparelho (store profile) mais os itens da conta (store prefs), com os padrões por baixo.
@@ -1946,6 +1961,8 @@ export function createRepository(
             algChoice: { ...base.algChoice, ...algChoiceFrom(theirs.algChoice) },
             lessonAt: { ...base.lessonAt, ...lessonAtFrom(theirs.lessonAt) },
             trainOff: trainOffFrom(theirs.trainOff) ?? base.trainOff,
+            // As metas juntam pela vaga (joinGoals); a torta fica de fora antes, e um arquivo sem elas deixa as daqui.
+            goals: joinGoals(base.goals, goalsFrom(theirs.goals)),
           });
           // Mesma ordem de chaves nos dois (mergeProfile monta ambos), então o JSON compara o conteúdo.
           if (!stored || JSON.stringify(merged) !== JSON.stringify(base)) {
@@ -2021,9 +2038,16 @@ export function createRepository(
         // A restauração fica com a temporada mais adiantada (spec 5.6), mesmo que a cópia não tenha perfil, e uma cópia sem perfil também
         // não tira o acabamento que a pessoa escolheu.
         const local = composeProfile(device, items);
-        // O que é do treino e a cópia não traz (uma cópia de antes do treino) fica o daqui; o nome dos desafios também (uma cópia de antes
-        // dele gravaria '' por cima do nome, com a data da restauração, e subiria para a conta). A cópia que o traz vale: `profile` vem depois.
-        const kept: ProfilePatch = { lessonAt: local.lessonAt, algChoice: local.algChoice, trainOff: local.trainOff, duelName: local.duelName };
+        // O que é do treino e a cópia não traz (uma cópia de antes do treino) fica o daqui; o nome dos desafios e as metas também (uma cópia de
+        // antes deles gravaria '' por cima do nome e null por cima de cada meta, com a data da restauração, e subiria para a conta). A cópia que
+        // os traz vale: `profile` vem depois (com `goals: {}`, as metas daqui voltam ao padrão).
+        const kept: ProfilePatch = {
+          lessonAt: local.lessonAt,
+          algChoice: local.algChoice,
+          trainOff: local.trainOff,
+          duelName: local.duelName,
+          goals: local.goals,
+        };
         const restored = profile ? mergeProfile(defaultProfile(), { ...kept, ...profile }) : null;
         const season = moreAdvanced(local.season, seasonFrom(profile?.season));
         // Sem perfil na cópia e sem temporada a guardar, o perfil volta aos padrões, como sempre foi. Sem perfil na cópia e com temporada a
