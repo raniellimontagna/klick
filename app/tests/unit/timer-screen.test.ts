@@ -851,6 +851,51 @@ describe('tela do Timer: a meta alcançada', () => {
     expect(document.querySelector('.coach')?.textContent ?? '').not.toContain('Meta alcançada');
   });
 
+  // A reação pulada (a pessoa armou de novo antes de a gravação terminar) não pula o alcance: a data vai para a meta assim mesmo, sem coach.
+  it('armar de novo antes da gravação terminar: a reação não entra, mas reachedAt é gravado', async () => {
+    const { a, repo } = await comMeta();
+    const gravar = repo.addSolve.bind(repo);
+    const quando: { concluir?: () => void } = {};
+    repo.addSolve = (s) =>
+      new Promise((resolve, reject) => {
+        quando.concluir = () => {
+          gravar(s).then(resolve, reject);
+        };
+      });
+    render(TimerScreen, { app: a });
+    await solveByKeys();
+    await vi.waitFor(() => expect(quando.concluir).toBeTypeOf('function'));
+    key('keydown', 'Space', ' ');
+    expect(document.body.dataset.tstate).toBe('arming');
+    quando.concluir?.();
+    await waitFor(async () => expect((await repo.getProfile()).goals.ab1!.reachedAt).toBe(a.solves[0]!.at));
+    expect(document.body.dataset.cview).not.toBe('reaction');
+    expect(document.querySelector('.coach')?.textContent ?? '').not.toContain('Meta alcançada');
+  });
+
+  // Alcançada fora daqui (um solve que veio do sync ou de um arquivo já estava abaixo do alvo): o solve novo grava a data antiga e não fala.
+  it('alcance de fora: grava a data do primeiro solve que chegou, sem comemorar', async () => {
+    const { a, repo } = await comMeta();
+    const before = Date.now() - 60_000;
+    await a.addSolve({ ms: 10_000, penalty: null, at: before });
+    render(TimerScreen, { app: a });
+    await solveByKeys();
+    await reagiu();
+    await waitFor(async () => expect((await repo.getProfile()).goals.ab1!.reachedAt).toBe(before));
+    expect(document.querySelector('.coach')?.textContent ?? '').not.toContain('Meta alcançada');
+  });
+
+  it('markGoalsReached rejeitado não trava a reação', async () => {
+    const { a } = await comMeta();
+    const marcar = vi.fn(() => Promise.reject(new Error('io')));
+    a.markGoalsReached = marcar;
+    render(TimerScreen, { app: a });
+    await solveByKeys();
+    await reagiu();
+    expect(marcar).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(document.querySelector('.coach')?.textContent).toContain(texto), { timeout: 4000 });
+  });
+
   it('no Digitar também', async () => {
     const { a, repo } = await comMeta({ entry: 'typing' });
     render(TimerScreen, { app: a });

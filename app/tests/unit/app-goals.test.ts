@@ -64,6 +64,19 @@ describe('metas no AppState', () => {
     expect((await repo.getProfile()).goals).toEqual({});
   });
 
+  it('deleteGoal de uma meta que já não existe devolve true sem gravar', async () => {
+    const { app, repo } = await setup();
+    await repo.saveProfile({ goals: { ab1: goal() } });
+    await app.reload();
+    let writes = 0;
+    repo.onChange((kind) => {
+      if (kind === 'profile') writes += 1;
+    });
+    expect(await app.deleteGoal('zzz')).toBe(true);
+    expect(writes).toBe(0);
+    expect((await repo.getProfile()).goals).toEqual({ ab1: goal() });
+  });
+
   it('deleteGoal tira a meta', async () => {
     const { app, repo } = await setup();
     await repo.saveProfile({ goals: { ab1: goal(), cd1: goal({ targetMs: 12_000 }) } });

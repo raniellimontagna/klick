@@ -16,7 +16,7 @@
   import { tick, untrack } from 'svelte';
   import { type CoachMessage, type CoachSeason, pickCoachMessage, type SeasonEnd, seasonEndMessage } from '../../core/coach';
   import { eventInfo } from '../../core/events';
-import { goalsReachedBy } from '../../core/goals';
+  import { type Goal, goalsReachedBy } from '../../core/goals';
   import { phaseLabels, validPhases } from '../../core/phases';
   import { closeRecord, seasonFinish, seasonSolves } from '../../core/season';
   import {
@@ -379,6 +379,19 @@ import { goalsReachedBy } from '../../core/goals';
       .finally(() => {
         if (mine === solveSeq) saving = false;
       });
+    // As metas que este solve cumpriu: a data vai para o perfil assim que ele está gravado, antes das conferências abaixo (a reação pulada não
+    // pula o alcance) e sem esperar (a reação não depende da gravação). A primeira que comemora vai ao coach, se a reação entrar. Só este
+    // aparelho passa por aqui; o que já tinha chegado por solves de fora grava a data antiga e fica calado. Se a gravação falha, o write() do
+    // AppState já avisa: aqui não há mais o que fazer. Se a conta lançar (um erro de código), segue sem a meta, como o coach abaixo.
+    let reachedGoal: Goal | null = null;
+    try {
+      const marks = solve ? goalsReachedBy(app.profile.goals, eventList, solve) : [];
+      const first = marks.find((m) => m.celebrate);
+      reachedGoal = first ? (app.profile.goals[first.id] ?? null) : null;
+      if (marks.length > 0) app.markGoalsReached(marks).catch(() => {});
+    } catch {
+      reachedGoal = null;
+    }
     // Um solve mais novo já tomou a tela, ou ela fechou, ou a sessão mudou: nada disso é mais deste solve.
     if (destroyed || mine !== solveSeq || app.activeSession?.id !== sessionAtStart) {
       release();
@@ -424,12 +437,6 @@ import { goalsReachedBy } from '../../core/goals';
     try {
       const season = eventInfo(solve.event).milestones ? seasonInput(seasonAtStart, app.solvesBefore(listBefore, solve)) : undefined;
       const s = app.profile.settings;
-      // As metas que este solve cumpriu: a data vai para o perfil sem esperar (a reação não depende da gravação), e a primeira que comemora
-      // vai ao coach. Só este aparelho passa por aqui; o que já tinha chegado por solves de fora grava a data antiga e fica calado.
-      const marks = goalsReachedBy(app.profile.goals, eventList, solve);
-      const first = marks.find((m) => m.celebrate);
-      const goal = first ? app.profile.goals[first.id] : null;
-      if (marks.length > 0) app.markGoalsReached(marks).catch(() => {});
       msg = pickCoachMessage({
         solve,
         history: eventList,
@@ -438,7 +445,7 @@ import { goalsReachedBy } from '../../core/goals';
         dailyGoal: s.dailyGoal,
         todayCount: solvesOnDay(app.solves, solve.at).length,
         prevAnyAt,
-        goal,
+        goal: reachedGoal,
         silent: s.silent,
         event: solve.event,
       });
