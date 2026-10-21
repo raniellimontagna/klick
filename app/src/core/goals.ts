@@ -106,6 +106,38 @@ function series(eventSolves: readonly Solve[], kind: GoalKind): (number | null)[
   return kind === 'single' ? list.map(effectiveMs) : rollingAverages(list, AVERAGE_SIZE[kind]);
 }
 
+// O que as metas de um evento e tipo leem da série, numa passada só (com 100 mil solves, cada passada custa): o melhor valor (sem DNF), o
+// primeiro valor finito (o começo de uma meta sem startMs) e o alcance de qualquer alvo.
+export interface GoalSeries {
+  best: number | null;
+  first: number | null;
+  reach: (targetMs: number) => number | null; // o `at` do primeiro solve abaixo do alvo
+}
+
+export function goalSeries(eventSolves: readonly Solve[], kind: GoalKind): GoalSeries {
+  const values = series(eventSolves, kind);
+  // Os recordes da série, na ordem: cada valor finito abaixo de todos os de antes. O primeiro solve abaixo de um alvo é sempre um recorde
+  // (os de antes dele ficaram acima), então o alcance é o primeiro recorde abaixo do alvo; como eles só descem, a busca é binária.
+  const recordValue: number[] = [];
+  const recordAt: number[] = [];
+  values.forEach((v, i) => {
+    if (v === null || !(v < (recordValue[recordValue.length - 1] ?? Infinity))) return;
+    recordValue.push(v);
+    recordAt.push(eventSolves[i]!.at);
+  });
+  const reach = (targetMs: number): number | null => {
+    let lo = 0;
+    let hi = recordValue.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (recordValue[mid]! < targetMs) hi = mid;
+      else lo = mid + 1;
+    }
+    return lo < recordValue.length ? recordAt[lo]! : null;
+  };
+  return { best: recordValue[recordValue.length - 1] ?? null, first: recordValue[0] ?? null, reach };
+}
+
 // O melhor valor do tipo (sem DNF), ou null sem tempo válido.
 export function goalBest(eventSolves: readonly Solve[], kind: GoalKind): number | null {
   const list = [...eventSolves];
@@ -127,13 +159,14 @@ export interface GoalInput {
 
 // A meta nova: o ponto de partida é o melhor de agora e, se o histórico já passou do alvo, ela nasce alcançada com a data de quem chegou.
 export function makeGoal(input: GoalInput, eventSolves: readonly Solve[], now: number): Goal {
+  const s = goalSeries(eventSolves, input.kind);
   return {
     kind: input.kind,
     event: input.event,
     targetMs: input.targetMs,
-    startMs: goalBest(eventSolves, input.kind),
+    startMs: s.best,
     createdAt: now,
-    reachedAt: firstReach(eventSolves, input.kind, input.targetMs),
+    reachedAt: s.reach(input.targetMs),
   };
 }
 
@@ -152,11 +185,12 @@ export interface GoalStatus {
 }
 
 // O estado para mostrar. Alcançada fora deste aparelho (solves do sync ou importados, sem reachedAt na meta) vale pela data do primeiro
-// solve que chegou; sem startMs, o começo é o primeiro valor finito da série.
-export function goalStatus(goal: Goal, eventSolves: readonly Solve[]): GoalStatus {
-  const best = goalBest(eventSolves, goal.kind);
-  const reachedAt = goal.reachedAt ?? firstReach(eventSolves, goal.kind, goal.targetMs);
-  const start = goal.startMs ?? series(eventSolves, goal.kind).find((v): v is number => v !== null && v !== Infinity) ?? null;
+// solve que chegou; sem startMs, o começo é o primeiro valor finito da série. `s` é a série do evento e tipo da meta, que as metas iguais
+// nisso dividem (o quadro a calcula uma vez por par).
+export function goalStatus(goal: Goal, eventSolves: readonly Solve[], s: GoalSeries = goalSeries(eventSolves, goal.kind)): GoalStatus {
+  const best = s.best;
+  const reachedAt = goal.reachedAt ?? s.reach(goal.targetMs);
+  const start = goal.startMs ?? s.first;
   let progress = 0;
   if (reachedAt !== null) progress = 1;
   else if (best !== null && start !== null && start > goal.targetMs) progress = Math.min(1, Math.max(0, (start - best) / (start - goal.targetMs)));

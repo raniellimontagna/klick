@@ -5,7 +5,7 @@
   // cada meta) e diz isso no cabeçalho. Cada linha abre a folha da meta; "Nova meta" abre a folha nova no evento do filtro (`event`). Com
   // GOAL_MAX metas ou mais (o sync pode trazer uma sétima), "Nova meta" fica desligado, no Tab, com o motivo. Sem metas, o convite.
   import { eventInfo } from '../../core/events';
-  import { GOAL_MAX, goalName, goalStatus } from '../../core/goals';
+  import { type Goal, GOAL_MAX, goalName, type GoalSeries, goalSeries, goalStatus } from '../../core/goals';
   import { formatMs } from '../../core/stats';
   import type { EventId, Solve } from '../../core/types';
   import { T } from '../../strings';
@@ -27,13 +27,20 @@
   }
 
   // O estado de cada meta, numa conta por mudança (das metas ou dos solves): os solves de cada evento saem numa passada só, na ordem de
-  // app.solves (cronológica).
+  // app.solves (cronológica), e a série de cada evento e tipo uma vez, dividida pelas metas do par.
   const rows = $derived.by((): Row[] => {
     const entries = Object.entries(app.profile.goals);
     const byEvent = new Map<EventId, Solve[]>(entries.map(([, g]) => [g.event, []]));
     for (const s of app.solves) byEvent.get(s.event)?.push(s);
+    const series = new Map<string, GoalSeries>();
+    const seriesOf = (event: EventId, kind: Goal['kind']): GoalSeries => {
+      const key = `${event} ${kind}`;
+      let s = series.get(key);
+      if (!s) series.set(key, (s = goalSeries(byEvent.get(event)!, kind)));
+      return s;
+    };
     return entries
-      .map(([id, goal]) => ({ id, goal, status: goalStatus(goal, byEvent.get(goal.event)!) }))
+      .map(([id, goal]) => ({ id, goal, status: goalStatus(goal, byEvent.get(goal.event)!, seriesOf(goal.event, goal.kind)) }))
       .sort((a, b) => Number(a.status.reachedAt !== null) - Number(b.status.reachedAt !== null) || a.goal.createdAt - b.goal.createdAt || (a.id < b.id ? -1 : 1))
       .map(({ id, goal, status: { best, reachedAt, start, progress, left } }): Row => {
         const name = goalName(goal);

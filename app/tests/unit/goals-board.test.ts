@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Goal } from '../../src/core/goals';
+import { rollingAverages } from '../../src/core/stats';
 import type { EventId, Solve } from '../../src/core/types';
 import { openKlickDb } from '../../src/data/db';
 import { createRepository } from '../../src/data/repository';
@@ -8,6 +9,12 @@ import { createScrambleQueue } from '../../src/scramble/queue';
 import { T } from '../../src/strings';
 import GoalsBoard from '../../src/ui/evolucao/GoalsBoard.svelte';
 import { AppState } from '../../src/ui/state/app.svelte';
+
+// As médias das metas passam por rollingAverages: um espião que deixa a conta de verdade e conta as passadas.
+vi.mock('../../src/core/stats', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/core/stats')>();
+  return { ...actual, rollingAverages: vi.fn(actual.rollingAverages) };
+});
 
 // O quadro "Metas" da Evolução (a maquete aprovada, 1b, 1c, 3c, 6b, 7b e 7e): uma linha por meta, que abre a folha; "Nova meta" embaixo.
 // Datas locais (new Date(ano, mês, dia, hora)): o fuso é o do aparelho, como no código.
@@ -87,7 +94,7 @@ describe('o quadro Metas', () => {
       {
         ab1: goal({ kind: 'ao12', event: '444', targetMs: 60_000, createdAt: 1 }),
         cd1: goal({ kind: 'ao5', event: '444', targetMs: 60_000, createdAt: 2 }),
-        ef: goal({ kind: 'single', event: '444', targetMs: 60_000, createdAt: 3 }),
+        ef1: goal({ kind: 'single', event: '444', targetMs: 60_000, createdAt: 3 }),
       },
       // Quatro solves de 4×4 não fazem uma média de 5; nenhum solve faz um single.
       run('444', 65_000, day(9, 1), 4).map((s) => ({ ...s, penalty: 'DNF' as const })),
@@ -103,7 +110,7 @@ describe('o quadro Metas', () => {
   });
 
   it('sete metas do sync aparecem todas e Nova meta fica aria-disabled com o motivo', async () => {
-    const seven = Object.fromEntries(Array.from({ length: 7 }, (_, i) => [`a${i}`, goal({ targetMs: 10_000 + i * 100, createdAt: i })]));
+    const seven = Object.fromEntries(Array.from({ length: 7 }, (_, i) => [`a0${i}`, goal({ targetMs: 10_000 + i * 100, createdAt: i })]));
     const a = await app(seven);
     render(GoalsBoard, { app: a, event: '333' });
     expect(rows()).toHaveLength(7);
@@ -118,7 +125,7 @@ describe('o quadro Metas', () => {
   });
 
   it('com 6 Nova meta já fica desligado; com 5, abre a folha nova no evento do filtro', async () => {
-    const goals = (count: number) => Object.fromEntries(Array.from({ length: count }, (_, i) => [`a${i}`, goal({ createdAt: i })]));
+    const goals = (count: number) => Object.fromEntries(Array.from({ length: count }, (_, i) => [`a0${i}`, goal({ createdAt: i })]));
     const six = await app(goals(6));
     const { unmount } = render(GoalsBoard, { app: six, event: '333' });
     expect(within(region()).getByRole('button', { name: T.metas.new })).toHaveAttribute('aria-disabled', 'true');
@@ -131,6 +138,18 @@ describe('o quadro Metas', () => {
     await fireEvent.click(button);
     expect(five.dialog).toBe('goal');
     expect(five.goalRequest).toEqual({ id: null, event: '444' });
+  });
+
+  // Com 100 mil solves, cada passada pela série custa: as metas do mesmo evento e tipo dividem uma (antes, até três por meta).
+  it('seis metas do mesmo evento fazem uma passada por tipo de média', async () => {
+    const six = Object.fromEntries(
+      (['single', 'ao5', 'ao12'] as const).flatMap((kind, k) => [12_000, 13_000].map((targetMs, j) => [`m${k}${j}`, goal({ kind, targetMs, createdAt: k * 2 + j })])),
+    );
+    const a = await app(six, run('333', 13_580, day(9, 1), 30));
+    vi.mocked(rollingAverages).mockClear();
+    render(GoalsBoard, { app: a, event: '333' });
+    expect(rows()).toHaveLength(6);
+    expect(vi.mocked(rollingAverages)).toHaveBeenCalledTimes(2);
   });
 
   it('sem metas, o convite e Criar uma meta', async () => {

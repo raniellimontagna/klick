@@ -6,9 +6,11 @@ import {
   GOAL_TARGET_MAX,
   firstReach,
   formatTarget,
+  goalBest,
   freeGoalId,
   goalName,
   goalPhrase,
+  goalSeries,
   goalsReachedBy,
   goalStatus,
   isGoal,
@@ -155,6 +157,26 @@ describe('metas: alcance', () => {
     // Um DNF só é cortado: a média vale.
     const one = [sv(9000), sv(9000), sv(9000, 'DNF'), sv(9000), sv(9000)];
     expect(firstReach(one, 'ao5', 13000)).toBe(one[4]!.at);
+  });
+});
+
+describe('metas: a série numa passada', () => {
+  it('goalSeries dá o mesmo melhor, o mesmo alcance de cada alvo e o mesmo começo que as funções de uma meta', () => {
+    // Tempos subindo e descendo, com DNF e +2: os recordes da série não andam em linha reta.
+    const list = [14000, 9000, 13000, 12500, 16000, 11000, 8000, 12000, 10500, 15000, 9500, 7000, 13500, 8500, 12000, 6000].map((ms, i) =>
+      sv(ms, i % 7 === 3 ? 'DNF' : i % 5 === 4 ? '+2' : null),
+    );
+    for (const kind of ['single', 'ao5', 'ao12'] as const) {
+      for (const solves of [list, list.slice(0, 4), [sv(9000, 'DNF')], []]) {
+        const s = goalSeries(solves, kind);
+        expect(s.best, kind).toBe(goalBest(solves, kind));
+        const start = goalStatus(goal({ kind, startMs: null, targetMs: 1 }), solves).start;
+        expect(s.first, kind).toBe(start);
+        for (const target of [1, 6000, 6001, 7000, 8000, 9000, 10_000, 11_000, 12_000, 12_500, 13_000, 20_000, GOAL_TARGET_MAX]) {
+          expect(s.reach(target), `${kind} ${target}`).toBe(firstReach(solves, kind, target));
+        }
+      }
+    }
   });
 });
 

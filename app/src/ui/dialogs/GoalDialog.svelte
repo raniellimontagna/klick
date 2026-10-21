@@ -10,9 +10,9 @@
   // (excluída noutro aparelho), ela fecha sem aviso.
   import { tick, untrack } from 'svelte';
   import { EVENTS, eventInfo } from '../../core/events';
-  import { firstReach, formatTarget, goalBest, type GoalKind, goalPhrase, parseGoalTarget } from '../../core/goals';
+  import { formatTarget, type GoalKind, goalPhrase, type GoalSeries, goalSeries, parseGoalTarget } from '../../core/goals';
   import { formatMs } from '../../core/stats';
-  import type { EventId } from '../../core/types';
+  import type { EventId, Solve } from '../../core/types';
   import { T } from '../../strings';
   import { confirmReady } from '../confirm';
   import { fullDate } from '../format';
@@ -62,11 +62,20 @@
   });
 
   // A prévia, só com a folha aberta: os solves do evento em todas as sessões (como a meta conta), o melhor do tipo e, se o alvo é válido e o
-  // histórico já passou dele, a data com que ela nasce alcançada (a do primeiro solve que chegou).
+  // histórico já passou dele, a data com que ela nasce alcançada (a do primeiro solve que chegou). A série de cada evento e tipo fica guardada
+  // enquanto a folha está aberta com os mesmos solves: digitar o alvo não a refaz, e voltar a um tipo ou evento já visto também não.
+  let seen: { solves: readonly Solve[]; series: Map<string, GoalSeries> } | null = null;
+  function seriesOf(solves: readonly Solve[], ev: EventId, k: GoalKind): GoalSeries {
+    if (seen?.solves !== solves) seen = { solves, series: new Map() };
+    const key = `${ev} ${k}`;
+    let s = seen.series.get(key);
+    if (!s) seen.series.set(key, (s = goalSeries(solves.filter((x) => x.event === ev), k)));
+    return s;
+  }
   const parsed = $derived(parseGoalTarget(text));
-  const eventSolves = $derived(app.solves.filter((s) => s.event === event));
-  const best = $derived(goalBest(eventSolves, kind));
-  const reach = $derived(parsed.ok && best !== null && best < parsed.ms ? firstReach(eventSolves, kind, parsed.ms) : null);
+  const series = $derived(seriesOf(app.solves, event, kind));
+  const best = $derived(series.best);
+  const reach = $derived(parsed.ok && best !== null && best < parsed.ms ? series.reach(parsed.ms) : null);
 
   function disarm(): void {
     armed = false;
@@ -79,6 +88,7 @@
   function onclose(): void {
     disarm();
     loaded = null;
+    seen = null;
     error = null;
     if (app.dialog === 'goal') app.dialog = null;
     void tick().then(() => {

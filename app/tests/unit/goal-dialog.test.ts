@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Goal } from '../../src/core/goals';
+import { rollingAverages } from '../../src/core/stats';
 import type { EventId, Solve } from '../../src/core/types';
 import { openKlickDb } from '../../src/data/db';
 import { createRepository } from '../../src/data/repository';
@@ -9,6 +10,12 @@ import { T } from '../../src/strings';
 import { CONFIRM_DELAY_MS } from '../../src/ui/confirm';
 import GoalDialog from '../../src/ui/dialogs/GoalDialog.svelte';
 import { AppState } from '../../src/ui/state/app.svelte';
+
+// As médias passam por rollingAverages: um espião que deixa a conta de verdade e conta as passadas pela série.
+vi.mock('../../src/core/stats', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/core/stats')>();
+  return { ...actual, rollingAverages: vi.fn(actual.rollingAverages) };
+});
 
 // A folha da meta (a maquete aprovada, 3a, 3b, 3d, 3e e 7c, 7d, 7f): tipo, evento e o tempo; embaixo, como a meta fica e o seu melhor agora.
 // Datas locais (new Date(ano, mês, dia, hora)): o fuso é o do aparelho, como no código.
@@ -100,6 +107,21 @@ describe('a folha da meta', () => {
     expect(field()).not.toHaveAttribute('aria-invalid');
     expect(document.activeElement).toBe(field());
     expect(a.profile.goals).toEqual({});
+  });
+
+  // Com 100 mil solves, a série custa: digitar o alvo não a refaz, e voltar a um tipo já visto com a folha aberta também não.
+  it('a prévia calcula a série uma vez por evento e tipo enquanto a folha está aberta', async () => {
+    const { a } = await app({}, run('333', 12_970, day(9, 1), 12));
+    await openNew(a);
+    vi.mocked(rollingAverages).mockClear();
+    await fireEvent.click(kindButton('Média de 5'));
+    for (const t of ['13', '14', '15', '12.5', '16']) await type(t);
+    expect(lines()[1]!.textContent).toBe('Seu melhor já está abaixo: ela nasce alcançada, com a data de 01/10/2026.');
+    expect(vi.mocked(rollingAverages)).toHaveBeenCalledTimes(1);
+    await fireEvent.click(kindButton('Média de 12'));
+    await fireEvent.click(kindButton('Média de 5'));
+    await type('17');
+    expect(vi.mocked(rollingAverages)).toHaveBeenCalledTimes(2);
   });
 
   it('3600 diz Até 59:59.99.', async () => {
