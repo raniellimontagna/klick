@@ -13,10 +13,12 @@ export interface PhaseAverages {
   means: number[]; // a média de cada fase, em ms
   shares: number[]; // a fatia de cada fase no total (média da fase sobre a soma das médias); soma 1
   heaviest: number; // o índice da fase mais demorada
+  used: number; // quantos solves entraram na média (até `last`)
 }
 
 // As médias por fase dos últimos `last` solves sem DNF com o mesmo número de fases do solve mais recente que tem fases (mistura de 2 e 4
-// fases não se compara). Sem nenhum solve com fases, ou sem nenhum válido nesse formato, é null.
+// fases não se compara). Só entram solves cujas fases fecham o tempo (validPhases): as que chegam malformadas pelo sync ou por um arquivo
+// não estragam a média com NaN. Sem nenhum solve com fases, ou sem nenhum válido nesse formato, é null.
 export function phaseAverages(pool: readonly Solve[], last = 12): PhaseAverages | null {
   const latest = pool.findLast((s) => s.phases !== undefined && s.phases.length > 0);
   const n = latest?.phases?.length;
@@ -24,13 +26,15 @@ export function phaseAverages(pool: readonly Solve[], last = 12): PhaseAverages 
   const used: number[][] = [];
   for (let i = pool.length - 1; i >= 0 && used.length < last; i--) {
     const s = pool[i];
-    if (s.penalty !== 'DNF' && s.phases?.length === n) used.push(s.phases);
+    if (s.penalty === 'DNF' || s.phases?.length !== n) continue;
+    const valid = validPhases(s);
+    if (valid) used.push(valid);
   }
   if (used.length === 0) return null;
   const means = Array.from({ length: n }, (_, k) => used.reduce((sum, p) => sum + p[k], 0) / used.length);
   const total = means.reduce((a, b) => a + b, 0);
   const shares = means.map((m) => (total > 0 ? m / total : 0));
-  return { n, means, shares, heaviest: means.indexOf(Math.max(...means)) };
+  return { n, means, shares, heaviest: means.indexOf(Math.max(...means)), used: used.length };
 }
 
 // As fases de um solve que dá para mostrar (uma cópia), ou null. As que chegam pelo sync ou por um arquivo não passaram pelo timer daqui:

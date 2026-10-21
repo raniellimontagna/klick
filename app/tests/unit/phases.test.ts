@@ -53,6 +53,15 @@ describe('phaseAverages', () => {
     const a = phaseAverages(pool)!;
     expect(a.n).toBe(4);
     expect(a.means).toEqual([2000, 8000 / 3, 10000 / 3, 4000]);
+    expect(a.used).toBe(3); // quantos entraram na média
+  });
+
+  it('um solve com fases malformadas (do sync ou de um arquivo) não entra na média', () => {
+    const pool = [solve(10000, [4000, 6000]), solve(10000, [2000, Number.NaN]), solve(9000, [4000, 6000])]; // o do meio tem NaN; o último não soma
+    const a = phaseAverages(pool)!;
+    expect(a.used).toBe(1);
+    expect(a.means).toEqual([4000, 6000]);
+    expect(phaseAverages([solve(9000, [4000, 6000])])).toBeNull();
   });
 
   it('o formato vem do mais recente com fases, mesmo DNF; sem nenhum válido nesse formato, é null', () => {

@@ -201,6 +201,11 @@
   white-space: nowrap;
 }
 
+/* No detalhe do solve a barra é a seção inteira: sem a margem de baixo. */
+.hx-sec .tc-split {
+  margin: 0;
+}
+
 .btn {
   display: inline-flex;
   align-items: center;

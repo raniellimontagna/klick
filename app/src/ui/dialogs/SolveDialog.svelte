@@ -1,14 +1,16 @@
 <script lang="ts">
   // O detalhe de um solve (a maquete aprovada, estados 3 e 8b–8c): uma folha como as outras (.sheet). Mostra o tempo grande, a penalidade
   // (OK / +2 / DNF: um seletor de três valores, que já refaz médias e recordes), a data, o evento e a sessão, as médias de 5 e de 12 que
-  // terminam nele, o selo de recorde (um botão: abre a folha do recorde), o embaralhamento (com a imagem, se o ajuste deixa) e a nota. Muda só a penalidade, a nota, a sessão
-  // (Mover, pela folha de mover) e a lixeira; o tempo e o embaralhamento não.
+  // terminam nele, as fases (a barra do resultado, só em solve com fases), o selo de recorde (um botão: abre a folha do recorde), o
+  // embaralhamento (com a imagem, se o ajuste deixa) e a nota. Muda só a penalidade, a nota, a sessão (Mover, pela folha de mover) e a lixeira;
+  // o tempo, as fases e o embaralhamento não.
   //
   // Abre por app.openSolve(id, sessionId): o solve é lido ao vivo de app.solves (uma penalidade nova aparece na hora), e as médias, o número
   // e o recorde vêm da mesma conta da lista, o filtro de onde ele foi aberto (o pool sai de app.solves, no mesmo evento e na mesma sessão
   // da lista, em vez de a lista passar o seu). Se o solve some com a folha aberta (excluído em outra aba), ela fecha sem aviso.
   import { untrack } from 'svelte';
   import { eventInfo } from '../../core/events';
+  import { phaseLabels, validPhases } from '../../core/phases';
   import { effectiveMs, formatMs, formatSolve, RECORD_SIZES } from '../../core/stats';
   import { isTypedDnf } from '../../core/typed';
   import type { Penalty } from '../../core/types';
@@ -19,6 +21,7 @@
   import { copyTextOf } from '../evolucao/rows';
   import { dateLabel, timeOfDay } from '../format';
   import type { AppState, RecordKind } from '../state/app.svelte';
+  import PhaseBar from '../timer/PhaseBar.svelte';
   import ScrambleImage from '../timer/ScrambleImage.svelte';
   import { modal } from './modal';
 
@@ -99,6 +102,10 @@
     const session = app.sessions.find((s) => s.id === solve.sessionId)?.name;
     return [day, eventInfo(solve.event).name, session].filter((part) => part !== undefined && part !== '').join(' · ');
   });
+
+  // As fases do solve (a maquete aprovada, estado 6), se fecham o tempo: as que chegam pelo sync ou por um arquivo podem vir malformadas.
+  // Mudar a penalidade não mexe nelas.
+  const phases = $derived(solve ? validPhases(solve) : null);
 
   const PENALTIES: readonly { value: Penalty; label: string }[] = [
     { value: null, label: T.historico.penaltyOk },
@@ -239,6 +246,13 @@
         <button type="button" class="chip pb hx-chip" onclick={openRecord}>{T.historico.inRecord(view.record)} <span aria-hidden="true">›</span></button>
       {/if}
     </div>
+
+    {#if phases}
+      <div class="hx-sec">
+        <div class="label">{T.fases.title}</div>
+        <PhaseBar {phases} labels={phaseLabels(phases.length, solve.event)} />
+      </div>
+    {/if}
 
     <div class="hx-sec">
       <div class="label">{T.timer.scramble}</div>

@@ -177,3 +177,53 @@ for (const scheme of ['light', 'dark'] as const) {
     expect(await serious('detalhe do DNF digitado')).toEqual([]);
   });
 }
+
+// As fases (a maquete aprovada, estados 6, 7a–7b e 8d): a seção do detalhe do solve e o quadro da Evolução, nos dois temas. Os solves com fases
+// são gravados direto no banco (o timer com fases é coberto na unit e nas capturas).
+for (const scheme of ['light', 'dark'] as const) {
+  test(`a seção Fases do detalhe e o quadro Fases da Evolução, sem violações sérias no tema ${scheme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await fresh(page);
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          const open = indexedDB.open('klick');
+          open.onerror = () => reject(open.error);
+          open.onsuccess = () => {
+            const db = open.result;
+            const tx = db.transaction(['solves', 'profile'], 'readwrite');
+            const get = tx.objectStore('profile').get('current');
+            get.onsuccess = () => {
+              const end = Date.now() - 300_000;
+              for (let i = 0; i < 12; i++) {
+                const phases = [1_800 + i * 10, 6_100, 2_200, 3_200];
+                const at = end - (12 - i) * 300_000;
+                tx.objectStore('solves').put({ id: `ph${i}`, sessionId: get.result.currentSessionId, event: '333', ms: phases.reduce((a, b) => a + b, 0), penalty: null, at, scramble: "R U2 F L R' D2", note: '', createdAt: at, updatedAt: at, deletedAt: null, phases });
+              }
+            };
+            tx.oncomplete = () => {
+              db.close();
+              resolve();
+            };
+            tx.onerror = () => reject(tx.error);
+          };
+        }),
+    );
+    await page.reload();
+    await page.getByRole('button', { name: 'Evolução', exact: true }).first().click();
+    const screen = page.locator('[data-screen="evolucao"]');
+    const serious = async (where: string) => {
+      const r = await new AxeBuilder({ page }).analyze();
+      return r.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${where}: ${v.id}`);
+    };
+    const board = screen.getByRole('region', { name: T.fases.boardTitle });
+    await expect(board).toBeVisible();
+    await expect(board.getByRole('list', { name: T.fases.boardBar }).getByRole('listitem')).toHaveCount(4);
+    await expect(board.getByRole('listitem').nth(1)).toContainText('F2L, 6.10 s');
+    expect(await serious('quadro Fases')).toEqual([]);
+    await page.locator('.hx-row').first().click();
+    const sheet = page.getByRole('dialog', { name: /^Solve #/ });
+    await expect(sheet.getByRole('list', { name: T.fases.bar }).getByRole('listitem')).toHaveCount(4);
+    expect(await serious('detalhe com fases')).toEqual([]);
+  });
+}

@@ -72,6 +72,24 @@ describe('poolStats', () => {
     expect(plus2.records).toEqual(vi.mocked(stats.records).getMockImplementation()!(plus2.pool));
   });
 
+  it('uma mudança nas fases refaz o cálculo', () => {
+    const list = many('s1', 20).map((s) => ({ ...s, ms: 10_000, phases: [4_000, 6_000] }));
+    const first = poolStats(list, '333', 'all');
+    expect(first.phases?.means).toEqual([4_000, 6_000]);
+    const same = poolStats(list.map((s) => ({ ...s, phases: [...s.phases] })), '333', 'all'); // outra cópia, as mesmas fases
+    expect(same.series).toBe(first.series);
+    expect(same.phases).toBe(first.phases);
+    const before = runs();
+    const changed = poolStats(list.map((s) => (s.id === 'p19' ? { ...s, phases: [1_000, 9_000] } : s)), '333', 'all');
+    expect(runs() - before).toBe(1);
+    expect(changed.phases?.means[0]).toBeCloseTo((11 * 4_000 + 1_000) / 12, 6);
+    // Ganhar fases (um solve sem elas que passa a tê-las) também refaz.
+    const plain = poolStats(many('s9', 5), '333', 's9');
+    expect(plain.phases).toBeNull();
+    const gained = poolStats(many('s9', 5).map((s) => (s.id === 'p4' ? { ...s, ms: 10_000, phases: [4_000, 6_000] } : s)), '333', 's9');
+    expect(gained.phases?.means).toEqual([4_000, 6_000]);
+  });
+
   it('o filtro é o evento e a sessão; cada filtro tem a sua conta', () => {
     const list = [...many('s1', 10), ...many('s2', 10).map((s) => ({ ...s, id: `q${s.id}` }))].sort((x, y) => x.at - y.at);
     expect(poolStats(list, '333', 's2').pool.map((s) => s.id)).toEqual(list.filter((s) => s.sessionId === 's2').map((s) => s.id));

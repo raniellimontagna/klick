@@ -50,6 +50,43 @@ afterEach(() => {
 });
 
 describe('o detalhe de um solve', () => {
+  // As fases (a maquete aprovada, estado 6): a seção entre as médias e o embaralhamento, com a barra das fases; só em solve com fases válidas.
+  it('o detalhe de um solve com fases mostra a barra com os nomes', async () => {
+    const a = await app();
+    await waitFor(() => expect(a.scramble).not.toBe(''));
+    const s = (await a.addSolve({ ms: 13_340, penalty: null, at: Date.now() - MIN, phases: [1840, 6120, 2150, 3230] }))!;
+    render(SolveDialog, { app: a });
+    a.openSolve(s.id);
+    const d = await screen.findByRole('dialog', { name: /Solve #1/ });
+    const section = within(d).getByText(T.fases.title).closest('.hx-sec') as HTMLElement;
+    const list = within(section).getByRole('list', { name: T.fases.bar });
+    const li = within(list).getAllByRole('listitem');
+    expect(li.map((x) => x.querySelector('.n')?.textContent)).toEqual(['Cruz', 'F2L', 'OLL', 'PLL']); // 4 fases no 3×3
+    expect(li[1]).toHaveTextContent('F2L, 6.12 s, 46% do tempo, a que mais pesa');
+    // Entre as médias e o embaralhamento, como na maquete.
+    const secs = [...d.querySelectorAll('.hx-sec')];
+    expect(secs.indexOf(section)).toBe(secs.indexOf(d.querySelector('.chips')!) + 1);
+    expect(secs[secs.indexOf(section) + 1]).toHaveTextContent(T.timer.scramble);
+    // Mudar a penalidade não mexe nelas.
+    await fireEvent.click(within(d).getByRole('button', { name: '+2' }));
+    await waitFor(() => expect(live(a, s.id).penalty).toBe('+2'));
+    expect(within(d).getAllByRole('listitem').map((x) => x.querySelector('small')?.firstChild?.textContent)).toEqual(['14%', '46%', '16%', '24%']);
+  });
+
+  it('sem fases, ou com fases que não fecham o tempo, a seção não aparece', async () => {
+    const a = await app();
+    const [plain, broken] = await seed(a, [13_000, 14_000]);
+    render(SolveDialog, { app: a });
+    a.openSolve(plain!.id);
+    const d = await screen.findByRole('dialog');
+    expect(within(d).queryByText(T.fases.title)).toBeNull();
+    // Fases que chegaram do sync sem fechar o tempo bruto: ficam de fora.
+    a.solves = a.solves.map((x) => (x.id === broken!.id ? { ...x, phases: [1000, 2000] } : x));
+    a.openSolve(broken!.id);
+    await waitFor(() => expect(within(screen.getByRole('dialog')).getByRole('heading', { name: /Solve #2/ })).toBeInTheDocument());
+    expect(within(screen.getByRole('dialog')).queryByText(T.fases.title)).toBeNull();
+  });
+
   it('abre com tempo, data, sessão, embaralhamento e a ao5/ao12 que terminam nele', async () => {
     const a = await app();
     const solves = await seed(a, Array.from({ length: 14 }, (_, i) => 12_000 + i * 150));

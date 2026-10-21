@@ -451,6 +451,31 @@ body.solving .t-coach {
   padding-bottom: 12px;
 }
 
+/* O quadro Fases (ui/evolucao/PhasesBoard.svelte; a maquete aprovada, peça tc-fases): no cartão do quadro de recordes, logo abaixo dele. A
+   barra ocupa a largura toda, com os números maiores (no celular, mais abaixo, menores). */
+.tc-fases {
+  margin-top: 12px;
+}
+
+.tc-fases .tc-split {
+  max-width: none;
+  margin: 12px 0 0;
+}
+
+.tc-fases .tc-split b {
+  font-size: 20px;
+  letter-spacing: -0.025em;
+}
+
+.tc-fases .tc-split .n {
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.tc-top {
+  margin-top: 10px;
+}
+
 .hx-rec-list {
   list-style: none;
   padding: 0;
@@ -1150,6 +1175,8 @@ body:has(.hx-bulk) .toast {
   .hx-rec em { font-size: 12px; text-align: right; }
   .hx-rec .dz-chev { display: block; font-size: 18px; }
   .hx-recs { padding-bottom: 4px; }
+  .tc-fases .tc-split { margin: 12px 0 0; }
+  .tc-fases .tc-split b { font-size: 15px; letter-spacing: 0; }
 
   .hx-list { --hx-cols: 40px minmax(0, 1fr) 51px 51px 78px; }
   .hx-list[data-select] { --hx-cols: 20px minmax(0, 1fr) 51px 51px 78px; }

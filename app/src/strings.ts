@@ -7,6 +7,8 @@ const sec = (ms: number): string => (Math.floor(ms / 10) / 100).toFixed(2);
 
 // O nome genérico de uma fase ("Fase 2"); a barra das fases mostra só o número e deixa a palavra para o leitor de tela.
 const FASE = 'Fase';
+// A duração de uma fase: "6.12 s" abaixo de um minuto, "1:02.40" daí em diante.
+const phaseDur = (ms: number): string => (ms < 60000 ? `${sec(ms)} s` : formatMs(ms));
 
 export const MILESTONE_INFO = Object.freeze({
   first: { label: 'Primeiro solve', msg: 'Primeiro solve registrado' },
@@ -526,10 +528,18 @@ export const T = Object.freeze({
     // A barra das fases (PhaseBar): o nome da lista, a duração de cada fase ("6.12 s" abaixo de um minuto, "1:02.40" daí em diante) e o que
     // só o leitor ouve depois da parte ("46% do tempo, a que mais pesa").
     bar: 'Fases deste solve',
-    dur: (ms: number) => (ms < 60000 ? `${sec(ms)} s` : formatMs(ms)),
+    dur: phaseDur,
     share: (pct: number) => `${pct}%`,
     ofTime: ' do tempo',
     ofTimeTop: ' do tempo, a que mais pesa',
+    // A seção do detalhe do solve (o nome dela).
+    title: 'Fases',
+    // O quadro da Evolução (a maquete aprovada, 7a): o nome da lista, o cabeçalho com o que entrou na média ("as últimas 12 com 4 fases") e a
+    // nota da fase que mais pesa ("A fase F2L é a que mais pesa: 45% do tempo, 6.24 s em média."; o nome é o número ou o do CFOP).
+    boardTitle: 'Fases',
+    boardBar: 'Média de cada fase',
+    boardScope: (used: number, n: number) => `${used === 1 ? 'o último' : used >= 12 ? `as últimas ${used}` : `os ${used} últimos`} com ${n} fases`,
+    boardTop: (name: string, pct: number, ms: number) => `A fase ${name} é a que mais pesa: ${pct}% do tempo, ${phaseDur(ms)} em média.`,
   },
   actions: { plus2: '+2', dnf: 'DNF', note: 'Nota', delete: 'Excluir' },
   note: {

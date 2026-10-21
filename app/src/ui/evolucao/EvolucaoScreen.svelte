@@ -29,6 +29,7 @@
   import { scoreOf } from '../state/duel.svelte';
   import DuelList from './DuelList.svelte';
   import DuelMatch from './DuelMatch.svelte';
+  import PhasesBoard from './PhasesBoard.svelte';
   import { poolStats } from './pool-stats';
   import RecordsBoard from './RecordsBoard.svelte';
   import SolveList from './SolveList.svelte';
@@ -307,6 +308,7 @@
     </div>
 
     <RecordsBoard records={stats.records} all={sessionId === 'all'} onOpen={openRecord} />
+    <PhasesBoard phases={stats.phases} {event} />
 
     <div class="evo-grid">
       <div class="card">
