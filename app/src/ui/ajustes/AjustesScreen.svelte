@@ -26,6 +26,10 @@
     void app.updateSettings({ inspVoice: value });
     if (value) sound.speak(T.timer.voice8);
   }
+  // Um valor de antes fora das opções (um 35 de um arquivo importado) entra na ordem dos números, marcado, até a pessoa escolher outro.
+  const dailyGoalOptions = $derived(
+    (T.ajustes.dailyGoalOptions as readonly number[]).includes(s.dailyGoal) ? T.ajustes.dailyGoalOptions : [...T.ajustes.dailyGoalOptions, s.dailyGoal].sort((x, y) => x - y),
+  );
   const phasesHint = $derived(s.phases === 0 ? T.ajustes.phasesHintOff : s.phases === 4 ? T.ajustes.phasesHint4 : T.ajustes.phasesHint);
 
   // Um switch grava na hora. Se a gravação falha, a caixa volta ao que está salvo (o aviso já saiu pela casca).
@@ -122,6 +126,20 @@
                 data-val={value}
                 aria-pressed={s.liveTime === value ? 'true' : 'false'}
                 onclick={() => app.updateSettings({ liveTime: value })}>{label}</button
+              >
+            {/each}
+          </div>
+        </div>
+        <div class="setting">
+          {@render caption(T.ajustes.dailyGoal, T.ajustes.dailyGoalHint)}
+          <div class="seg" role="group" aria-label={T.ajustes.dailyGoal}>
+            {#each dailyGoalOptions as value (value)}
+              <button
+                type="button"
+                data-set="dailyGoal"
+                data-val={value}
+                aria-pressed={s.dailyGoal === value ? 'true' : 'false'}
+                onclick={() => app.updateSettings({ dailyGoal: value })}>{value}</button
               >
             {/each}
           </div>

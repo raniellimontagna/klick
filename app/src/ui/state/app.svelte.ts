@@ -6,6 +6,7 @@
 import { untrack } from 'svelte';
 import { cleanDuelName } from '../../core/duel/link';
 import { eventInfo } from '../../core/events';
+import { freeGoalId, type GoalInput, GOAL_MAX, makeGoal, remakeGoal } from '../../core/goals';
 import { createSeasonTracker, defaultSeason, type MarkStatus, planAdvance, seasonKey } from '../../core/season';
 import { dayKey, type RECORD_SIZES } from '../../core/stats';
 import { isTypedDnf } from '../../core/typed';
@@ -1417,12 +1418,14 @@ export class AppState {
   // Antes, espera uma restauração em curso (o remendo não parte da memória de antes da troca nem cai no meio do replaceAll). O
   // remendo é calculado e gravado dentro da fila das leituras (serial): uma leitura em voo termina antes e deixa o perfil que leu na
   // memória, e a gravação parte dele; uma que entra depois lê o que acabou de ser gravado. Assim nenhuma leitura velha desfaz a marca.
-  private trailJob(job: () => Partial<Omit<Profile, 'settings'>>): Promise<boolean> {
+  // Serve a qualquer remendo do perfil (as metas também passam por aqui); o remendo null é "nada a gravar" e devolve true sem tocar no repositório.
+  private trailJob(job: () => Partial<Omit<Profile, 'settings'>> | null): Promise<boolean> {
     const run = this.trailWrites.then(async () => {
       while (this.restoring) await this.restoring;
       const ok = await this.write(() =>
         this.serial(async () => {
-          this.profile = await this.repo.saveProfile(job());
+          const patch = job();
+          if (patch) this.profile = await this.repo.saveProfile(patch);
         }),
       );
       if (!ok) await this.refreshKinds(['profile']);
@@ -1474,6 +1477,52 @@ export class AppState {
       if (index === 0) delete algChoice[caseId];
       else algChoice[caseId] = index;
       return { algChoice };
+    });
+  }
+
+  // --- Metas (spec 5 e 6). Pela mesma fila de escrita do perfil: o remendo é o mapa inteiro, e uma meta apagada sai da chave. ---
+
+  // Cria (sem id) ou edita (com id) uma meta. Os solves do evento saem de todas as sessões. Recusa criar com GOAL_MAX vivas (as que vieram
+  // do sync contam, mesmo passando de seis) e editar uma que sumiu (apagada em outro aparelho); em nenhum dos dois casos grava.
+  saveGoal(input: GoalInput & { id?: string }): Promise<boolean> {
+    let refused = false;
+    return this.trailJob(() => {
+      const goals = $state.snapshot(this.profile.goals); // cópia simples: o perfil da memória é um proxy, que o IndexedDB não clona
+      const eventSolves = this.solves.filter((s) => s.event === input.event);
+      const at = this.now();
+      if (input.id === undefined) {
+        if (Object.keys(goals).length >= GOAL_MAX) refused = true;
+        else goals[freeGoalId(new Set(Object.keys(goals)))] = makeGoal(input, eventSolves, at);
+      } else {
+        const old = goals[input.id];
+        if (old) goals[input.id] = remakeGoal(old, input, eventSolves, at);
+        else refused = true;
+      }
+      return refused ? null : { goals };
+    }).then((ok) => ok && !refused);
+  }
+
+  deleteGoal(id: string): Promise<boolean> {
+    return this.trailJob(() => {
+      const goals = $state.snapshot(this.profile.goals);
+      delete goals[id];
+      return { goals };
+    });
+  }
+
+  // Grava a data de quem alcançou, só onde a meta ainda não tem uma (reachedAt não volta atrás). Sem mudança, não grava.
+  markGoalsReached(marks: readonly { id: string; at: number }[]): Promise<boolean> {
+    let changed = false;
+    return this.trailJob(() => {
+      const goals = $state.snapshot(this.profile.goals);
+      for (const { id, at } of marks) {
+        const g = goals[id];
+        if (g && g.reachedAt === null) {
+          goals[id] = { ...g, reachedAt: at };
+          changed = true;
+        }
+      }
+      return changed ? { goals } : null;
     });
   }
 

@@ -816,6 +816,53 @@ describe('tela do Timer: o modo Digitar e o desafio', () => {
   });
 });
 
+// A meta alcançada (a maquete aprovada, 1c): o solve que a cumpre a comemora no lugar do recorde, uma vez, e grava a data.
+describe('tela do Timer: a meta alcançada', () => {
+  const META = { kind: 'single' as const, event: '333' as const, targetMs: 11_000, startMs: null, createdAt: 1, reachedAt: null };
+  const texto = 'Meta alcançada: single abaixo de 11 s. Essa você escolheu e cumpriu.';
+
+  async function comMeta(settings: Parameters<AppState['updateSettings']>[0] = {}) {
+    const { a, repo } = await app();
+    await a.updateSettings({ inspection: false, ...settings });
+    await repo.saveProfile({ goals: { ab: META } });
+    await a.reload();
+    return { a, repo };
+  }
+  const reagiu = async (): Promise<void> => {
+    await waitFor(() => expect(document.body.dataset.cview).toBe('reaction'), { timeout: 4000 });
+  };
+
+  it('o solve que alcança a meta mostra "Meta alcançada: single abaixo de 11 s. Essa você escolheu e cumpriu." no lugar do recorde e grava reachedAt', async () => {
+    const { a, repo } = await comMeta();
+    render(TimerScreen, { app: a });
+    await solveByKeys();
+    await waitFor(() => expect(document.querySelector('.coach')?.textContent).toContain(texto), { timeout: 4000 });
+    expect(document.querySelector('.coach')?.textContent).not.toMatch(/recorde/i);
+    await waitFor(async () => expect((await repo.getProfile()).goals.ab!.reachedAt).toBe(a.solves[0]!.at));
+    expect(a.profile.goals.ab!.reachedAt).toBe(a.solves[0]!.at);
+  });
+
+  it('no silencioso grava reachedAt e não fala', async () => {
+    const { a, repo } = await comMeta({ silent: true });
+    render(TimerScreen, { app: a });
+    await solveByKeys();
+    await reagiu();
+    await waitFor(async () => expect((await repo.getProfile()).goals.ab!.reachedAt).toBe(a.solves[0]!.at));
+    expect(document.querySelector('.coach')?.textContent ?? '').not.toContain('Meta alcançada');
+  });
+
+  it('no Digitar também', async () => {
+    const { a, repo } = await comMeta({ entry: 'typing' });
+    render(TimerScreen, { app: a });
+    const campo = (await screen.findByLabelText(T.timer.typedLabel)) as HTMLInputElement;
+    await fireEvent.input(campo, { target: { value: '1034' } }); // 10,34 s, abaixo dos 11 s da meta
+    await fireEvent.keyDown(campo, { key: 'Enter', code: 'Enter' });
+    await waitFor(() => expect(a.solves).toHaveLength(1));
+    await waitFor(() => expect(document.querySelector('.coach')?.textContent).toContain(texto), { timeout: 4000 });
+    await waitFor(async () => expect((await repo.getProfile()).goals.ab!.reachedAt).toBe(a.solves[0]!.at));
+  });
+});
+
 // As fases no toque e o tempo durante o solve (a maquete aprovada, 4a–4c e 5a–5b). O relógio é o do teste: cada fase dura o que ele manda.
 describe('tela do Timer: as fases e o tempo durante o solve', () => {
   beforeEach(relogioControlado);

@@ -16,6 +16,7 @@
   import { tick, untrack } from 'svelte';
   import { type CoachMessage, type CoachSeason, pickCoachMessage, type SeasonEnd, seasonEndMessage } from '../../core/coach';
   import { eventInfo } from '../../core/events';
+import { goalsReachedBy } from '../../core/goals';
   import { phaseLabels, validPhases } from '../../core/phases';
   import { closeRecord, seasonFinish, seasonSolves } from '../../core/season';
   import {
@@ -423,6 +424,12 @@
     try {
       const season = eventInfo(solve.event).milestones ? seasonInput(seasonAtStart, app.solvesBefore(listBefore, solve)) : undefined;
       const s = app.profile.settings;
+      // As metas que este solve cumpriu: a data vai para o perfil sem esperar (a reação não depende da gravação), e a primeira que comemora
+      // vai ao coach. Só este aparelho passa por aqui; o que já tinha chegado por solves de fora grava a data antiga e fica calado.
+      const marks = goalsReachedBy(app.profile.goals, eventList, solve);
+      const first = marks.find((m) => m.celebrate);
+      const goal = first ? app.profile.goals[first.id] : null;
+      if (marks.length > 0) app.markGoalsReached(marks).catch(() => {});
       msg = pickCoachMessage({
         solve,
         history: eventList,
@@ -431,6 +438,7 @@
         dailyGoal: s.dailyGoal,
         todayCount: solvesOnDay(app.solves, solve.at).length,
         prevAnyAt,
+        goal,
         silent: s.silent,
         event: solve.event,
       });

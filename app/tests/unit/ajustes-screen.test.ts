@@ -149,3 +149,34 @@ describe('Ajustes: os ajustes novos do timer', () => {
     expect(screen.queryByText(T.ajustes.inspSoundHint)).toBeNull();
   });
 });
+
+describe('Ajustes: a meta do dia', () => {
+  const goalButtons = () => [...document.querySelectorAll('[data-set="dailyGoal"]')] as HTMLElement[];
+
+  it('a meta do dia marca 20 e grava 50', async () => {
+    const { a, repo } = await app();
+    render(AjustesScreen, { app: a });
+    const group = await screen.findByRole('group', { name: 'Meta do dia' });
+    expect(group.querySelectorAll('button')).toHaveLength(5);
+    expect(goalButtons().map((b) => b.textContent)).toEqual(['10', '20', '30', '50', '100']);
+    expect(goalButtons().find((b) => b.getAttribute('aria-pressed') === 'true')?.textContent).toBe('20');
+    expect(screen.getByText('Solves por dia, somando todos os eventos. O coach avisa quando você chega.')).toBeInTheDocument();
+    // A última linha do fieldset Timer.
+    expect(group.closest('.setting')?.nextElementSibling).toBeNull();
+    await fireEvent.click(goalButtons().find((b) => b.textContent === '50')!);
+    await vi.waitFor(async () => expect((await repo.getProfile()).settings.dailyGoal).toBe(50));
+    expect(goalButtons().find((b) => b.getAttribute('aria-pressed') === 'true')?.textContent).toBe('50');
+  });
+
+  it('um 35 de antes aparece entre 30 e 50, marcado', async () => {
+    const { a } = await app();
+    await a.updateSettings({ dailyGoal: 35 });
+    render(AjustesScreen, { app: a });
+    await screen.findByRole('group', { name: 'Meta do dia' });
+    expect(goalButtons().map((b) => b.textContent)).toEqual(['10', '20', '30', '35', '50', '100']);
+    expect(goalButtons().find((b) => b.getAttribute('aria-pressed') === 'true')?.textContent).toBe('35');
+    // Escolher outro valor tira o 35 da lista.
+    await fireEvent.click(goalButtons().find((b) => b.textContent === '30')!);
+    await vi.waitFor(() => expect(goalButtons().map((b) => b.textContent)).toEqual(['10', '20', '30', '50', '100']));
+  });
+});
