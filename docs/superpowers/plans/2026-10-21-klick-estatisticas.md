@@ -184,7 +184,7 @@
 
 **Files:**
 - Create: `app/src/ui/evolucao/GoalsBoard.svelte`, `app/src/ui/dialogs/GoalDialog.svelte`
-- Modify: `app/src/ui/evolucao/EvolucaoScreen.svelte` (Metas no `.es-grid`), `app/src/ui/state/app.svelte.ts` (`DialogId` ganha `'goal'`; `goalRequest: string | null` e `openGoal(id: string | null)`, no molde de `recordRequest`), `app/src/App.svelte` (monta a folha), `app/src/styles/screens.css` (`es-goal*`, `es-bar`, a folha), `app/src/strings.ts` (`T.metas`)
+- Modify: `app/src/ui/evolucao/EvolucaoScreen.svelte` (Metas no `.es-grid`), `app/src/ui/state/app.svelte.ts` (`DialogId` ganha `'goal'`; `goalRequest: string | null` e `openGoal(id: string | null)`, no molde de `recordRequest`), `app/src/ui/App.svelte` (monta a folha), `app/src/styles/screens.css` (`es-goal*`, `es-bar`, a folha), `app/src/strings.ts` (`T.metas`)
 - Test: `app/tests/unit/goals-board.test.ts` (novo), `app/tests/unit/goal-dialog.test.ts` (novo), `app/tests/unit/app-dialogs.test.ts`
 
 **Interfaces:**
