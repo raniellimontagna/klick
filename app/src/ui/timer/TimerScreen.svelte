@@ -757,7 +757,9 @@
     const wasSleeping = live.sleeping;
     live.wake(Date.now());
     armSleep();
-    sound.unlock();
+    // Com a voz do aviso ligada, o gesto também prepara a fala (o iOS descarta o primeiro speak fora de um gesto).
+    const st = app.profile.settings;
+    sound.unlock(st.inspVoice && st.sound.insp);
     if (wasSleeping) paint();
   }
 

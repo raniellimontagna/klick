@@ -996,7 +996,7 @@ describe('tela do Timer: o aviso da inspeção', () => {
     vi.stubGlobal('speechSynthesis', {
       getVoices: () => voices,
       cancel() {},
-      speak: (u: { text: string }) => void said.push(u.text),
+      speak: (u: { text: string }) => void said.push(u.text), // inclui a fala muda da preparação (texto vazio)
       addEventListener() {},
       removeEventListener() {},
     });
@@ -1029,10 +1029,30 @@ describe('tela do Timer: o aviso da inspeção', () => {
     await inspecting({ inspVoice: true });
     const antes = oscillators;
     await passTo(8100);
-    expect(said).toEqual(['oito']);
+    expect(said.filter((t) => t.trim())).toEqual(['oito']);
     await passTo(12100);
-    expect(said).toEqual(['oito', 'doze']);
+    expect(said.filter((t) => t.trim())).toEqual(['oito', 'doze']);
     expect(oscillators).toBe(antes);
+  });
+
+  it('com Voz, o primeiro gesto prepara a fala com uma fala muda, uma vez só; sem Voz, nenhuma', async () => {
+    const mudas: number[] = [];
+    vi.stubGlobal('SpeechSynthesisUtterance', class { voice = null; lang = ''; volume = 1; constructor(public text: string) {} });
+    (speechSynthesis as unknown as { speak: (u: { volume: number }) => void }).speak = (u) => void mudas.push(u.volume);
+    const { a } = await app();
+    await a.updateSettings({ inspVoice: false });
+    render(TimerScreen, { app: a });
+    await screen.findByText('333 R U');
+    key('keydown', 'Space', ' ');
+    await sleep(50);
+    expect(mudas).toEqual([]);
+    await a.updateSettings({ inspVoice: true });
+    key('keyup', 'Space', ' ');
+    await sleep(50);
+    key('keydown', 'KeyA', 'a');
+    key('keydown', 'KeyB', 'b');
+    await sleep(50);
+    expect(mudas).toEqual([0]);
   });
 
   it('sem Voz, o aviso é o bipe e nada é falado', async () => {

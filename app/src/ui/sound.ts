@@ -11,7 +11,7 @@ export interface Sound {
   speak(text: string): boolean; // fala com uma voz em português; false sem a API ou sem voz em português (quem chamou cai no bipe)
   warn(ms: number, voice: boolean): void; // o aviso da inspeção aos 8 e 12 s: "oito"/"doze" com voz, o bipe sem ela; segue sound.insp
   chord(): void; // recorde
-  unlock(): void; // chamar num gesto da pessoa: o navegador só libera o áudio depois de um
+  unlock(voice?: boolean): void; // chamar num gesto da pessoa: o navegador só libera o áudio depois de um; com `voice`, prepara também a fala (o iOS descarta o primeiro speak fora de um gesto)
   close(): void; // devolve o AudioContext ao navegador (o iOS limita quantos a página abre); depois disso o som fica em silêncio
   setEnabled(group: SoundGroup, on: boolean): void;
 }
@@ -34,7 +34,7 @@ function browserSpeech(): Speech | null {
 // A voz em português: pt-BR primeiro, senão qualquer pt. O Android devolve "pt_BR" com sublinhado.
 function pickPortuguese(voices: readonly SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
   const lang = (v: SpeechSynthesisVoice): string => v.lang.toLowerCase().replace('_', '-');
-  return voices.find((v) => lang(v) === 'pt-br') ?? voices.find((v) => lang(v) === 'pt' || lang(v).startsWith('pt-')) ?? null;
+  return voices.find((v) => lang(v) === 'pt-br') ?? voices.find((v) => lang(v) === 'pt' || lang(v).startsWith('pt-') || lang(v).startsWith('por')) ?? null;
 }
 
 // O aparelho tem voz em português? As vozes podem carregar depois; quem mostra isso na tela escuta `voiceschanged` (ver watchVoices).
@@ -145,7 +145,8 @@ export function createSound(initial: SoundGroups = { klick: true, insp: true, pb
     }
   }
 
-  function speak(text: string): boolean {
+  // Fala `text` com a voz em português. `cancel` limpa a fila antes; a preparação (volume 0) não cancela nada.
+  function utter(text: string, volume: number, cancel: boolean): boolean {
     if (!speech || closed || typeof SpeechSynthesisUtterance === 'undefined') return false;
     try {
       if (!unwatch) {
@@ -157,12 +158,23 @@ export function createSound(initial: SoundGroups = { klick: true, insp: true, pb
       const u = new SpeechSynthesisUtterance(text);
       u.voice = voice;
       u.lang = voice.lang.replace('_', '-');
-      speech.cancel(); // o "doze" não espera atrás do "oito"
+      u.volume = volume;
+      if (cancel) speech.cancel(); // o "doze" não espera atrás do "oito"
       speech.speak(u);
       return true;
     } catch {
       return false;
     }
+  }
+
+  const speak = (text: string): boolean => utter(text, 1, true);
+
+  // O iOS só libera a fala depois de um speak dentro de um gesto: sem isso o primeiro "oito", que sai do laço do timer, some em silêncio.
+  // Uma fala muda por som, e só quando há voz em português (sem ela, tenta de novo no próximo gesto).
+  let primed = false;
+  function prime(): void {
+    if (primed) return;
+    primed = utter(' ', 0, false);
   }
 
   return {
@@ -180,8 +192,9 @@ export function createSound(initial: SoundGroups = { klick: true, insp: true, pb
     chord() {
       if (enabled.pb) [523.25, 659.25, 783.99].forEach((f, i) => tone(f, 0.35, 0.12, i * 0.04));
     },
-    unlock() {
+    unlock(voiceOn = false) {
       ensure();
+      if (voiceOn) prime();
     },
     // Fecha o contexto, se algum foi aberto; chamar de novo não faz nada, e um som fechado não abre outro.
     close() {

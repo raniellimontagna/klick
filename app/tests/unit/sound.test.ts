@@ -304,6 +304,61 @@ describe('voz', () => {
     }
   });
 
+  it('unlock com voz ligada prepara a fala uma vez, com uma fala muda; sem voz ligada nunca', () => {
+    const { synth, Utterance } = fakeSpeech([{ lang: 'pt-BR', name: 'Brasil' }]);
+    const made: { text: string; volume: number }[] = [];
+    vi.stubGlobal(
+      'SpeechSynthesisUtterance',
+      class extends Utterance {
+        volume = 1;
+        constructor(text: string) {
+          super(text);
+          made.push(this);
+        }
+      },
+    );
+    try {
+      const off = createSound(undefined, { speech: synth as unknown as SpeechSynthesis });
+      off.unlock();
+      off.unlock(false);
+      expect(synth.said).toHaveLength(0);
+      expect(off.speak('oito')).toBe(true); // a preparação não é pré-requisito do speak
+      synth.said.length = 0;
+      made.length = 0;
+
+      const s = createSound(undefined, { speech: synth as unknown as SpeechSynthesis });
+      s.unlock(true);
+      expect(synth.said).toHaveLength(1);
+      expect(made[0].volume).toBe(0);
+      expect(made[0].text.trim()).toBe('');
+      s.unlock(true);
+      expect(synth.said).toHaveLength(1); // só uma vez por som
+      expect(s.speak('oito')).toBe(true);
+      expect(synth.said.map((x) => x.text.trim())).toEqual(['', 'oito']);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('sem voz em português, unlock(true) não fala nada e tenta de novo quando a voz chegar', () => {
+    const { synth, Utterance } = fakeSpeech([]);
+    vi.stubGlobal('SpeechSynthesisUtterance', Utterance);
+    try {
+      const s = createSound(undefined, { speech: synth as unknown as SpeechSynthesis });
+      s.unlock(true);
+      expect(synth.said).toHaveLength(0);
+      synth.voices = [{ lang: 'pt-BR', name: 'Brasil' }];
+      s.unlock(true);
+      expect(synth.said).toHaveLength(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('o código "por" (ISO 639-2) também vale como português', () => {
+    expect(hasPortugueseVoice({ getVoices: () => [{ lang: 'por-BRA' }] } as unknown as SpeechSynthesis)).toBe(true);
+  });
+
   it('hasPortugueseVoice diz se o aparelho tem voz em português', () => {
     expect(hasPortugueseVoice({ getVoices: () => [{ lang: 'pt-BR' }] } as unknown as SpeechSynthesis)).toBe(true);
     expect(hasPortugueseVoice({ getVoices: () => [{ lang: 'en-GB' }] } as unknown as SpeechSynthesis)).toBe(false);
