@@ -13,10 +13,13 @@ const sv = (when: number, event: EventId = '333', sessionId = 's1'): Solve => ({
   id: String(++id), sessionId, event, ms: 12000, penalty: null, at: when, scramble: '', note: '', createdAt: when, updatedAt: when, deletedAt: null,
 });
 const many = (n: number, when: number, event: EventId = '333'): Solve[] => Array.from({ length: n }, () => sv(when, event));
-// um solve por dia, de `from` a `to` (inclusive, pelo calendário)
+// um solve por dia, de `from` a `to` (inclusive, pelo calendário: os dias andam pelo meio-dia, que o horário de verão não pula)
 const run = (from: Date, to: Date): Solve[] => {
   const out: Solve[] = [];
-  for (const d = new Date(from); d <= to; d.setDate(d.getDate() + 1)) out.push(sv(at(d.getFullYear(), d.getMonth(), d.getDate())));
+  const end = at(to.getFullYear(), to.getMonth(), to.getDate());
+  for (const d = new Date(at(from.getFullYear(), from.getMonth(), from.getDate())); d.getTime() <= end; d.setDate(d.getDate() + 1)) {
+    out.push(sv(at(d.getFullYear(), d.getMonth(), d.getDate())));
+  }
   return out;
 };
 
