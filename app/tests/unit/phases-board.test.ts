@@ -63,6 +63,17 @@ describe('o quadro Fases', () => {
     expect(within(region).getByText('A fase F2L é a que mais pesa: 43% do tempo, 6.00 s em média.')).toBeInTheDocument();
   });
 
+  it.each([null, {}, [Number.NaN, 1], [1, 2, 3, 4, 5]])('um solve com fases tortas (%j) do sync não derruba a Evolução: o quadro sai com os bons', async (bad) => {
+    const a = await app();
+    const good = make(a.profile.currentSessionId!, [[2000, 6000], [4000, 6000]]);
+    const broken: Solve = { ...make(a.profile.currentSessionId!, [undefined])[0]!, id: 'torto', phases: bad as unknown as number[] };
+    a.solves = [...good, { ...broken, at: good[1]!.at + 1, createdAt: good[1]!.at + 1 }]; // o torto é o mais recente
+    render(EvolucaoScreen, { app: a });
+    const region = await waitFor(() => fases()!);
+    expect(within(region).getByText('os 2 últimos com 2 fases')).toBeInTheDocument();
+    expect(items().map((x) => x.querySelector('.n')?.textContent)).toEqual(['Fase 1', 'Fase 2']);
+  });
+
   it('com menos de 12, o cabeçalho diz quantos entraram', async () => {
     const a = await app();
     a.solves = make(a.profile.currentSessionId!, [[2000, 3000], [3000, 3000], undefined, [2000, 4000]]);

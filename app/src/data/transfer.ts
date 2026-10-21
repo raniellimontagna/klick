@@ -217,7 +217,7 @@ function csPhases(times: unknown[], ms: number): number[] | undefined {
 function csTimeVector(s: Solve): number[] {
   const head = [penaltyToCs(s.penalty), s.ms];
   const phases = s.phases;
-  if (!phases || phases.length < 2 || !phases.every((d) => isNum(d) && d >= 0) || phases.reduce((a, b) => a + b, 0) !== s.ms) return head;
+  if (!Array.isArray(phases) || phases.length < 2 || !phases.every((d) => isNum(d) && d >= 0) || phases.reduce((a, b) => a + b, 0) !== s.ms) return head; // do sync pode vir um objeto
   const cumulative: number[] = [];
   let sum = 0;
   for (const d of phases.slice(0, -1)) cumulative.push((sum += d));

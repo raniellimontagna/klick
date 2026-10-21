@@ -90,6 +90,27 @@ describe('poolStats', () => {
     expect(gained.phases?.means).toEqual([4_000, 6_000]);
   });
 
+  it.each([null, {}, 'abc', [Number.NaN, 1], [1, 2, 3, 4, 5]])('fases tortas (%j) do sync não derrubam a conta, nem a comparação de uma lista para outra', (phases) => {
+    const bad = (s: Solve): Solve => ({ ...s, ms: 10_000, phases: phases as unknown as number[] });
+    const list = many('s1', 20).map((s) => (s.id === 'p19' ? bad(s) : { ...s, ms: 10_000, phases: [4_000, 6_000] }));
+    expect(() => poolStats(list, '333', 'all')).not.toThrow();
+    const first = poolStats(list, '333', 'all');
+    expect(first.phases?.means).toEqual([4_000, 6_000]);
+    expect(first.phases?.used).toBe(12); // os 12 últimos bons (o torto é o mais recente e fica de fora)
+    // Outra lista (outra referência) com o mesmo solve torto: a comparação das fases não lança, e o resultado se reaproveita.
+    const again = poolStats(list.map((s) => ({ ...s })), '333', 'all');
+    expect(again.phases?.means).toEqual([4_000, 6_000]);
+  });
+
+  it('fases com NaN iguais de uma lista para outra não refazem a conta', () => {
+    const list = many('s1', 20).map((s, i) => ({ ...s, ms: 10_000, phases: i === 19 ? [Number.NaN, 1] : [4_000, 6_000] }));
+    const first = poolStats(list, '333', 'all');
+    const before = runs();
+    const same = poolStats(list.map((s) => ({ ...s, phases: [...s.phases] })), '333', 'all');
+    expect(runs() - before).toBe(0);
+    expect(same.series).toBe(first.series);
+  });
+
   it('o filtro é o evento e a sessão; cada filtro tem a sua conta', () => {
     const list = [...many('s1', 10), ...many('s2', 10).map((s) => ({ ...s, id: `q${s.id}` }))].sort((x, y) => x.at - y.at);
     expect(poolStats(list, '333', 's2').pool.map((s) => s.id)).toEqual(list.filter((s) => s.sessionId === 's2').map((s) => s.id));

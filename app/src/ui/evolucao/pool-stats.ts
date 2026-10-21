@@ -46,10 +46,11 @@ function sameTimes(a: readonly Solve[], b: readonly Solve[]): boolean {
 }
 
 // As fases de dois solves (a mesma lista, ou as mesmas durações; a maioria dos solves não tem, e o caso comum custa uma comparação).
-function samePhases(a: readonly number[] | undefined, b: readonly number[] | undefined): boolean {
+function samePhases(a: unknown, b: unknown): boolean {
   if (a === b) return true;
-  if (!a || !b || a.length !== b.length) return false;
-  return a.every((d, i) => d === b[i]);
+  // Do sync pode vir qualquer coisa (null, objeto): só listas se comparam, e Object.is para o NaN igual a si mesmo não refazer a conta.
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+  return a.every((d, i) => Object.is(d, b[i]));
 }
 
 // Os recordes reaproveitam as médias de 5 e de 12 da lista: das cinco médias móveis, só três são feitas de novo.

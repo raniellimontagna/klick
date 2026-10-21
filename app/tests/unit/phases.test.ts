@@ -64,10 +64,31 @@ describe('phaseAverages', () => {
     expect(phaseAverages([solve(9000, [4000, 6000])])).toBeNull();
   });
 
-  it('o formato vem do mais recente com fases, mesmo DNF; sem nenhum válido nesse formato, é null', () => {
-    expect(phaseAverages([solve(10000, [4000, 6000]), solve(0, [1, 2, 3], 'DNF')])).toBeNull();
-    // Com um válido do mesmo formato mais atrás, a média sai dele.
-    expect(phaseAverages([solve(10000, [4000, 3000, 3000]), solve(0, [1, 2, 3], 'DNF')])!.means).toEqual([4000, 3000, 3000]);
+  it('o formato vem do mais recente com fases válidas, mesmo DNF; um DNF de fases tortas não manda no formato', () => {
+    // O DNF com ms 0 e fases que não fecham não é válido: o formato é o do solve válido anterior.
+    expect(phaseAverages([solve(10000, [4000, 6000]), solve(0, [1, 2, 3], 'DNF')])!.means).toEqual([4000, 6000]);
+    // Um DNF com fases que fecham o tempo bruto manda no formato; sem nenhum válido nele, é null.
+    expect(phaseAverages([solve(10000, [4000, 6000]), solve(6000, [1000, 2000, 3000], 'DNF')])).toBeNull();
+    expect(phaseAverages([solve(10000, [4000, 3000, 3000]), solve(6000, [1000, 2000, 3000], 'DNF')])!.means).toEqual([4000, 3000, 3000]);
+  });
+
+  // I2 da revisão final: fases que chegam do sync (o servidor e isSolve aceitam o registro) ou de um arquivo não podem derrubar a conta.
+  const bad = (phases: unknown, ms = 10000): Solve => ({ ...solve(ms), phases: phases as number[] });
+  it.each([
+    ['null', null],
+    ['objeto', {}],
+    ['com NaN', [Number.NaN, 1]],
+    ['com cinco fases', [1, 2, 3, 4, 5]],
+    ['texto', 'abc'],
+  ])('fases %s não derrubam: o solve fica de fora e o resto da média continua', (_n, phases) => {
+    expect(() => phaseAverages([bad(phases)])).not.toThrow();
+    expect(phaseAverages([bad(phases)])).toBeNull();
+    const pool = [solve(10000, [4000, 6000]), bad(phases), solve(9000, [3000, 6000])];
+    const a = phaseAverages(pool)!;
+    expect(a.used).toBe(2);
+    expect(a.means).toEqual([3500, 6000]);
+    // O mais recente com fases válidas manda no formato, mesmo com um torto mais novo na frente.
+    expect(phaseAverages([solve(10000, [4000, 6000]), bad(phases)])!.means).toEqual([4000, 6000]);
   });
 
   it('respeita o limite de `last`, pegando os mais recentes', () => {

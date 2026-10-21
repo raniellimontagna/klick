@@ -87,6 +87,16 @@ describe('o detalhe de um solve', () => {
     expect(within(screen.getByRole('dialog')).queryByText(T.fases.title)).toBeNull();
   });
 
+  it.each([null, {}, [Number.NaN, 1], [1, 2, 3, 4, 5]])('fases tortas (%j) do sync: o detalhe abre sem a seção e sem lançar', async (bad) => {
+    const a = await app();
+    const [x] = await seed(a, [13_000]);
+    a.solves = a.solves.map((s) => (s.id === x!.id ? { ...s, phases: bad as unknown as number[] } : s));
+    render(SolveDialog, { app: a });
+    a.openSolve(x!.id);
+    const d = await screen.findByRole('dialog');
+    expect(within(d).queryByText(T.fases.title)).toBeNull();
+  });
+
   it('abre com tempo, data, sessão, embaralhamento e a ao5/ao12 que terminam nele', async () => {
     const a = await app();
     const solves = await seed(a, Array.from({ length: 14 }, (_, i) => 12_000 + i * 150));

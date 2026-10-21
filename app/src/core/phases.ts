@@ -16,19 +16,21 @@ export interface PhaseAverages {
   used: number; // quantos solves entraram na média (até `last`)
 }
 
-// As médias por fase dos últimos `last` solves sem DNF com o mesmo número de fases do solve mais recente que tem fases (mistura de 2 e 4
+// As médias por fase dos últimos `last` solves sem DNF com o mesmo número de fases do solve mais recente com fases válidas (mistura de 2 e 4
 // fases não se compara). Só entram solves cujas fases fecham o tempo (validPhases): as que chegam malformadas pelo sync ou por um arquivo
-// não estragam a média com NaN. Sem nenhum solve com fases, ou sem nenhum válido nesse formato, é null.
+// não estragam a média com NaN. Sem nenhum solve com fases válidas, é null.
 export function phaseAverages(pool: readonly Solve[], last = 12): PhaseAverages | null {
-  const latest = pool.findLast((s) => s.phases !== undefined && s.phases.length > 0);
-  const n = latest?.phases?.length;
+  // O formato (quantas fases) vem do solve mais recente cujas fases valem: um registro torto (null, objeto, NaN, 5 ou mais fases de um
+  // arquivo do csTimer) mais novo que os bons não esconde o quadro nem derruba a conta.
+  const latest = pool.findLast((s) => validPhases(s) !== null);
+  const n = latest ? validPhases(latest)!.length : undefined;
   if (n === undefined) return null;
   const used: number[][] = [];
   for (let i = pool.length - 1; i >= 0 && used.length < last; i--) {
     const s = pool[i];
-    if (s.penalty === 'DNF' || s.phases?.length !== n) continue;
+    if (s.penalty === 'DNF') continue;
     const valid = validPhases(s);
-    if (valid) used.push(valid);
+    if (valid?.length === n) used.push(valid);
   }
   if (used.length === 0) return null;
   const means = Array.from({ length: n }, (_, k) => used.reduce((sum, p) => sum + p[k], 0) / used.length);

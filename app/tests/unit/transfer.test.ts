@@ -386,6 +386,12 @@ describe('csTimer', () => {
     expect(imported.every((s, i) => (i >= 2 && i <= 4) !== ('phases' in s))).toBe(true);
   });
 
+  it('exportar o csTimer não lança com fases tortas que vieram do sync (null, objeto, texto)', () => {
+    const solves = [null, {}, 'abc'].map((phases, i) => mkSolve({ id: `x${i}`, ms: 9_000, at: AT + i * 1_000, phases: phases as unknown as number[] }));
+    const file = JSON.parse(toCsTimerJson([mkSession()], solves)) as Record<string, unknown[][]>;
+    expect(file.session1.map((row) => row[0])).toEqual([[0, 9_000], [0, 9_000], [0, 9_000]]);
+  });
+
   describe('leitura do arquivo', () => {
     const csText = (body: Loose): string => JSON.stringify(body);
     // Um solve como o csTimer grava: [[penalidade, ms], embaralhamento, comentário, segundos].
