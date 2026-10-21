@@ -1,9 +1,16 @@
 import { render, screen, within } from '@testing-library/svelte';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Solve } from '../../src/core/types';
+import { weekRows } from '../../src/core/weeks';
 import { T } from '../../src/strings';
 import WeeksBoard from '../../src/ui/evolucao/WeeksBoard.svelte';
 import { weekLabel } from '../../src/ui/format';
+
+// weekRows de verdade, com um espião: conta as contas e deixa um teste mandar a linha que quiser.
+vi.mock('../../src/core/weeks', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/core/weeks')>();
+  return { ...actual, weekRows: vi.fn(actual.weekRows) };
+});
 
 // O quadro "Semanas" da Evolução (a maquete aprovada, 1a–1c, 6a, 6c e 7a): a tabela das 12 semanas e a linha dos últimos 28 dias.
 // Datas locais (new Date(ano, mês, dia, hora)): o fuso é o do aparelho, como no código.
@@ -57,6 +64,35 @@ describe('o quadro Semanas', () => {
     expect(old!.querySelector('.es-c')!.getAttribute('data-d')).toBe('none');
   });
 
+  // As médias saem no centésimo; uma mudança abaixo dele (que o centésimo não mostra) é "igual", não "▼ 0.00 s".
+  it('a mudança abaixo de 1 centésimo é igual', () => {
+    const row = (change: number) => ({ start: at(9, 19, 0), current: true, count: 5, dnf: 0, mean: 10_000, best: 10_000, change });
+    const pool = five(10_000, at(9, 20));
+    for (const [change, text, d] of [[9, 'igual', 'same'], [-9, 'igual', 'same'], [0, 'igual', 'same'], [-10, '▼ 0.01 s mais rápida', 'down'], [10, '▲ 0.01 s mais lenta', 'up']] as const) {
+      vi.mocked(weekRows).mockReturnValueOnce([row(change)]);
+      const { unmount } = render(WeeksBoard, { pool: [...pool], now: NOW });
+      expect(cells(rows()[0]!)[3], String(change)).toBe(text);
+      expect(rows()[0]!.querySelector('.es-c')!.getAttribute('data-d')).toBe(d);
+      unmount();
+    }
+  });
+
+  // O relógio da Evolução anda a cada minuto: no mesmo dia e com a mesma lista, as semanas não são refeitas.
+  it('o quadro refaz as semanas só quando a lista ou o dia mudam', async () => {
+    const pool = five(14000, at(9, 20));
+    vi.mocked(weekRows).mockClear();
+    const { rerender } = render(WeeksBoard, { pool, now: NOW });
+    expect(vi.mocked(weekRows)).toHaveBeenCalledTimes(1);
+    await rerender({ pool, now: NOW + 60_000 });
+    await rerender({ pool, now: NOW + 5 * 3_600_000 });
+    expect(vi.mocked(weekRows)).toHaveBeenCalledTimes(1);
+    await rerender({ pool, now: at(9, 22) });
+    expect(vi.mocked(weekRows)).toHaveBeenCalledTimes(2);
+    await rerender({ pool: [...pool], now: at(9, 22) });
+    expect(vi.mocked(weekRows)).toHaveBeenCalledTimes(3);
+    expect(cells(rows()[0]!)).toEqual(['5 solves', '0:14.00', 'melhor 0:14.00', '—']);
+  });
+
   it('semana vazia diz sem solves', () => {
     const pool = [...five(14000, at(9, 6)), sv(12000, at(9, 21))];
     render(WeeksBoard, { pool, now: NOW });
@@ -81,7 +117,7 @@ describe('o quadro Semanas', () => {
   });
 
   it('o losango marca o recorde', () => {
-    const pool = [...five(14000, at(9, 20)), sv(9000, at(9, 13)), ...five(14000, at(9, 14))];
+    const pool = [sv(9000, at(9, 13)), ...five(14000, at(9, 14)), ...five(14000, at(9, 20))]; // em ordem, como a Evolução a passa
     render(WeeksBoard, { pool, now: NOW });
     const [cur, prev] = rows();
     expect(within(prev!).getByRole('img', { name: T.semanas.record })).toBeInTheDocument();

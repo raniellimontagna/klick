@@ -3,7 +3,7 @@
   // seg a dom, com solves, média, melhor e a mudança sobre a semana anterior. Segue o filtro de evento e sessão, sem o período, como os quadros
   // de recordes e de fases. A tabela é de papéis ARIA (como a lista de solves): no celular as células se arrumam em duas linhas por semana sem
   // perder a tabela. Sem solve nas 12 semanas, o quadro some.
-  import { bestSingle, formatMs } from '../../core/stats';
+  import { bestSingle, dayKey, formatMs } from '../../core/stats';
   import type { Solve } from '../../core/types';
   import { periodSummary, weekRows, type WeekRow } from '../../core/weeks';
   import { T } from '../../strings';
@@ -12,13 +12,21 @@
   let { pool, now }: { pool: readonly Solve[]; now: number } = $props();
   const uid = $props.id();
 
-  const rows = $derived(weekRows(pool, now));
-  const summary = $derived(periodSummary(pool, now));
+  // As semanas e o resumo, por lista e por dia: o relógio da Evolução anda a cada minuto, e no mesmo dia, com a mesma lista, nada muda (um
+  // solve novo troca a lista).
+  let memo: { pool: readonly Solve[]; day: string; rows: WeekRow[]; summary: number | null } | null = null;
+  const view = $derived.by(() => {
+    const day = dayKey(now);
+    if (memo?.pool !== pool || memo.day !== day) memo = { pool, day, rows: weekRows(pool, now), summary: periodSummary(pool, now) };
+    return memo;
+  });
+  const rows = $derived(view.rows);
+  const summary = $derived(view.summary);
   // O recorde do single do filtro: a semana cujo melhor é ele leva o losango da lista.
   const record = $derived(bestSingle(pool));
 
-  // A diferença que o centésimo mostra: abaixo disso é "igual" (não vale "▼ 0.00 s").
-  const same = (ms: number): boolean => T.semanas.diff(Math.abs(ms)) === T.semanas.diff(0);
+  // A diferença que o centésimo mostra: abaixo dele é "igual" (não vale "▼ 0.00 s").
+  const same = (ms: number): boolean => Math.abs(ms) < 10;
   const dir = (r: WeekRow): 'down' | 'up' | 'same' | 'none' => (r.change === null ? 'none' : same(r.change) ? 'same' : r.change < 0 ? 'down' : 'up');
 </script>
 
@@ -58,7 +66,7 @@
               <span role="cell" class="es-a">{r.mean === null ? T.semanas.dash : formatMs(r.mean)}</span>
               <span role="cell" class="es-b"><span class="es-ph" aria-hidden="true">{T.semanas.bestWord}</span>{r.best === null ? T.semanas.dash : formatMs(r.best)}{#if r.best !== null && r.best === record}<i class="hx-pb" role="img" aria-label={T.semanas.record}></i>{/if}</span>
               <span role="cell" class="es-c" data-d={d}>
-                {#if d === 'none'}{T.semanas.dash}{:else if d === 'same'}{T.semanas.same}{:else}<span aria-hidden="true">{d === 'down' ? '▼ ' : '▲ '}</span>{T.semanas.diff(Math.abs(r.change!))}<span class="sr-only">{d === 'down' ? T.semanas.faster : T.semanas.slower}</span>{/if}
+                {#if d === 'none'}{T.semanas.dash}{:else if d === 'same'}{T.semanas.same}{:else}<span aria-hidden="true">{d === 'down' ? '▼ ' : '▲ '}</span>{T.semanas.diff(Math.abs(r.change ?? 0))}<span class="sr-only">{d === 'down' ? T.semanas.faster : T.semanas.slower}</span>{/if}
               </span>
             {/if}
           </div>
