@@ -124,6 +124,13 @@ describe('a folha da meta', () => {
     expect(vi.mocked(rollingAverages)).toHaveBeenCalledTimes(2);
   });
 
+  it('o quanto falta na prévia arredonda para cima ao centésimo', async () => {
+    const { a } = await app({}, [sv('333', 13_004, day(9, 1))]);
+    await openNew(a);
+    await type('13');
+    expect(lines()[1]!.textContent).toBe('Seu melhor agora: 0:13.00. Faltam 0.01 s.');
+  });
+
   it('3600 diz Até 59:59.99.', async () => {
     const { a } = await app();
     await openNew(a);

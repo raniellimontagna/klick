@@ -89,6 +89,17 @@ describe('o quadro Metas', () => {
     expect(outside.querySelector('.es-goal-v')!.textContent).toBe('✓ alcançada em 14/10/2026 · melhor 0:10.84');
   });
 
+  // O quanto falta arredonda para cima ao centésimo: 5 ms é "faltam 0.01 s", não "0.00"; no alvo exato (igual não vale) também falta 0.01.
+  it('faltam arredonda para cima ao centésimo e nunca diz 0.00', async () => {
+    for (const [best, text] of [[13_005, 'faltam 0.01 s'], [13_000, 'faltam 0.01 s'], [13_011, 'faltam 0.02 s'], [13_580, 'faltam 0.58 s']] as const) {
+      const a = await app({ ab1: goal({ targetMs: 13_000, startMs: 14_000 }) }, [sv('333', best, day(9, 1))]);
+      const { unmount } = render(GoalsBoard, { app: a, event: '333' });
+      expect(rows()[0]!.querySelector('.es-goal-v b')!.textContent, String(best)).toBe(text);
+      expect(rows()[0]!.getAttribute('aria-label')).toContain(`, ${text},`);
+      unmount();
+    }
+  });
+
   it('sem tempo: ainda sem média de 12, barra vazia', async () => {
     const a = await app(
       {

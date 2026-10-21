@@ -4,6 +4,8 @@ import type { CopiesPaused } from './core/sync/types';
 
 // Diferenças em segundos, truncadas no centésimo como os tempos.
 const sec = (ms: number): string => (Math.floor(ms / 10) / 100).toFixed(2);
+// O quanto falta para uma meta: para cima no centésimo e nunca zero (5 ms é "0.01", não "0.00"; no alvo exato ainda falta ficar abaixo dele).
+const secLeft = (ms: number): string => (Math.max(1, Math.ceil(ms / 10)) / 100).toFixed(2);
 
 // O nome genérico de uma fase ("Fase 2"); a barra das fases mostra só o número e deixa a palavra para o leitor de tela.
 const FASE = 'Fase';
@@ -88,12 +90,12 @@ export const T = Object.freeze({
     // com o caminho da barra ("59% do caminho desde 0:14.41"), e termina no que o toque faz.
     title: 'Metas',
     scope: 'todos os eventos',
-    left: (ms: number) => `faltam ${sec(ms)} s`,
+    left: (ms: number) => `faltam ${secLeft(ms)} s`,
     best: (time: string) => ` · melhor ${time}`,
     reached: (date: string) => `✓ alcançada em ${date}`,
     none: { single: 'ainda sem tempo', ao5: 'ainda sem média de 5', ao12: 'ainda sem média de 12' },
     rowGoing: (name: string, event: string, best: string, ms: number, pct: number, start: string) =>
-      `${name}, ${event}: melhor ${best}, faltam ${sec(ms)} s, ${pct}% do caminho desde ${start}. Editar a meta`,
+      `${name}, ${event}: melhor ${best}, faltam ${secLeft(ms)} s, ${pct}% do caminho desde ${start}. Editar a meta`,
     rowReached: (name: string, event: string, date: string, best: string | null) =>
       `${name}, ${event}: alcançada em ${date}${best === null ? '' : `, melhor ${best}`}. Editar a meta`,
     rowNone: (name: string, event: string, none: string) => `${name}, ${event}: ${none}. Editar a meta`,
@@ -118,7 +120,7 @@ export const T = Object.freeze({
     bad: 'Esse tempo não parece certo. Tente 15, 14.5 ou 90.',
     range: 'Até 59:59.99.',
     bestNow: 'Seu melhor agora: ',
-    leftNow: (ms: number) => ` Faltam ${sec(ms)} s.`,
+    leftNow: (ms: number) => ` Faltam ${secLeft(ms)} s.`,
     born: (date: string) => `Seu melhor já está abaixo: ela nasce alcançada, com a data de ${date}.`,
     noTime: (kind: 'single' | 'ao5' | 'ao12', event: string) =>
       `Você ainda não tem ${kind === 'single' ? 'tempo' : kind === 'ao5' ? 'média de 5' : 'média de 12'} no ${event}.`,
