@@ -5,6 +5,7 @@
   // a primeira da lista no celular e, no desktop, a primeira da coluna da direita.
   import type { ProfilePatch } from '../../data/repository';
   import { T } from '../../strings';
+  import { hasPortugueseVoice, watchVoices } from '../sound';
   import type { AppState } from '../state/app.svelte';
   import AccountSection from './AccountSection.svelte';
   import DataSection from './DataSection.svelte';
@@ -14,6 +15,11 @@
   let { app }: { app: AppState } = $props();
 
   const s = $derived(app.profile.settings);
+
+  // O aparelho tem voz em português? Muda a dica do "Som do aviso". As vozes podem chegar depois da tela, então escuta o `voiceschanged`.
+  let voiceOk = $state(hasPortugueseVoice());
+  $effect(() => watchVoices(() => (voiceOk = hasPortugueseVoice())));
+  const phasesHint = $derived(s.phases === 0 ? T.ajustes.phasesHintOff : s.phases === 4 ? T.ajustes.phasesHint4 : T.ajustes.phasesHint);
 
   // Um switch grava na hora. Se a gravação falha, a caixa volta ao que está salvo (o aviso já saiu pela casca).
   async function flip(box: HTMLInputElement, patch: Patch, saved: () => boolean): Promise<void> {
@@ -33,6 +39,20 @@
     <div class="settings-col" data-col="a">
       <fieldset>
         <legend>{T.ajustes.timer}</legend>
+        <div class="setting">
+          {@render caption(T.ajustes.entry, s.entry === 'typing' ? T.ajustes.entryHintTyping : T.ajustes.entryHint)}
+          <div class="seg" role="group" aria-label={T.ajustes.entry}>
+            {#each T.ajustes.entryOptions as [value, label] (value)}
+              <button
+                type="button"
+                data-set="entry"
+                data-val={value}
+                aria-pressed={s.entry === value ? 'true' : 'false'}
+                onclick={() => app.updateSettings({ entry: value })}>{label}</button
+              >
+            {/each}
+          </div>
+        </div>
         <label class="setting">
           {@render caption(T.ajustes.inspection, T.ajustes.inspectionHint)}
           <input
@@ -67,6 +87,34 @@
                 data-val={value}
                 aria-pressed={s.mobileArm === value ? 'true' : 'false'}
                 onclick={() => app.updateSettings({ mobileArm: value })}>{label}</button
+              >
+            {/each}
+          </div>
+        </div>
+        <div class="setting">
+          {@render caption(T.ajustes.phases, phasesHint)}
+          <div class="seg" role="group" aria-label={T.ajustes.phases}>
+            {#each T.ajustes.phasesOptions as [value, label] (value)}
+              <button
+                type="button"
+                data-set="phases"
+                data-val={value}
+                aria-pressed={s.phases === value ? 'true' : 'false'}
+                onclick={() => app.updateSettings({ phases: value })}>{label}</button
+              >
+            {/each}
+          </div>
+        </div>
+        <div class="setting">
+          {@render caption(T.ajustes.liveTime, T.ajustes.liveTimeHint)}
+          <div class="seg" role="group" aria-label={T.ajustes.liveTime}>
+            {#each T.ajustes.liveTimeOptions as [value, label] (value)}
+              <button
+                type="button"
+                data-set="liveTime"
+                data-val={value}
+                aria-pressed={s.liveTime === value ? 'true' : 'false'}
+                onclick={() => app.updateSettings({ liveTime: value })}>{label}</button
               >
             {/each}
           </div>
@@ -110,7 +158,7 @@
           />
         </label>
         <label class="setting">
-          {@render caption(T.ajustes.soundInsp, T.ajustes.soundInspHint)}
+          {@render caption(T.ajustes.inspWarning, T.ajustes.inspWarningHint)}
           <input
             type="checkbox"
             class="switch"
@@ -119,6 +167,22 @@
             onchange={(e) => flip(e.currentTarget, { sound: { insp: e.currentTarget.checked } }, () => app.profile.settings.sound.insp)}
           />
         </label>
+        {#if s.sound.insp}
+          <div class="setting">
+            {@render caption(T.ajustes.inspSound, voiceOk ? T.ajustes.inspSoundHint : T.ajustes.inspSoundHintNoVoice)}
+            <div class="seg" role="group" aria-label={T.ajustes.inspSound}>
+              {#each T.ajustes.inspSoundOptions as [value, label] (label)}
+                <button
+                  type="button"
+                  data-set="inspVoice"
+                  data-val={String(value)}
+                  aria-pressed={s.inspVoice === value ? 'true' : 'false'}
+                  onclick={() => app.updateSettings({ inspVoice: value })}>{label}</button
+                >
+              {/each}
+            </div>
+          </div>
+        {/if}
         <label class="setting">
           {@render caption(T.ajustes.soundPb)}
           <input

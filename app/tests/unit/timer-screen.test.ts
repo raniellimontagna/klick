@@ -948,3 +948,117 @@ describe('tela do Timer: as fases e o tempo durante o solve', () => {
     expect(screen.queryByRole('list', { name: T.fases.bar })).toBeNull();
   });
 });
+
+// A voz do aviso da inspeção: aos 8 s "oito", aos 12 s "doze"; sem Voz (ou sem voz em português) o bipe; com o aviso desligado, nada.
+describe('tela do Timer: o aviso da inspeção', () => {
+  const real = performance.now.bind(performance);
+  let skew = 0;
+  let oscillators = 0;
+  let said: string[] = [];
+  let voices: { lang: string; name: string }[] = [];
+
+  class FakeCtx {
+    state = 'running';
+    currentTime = 0;
+    sampleRate = 8000;
+    destination = {};
+    resume() {
+      return Promise.resolve();
+    }
+    close() {
+      return Promise.resolve();
+    }
+    createOscillator() {
+      oscillators++;
+      return { type: '', frequency: {}, connect: (n: unknown) => n, start() {}, stop() {} };
+    }
+    createGain() {
+      return { gain: { value: 0, setValueAtTime() {}, linearRampToValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect: (n: unknown) => n };
+    }
+    createBuffer(_c: number, length: number) {
+      return { getChannelData: () => new Float32Array(length) };
+    }
+    createBufferSource() {
+      return { buffer: null, connect: (n: unknown) => n, start() {} };
+    }
+    createBiquadFilter() {
+      return { type: '', frequency: {}, Q: {}, connect: (n: unknown) => n };
+    }
+  }
+
+  beforeEach(() => {
+    skew = 0;
+    oscillators = 0;
+    said = [];
+    voices = [{ lang: 'pt-BR', name: 'Brasil' }];
+    vi.spyOn(performance, 'now').mockImplementation(() => real() + skew);
+    (window as unknown as { AudioContext: unknown }).AudioContext = FakeCtx;
+    vi.stubGlobal('speechSynthesis', {
+      getVoices: () => voices,
+      cancel() {},
+      speak: (u: { text: string }) => void said.push(u.text),
+      addEventListener() {},
+      removeEventListener() {},
+    });
+    vi.stubGlobal('SpeechSynthesisUtterance', class { voice = null; lang = ''; constructor(public text: string) {} });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    delete (window as unknown as { AudioContext?: unknown }).AudioContext;
+  });
+
+  // Começa a inspeção (segura o espaço e solta) e devolve a tela, com o relógio pronto para ser adiantado.
+  async function inspecting(settings: Parameters<AppState['updateSettings']>[0]) {
+    const { a } = await app();
+    await a.updateSettings(settings);
+    render(TimerScreen, { app: a });
+    await screen.findByText('333 R U');
+    key('keydown', 'Space', ' ');
+    await sleep(320);
+    key('keyup', 'Space', ' ');
+    await waitFor(() => expect(document.body.dataset.tstate).toBe('inspect'), { timeout: 1500 });
+    return a;
+  }
+  async function passTo(ms: number) {
+    skew = ms;
+    await sleep(120); // o laço olha o relógio a cada quadro
+  }
+
+  it('com Voz, aos 8 s fala oito e aos 12 s doze; sem voz, o bipe', async () => {
+    await inspecting({ inspVoice: true });
+    const antes = oscillators;
+    await passTo(8100);
+    expect(said).toEqual(['oito']);
+    await passTo(12100);
+    expect(said).toEqual(['oito', 'doze']);
+    expect(oscillators).toBe(antes);
+  });
+
+  it('sem Voz, o aviso é o bipe e nada é falado', async () => {
+    await inspecting({ inspVoice: false });
+    const antes = oscillators;
+    await passTo(8100);
+    await passTo(12100);
+    expect(said).toEqual([]);
+    expect(oscillators).toBe(antes + 2);
+  });
+
+  it('com Voz mas sem voz em português no aparelho, cai no bipe', async () => {
+    voices = [{ lang: 'en-US', name: 'Inglês' }];
+    await inspecting({ inspVoice: true });
+    const antes = oscillators;
+    await passTo(8100);
+    expect(said).toEqual([]);
+    expect(oscillators).toBe(antes + 1);
+  });
+
+  it('com o aviso da inspeção desligado, nem fala nem bipa', async () => {
+    await inspecting({ inspVoice: true, sound: { insp: false } });
+    const antes = oscillators;
+    await passTo(8100);
+    await passTo(12100);
+    expect(said).toEqual([]);
+    expect(oscillators).toBe(antes);
+  });
+});

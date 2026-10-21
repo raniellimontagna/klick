@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createSound } from '../../src/ui/sound';
+import { createSound, hasPortugueseVoice } from '../../src/ui/sound';
 import type { Sound } from '../../src/ui/sound';
 
 // Casos portados de prototype/tests/sound.test.js.
@@ -169,5 +169,145 @@ describe('sons', () => {
         vi.unstubAllGlobals();
       }
     });
+  });
+});
+
+// A voz do aviso da inspeção (Web Speech). O seam é o segundo argumento de createSound: um speechSynthesis falso.
+describe('voz', () => {
+  type FakeVoice = { lang: string; name: string };
+  function fakeSpeech(voices: FakeVoice[]) {
+    const said: { text: string; lang: string; voice: FakeVoice | null }[] = [];
+    const listeners = new Set<() => void>();
+    const synth = {
+      said,
+      cancelled: 0,
+      voices,
+      getVoices: () => synth.voices,
+      cancel() {
+        synth.cancelled++;
+      },
+      speak(u: { text: string; lang: string; voice: FakeVoice | null }) {
+        said.push({ text: u.text, lang: u.lang, voice: u.voice });
+      },
+      addEventListener: (_t: string, fn: () => void) => void listeners.add(fn),
+      removeEventListener: (_t: string, fn: () => void) => void listeners.delete(fn),
+      fire: () => listeners.forEach((fn) => fn()),
+      listeners,
+    };
+    class Utterance {
+      voice: FakeVoice | null = null;
+      lang = '';
+      constructor(public text: string) {}
+    }
+    return { synth, Utterance };
+  }
+
+  it('speak fala com a voz em português', () => {
+    const { synth, Utterance } = fakeSpeech([
+      { lang: 'en-US', name: 'Inglês' },
+      { lang: 'pt-PT', name: 'Portugal' },
+      { lang: 'pt-BR', name: 'Brasil' },
+    ]);
+    vi.stubGlobal('SpeechSynthesisUtterance', Utterance);
+    try {
+      const s = createSound(undefined, { speech: synth as unknown as SpeechSynthesis });
+      expect(s.speak('oito')).toBe(true);
+      expect(synth.said).toHaveLength(1);
+      expect(synth.said[0].text).toBe('oito');
+      expect(synth.said[0].voice?.name).toBe('Brasil'); // pt-BR ganha de pt-PT
+      expect(synth.said[0].lang).toBe('pt-BR');
+      // Sem pt-BR, serve qualquer português; um segundo fala cancela o que ainda estiver na fila.
+      synth.voices = [{ lang: 'pt_PT', name: 'Portugal' }];
+      s.close();
+      const t = createSound(undefined, { speech: synth as unknown as SpeechSynthesis });
+      const cancelled = synth.cancelled;
+      expect(t.speak('doze')).toBe(true);
+      expect(synth.cancelled).toBe(cancelled + 1);
+      expect(synth.said[1].voice?.name).toBe('Portugal');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('sem speechSynthesis ou sem voz em português, speak devolve false', () => {
+    const { synth, Utterance } = fakeSpeech([{ lang: 'en-US', name: 'Inglês' }]);
+    vi.stubGlobal('SpeechSynthesisUtterance', Utterance);
+    try {
+      expect(createSound(undefined, { speech: null }).speak('oito')).toBe(false);
+      expect(createSound().speak('oito')).toBe(false); // o jsdom não tem speechSynthesis
+      expect(createSound(undefined, { speech: synth as unknown as SpeechSynthesis }).speak('oito')).toBe(false);
+      expect(synth.said).toHaveLength(0);
+      // uma API que lança também vira false, sem quebrar
+      const quebrada = { getVoices: () => { throw new Error('x'); }, addEventListener() {}, removeEventListener() {} };
+      expect(createSound(undefined, { speech: quebrada as unknown as SpeechSynthesis }).speak('oito')).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('as vozes que carregam depois (voiceschanged) passam a valer, e close solta o ouvinte', () => {
+    const { synth, Utterance } = fakeSpeech([]);
+    vi.stubGlobal('SpeechSynthesisUtterance', Utterance);
+    try {
+      const s = createSound(undefined, { speech: synth as unknown as SpeechSynthesis });
+      expect(s.speak('oito')).toBe(false); // ainda sem vozes
+      synth.voices = [{ lang: 'pt-BR', name: 'Brasil' }];
+      synth.fire();
+      expect(s.speak('oito')).toBe(true);
+      s.close();
+      expect(synth.listeners.size).toBe(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('warn: fala "oito" e "doze" com voz, cai no bipe sem voz em português e respeita o liga e desliga do aviso', () => {
+    const { synth, Utterance } = fakeSpeech([{ lang: 'pt-BR', name: 'Brasil' }]);
+    vi.stubGlobal('SpeechSynthesisUtterance', Utterance);
+    const made = { osc: 0 };
+    class FakeCtx {
+      state = 'running';
+      currentTime = 0;
+      destination = {};
+      resume() {
+        return Promise.resolve();
+      }
+      createOscillator() {
+        made.osc++;
+        return { type: '', frequency: {}, connect: (n: unknown) => n, start() {}, stop() {} };
+      }
+      createGain() {
+        return { gain: { setValueAtTime() {}, linearRampToValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect: (n: unknown) => n };
+      }
+    }
+    vi.stubGlobal('window', { AudioContext: FakeCtx });
+    try {
+      const s = createSound(undefined, { speech: synth as unknown as SpeechSynthesis });
+      s.warn(8000, true);
+      s.warn(12000, true);
+      expect(synth.said.map((x) => x.text)).toEqual(['oito', 'doze']);
+      expect(made.osc).toBe(0);
+      s.warn(8000, false); // sem Voz: o bipe
+      expect(made.osc).toBe(1);
+      synth.voices = [];
+      s.close();
+      const t = createSound(undefined, { speech: synth as unknown as SpeechSynthesis });
+      t.warn(8000, true); // sem voz em português: o bipe
+      expect(made.osc).toBe(2);
+      t.setEnabled('insp', false);
+      t.warn(12000, true);
+      t.warn(12000, false);
+      expect(made.osc).toBe(2);
+      expect(synth.said).toHaveLength(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('hasPortugueseVoice diz se o aparelho tem voz em português', () => {
+    expect(hasPortugueseVoice({ getVoices: () => [{ lang: 'pt-BR' }] } as unknown as SpeechSynthesis)).toBe(true);
+    expect(hasPortugueseVoice({ getVoices: () => [{ lang: 'en-GB' }] } as unknown as SpeechSynthesis)).toBe(false);
+    expect(hasPortugueseVoice(null)).toBe(false);
+    expect(hasPortugueseVoice()).toBe(false);
   });
 });

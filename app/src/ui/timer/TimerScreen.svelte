@@ -890,7 +890,8 @@
   $effect(() => {
     const offs = [
       timer.on('state', onState),
-      timer.on('warn', () => sound.tick()),
+      // O aviso aos 8 e 12 s: a voz ("oito", "doze") se escolhida e o aparelho tiver voz em português; senão o bipe. O desafio usa o mesmo aviso.
+      timer.on('warn', (ms) => sound.warn(ms, app.profile.settings.inspVoice)),
       timer.on('done', onDone),
       timer.on('phase', (index) => {
         marksDone = index + 1;
