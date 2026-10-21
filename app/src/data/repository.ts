@@ -312,14 +312,20 @@ function mergeProfile(base: Profile, patch: ProfilePatch | undefined): Profile {
 }
 
 // As metas de um arquivo importado juntam com as daqui pela vaga (estatísticas, spec 5): entra a que só o arquivo tem; na mesma vaga fica a
-// daqui, com a data de alcance mais antiga das duas (o alcance não volta atrás). Sem o teto de metas vivas: como o sync, importar não tira
-// meta nenhuma. As daqui vêm primeiro, e um arquivo com as mesmas metas devolve o mesmo objeto, chave por chave.
+// daqui. Se as duas são a mesma meta (tipo, evento e alvo iguais), ela fica com a data de alcance mais antiga das duas (o alcance não volta
+// atrás); com outra definição (editada num dos lados, como em remakeGoal) é outra meta, e a data de lá não vale para a daqui. Sem o teto de
+// metas vivas: como o sync, importar não tira meta nenhuma. As daqui vêm primeiro, e um arquivo com as mesmas metas devolve o mesmo objeto,
+// chave por chave.
 function joinGoals(mine: Profile['goals'], theirs: Profile['goals'] | undefined): Profile['goals'] {
   const out = { ...mine };
   for (const [id, goal] of Object.entries(theirs ?? {})) {
     const here: Goal | undefined = out[id];
-    if (!here) out[id] = goal;
-    else if (goal.reachedAt !== null && (here.reachedAt === null || goal.reachedAt < here.reachedAt)) out[id] = { ...here, reachedAt: goal.reachedAt };
+    if (!here) {
+      out[id] = goal;
+      continue;
+    }
+    const same = here.kind === goal.kind && here.event === goal.event && here.targetMs === goal.targetMs;
+    if (same && goal.reachedAt !== null && (here.reachedAt === null || goal.reachedAt < here.reachedAt)) out[id] = { ...here, reachedAt: goal.reachedAt };
   }
   return out;
 }

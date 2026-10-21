@@ -176,19 +176,30 @@ describe('formato Klick', () => {
       b2: goal({ kind: 'ao5', reachedAt: null }),
       c3: goal({ kind: 'ao12', reachedAt: 9_000 }),
       d4: goal({ event: '222', targetMs: 4_000 }),
+      h8: goal({ targetMs: 11_000, reachedAt: null }),
+      i9: goal({ kind: 'ao5', reachedAt: 8_000 }),
+      j0: goal({ event: '444', targetMs: 50_000, reachedAt: null }),
     };
     await repo.saveProfile({ goals: mine });
+    // Na mesma vaga e com a mesma definição (tipo, evento e alvo), fica a daqui com a data de alcance mais antiga das duas; o resto do objeto
+    // (o começo, a criação) é o daqui.
+    const same = { startMs: 13_000, createdAt: 1_791_000_000_050 };
     const file: KlickExport = {
       format: 'klick', version: 1, exportedAt: NOW, sessions: [], solves: [],
       profile: {
         goals: {
-          a1: goal({ targetMs: 99_000, reachedAt: 3_000 }), // a mesma vaga, alcançada antes lá: fica a daqui, com a data de lá
-          b2: goal({ kind: 'ao5', targetMs: 98_000, reachedAt: 4_000 }), // a daqui ainda sem data: fica a daqui, com a de lá
-          c3: goal({ kind: 'ao12', targetMs: 97_000, reachedAt: 10_000 }), // a de lá é mais nova: fica a daqui inteira
-          d4: goal({ event: '222', targetMs: 96_000, reachedAt: null }), // a de lá sem data: fica a daqui inteira
+          a1: goal({ ...same, reachedAt: 3_000 }), // alcançada antes lá: fica a daqui, com a data de lá
+          b2: goal({ ...same, kind: 'ao5', reachedAt: 4_000 }), // a daqui ainda sem data: fica a daqui, com a de lá
+          c3: goal({ ...same, kind: 'ao12', reachedAt: 10_000 }), // a de lá é mais nova: fica a daqui inteira
+          d4: goal({ ...same, event: '222', targetMs: 4_000, reachedAt: null }), // a de lá sem data: fica a daqui inteira
+          // Na mesma vaga com outra definição (a meta editada num dos lados, como em remakeGoal), é outra meta: a data de lá não vale, e
+          // fica a daqui inteira, com a data dela (nula ou não).
+          h8: goal({ targetMs: 15_000, reachedAt: 2_000 }), // outro alvo
+          i9: goal({ kind: 'ao12', reachedAt: 1_000 }), // outro tipo
+          j0: goal({ event: '555', targetMs: 50_000, reachedAt: 1_500 }), // outro evento
           e5: goal({ event: '444', targetMs: 60_000 }),
           f6: goal({ event: '555', targetMs: 90_000 }),
-          g7: goal({ event: 'clock', targetMs: 8_000 }), // a sétima: a importação, como o sync, não tira meta nenhuma
+          g7: goal({ event: 'clock', targetMs: 8_000 }), // as daqui e as que só o arquivo tem passam de 6: a importação, como o sync, não tira meta
         },
       },
     };
@@ -198,6 +209,9 @@ describe('formato Klick', () => {
       b2: { ...mine.b2, reachedAt: 4_000 },
       c3: mine.c3,
       d4: mine.d4,
+      h8: mine.h8,
+      i9: mine.i9,
+      j0: mine.j0,
       e5: file.profile!.goals!.e5,
       f6: file.profile!.goals!.f6,
       g7: file.profile!.goals!.g7,
