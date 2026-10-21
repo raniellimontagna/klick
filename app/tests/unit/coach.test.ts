@@ -254,4 +254,31 @@ describe('gatilhos novos do coach (spec do sub-projeto 3, seção 7)', () => {
     expect(pick({ solve: sv(27000, null, midnight), history: late, sessionSolves: late })?.id).toBe('outlier');
     expect(pick({ solve: sv(26000, 'DNF'), history: session, sessionSolves: session })?.id).toBe('first-dnf');
   });
+  describe('meta alcançada', () => {
+    const goal = { kind: 'single' as const, targetMs: 11000 };
+    const text = 'Meta alcançada: single abaixo de 11 s. Essa você escolheu e cumpriu.';
+
+    it('meta alcançada fala antes do recorde', () => {
+      // 10 s é recorde de single (antes: 12 s) e alcança a meta: a meta fala.
+      const msg = pick({ solve: sv(10000), history: many([12000, 13000]), goal });
+      expect(msg).toEqual({ id: 'goal', text });
+      expect(T.coach.goalReached('single abaixo de 11 s')).toBe(text);
+      expect(pick({ solve: sv(10000), history: many([12000, 13000]) })?.id).toBe('pb-single'); // sem a meta, o recorde
+    });
+
+    it('silencioso não fala a meta', () => {
+      expect(pick({ solve: sv(10000), history: many([12000, 13000]), goal, silent: true })).toBeNull();
+    });
+
+    it('o fim da temporada vem antes da meta', () => {
+      const season = { ...t1([0, 1, 2, 3, 4], [0, 1, 2, 3, 4, 5]), end: { n: 1, solves: 120, startAo12: null, endAo12: null, finish: null } };
+      expect(pick({ solve: sv(10000), history: many([12000]), goal, season })?.id).toBe('season-end');
+    });
+
+    it('a meta de média usa a frase da média', () => {
+      expect(pick({ solve: sv(10000), goal: { kind: 'ao12', targetMs: 62500 } })?.text).toBe(
+        'Meta alcançada: média de 12 abaixo de 1:02.5. Essa você escolheu e cumpriu.',
+      );
+    });
+  });
 });

@@ -3,6 +3,7 @@
 // novos: fim de temporada, quase lá, semana melhor e fora da curva. Tudo sai do histórico, sem estado guardado.
 import { FINISH_INFO, T } from '../strings';
 import { eventInfo } from './events';
+import { type Goal, goalPhrase } from './goals';
 import { firstNearToday, type MarkStatus, markMessage, type NearMark, targetText } from './season';
 import {
   averageOf,
@@ -50,6 +51,7 @@ export interface CoachInput {
   // A meta do dia e o "de volta" são da pessoa, não do evento, e history só tem o evento. A interface passa estes dois:
   todayCount?: number; // solves de hoje em todos os eventos, contando este; sem ele, conta os de hoje que vieram em history
   prevAnyAt?: number; // momento do solve anterior da pessoa, de qualquer evento; sem ele, o do último solve de history
+  goal?: Pick<Goal, 'kind' | 'targetMs'> | null; // a meta que este solve alcançou pela primeira vez (só o aparelho do solve passa)
   silent?: boolean;
   event: EventId; // diz qual é a média oficial: Ao5 ou Mo3
 }
@@ -171,6 +173,7 @@ export function pickCoachMessage({
   dailyGoal = 20,
   todayCount,
   prevAnyAt,
+  goal,
   silent = false,
   event,
 }: CoachInput): CoachMessage | null {
@@ -180,6 +183,8 @@ export function pickCoachMessage({
 
   const end = season?.end;
   if (end) return seasonEndMessage(end);
+
+  if (goal) return { id: 'goal', text: T.coach.goalReached(goalPhrase(goal)) };
 
   const prevBest = bestSingle(history);
   if (prevBest !== null && e !== Infinity && e < prevBest) return { id: 'pb-single', text: T.coach.pbSingle(prevBest - e) };

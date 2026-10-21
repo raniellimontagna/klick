@@ -75,6 +75,12 @@ export const T = Object.freeze({
     nearStreak: (days: number) => `${days - 1} dias seguidos. Mais um fecha o marco.`,
     week: (event: string, diffMs: number) => `Sua semana no ${event} foi ${sec(diffMs)} s mais rápida que a anterior.`,
     outlier: (ao12: string) => `Esse escapou. A média de 12 segue em ${ao12}.`,
+    goalReached: (phrase: string) => `Meta alcançada: ${phrase}. Essa você escolheu e cumpriu.`,
+  },
+  // As metas da pessoa: o tipo ("Média de 12") e a frase que o junta ao alvo ("Média de 12 abaixo de 13 s").
+  metas: {
+    kind: { single: 'Single', ao5: 'Média de 5', ao12: 'Média de 12' },
+    below: (kind: string, target: string) => `${kind} abaixo de ${target}`,
   },
   chips: {
     vsAvg: (diffMs: number, n: number) => `${diffMs <= 0 ? '▼' : '▲'} ${sec(Math.abs(diffMs))} s vs média de ${n}`,
