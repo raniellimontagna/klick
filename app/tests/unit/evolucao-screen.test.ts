@@ -440,10 +440,11 @@ describe('Evolução: o quadro Semanas', () => {
     await a.createSession('333', 'Segunda');
     await a.createSession('222', 'Dois');
     const [s1, s2, s3] = [a.sessions[0]!.id, a.sessions[1]!.id, a.sessions[2]!.id];
+    // Em ordem cronológica, como a lista do app.
     a.solves = [
+      ...nSolves(s1, '333', 5, day(9, 6)), // duas semanas atrás: fora de 7 dias, dentro das 12 semanas
       ...nSolves(s1, '333', 3, NOW), // esta semana, sessão 1
       ...nSolves(s2, '333', 2, NOW), // esta semana, sessão 2
-      ...nSolves(s1, '333', 5, day(9, 6)), // duas semanas atrás: fora de 7 dias, dentro das 12 semanas
       ...nSolves(s3, '222', 4, NOW), // outro evento: fica de fora
     ];
     vi.useFakeTimers({ now: NOW, toFake: ['Date', 'setInterval', 'clearInterval'] });

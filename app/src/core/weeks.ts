@@ -1,5 +1,6 @@
 // Semanas de treino (segunda 00:00 a domingo, no fuso do aparelho) e o resumo de 28 dias. Funções puras: as listas chegam com os solves
-// ativos do recorte (evento, sessão ou todos). Os dias de calendário andam por setDate, nunca somando 86 400 000 ms (horário de verão).
+// ativos do recorte (evento, sessão ou todos), em ordem cronológica. Os dias de calendário andam por setDate, nunca somando 86 400 000 ms
+// (horário de verão).
 import { bestSingle, effectiveMs, trimmedMean } from './stats';
 import type { Solve } from './types';
 
@@ -44,30 +45,39 @@ export function shiftWeeks(start: number, weeks: number): number {
 }
 
 // Da semana atual para trás, até `count` semanas. Não mostra as semanas de antes da do primeiro solve (não existiam), mas mostra as
-// vazias no meio; sem nenhum solve nelas, []. A mais antiga compara com a semana anterior a ela, que é calculada e não vem na lista.
+// vazias no meio; sem nenhum solve nelas, []. A mais antiga compara com a semana anterior a ela, que é calculada e não vem na lista. A lista
+// vem em ordem cronológica: só as últimas count + 1 semanas contam, e a busca binária acha onde elas começam (com 100 mil solves, o resto
+// nem é visitado). O solve depois de agora (o relógio de outro aparelho adiantado) não conta, como no resumo e no ano.
 export function weekRows(pool: readonly Solve[], nowTs: number, count = WEEKS): WeekRow[] {
-  if (pool.length === 0) return [];
-  let first = Infinity;
+  if (pool.length === 0 || pool[0]!.at > nowTs) return [];
+  const firstWeek = weekStart(pool[0]!.at);
+  const current = weekStart(nowTs);
+  // count semanas mais a anterior à mais antiga, só para a comparação
+  const starts = Array.from({ length: count + 1 }, (_, i) => shiftWeeks(current, -i));
+  const from = starts[count]!;
+  let lo = 0;
+  let hi = pool.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (pool[mid]!.at < from) lo = mid + 1;
+    else hi = mid;
+  }
   const byWeek = new Map<number, Solve[]>();
-  for (const x of pool) {
-    if (x.at < first) first = x.at;
+  for (let i = lo; i < pool.length && pool[i]!.at <= nowTs; i++) {
+    const x = pool[i]!;
     const k = weekStart(x.at);
     const list = byWeek.get(k);
     if (list) list.push(x);
     else byWeek.set(k, [x]);
   }
-  const firstWeek = weekStart(first);
-  const current = weekStart(nowTs);
-  // count semanas mais a anterior à mais antiga, só para a comparação
-  const starts = Array.from({ length: count + 1 }, (_, i) => shiftWeeks(current, -i));
   const means = starts.map((s) => (s < firstWeek ? null : weekMean(byWeek.get(s) ?? [])));
   const rows: WeekRow[] = [];
   for (let i = 0; i < count; i++) {
     const start = starts[i]!;
     if (start < firstWeek) break;
     const solves = byWeek.get(start) ?? [];
-    const mean = means[i]!;
-    const prev = means[i + 1]!;
+    const mean = means[i] ?? null;
+    const prev = means[i + 1] ?? null;
     rows.push({
       start,
       current: i === 0,

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { dayKey } from '../../src/core/stats';
+import { currentStreak, dayKey } from '../../src/core/stats';
 import type { Solve } from '../../src/core/types';
 import { YEAR_WEEKS, yearCalendar } from '../../src/core/year';
 
@@ -54,6 +54,26 @@ describe('calendário do ano', () => {
     expect(withToday.current).toEqual({ days: 2, from: at(2026, 9, 20), to: at(2026, 9, 21) });
     // anteontem não basta
     expect(yearCalendar([sv(at(2026, 9, 19))], NOW).current).toEqual({ days: 0, from: null, to: null });
+  });
+
+  // A sequência atual do ano é a mesma do mapa do mês e do coach (currentStreak): as duas contas não podem divergir.
+  it('current.days bate com currentStreak', () => {
+    const days = (list: [number, number][]) => list.map(([m, d]) => sv(at(2026, m, d)));
+    const cases = [
+      [],
+      days([[9, 21]]),
+      days([[9, 20]]),
+      days([[9, 19]]),
+      days([[9, 17], [9, 19], [9, 20], [9, 21]]),
+      days([[8, 28], [8, 29], [8, 30], [9, 1], [9, 2]]),
+      Array.from({ length: 40 }, (_, i) => sv(at(2026, 8, 12 + i, 8))), // 12/09 a 21/10 seguidos
+      [...days([[9, 20]]), sv(at(2026, 9, 22))], // um solve amanhã (relógio errado) não conta
+    ];
+    for (const solves of cases) {
+      for (const now of [NOW, at(2026, 9, 21, 0), at(2026, 9, 21, 23)]) {
+        expect(yearCalendar(solves, now).current.days, JSON.stringify(solves.map((x) => dayKey(x.at)))).toBe(currentStreak(solves, now));
+      }
+    }
   });
 
   it('best é a maior do histórico inteiro, a mais recente no empate', () => {

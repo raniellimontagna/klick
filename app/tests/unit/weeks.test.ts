@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { periodSummary, WEEKS, weekMean, weekRows, weekStart } from '../../src/core/weeks';
+import { bestSingle } from '../../src/core/stats';
+import { periodSummary, shiftWeeks, WEEKS, weekMean, weekRows, weekStart, type WeekRow } from '../../src/core/weeks';
 import type { Solve } from '../../src/core/types';
 
 // Datas locais (new Date(ano, mês, dia, hora)): o fuso é o do aparelho, como no código.
@@ -49,7 +50,7 @@ describe('semanas', () => {
   });
 
   it('change compara com a semana anterior, inclusive a mais antiga com a 13ª', () => {
-    const pool = [...five(at(9, 21), 11500), ...five(at(9, 14), 11000)];
+    const pool = [...five(at(9, 14), 11000), ...five(at(9, 21), 11500)];
     const rows = weekRows(pool, NOW);
     expect(rows[0]).toMatchObject({ mean: 11500, change: 500 }); // a atual contra a de 12/10
     expect(rows[1]).toMatchObject({ mean: 11000, change: null }); // a anterior a ela (05/10) está vazia
@@ -62,12 +63,12 @@ describe('semanas', () => {
   });
 
   it('change null quando a anterior não tem média', () => {
-    const pool = [...five(at(9, 21), 11000), ...[sv(10000, at(9, 14)), sv(10000, at(9, 14))]]; // anterior com 2 tempos
+    const pool = [sv(10000, at(9, 14)), sv(10000, at(9, 14)), ...five(at(9, 21), 11000)]; // anterior com 2 tempos
     const rows = weekRows(pool, NOW);
     expect(rows[0]).toMatchObject({ mean: 11000, change: null });
     expect(rows[1]).toMatchObject({ mean: null, change: null });
     // igual é 0, não null
-    expect(weekRows([...five(at(9, 21)), ...five(at(9, 14))], NOW)[0]!.change).toBe(0);
+    expect(weekRows([...five(at(9, 14)), ...five(at(9, 21))], NOW)[0]!.change).toBe(0);
   });
 
   it('a mais antiga não compara com a 13ª quando o primeiro solve é dela', () => {
@@ -79,6 +80,47 @@ describe('semanas', () => {
   it('nenhum solve nas 12 semanas devolve []', () => {
     expect(weekRows([], NOW)).toEqual([]);
     expect(weekRows([sv(10000, at(0, 5))], NOW)).toEqual([]);
+  });
+
+  it('weekRows não conta o solve depois de agora (relógio adiantado), como o resumo e o ano', () => {
+    const pool = [...five(at(9, 20), 10000), sv(9000, NOW + 3_600_000), sv(9000, at(9, 23))];
+    expect(weekRows(pool, NOW)).toEqual([{ start: at(9, 19, 0), current: true, count: 5, dnf: 0, mean: 10000, best: 10000, change: null }]);
+    expect(weekRows([sv(9000, NOW + 1)], NOW)).toEqual([]);
+  });
+
+  // A lista vem em ordem, e só as últimas 13 semanas contam (a 13ª, para a comparação): weekRows corta o começo por busca binária. O
+  // resultado é o da conta ingênua na lista inteira, semana a semana.
+  it('weekRows na lista cortada dá o mesmo que a conta na lista inteira', () => {
+    const naive = (pool: readonly Solve[], now: number): WeekRow[] => {
+      const past = pool.filter((x) => x.at <= now);
+      if (past.length === 0) return [];
+      const firstWeek = weekStart(past[0]!.at);
+      const of = (start: number) => past.filter((x) => x.at >= start && x.at < shiftWeeks(start, 1));
+      const rows: WeekRow[] = [];
+      for (let i = 0; i < WEEKS; i++) {
+        const start = shiftWeeks(weekStart(now), -i);
+        if (start < firstWeek) break;
+        const solves = of(start);
+        const mean = weekMean(solves);
+        const prev = shiftWeeks(start, -1) < firstWeek ? null : weekMean(of(shiftWeeks(start, -1)));
+        rows.push({ start, current: i === 0, count: solves.length, dnf: solves.filter((x) => x.penalty === 'DNF').length, mean, best: bestSingle(solves), change: mean !== null && prev !== null ? mean - prev : null });
+      }
+      return rows.some((r) => r.count > 0) ? rows : [];
+    };
+    // Dois anos de treino, com dias sem solve, DNF e +2, em ordem.
+    let seed = 7;
+    const rand = () => (seed = (seed * 48271) % 2147483647) / 2147483647;
+    const pool: Solve[] = [];
+    for (let day = 0; day < 730; day++) {
+      if (rand() < 0.35) continue;
+      for (let k = 0, n = 1 + Math.floor(rand() * 8); k < n; k++) {
+        const penalty = rand() < 0.05 ? 'DNF' : rand() < 0.05 ? '+2' : null;
+        pool.push(sv(9000 + Math.floor(rand() * 6000), new Date(2025, 0, 1 + day, 8 + k).getTime(), penalty));
+      }
+    }
+    for (const now of [NOW, at(5, 3, 7), at(0, 15), new Date(2025, 2, 10, 12).getTime(), new Date(2024, 11, 31).getTime(), new Date(2027, 6, 1).getTime()]) {
+      expect(weekRows(pool, now), new Date(now).toISOString()).toEqual(naive(pool, now));
+    }
   });
 
   it('periodSummary: últimos 28 contra os 28 anteriores, null sem média num deles', () => {
