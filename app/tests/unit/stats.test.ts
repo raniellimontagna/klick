@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   averageOf, bestAverage, bestMean, bestSingle, currentStreak, dayKey, effectiveMs, formatMs, formatSolve,
-  meanOf, monthHeat, officialAverage, officialAverageLabel, pbFlags, resultKind,
+  heatLevel, meanOf, monthHeat, officialAverage, officialAverageLabel, pbFlags, resultKind,
   rollingAverages, solveDeltas, stdDevMs, trimCount,
 } from '../../src/core/stats';
 import type { Solve } from '../../src/core/types';
@@ -95,6 +95,10 @@ describe('estatísticas', () => {
     expect(resultKind(hist, sv(50000, 'DNF'))).toBe('dnf');
     expect(resultKind(hist, sv(50000, '+2'))).toBe('plus2');
     expect(resultKind([], sv(80000))).toBe('good');
+  });
+
+  it('heatLevel nos limites 0, 1, 4, 5, 14, 15', () => {
+    expect([0, 1, 4, 5, 14, 15, 200].map(heatLevel)).toEqual([0, 1, 1, 2, 2, 3, 3]);
   });
 
   it('monthHeat marca níveis, hoje e o dia do recorde', () => {

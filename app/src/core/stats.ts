@@ -249,6 +249,9 @@ export function resultKind(history: Solve[], solve: Solve, avgHistory: Solve[] =
   return d.vsAvg === null || d.vsAvg <= 0 ? 'good' : 'slow';
 }
 
+// Intensidade de um dia no calendário: 0; 1–4; 5–14; 15 ou mais solves.
+export const heatLevel = (count: number): 0 | 1 | 2 | 3 => (count === 0 ? 0 : count < 5 ? 1 : count < 15 ? 2 : 3);
+
 export function monthHeat(solves: Solve[], nowTs: number): HeatDay[] {
   const now = new Date(nowTs);
   const y = now.getFullYear();
@@ -265,7 +268,7 @@ export function monthHeat(solves: Solve[], nowTs: number): HeatDay[] {
   return Array.from({ length: daysIn }, (_, i): HeatDay => {
     const day = i + 1;
     const count = counts.get(day) || 0;
-    return { day, count, level: count === 0 ? 0 : count < 5 ? 1 : count < 15 ? 2 : 3, pb: day === pbDay, today: day === now.getDate() };
+    return { day, count, level: heatLevel(count), pb: day === pbDay, today: day === now.getDate() };
   });
 }
 
