@@ -109,7 +109,7 @@ describe('ligação dos diálogos na casca', () => {
 
   it('openGoal abre a folha nova e a de editar', async () => {
     const { a, repo } = await makeApp();
-    await repo.saveProfile({ goals: { ab: { kind: 'ao5', event: '444', targetMs: 60_000, startMs: null, createdAt: 1, reachedAt: null } } });
+    await repo.saveProfile({ goals: { ab1: { kind: 'ao5', event: '444', targetMs: 60_000, startMs: null, createdAt: 1, reachedAt: null } } });
     await a.reload();
     hooks.boot = async () => a;
     render(App);
@@ -125,7 +125,7 @@ describe('ligação dos diálogos na casca', () => {
     expect(a.dialog).toBeNull();
     // A linha da meta abre a de editar, com o evento dela.
     await fireEvent.click(screen.getByRole('button', { name: /^Média de 5 abaixo de 1:00, 4×4/ }));
-    expect(a.goalRequest).toEqual({ id: 'ab', event: '333' });
+    expect(a.goalRequest).toEqual({ id: 'ab1', event: '333' });
     const edit = await screen.findByRole('dialog', { name: T.metas.editTitle });
     expect((within(edit).getByLabelText(T.metas.eventLabel) as HTMLSelectElement).value).toBe('444');
     expect(within(edit).getByRole('button', { name: T.metas.remove })).toBeInTheDocument();

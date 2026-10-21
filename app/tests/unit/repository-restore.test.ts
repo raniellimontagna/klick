@@ -551,26 +551,26 @@ describe('restaurar uma cópia de antes das metas', () => {
 
   it('restaurar cópia sem goals mantém as metas; com goals {} apaga', async () => {
     const { db, repo } = await fresh('conta-1');
-    await repo.saveProfile({ goals: { a1: single } });
-    const saved = await db.get('prefs', 'goal.a1');
+    await repo.saveProfile({ goals: { a01: single } });
+    const saved = await db.get('prefs', 'goal.a01');
     await db.clear('outbox');
     t += 1000;
     await repo.replaceAll(copy({ finish: 'fosco', onboarded: true, trail: Array<boolean>(9).fill(false) }));
-    expect((await repo.getProfile()).goals).toEqual({ a1: single });
-    expect(await db.get('prefs', 'goal.a1')).toEqual(saved); // nem regravada, nem na fila
-    expect(await db.getAllKeys('outbox')).not.toContain('prefs/goal.a1');
+    expect((await repo.getProfile()).goals).toEqual({ a01: single });
+    expect(await db.get('prefs', 'goal.a01')).toEqual(saved); // nem regravada, nem na fila
+    expect(await db.getAllKeys('outbox')).not.toContain('prefs/goal.a01');
 
     // A cópia que traz metas vale: a de agora que ela não tem volta ao padrão, e a dela entra.
     t += 1000;
-    await repo.replaceAll(copy({ goals: { b2: ao5 } }));
-    expect((await repo.getProfile()).goals).toEqual({ b2: ao5 });
-    expect(await db.get('prefs', 'goal.a1')).toMatchObject({ value: null });
+    await repo.replaceAll(copy({ goals: { b02: ao5 } }));
+    expect((await repo.getProfile()).goals).toEqual({ b02: ao5 });
+    expect(await db.get('prefs', 'goal.a01')).toMatchObject({ value: null });
 
     t += 1000;
     await repo.replaceAll(copy({ goals: {} }));
     expect((await repo.getProfile()).goals).toEqual({});
-    expect(await db.get('prefs', 'goal.b2')).toMatchObject({ value: null });
-    expect(await db.getAllKeys('outbox')).toEqual(expect.arrayContaining(['prefs/goal.a1', 'prefs/goal.b2']));
+    expect(await db.get('prefs', 'goal.b02')).toMatchObject({ value: null });
+    expect(await db.getAllKeys('outbox')).toEqual(expect.arrayContaining(['prefs/goal.a01', 'prefs/goal.b02']));
   });
 });
 

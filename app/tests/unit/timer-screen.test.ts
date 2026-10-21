@@ -824,7 +824,7 @@ describe('tela do Timer: a meta alcançada', () => {
   async function comMeta(settings: Parameters<AppState['updateSettings']>[0] = {}) {
     const { a, repo } = await app();
     await a.updateSettings({ inspection: false, ...settings });
-    await repo.saveProfile({ goals: { ab: META } });
+    await repo.saveProfile({ goals: { ab1: META } });
     await a.reload();
     return { a, repo };
   }
@@ -838,8 +838,8 @@ describe('tela do Timer: a meta alcançada', () => {
     await solveByKeys();
     await waitFor(() => expect(document.querySelector('.coach')?.textContent).toContain(texto), { timeout: 4000 });
     expect(document.querySelector('.coach')?.textContent).not.toMatch(/recorde/i);
-    await waitFor(async () => expect((await repo.getProfile()).goals.ab!.reachedAt).toBe(a.solves[0]!.at));
-    expect(a.profile.goals.ab!.reachedAt).toBe(a.solves[0]!.at);
+    await waitFor(async () => expect((await repo.getProfile()).goals.ab1!.reachedAt).toBe(a.solves[0]!.at));
+    expect(a.profile.goals.ab1!.reachedAt).toBe(a.solves[0]!.at);
   });
 
   it('no silencioso grava reachedAt e não fala', async () => {
@@ -847,7 +847,7 @@ describe('tela do Timer: a meta alcançada', () => {
     render(TimerScreen, { app: a });
     await solveByKeys();
     await reagiu();
-    await waitFor(async () => expect((await repo.getProfile()).goals.ab!.reachedAt).toBe(a.solves[0]!.at));
+    await waitFor(async () => expect((await repo.getProfile()).goals.ab1!.reachedAt).toBe(a.solves[0]!.at));
     expect(document.querySelector('.coach')?.textContent ?? '').not.toContain('Meta alcançada');
   });
 
@@ -859,7 +859,7 @@ describe('tela do Timer: a meta alcançada', () => {
     await fireEvent.keyDown(campo, { key: 'Enter', code: 'Enter' });
     await waitFor(() => expect(a.solves).toHaveLength(1));
     await waitFor(() => expect(document.querySelector('.coach')?.textContent).toContain(texto), { timeout: 4000 });
-    await waitFor(async () => expect((await repo.getProfile()).goals.ab!.reachedAt).toBe(a.solves[0]!.at));
+    await waitFor(async () => expect((await repo.getProfile()).goals.ab1!.reachedAt).toBe(a.solves[0]!.at));
   });
 });
 

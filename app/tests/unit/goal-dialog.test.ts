@@ -170,8 +170,8 @@ describe('a folha da meta', () => {
   });
 
   it('editar mostra Excluir e pede o segundo toque', async () => {
-    const { a } = await app({ ab: goal({ kind: 'ao12', targetMs: 13_000, startMs: 14_410, createdAt: 7 }) }, run('333', 13_580, day(9, 1), 12));
-    a.openGoal('ab', '222');
+    const { a } = await app({ ab1: goal({ kind: 'ao12', targetMs: 13_000, startMs: 14_410, createdAt: 7 }) }, run('333', 13_580, day(9, 1), 12));
+    a.openGoal('ab1', '222');
     render(GoalDialog, { app: a, open: true });
     await screen.findByRole('dialog', { name: T.metas.editTitle });
     expect(within(sheet()).getByText(T.metas.editIntro)).toBeInTheDocument();
@@ -189,36 +189,36 @@ describe('a folha da meta', () => {
     // O toque duplo não vale.
     await fireEvent.click(again);
     await sleep(30);
-    expect(a.profile.goals.ab).toBeDefined();
+    expect(a.profile.goals.ab1).toBeDefined();
     await sleep(CONFIRM_DELAY_MS + 50);
     await fireEvent.click(again);
-    await waitFor(() => expect(a.profile.goals.ab).toBeUndefined());
+    await waitFor(() => expect(a.profile.goals.ab1).toBeUndefined());
     await waitFor(() => expect(a.dialog).toBeNull());
   });
 
   it('a folha nova não tem Excluir; editar salva a mesma meta e mostra o alvo como se digita', async () => {
-    const { a } = await app({ ab: goal({ kind: 'ao5', event: '444', targetMs: 90_000, createdAt: 7 }), cd: goal({ targetMs: 12_500 }) });
+    const { a } = await app({ ab1: goal({ kind: 'ao5', event: '444', targetMs: 90_000, createdAt: 7 }), cd1: goal({ targetMs: 12_500 }) });
     await openNew(a);
     expect(within(sheet()).queryByRole('button', { name: T.metas.remove })).toBeNull();
     await fireEvent.click(within(sheet()).getByRole('button', { name: T.metas.cancel }));
     await waitFor(() => expect(a.dialog).toBeNull());
 
-    a.openGoal('cd', '333');
+    a.openGoal('cd1', '333');
     await screen.findByRole('dialog', { name: T.metas.editTitle });
     expect(field().value).toBe('12.5');
-    a.openGoal('ab', '333');
+    a.openGoal('ab1', '333');
     await waitFor(() => expect(field().value).toBe('1:30'));
     expect(eventSelect().value).toBe('444');
     await type('1:25');
     await save();
     await waitFor(() => expect(a.dialog).toBeNull());
-    expect(a.profile.goals.ab).toMatchObject({ kind: 'ao5', event: '444', targetMs: 85_000, createdAt: 7 });
+    expect(a.profile.goals.ab1).toMatchObject({ kind: 'ao5', event: '444', targetMs: 85_000, createdAt: 7 });
     expect(Object.keys(a.profile.goals)).toHaveLength(2);
   });
 
   it('a meta que some com a folha aberta (excluída em outro aparelho) fecha a folha', async () => {
-    const { a } = await app({ ab: goal() });
-    a.openGoal('ab', '333');
+    const { a } = await app({ ab1: goal() });
+    a.openGoal('ab1', '333');
     render(GoalDialog, { app: a, open: true });
     await screen.findByRole('dialog', { name: T.metas.editTitle });
     a.profile.goals = {};

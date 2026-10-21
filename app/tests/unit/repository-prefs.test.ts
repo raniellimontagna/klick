@@ -47,33 +47,33 @@ describe('perfil dividido (spec 5.2): o aparelho na store profile, a conta em pr
 
   it('excluir uma meta grava null na chave dela e só nela', async () => {
     const { db, repo } = await fresh();
-    await repo.saveProfile({ goals: { a1: single, b2: ao12 } });
+    await repo.saveProfile({ goals: { a01: single, b02: ao12 } });
     expect(await db.getAll('prefs')).toEqual([
-      { key: 'goal.a1', value: single, updatedAt: t },
-      { key: 'goal.b2', value: ao12, updatedAt: t },
+      { key: 'goal.a01', value: single, updatedAt: t },
+      { key: 'goal.b02', value: ao12, updatedAt: t },
     ]);
     const before = t;
     t += 1000;
-    await repo.saveProfile({ goals: { b2: ao12 } });
+    await repo.saveProfile({ goals: { b02: ao12 } });
     expect(await db.getAll('prefs')).toEqual([
-      { key: 'goal.a1', value: null, updatedAt: t },
-      { key: 'goal.b2', value: ao12, updatedAt: before },
+      { key: 'goal.a01', value: null, updatedAt: t },
+      { key: 'goal.b02', value: ao12, updatedAt: before },
     ]);
-    expect((await repo.getProfile()).goals).toEqual({ b2: ao12 });
+    expect((await repo.getProfile()).goals).toEqual({ b02: ao12 });
   });
 
   it('editar uma meta não regrava as outras', async () => {
     const { db, repo } = await fresh();
-    await repo.saveProfile({ goals: { a1: single, b2: ao12 } });
+    await repo.saveProfile({ goals: { a01: single, b02: ao12 } });
     const before = t;
     t += 1000;
     const edited: Goal = { ...single, targetMs: 10_500 };
-    await repo.saveProfile({ goals: { a1: edited, b2: ao12 } });
+    await repo.saveProfile({ goals: { a01: edited, b02: ao12 } });
     expect(await db.getAll('prefs')).toEqual([
-      { key: 'goal.a1', value: edited, updatedAt: t },
-      { key: 'goal.b2', value: ao12, updatedAt: before },
+      { key: 'goal.a01', value: edited, updatedAt: t },
+      { key: 'goal.b02', value: ao12, updatedAt: before },
     ]);
-    expect((await repo.getProfile()).goals).toEqual({ a1: edited, b2: ao12 });
+    expect((await repo.getProfile()).goals).toEqual({ a01: edited, b02: ao12 });
   });
 
   it('virar a temporada grava o item "season"', async () => {

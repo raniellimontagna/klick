@@ -139,7 +139,7 @@ describe('formato Klick', () => {
 
   it('o arquivo leva as metas e o import ignora a torta', async () => {
     const from = createRepository(await openKlickDb('transfer-metas-a'), { now: () => NOW, channel: null });
-    const goals = { a1: goal(), b2: goal({ kind: 'ao12', event: 'pyram', targetMs: 4_000, startMs: null, reachedAt: 1_791_000_000_500 }) };
+    const goals = { a01: goal(), b02: goal({ kind: 'ao12', event: 'pyram', targetMs: 4_000, startMs: null, reachedAt: 1_791_000_000_500 }) };
     await from.saveProfile({ goals });
     const file = parseKlickJson(toKlickJson(await from.exportAll()));
     expect(file.profile?.goals).toEqual(goals);
@@ -150,35 +150,35 @@ describe('formato Klick', () => {
     // Na leitura, só as metas com vaga e valor válidos; um arquivo de antes das metas (ou com algo que não é objeto) fica sem o campo.
     const withGoals = (value: unknown): string => JSON.stringify({ ...fullExport(), profile: { goals: value } });
     const crooked = {
-      a1: goal(),
-      abc: goal(), // vaga de 3 caracteres
-      b2: { ...goal(), extra: 1 }, // chave a mais
-      c3: goal({ targetMs: 0 }),
-      d4: goal({ targetMs: 3_600_000 }),
-      e5: goal({ event: 'fto' as never }),
-      f6: null,
-      g7: 'meta',
+      a01: goal(),
+      abcd: goal(), // vaga de 4 caracteres
+      b02: { ...goal(), extra: 1 }, // chave a mais
+      c03: goal({ targetMs: 0 }),
+      d04: goal({ targetMs: 3_600_000 }),
+      e05: goal({ event: 'fto' as never }),
+      f06: null,
+      g07: 'meta',
     };
-    expect(parseKlickJson(withGoals(crooked)).profile).toEqual({ goals: { a1: goal() } });
+    expect(parseKlickJson(withGoals(crooked)).profile).toEqual({ goals: { a01: goal() } });
     expect(parseKlickJson(withGoals({})).profile).toEqual({ goals: {} });
     expect(parseKlickJson(withGoals([goal()])).profile).toEqual({});
     expect('goals' in parseKlickJson(toKlickJson(fullExport())).profile!).toBe(false);
 
     // A importação confere de novo (o repositório recebe o arquivo de outros caminhos): a torta não entra nem apaga a daqui.
-    await to.importAll({ ...file, profile: { goals: { a1: { ...goal(), extra: 1 } as never, abc: goal(), h8: goal({ targetMs: 0 }) } } });
+    await to.importAll({ ...file, profile: { goals: { a01: { ...goal(), extra: 1 } as never, abcd: goal(), h08: goal({ targetMs: 0 }) } } });
     expect((await to.getProfile()).goals).toEqual(goals);
   });
 
   it('importar com merge junta por id e fica com o reachedAt mais antigo', async () => {
     const repo = createRepository(await openKlickDb('transfer-metas-merge'), { now: () => NOW, channel: null });
     const mine = {
-      a1: goal({ reachedAt: 5_000 }),
-      b2: goal({ kind: 'ao5', reachedAt: null }),
-      c3: goal({ kind: 'ao12', reachedAt: 9_000 }),
-      d4: goal({ event: '222', targetMs: 4_000 }),
-      h8: goal({ targetMs: 11_000, reachedAt: null }),
-      i9: goal({ kind: 'ao5', reachedAt: 8_000 }),
-      j0: goal({ event: '444', targetMs: 50_000, reachedAt: null }),
+      a01: goal({ reachedAt: 5_000 }),
+      b02: goal({ kind: 'ao5', reachedAt: null }),
+      c03: goal({ kind: 'ao12', reachedAt: 9_000 }),
+      d04: goal({ event: '222', targetMs: 4_000 }),
+      h08: goal({ targetMs: 11_000, reachedAt: null }),
+      i09: goal({ kind: 'ao5', reachedAt: 8_000 }),
+      j00: goal({ event: '444', targetMs: 50_000, reachedAt: null }),
     };
     await repo.saveProfile({ goals: mine });
     // Na mesma vaga e com a mesma definição (tipo, evento e alvo), fica a daqui com a data de alcance mais antiga das duas; o resto do objeto
@@ -188,33 +188,33 @@ describe('formato Klick', () => {
       format: 'klick', version: 1, exportedAt: NOW, sessions: [], solves: [],
       profile: {
         goals: {
-          a1: goal({ ...same, reachedAt: 3_000 }), // alcançada antes lá: fica a daqui, com a data de lá
-          b2: goal({ ...same, kind: 'ao5', reachedAt: 4_000 }), // a daqui ainda sem data: fica a daqui, com a de lá
-          c3: goal({ ...same, kind: 'ao12', reachedAt: 10_000 }), // a de lá é mais nova: fica a daqui inteira
-          d4: goal({ ...same, event: '222', targetMs: 4_000, reachedAt: null }), // a de lá sem data: fica a daqui inteira
+          a01: goal({ ...same, reachedAt: 3_000 }), // alcançada antes lá: fica a daqui, com a data de lá
+          b02: goal({ ...same, kind: 'ao5', reachedAt: 4_000 }), // a daqui ainda sem data: fica a daqui, com a de lá
+          c03: goal({ ...same, kind: 'ao12', reachedAt: 10_000 }), // a de lá é mais nova: fica a daqui inteira
+          d04: goal({ ...same, event: '222', targetMs: 4_000, reachedAt: null }), // a de lá sem data: fica a daqui inteira
           // Na mesma vaga com outra definição (a meta editada num dos lados, como em remakeGoal), é outra meta: a data de lá não vale, e
           // fica a daqui inteira, com a data dela (nula ou não).
-          h8: goal({ targetMs: 15_000, reachedAt: 2_000 }), // outro alvo
-          i9: goal({ kind: 'ao12', reachedAt: 1_000 }), // outro tipo
-          j0: goal({ event: '555', targetMs: 50_000, reachedAt: 1_500 }), // outro evento
-          e5: goal({ event: '444', targetMs: 60_000 }),
-          f6: goal({ event: '555', targetMs: 90_000 }),
-          g7: goal({ event: 'clock', targetMs: 8_000 }), // as daqui e as que só o arquivo tem passam de 6: a importação, como o sync, não tira meta
+          h08: goal({ targetMs: 15_000, reachedAt: 2_000 }), // outro alvo
+          i09: goal({ kind: 'ao12', reachedAt: 1_000 }), // outro tipo
+          j00: goal({ event: '555', targetMs: 50_000, reachedAt: 1_500 }), // outro evento
+          e05: goal({ event: '444', targetMs: 60_000 }),
+          f06: goal({ event: '555', targetMs: 90_000 }),
+          g07: goal({ event: 'clock', targetMs: 8_000 }), // as daqui e as que só o arquivo tem passam de 6: a importação, como o sync, não tira meta
         },
       },
     };
     await repo.importAll(file);
     expect((await repo.getProfile()).goals).toEqual({
-      a1: { ...mine.a1, reachedAt: 3_000 },
-      b2: { ...mine.b2, reachedAt: 4_000 },
-      c3: mine.c3,
-      d4: mine.d4,
-      h8: mine.h8,
-      i9: mine.i9,
-      j0: mine.j0,
-      e5: file.profile!.goals!.e5,
-      f6: file.profile!.goals!.f6,
-      g7: file.profile!.goals!.g7,
+      a01: { ...mine.a01, reachedAt: 3_000 },
+      b02: { ...mine.b02, reachedAt: 4_000 },
+      c03: mine.c03,
+      d04: mine.d04,
+      h08: mine.h08,
+      i09: mine.i09,
+      j00: mine.j00,
+      e05: file.profile!.goals!.e05,
+      f06: file.profile!.goals!.f06,
+      g07: file.profile!.goals!.g07,
     });
     // Um arquivo sem metas (de antes delas) não mexe nas daqui.
     const now = (await repo.getProfile()).goals;

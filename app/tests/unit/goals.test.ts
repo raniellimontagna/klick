@@ -31,9 +31,10 @@ describe('metas: validação', () => {
   it('constantes', () => {
     expect(GOAL_MAX).toBe(6);
     expect(GOAL_TARGET_MAX).toBe(3_599_999);
-    expect(GOAL_ID.test('a9')).toBe(true);
-    expect(GOAL_ID.test('A9')).toBe(false);
-    expect(GOAL_ID.test('abc')).toBe(false);
+    expect(GOAL_ID.test('a9z')).toBe(true);
+    expect(GOAL_ID.test('A9z')).toBe(false);
+    expect(GOAL_ID.test('a9')).toBe(false);
+    expect(GOAL_ID.test('abcd')).toBe(false);
   });
 
   it('isGoal aceita a meta e recusa chave a mais, alvo 0 e 3600000, evento desconhecido e NaN', () => {
@@ -57,20 +58,27 @@ describe('metas: validação', () => {
     for (const v of [null, undefined, 5, 'x', [], [goal()]]) expect(isGoal(v)).toBe(false);
   });
 
-  it('freeGoalId nunca devolve uma vaga tomada', () => {
-    const taken = new Set<string>();
-    const all = new Set<string>();
-    for (let i = 0; i < 36; i++) for (let j = 0; j < 36; j++) all.add(i.toString(36) + j.toString(36));
-    expect(all.size).toBe(1296);
-    const got = freeGoalId(taken);
+  it('freeGoalId sorteia uma vaga de 3 caracteres que ninguém tomou', () => {
+    const got = freeGoalId(new Set());
     expect(GOAL_ID.test(got)).toBe(true);
+    // O sorteio vai de '000' a 'zzz' (46.656 vagas): 0,5 cai em 23.328, 'i00'.
+    expect(freeGoalId(new Set(), () => 0)).toBe('000');
+    expect(freeGoalId(new Set(), () => 0.5)).toBe('i00');
+    expect(freeGoalId(new Set(), () => 0.999999)).toBe('zzz');
+    // Uma vaga tomada sorteia de novo.
+    const draws = [0, 0.5];
+    expect(freeGoalId(new Set(['000']), () => draws.shift() ?? 0)).toBe('i00');
+    // Um sorteio que só cai em vaga tomada não prende: depois de alguns azares, a primeira livre na ordem.
+    expect(freeGoalId(new Set(['000']), () => 0)).toBe('001');
     // Com só uma vaga livre, é essa, qualquer que seja o sorteio.
-    for (const x of all) if (x !== 'zz') taken.add(x);
-    expect(freeGoalId(taken, () => 0)).toBe('zz');
-    expect(freeGoalId(taken, () => 0.999999)).toBe('zz');
-    expect(freeGoalId(new Set(['00']), () => 0)).toBe('01');
+    const taken = new Set<string>();
+    for (let n = 0; n < 36 ** 3; n++) taken.add(n.toString(36).padStart(3, '0'));
+    expect(taken.size).toBe(46_656);
+    taken.delete('k7q');
+    expect(freeGoalId(taken, () => 0)).toBe('k7q');
+    expect(freeGoalId(taken, () => 0.999999)).toBe('k7q');
     // Cheio: não há o que devolver.
-    taken.add('zz');
+    taken.add('k7q');
     expect(() => freeGoalId(taken)).toThrow();
   });
 });

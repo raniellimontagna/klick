@@ -18,7 +18,7 @@ export interface Goal {
 }
 
 export const GOAL_MAX = 6; // metas vivas no app (o servidor aceita qualquer número de vagas válidas)
-export const GOAL_ID = /^[0-9a-z]{2}$/; // 1.296 vagas
+export const GOAL_ID = /^[0-9a-z]{3}$/; // 46.656 vagas: dois aparelhos que criam ao mesmo tempo quase nunca sorteiam a mesma
 export const GOAL_TARGET_MAX = 3_599_999; // 59:59.999, abaixo de uma hora
 
 const KINDS: readonly GoalKind[] = ['single', 'ao5', 'ao12'];
@@ -50,15 +50,18 @@ export function goalsFrom(v: unknown): Record<string, Goal> | undefined {
   return Object.fromEntries(Object.entries(v).filter(([id, g]) => GOAL_ID.test(id) && isGoal(g))) as Record<string, Goal>;
 }
 
-// Sorteia uma das vagas de 2 caracteres que ninguém tomou. Sem vaga livre não há o que devolver.
+const GOAL_SLOTS = 36 ** 3;
+const slotId = (n: number): string => n.toString(36).padStart(3, '0');
+
+// Sorteia uma das vagas de 3 caracteres que ninguém tomou. Com as poucas metas de uma conta, o primeiro sorteio quase sempre serve; depois de
+// alguns azares (um sorteio viciado), vale a primeira livre na ordem. Sem vaga livre não há o que devolver.
 export function freeGoalId(taken: ReadonlySet<string>, rand: () => number = Math.random): string {
-  const free: string[] = [];
-  for (let i = 0; i < 36; i++) for (let j = 0; j < 36; j++) {
-    const id = i.toString(36) + j.toString(36);
-    if (!taken.has(id)) free.push(id);
+  for (let i = 0; i < 32; i++) {
+    const id = slotId(Math.min(GOAL_SLOTS - 1, Math.floor(rand() * GOAL_SLOTS)));
+    if (!taken.has(id)) return id;
   }
-  if (free.length === 0) throw new Error('sem vaga livre para a meta');
-  return free[Math.min(free.length - 1, Math.floor(rand() * free.length))]!;
+  for (let n = 0; n < GOAL_SLOTS; n++) if (!taken.has(slotId(n))) return slotId(n);
+  throw new Error('sem vaga livre para a meta');
 }
 
 // Decimais "5" ou "05" em ms: um dígito vale décimos, dois valem centésimos.

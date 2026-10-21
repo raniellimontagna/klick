@@ -121,7 +121,7 @@ export interface Profile {
   // O nome que a pessoa mostra nos links de desafio (spec do desafio, seção 5): texto simples de uma linha, aparado, até 20 caracteres. É da
   // conta (vai no sync, como o acabamento e o tour), não do aparelho. Um perfil de antes dos desafios, sem ele, lê ''.
   duelName: string;
-  // As metas (estatísticas, spec 5): vaga de 2 caracteres → meta. São da conta, uma chave por meta (goal.<id>). Um perfil de antes, sem
+  // As metas (estatísticas, spec 5): vaga de 3 caracteres → meta. São da conta, uma chave por meta (goal.<id>). Um perfil de antes, sem
   // elas, lê {}.
   goals: Record<string, Goal>;
 }

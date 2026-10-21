@@ -37,7 +37,7 @@ const bar = (row: HTMLElement) => (row.querySelector('.es-bar') as HTMLElement).
 describe('o quadro Metas', () => {
   it('linha em andamento com faltam, melhor, barra a 59% e o aria-label', async () => {
     // A média de 12 do 3×3 está em 13.58; a meta nasceu com 14.41 e busca 13: (14.41 - 13.58) / (14.41 - 13) = 59% do caminho.
-    const a = await app({ ab: goal({ kind: 'ao12', targetMs: 13_000, startMs: 14_410 }) }, run('333', 13_580, day(9, 1), 12));
+    const a = await app({ ab1: goal({ kind: 'ao12', targetMs: 13_000, startMs: 14_410 }) }, run('333', 13_580, day(9, 1), 12));
     render(GoalsBoard, { app: a, event: '222' });
     expect(within(region()).getByRole('heading', { name: T.metas.title })).toBeInTheDocument();
     expect(within(region()).getByText(T.metas.scope)).toBeInTheDocument();
@@ -52,7 +52,7 @@ describe('o quadro Metas', () => {
     // A linha abre a folha da meta; o evento do pedido é o do filtro da Evolução (a folha de editar lê o da própria meta).
     await fireEvent.click(row!);
     expect(a.dialog).toBe('goal');
-    expect(a.goalRequest).toEqual({ id: 'ab', event: '222' });
+    expect(a.goalRequest).toEqual({ id: 'ab1', event: '222' });
   });
 
   it('alcançada no fim com a data e a barra cheia', async () => {
@@ -85,8 +85,8 @@ describe('o quadro Metas', () => {
   it('sem tempo: ainda sem média de 12, barra vazia', async () => {
     const a = await app(
       {
-        ab: goal({ kind: 'ao12', event: '444', targetMs: 60_000, createdAt: 1 }),
-        cd: goal({ kind: 'ao5', event: '444', targetMs: 60_000, createdAt: 2 }),
+        ab1: goal({ kind: 'ao12', event: '444', targetMs: 60_000, createdAt: 1 }),
+        cd1: goal({ kind: 'ao5', event: '444', targetMs: 60_000, createdAt: 2 }),
         ef: goal({ kind: 'single', event: '444', targetMs: 60_000, createdAt: 3 }),
       },
       // Quatro solves de 4×4 não fazem uma média de 5; nenhum solve faz um single.

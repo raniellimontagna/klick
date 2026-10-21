@@ -17,15 +17,15 @@ async function setup() {
 }
 
 const goal = (o: Partial<Goal> = {}): Goal => ({ kind: 'single', event: '333', targetMs: 11_000, startMs: null, createdAt: 1, reachedAt: null, ...o });
-const ids = (count: number): string[] => Array.from({ length: count }, (_, i) => `a${i}`);
-const many = (count: number): Record<string, Goal> => Object.fromEntries(ids(count).map((id) => [id, goal({ createdAt: 10 + Number(id.slice(1)) })]));
+const ids = (count: number): string[] => Array.from({ length: count }, (_, i) => `a0${i}`);
+const many = (count: number): Record<string, Goal> => Object.fromEntries(ids(count).map((id) => [id, goal({ createdAt: 10 + Number(id.slice(2)) })]));
 
 describe('metas no AppState', () => {
   beforeEach(() => {
     t = 1_791_500_000_000;
   });
 
-  it('saveGoal cria com id de 2 caracteres, startMs do melhor e nasce alcançada sem comemorar', async () => {
+  it('saveGoal cria com id de 3 caracteres, startMs do melhor e nasce alcançada sem comemorar', async () => {
     const { app, repo } = await setup();
     await app.addSolve({ ms: 14_000, penalty: null, at: 100 });
     await app.addSolve({ ms: 9_000, penalty: null, at: 200 });
@@ -33,7 +33,7 @@ describe('metas no AppState', () => {
     // O melhor do 333 é 9 s; o primeiro solve abaixo de 13 s foi o de 9 s (at 200), então a meta já nasce cumprida, com essa data.
     expect(await app.saveGoal({ kind: 'single', event: '333', targetMs: 13_000 })).toBe(true);
     const [[id, saved]] = Object.entries(app.profile.goals);
-    expect(id).toMatch(/^[0-9a-z]{2}$/);
+    expect(id).toMatch(/^[0-9a-z]{3}$/);
     expect(saved).toEqual({ kind: 'single', event: '333', targetMs: 13_000, startMs: 9_000, createdAt: t, reachedAt: 200 });
     expect((await repo.getProfile()).goals).toEqual({ [id!]: saved });
     // Uma meta ainda por cumprir nasce sem data.
@@ -52,35 +52,35 @@ describe('metas no AppState', () => {
       expect(Object.keys((await repo.getProfile()).goals)).toHaveLength(count);
       // Editar uma que existe segue valendo, mesmo com o limite estourado.
       t += 1000;
-      expect(await app.saveGoal({ id: 'a0', kind: 'ao5', event: '333', targetMs: 15_000 })).toBe(true);
-      expect((await repo.getProfile()).goals.a0).toMatchObject({ kind: 'ao5', targetMs: 15_000, createdAt: 10 });
+      expect(await app.saveGoal({ id: 'a00', kind: 'ao5', event: '333', targetMs: 15_000 })).toBe(true);
+      expect((await repo.getProfile()).goals.a00).toMatchObject({ kind: 'ao5', targetMs: 15_000, createdAt: 10 });
     }
   });
 
   it('saveGoal de uma meta que já não existe (apagada em outro aparelho) recusa sem gravar', async () => {
     const { app, repo } = await setup();
-    expect(await app.saveGoal({ id: 'zz', kind: 'single', event: '333', targetMs: 11_000 })).toBe(false);
+    expect(await app.saveGoal({ id: 'zzz', kind: 'single', event: '333', targetMs: 11_000 })).toBe(false);
     expect((await repo.getProfile()).goals).toEqual({});
   });
 
   it('deleteGoal tira a meta', async () => {
     const { app, repo } = await setup();
-    await repo.saveProfile({ goals: { ab: goal(), cd: goal({ targetMs: 12_000 }) } });
+    await repo.saveProfile({ goals: { ab1: goal(), cd1: goal({ targetMs: 12_000 }) } });
     await app.reload();
-    expect(await app.deleteGoal('ab')).toBe(true);
-    expect(Object.keys(app.profile.goals)).toEqual(['cd']);
-    expect(Object.keys((await repo.getProfile()).goals)).toEqual(['cd']);
+    expect(await app.deleteGoal('ab1')).toBe(true);
+    expect(Object.keys(app.profile.goals)).toEqual(['cd1']);
+    expect(Object.keys((await repo.getProfile()).goals)).toEqual(['cd1']);
   });
 
   it('markGoalsReached não troca uma data já gravada, ignora metas que sumiram e não grava sem mudança', async () => {
     const { app, repo } = await setup();
-    await repo.saveProfile({ goals: { ab: goal(), cd: goal({ reachedAt: 50 }) } });
+    await repo.saveProfile({ goals: { ab1: goal(), cd1: goal({ reachedAt: 50 }) } });
     await app.reload();
-    expect(await app.markGoalsReached([{ id: 'ab', at: 500 }, { id: 'cd', at: 900 }, { id: 'zz', at: 1 }])).toBe(true);
+    expect(await app.markGoalsReached([{ id: 'ab1', at: 500 }, { id: 'cd1', at: 900 }, { id: 'zzz', at: 1 }])).toBe(true);
     const goals = (await repo.getProfile()).goals;
-    expect(goals.ab!.reachedAt).toBe(500);
-    expect(goals.cd!.reachedAt).toBe(50);
-    expect(goals.zz).toBeUndefined();
+    expect(goals.ab1!.reachedAt).toBe(500);
+    expect(goals.cd1!.reachedAt).toBe(50);
+    expect(goals.zzz).toBeUndefined();
     // Sem nada a mudar, nem chega ao repositório.
     let writes = 0;
     const save = repo.saveProfile.bind(repo);
@@ -88,9 +88,9 @@ describe('metas no AppState', () => {
       writes += 1;
       return save(p);
     };
-    expect(await app.markGoalsReached([{ id: 'ab', at: 999 }, { id: 'zz', at: 2 }])).toBe(true);
+    expect(await app.markGoalsReached([{ id: 'ab1', at: 999 }, { id: 'zzz', at: 2 }])).toBe(true);
     expect(await app.markGoalsReached([])).toBe(true);
     expect(writes).toBe(0);
-    expect((await repo.getProfile()).goals.ab!.reachedAt).toBe(500);
+    expect((await repo.getProfile()).goals.ab1!.reachedAt).toBe(500);
   });
 });

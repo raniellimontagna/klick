@@ -56,14 +56,14 @@ describe('os formatos de id do app passam na regra do servidor (spec 6.6)', () =
       duelName: 'x'.repeat(20),
       // As metas nas vagas das pontas (a primeira e a última), com os valores nos limites.
       goals: {
-        '00': { kind: 'single', event: '333', targetMs: 1, startMs: null, createdAt: 0, reachedAt: null },
-        zz: { kind: 'ao12', event: 'clock', targetMs: 3_599_999, startMs: 3_600_000, createdAt: 1, reachedAt: 2 },
+        '000': { kind: 'single', event: '333', targetMs: 1, startMs: null, createdAt: 0, reachedAt: null },
+        zzz: { kind: 'ao12', event: 'clock', targetMs: 3_599_999, startMs: 3_600_000, createdAt: 1, reachedAt: 2 },
       },
     };
     const items = prefsFromProfile(splitProfile(profile).account, { withDefaults: true });
     expect(items.size).toBeGreaterThan(CASES.length);
-    expect(items.get('goal.00')).toEqual(profile.goals['00']);
-    expect(items.get('goal.zz')).toEqual(profile.goals.zz);
+    expect(items.get('goal.000')).toEqual(profile.goals['000']);
+    expect(items.get('goal.zzz')).toEqual(profile.goals.zzz);
     for (const [key, value] of items) {
       expect(checkChange({ store: 'prefs', id: key, data: value, updatedAt: 1, deletedAt: null, deletionStamp: 1 }), key).toMatchObject({ ok: true });
     }

@@ -65,7 +65,7 @@ export function isPrefValue(key: string, value: unknown): boolean {
     return c !== undefined && isWhole(value, 0) && value < c.algs.length;
   }
   if (key.startsWith('trainOff.')) return caseById(key.slice('trainOff.'.length)) !== undefined && typeof value === 'boolean';
-  // A meta: vaga de 2 caracteres (o número de chaves continua limitado) e o valor estrito, ou null (apagada).
+  // A meta: vaga de 3 caracteres (o número de chaves continua limitado) e o valor estrito, ou null (apagada).
   if (key.startsWith('goal.')) return GOAL_ID.test(key.slice('goal.'.length)) && (value === null || isGoal(value));
   switch (key) {
     case 'finish':

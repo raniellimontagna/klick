@@ -72,26 +72,26 @@ describe('a cópia diária no formato do export (spec 8.3)', () => {
   // o nome dos desafios; a que traz `goals`, mesmo vazio, vale.
   it('accountPrefsOf de cópia sem goals não apaga as metas da conta', () => {
     const goal: Goal = { kind: 'ao5', event: '333', targetMs: 12_000, startMs: 13_100, createdAt: T0, reachedAt: null };
-    const current = [prefToChange({ key: 'goal.a1', value: goal, updatedAt: T0 }), prefToChange({ key: 'goal.b2', value: null, updatedAt: T0 })];
-    expect(exportFromRecords([session, ...current], T0 + 9).profile?.goals).toEqual({ a1: goal });
+    const current = [prefToChange({ key: 'goal.a01', value: goal, updatedAt: T0 }), prefToChange({ key: 'goal.b02', value: null, updatedAt: T0 })];
+    expect(exportFromRecords([session, ...current], T0 + 9).profile?.goals).toEqual({ a01: goal });
     const { goals: _g, ...before } = exportFromRecords([session], T0).profile!;
     const stamp = T0 + 1000;
 
     const keep = accountPrefsOf(before, current)!;
-    expect(keep.get('goal.a1')).toEqual(goal);
+    expect(keep.get('goal.a01')).toEqual(goal);
     expect(prefsRestoreChanges(current, keep, stamp)).toEqual([]);
 
     const wipe = accountPrefsOf({ ...before, goals: {} }, current)!;
-    expect(wipe.has('goal.a1')).toBe(false);
+    expect(wipe.has('goal.a01')).toBe(false);
     expect(prefsRestoreChanges(current, wipe, stamp)).toEqual([
-      { store: 'prefs', id: 'goal.a1', data: null, updatedAt: stamp, deletedAt: null, deletionStamp: stamp },
+      { store: 'prefs', id: 'goal.a01', data: null, updatedAt: stamp, deletedAt: null, deletionStamp: stamp },
     ]);
 
     const other: Goal = { ...goal, kind: 'single', targetMs: 9_000 };
-    const swap = accountPrefsOf({ ...before, goals: { c3: other, abc: other } }, current)!; // a vaga torta não vira item
+    const swap = accountPrefsOf({ ...before, goals: { c03: other, abcd: other } }, current)!; // a vaga torta não vira item
     expect(prefsRestoreChanges(current, swap, stamp)).toEqual([
-      { store: 'prefs', id: 'goal.c3', data: other, updatedAt: stamp, deletedAt: null, deletionStamp: stamp },
-      { store: 'prefs', id: 'goal.a1', data: null, updatedAt: stamp, deletedAt: null, deletionStamp: stamp },
+      { store: 'prefs', id: 'goal.c03', data: other, updatedAt: stamp, deletedAt: null, deletionStamp: stamp },
+      { store: 'prefs', id: 'goal.a01', data: null, updatedAt: stamp, deletedAt: null, deletionStamp: stamp },
     ]);
   });
 
