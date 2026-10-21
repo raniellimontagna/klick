@@ -227,7 +227,7 @@ describe('as datas que a migração grava são inteiros seguros >= 0 (shape.ts),
     const copy = (await repo.listBackups()).find((r) => r.label === 'v3')!;
     t += 1000;
     const goal: Goal = { kind: 'single', event: '333', targetMs: 11_000, startMs: null, createdAt: t, reachedAt: null };
-    await repo.saveProfile({ trainOff: [], algChoice: {}, lessonAt: {}, goals: { a1: goal } }); // mexe em tudo antes de restaurar
+    await repo.saveProfile({ trainOff: [], algChoice: {}, lessonAt: {}, goals: { a01: goal } }); // mexe em tudo antes de restaurar
     t += 1000;
     await restoreBackup(repo, copy.id, t);
     const prefs = await db.getAll('prefs');
@@ -237,6 +237,6 @@ describe('as datas que a migração grava são inteiros seguros >= 0 (shape.ts),
     expect(keys).not.toContain('lessonAt.12');
     expect(prefs.find((p) => p.key === 'algChoice.oll2-sune')?.value ?? 0).toBe(0);
     expect(await repo.getProfile()).toMatchObject({ trainOff: ['pll2-t'], algChoice: { 'oll2-h': 1 }, lessonAt: { 1: 2 }, onboarded: true });
-    expect((await repo.getProfile()).goals).toEqual({ a1: goal }); // a cópia é de antes das metas: não as apaga
+    expect((await repo.getProfile()).goals).toEqual({ a01: goal }); // a cópia é de antes das metas: não as apaga
   });
 });
