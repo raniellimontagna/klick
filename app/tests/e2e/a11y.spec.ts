@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 import { T } from '../../src/strings';
-import { fresh, importHistory, typingMode } from './helpers';
+import { fresh, importHistory, noInspection, setTimerSetting } from './helpers';
 
 const TABS = [
   { tab: 'Timer', screen: 'timer' },
@@ -140,7 +140,8 @@ for (const scheme of ['light', 'dark'] as const) {
   test(`digitar o tempo, sem violações sérias no tema ${scheme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme });
     await fresh(page);
-    await typingMode(page);
+    await setTimerSetting(page, T.ajustes.entry, T.ajustes.entryOptions[1][1]);
+    await expect(page.getByLabel(T.timer.typedLabel)).toBeVisible();
     const serious = async (where: string) => {
       const r = await new AxeBuilder({ page }).analyze();
       return r.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${where}: ${v.id}`);
@@ -225,5 +226,44 @@ for (const scheme of ['light', 'dark'] as const) {
     const sheet = page.getByRole('dialog', { name: /^Solve #/ });
     await expect(sheet.getByRole('list', { name: T.fases.bar }).getByRole('listitem')).toHaveCount(4);
     expect(await serious('detalhe com fases')).toEqual([]);
+  });
+}
+
+// O Timer com os ajustes novos (a maquete aprovada, estados 1a–1b, 4c e 5a): as linhas novas do Ajustes (a dica de 4 fases e o "Som do aviso"),
+// o solve correndo com as marcas das fases e o "Resolvendo", e o resultado com a barra das fases. Os toques de fase pedem mais de 300 ms
+// entre si: a espera é real.
+for (const scheme of ['light', 'dark'] as const) {
+  test(`as linhas novas do Ajustes, o solve com marcas e o resultado com fases, sem violações sérias no tema ${scheme}`, async ({ page, isMobile }) => {
+    test.skip(isMobile, 'teclado só no desktop');
+    await page.emulateMedia({ colorScheme: scheme });
+    await fresh(page);
+    const serious = async (where: string) => {
+      const r = await new AxeBuilder({ page }).analyze();
+      return r.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${where}: ${v.id}`);
+    };
+    await noInspection(page);
+    await setTimerSetting(page, T.ajustes.phases, T.ajustes.phasesOptions[3][1]);
+    await setTimerSetting(page, T.ajustes.liveTime, T.ajustes.liveTimeOptions[2][1]);
+    await page.getByRole('button', { name: 'Ajustes', exact: true }).first().click();
+    await page.getByRole('group', { name: T.ajustes.inspSound, exact: true }).getByRole('button', { name: T.ajustes.inspSoundOptions[1][1], exact: true }).click();
+    expect(await serious('Ajustes com as linhas novas')).toEqual([]);
+    await page.getByRole('button', { name: 'Timer', exact: true }).first().click();
+    await page.keyboard.down('Space');
+    await page.waitForTimeout(400);
+    await page.keyboard.up('Space');
+    await expect(page.locator('[data-time]')).toHaveText(T.timer.solving);
+    await expect(page.locator('.tc-marks i')).toHaveCount(4);
+    // Correndo, o resto da tela esmaece de propósito (o contraste baixo é do desenho, como no solve de sempre): só o "Resolvendo" e as marcas,
+    // que ficam à vista, entram na análise.
+    const running = await new AxeBuilder({ page }).include('[data-time]').include('.tc-marks').analyze();
+    expect(running.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `solve com marcas: ${v.id}`)).toEqual([]);
+    for (let i = 0; i < 4; i++) {
+      await page.waitForTimeout(350);
+      await page.keyboard.press('Space');
+    }
+    await expect(page.locator('[data-actions]')).toBeVisible();
+    await expect(page.getByRole('list', { name: T.fases.bar }).getByRole('listitem')).toHaveCount(4);
+    await page.waitForTimeout(900); // a tela volta do esmaecido do solve: o axe só mede as cores depois da transição
+    expect(await serious('resultado com fases')).toEqual([]);
   });
 }

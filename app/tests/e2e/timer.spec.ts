@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
-import { fresh, typingMode, waitForScramble } from './helpers';
+import { T } from '../../src/strings';
+import { fresh, setTimerSetting, waitForScramble } from './helpers';
 
 async function start(page: Page) {
   await page.clock.install();
@@ -66,7 +67,8 @@ test('celular: dois polegares armam e o primeiro que sai larga', async ({ page, 
 // Digitar o tempo (desktop e celular): grava, mostra o último solve com as ações e sobrevive a recarregar; no celular, Salvar fecha o teclado.
 test('digitar: Salvar grava o tempo, o campo fica pronto e o solve sobrevive a recarregar', async ({ page, isMobile }) => {
   await fresh(page);
-  await typingMode(page);
+  await setTimerSetting(page, T.ajustes.entry, T.ajustes.entryOptions[1][1]);
+  await expect(page.getByLabel(T.timer.typedLabel)).toBeVisible();
   const field = page.getByLabel('Seu tempo');
   await field.fill('1234');
   await expect(page.getByText('Fica 0:12.34.')).toBeVisible();

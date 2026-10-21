@@ -218,8 +218,12 @@ body.solving .centro * {
   --pc: 12px;
   --pr: 3px;
   display: flex;
+  align-items: flex-start;
   gap: 6px;
   margin: -4px 0 14px;
+  /* A linha tem a altura da barra das fases (52 px, mais os 4 px da margem de cima): as zonas de toque e o que está embaixo não pulam quando
+     a barra do solve anterior dá lugar às marcas, na largada e no fim. */
+  min-height: 56px;
 }
 
 /* "Escondido" (4c): a palavra no lugar do tempo, em cinza, num tamanho que cabe; a altura do tempo não muda. */
@@ -1141,7 +1145,7 @@ body:has(.hx-bulk) .toast {
   .tc-last + .t-chips { margin-top: 0; }
   .tc-why { order: 5; margin-top: 0; }
   /* As fases: as marcas e a barra logo embaixo do tempo, centradas como ele (a barra na largura toda). */
-  .prog.tc-marks { order: 3; justify-content: center; margin: 0; }
+  .prog.tc-marks { order: 3; justify-content: center; margin: 0; min-height: 52px; }
   .tc-split { width: 100%; margin: 0 auto; }
   .timer .tc-split { order: 3; }
   .t-note { order: 6; margin: 0 auto; width: 100%; }

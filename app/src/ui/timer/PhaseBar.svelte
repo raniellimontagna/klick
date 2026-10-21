@@ -20,7 +20,8 @@
   const cols = $derived(phases.map((ms) => `minmax(max-content, ${Math.max(0, ms)}fr)`).join(' '));
 </script>
 
-<ol class="tc-split" style:grid-template-columns={cols} aria-label={label}>
+<!-- role="list": o Safari com VoiceOver deixa de ler como lista um <ol> sem marcador (list-style: none); o papel devolve a lista. -->
+<ol class="tc-split" role="list" style:grid-template-columns={cols} aria-label={label}>
   {#each phases as ms, i (i)}
     {@const name = labels[i] ?? T.fases.n(i + 1)}
     <!-- O nome genérico ("Fase 2") mostra só o número; a palavra fica para o leitor. As vírgulas também são só dele (os espaços vão como

@@ -14,6 +14,8 @@ describe('a barra das fases', () => {
   it('a barra mostra as fases na proporção, com a mais pesada destacada e os rótulos', () => {
     render(PhaseBar, { phases: [1840, 6120, 2150, 3230], labels: phaseLabels(4, '222') });
     const list = screen.getByRole('list', { name: 'Fases deste solve' });
+    // O papel vem explícito: o Safari com VoiceOver não lê como lista um <ol> sem marcador.
+    expect(list.getAttribute('role')).toBe('list');
     // Uma coluna por fase, na ordem, com o peso de cada uma (e o mínimo do texto).
     expect(list.style.gridTemplateColumns).toBe(
       'minmax(max-content, 1840fr) minmax(max-content, 6120fr) minmax(max-content, 2150fr) minmax(max-content, 3230fr)',

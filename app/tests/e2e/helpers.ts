@@ -54,32 +54,12 @@ export async function importHistory(page: Page): Promise<void> {
   await expect(summary).toBeHidden();
 }
 
-// Liga o modo Digitar do Timer (o ajuste `entry`, do aparelho). O Ajustes ainda não tem o seletor (a Task 5 o traz): por ora, o perfil
-// gravado é editado direto no banco e a página recarrega.
-export async function typingMode(page: Page): Promise<void> {
-  await page.evaluate(
-    () =>
-      new Promise<void>((resolve, reject) => {
-        const open = indexedDB.open('klick');
-        open.onerror = () => reject(open.error);
-        open.onsuccess = () => {
-          const db = open.result;
-          const tx = db.transaction('profile', 'readwrite');
-          const store = tx.objectStore('profile');
-          const get = store.get('current');
-          get.onsuccess = () => {
-            const profile = get.result ?? {};
-            store.put({ ...profile, settings: { ...(profile.settings ?? {}), entry: 'typing', inspection: false } }, 'current');
-          };
-          tx.oncomplete = () => {
-            db.close();
-            resolve();
-          };
-          tx.onerror = () => reject(tx.error);
-        };
-      }),
-  );
-  await page.reload();
-  await waitForScramble(page);
-  await expect(page.getByLabel(T.timer.typedLabel)).toBeVisible();
+// Troca um ajuste do Timer pela linha de verdade do Ajustes (o seletor `.seg` do grupo: "Como você marca o tempo", "Fases", "Tempo durante o
+// solve") e volta para o Timer. É o caminho de quem usa: nada de gravar o perfil no banco.
+export async function setTimerSetting(page: Page, group: string, option: string): Promise<void> {
+  await page.getByRole('button', { name: 'Ajustes', exact: true }).first().click();
+  const button = page.getByRole('group', { name: group, exact: true }).getByRole('button', { name: option, exact: true });
+  await button.click();
+  await expect(button).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Timer', exact: true }).first().click();
 }
