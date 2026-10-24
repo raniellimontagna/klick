@@ -1102,6 +1102,7 @@ export const T = Object.freeze({
     signedOut: 'Você saiu da conta. Os dados continuam neste aparelho.',
     signedOutErased: 'Você saiu da conta e os dados deste aparelho foram apagados.',
     signOutFailed: 'Não consegui sair agora. Tente de novo.',
+    signedOutUnconfirmed: 'Você saiu neste aparelho, mas o servidor não confirmou: a sessão pode continuar valendo. Com internet, use "Sair de todos os aparelhos".',
     // Diálogo de entrar (spec 7.2 e 9.2)
     signInTitle: 'Entrar ou criar conta',
     stepOf: (n: number): string => `${n} de 4`,

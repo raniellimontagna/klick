@@ -244,7 +244,7 @@ describe('restaurar um dia (spec 8.3)', () => {
 
   it('a restauração que passaria a conta do teto de bytes volta too-big, sem gravar nada (a auditoria de segurança, NV-6)', async () => {
     const user = 'conta-teto-bytes';
-    const noted = (note: string, updatedAt: number): Change => ({ ...solve('grande'), updatedAt, data: { ...solve('grande').data, note } });
+    const noted = (note: string, updatedAt: number): Change => ({ ...solve('grande'), updatedAt, data: { ...(solve('grande').data as Record<string, unknown>), note } });
     await sync(user, [session, noted('x'.repeat(4000), T0)]);
     expect(await stubOf(user).snapshot(T0)).toBe(true);
     await sync(user, [noted('', T0 + 50)]); // encolhe: passa sempre, mesmo perto do teto

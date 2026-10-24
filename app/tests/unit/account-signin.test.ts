@@ -313,6 +313,16 @@ describe('sair (spec 7.7)', () => {
     expect(account.status.phase).toBe('off');
   });
 
+  it('sair sem o servidor confirmar: sai daqui, mas avisa que a sessão pode continuar valendo (a auditoria de segurança, NV-4)', async () => {
+    const { auth, state, calls } = fakeAuth();
+    const { app } = await appWithAccount(fakeApi(new FakeServer()).api, { signedIn: true, auth });
+    await vi.waitFor(() => expect(app.account!.status.phase).toBe('idle'));
+    state.signOutOk = false;
+    expect(await app.account!.signOut(false)).toBe('unconfirmed');
+    expect(calls).toContain('sign-out');
+    expect(app.account!.signedIn).toBe(false);
+  });
+
   it('sair de todos os aparelhos sem rede: continua dentro, e o sync segue', async () => {
     const { auth, state } = fakeAuth();
     const net = fakeApi(new FakeServer());

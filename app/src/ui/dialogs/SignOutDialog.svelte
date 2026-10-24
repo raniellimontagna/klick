@@ -32,7 +32,8 @@
         blocked = T.conta.localOnlyBlock(Math.max(await account.localOnly(), 1));
         return;
       }
-      app.showToast(erase ? T.conta.signedOutErased : T.conta.signedOut);
+      if (result === 'unconfirmed') app.showToast(T.conta.signedOutUnconfirmed);
+      else app.showToast(erase ? T.conta.signedOutErased : T.conta.signedOut);
       dialogEl?.close();
     } catch {
       app.showToast(T.conta.signOutFailed); // o banco falhou: a conta segue como estava

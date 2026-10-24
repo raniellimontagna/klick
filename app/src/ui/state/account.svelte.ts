@@ -587,7 +587,7 @@ export class AccountState {
   // depois de sair. Com `erase`, apaga os dados deste aparelho, mas só sem mudanças esperando para subir ('pending', decisão 12) e sem
   // registros que só existem aqui ('local-only', I4): a recusa vem antes de tudo, e a conta segue como estava. Sem `erase`, o accountId fica
   // (a mesma conta, de volta, só sobe o que mudou).
-  async signOut(erase: boolean): Promise<'ok' | 'pending' | 'local-only'> {
+  async signOut(erase: boolean): Promise<'ok' | 'unconfirmed' | 'pending' | 'local-only'> {
     const repo = this.host.repo();
     if (erase) {
       const blocked = await this.eraseBlock(repo);
@@ -603,11 +603,13 @@ export class AccountState {
       if (err instanceof LocalOnlyError) return 'local-only';
       throw err;
     }
-    await (await this.auth().catch(() => null))?.signOut();
+    // O servidor que não confirma (sem rede, ou sem o código do login no aparelho) deixa a sessão e o cookie de 90 dias valendo: a pessoa
+    // precisa saber, num computador dividido (a auditoria de segurança, NV-4). Aqui, saiu do mesmo jeito.
+    const confirmed = (await (await this.auth().catch(() => null))?.signOut()) === true;
     await this.refresh();
     this.show(idleStatus());
     if (erase) await this.host.afterWipe();
-    return 'ok';
+    return confirmed ? 'ok' : 'unconfirmed';
   }
 
   // Sair de todos os aparelhos (spec 7.7): revoga todas as sessões, esta também. Sem rede, nada muda, e o sync segue.

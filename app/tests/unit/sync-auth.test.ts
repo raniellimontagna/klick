@@ -185,7 +185,7 @@ describe('o cliente de login (spec 7.2): o adaptador do Better Auth', () => {
       'GET /api/auth/get-session': { status: 200, body: { session: { id: 's1' }, user: USER } },
     });
     const auth = await loadAuthClient();
-    await auth.signOut();
+    expect(await auth.signOut()).toBe(true);
     expect(await auth.signOutEverywhere()).toBe(true);
     await auth.renewSession();
     expect(seen.map((s) => s.route)).toEqual(['POST /api/auth/sign-out', 'POST /api/auth/revoke-sessions', 'GET /api/auth/get-session']);
@@ -194,7 +194,7 @@ describe('o cliente de login (spec 7.2): o adaptador do Better Auth', () => {
     const down = new TypeError('Failed to fetch');
     server({ 'POST /api/auth/sign-out': down, 'POST /api/auth/revoke-sessions': down, 'GET /api/auth/get-session': down });
     const offline = await loadAuthClient();
-    await expect(offline.signOut()).resolves.toBeUndefined();
+    expect(await offline.signOut()).toBe(false);
     expect(await offline.signOutEverywhere()).toBe(false);
     await expect(offline.renewSession()).resolves.toBeUndefined();
   });

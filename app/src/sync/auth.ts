@@ -26,7 +26,7 @@ export interface AuthClientLike {
   addPasskey(): Promise<boolean>;
   listPasskeys(): Promise<PasskeyInfo[]>; // sem resposta, a lista vazia
   removePasskey(id: string): Promise<boolean>;
-  signOut(): Promise<void>; // sem rede, sai só aqui: o cookie expira sozinho
+  signOut(): Promise<boolean>; // false: o servidor não confirmou (sem rede, erro), e a sessão dele continua até expirar
   signOutEverywhere(): Promise<boolean>; // revoga todas as sessões da conta (spec 7.7)
   renewSession(): Promise<void>; // a sessão de 90 dias só renova o cookie por get-session (spec 7.3); a falha não muda nada
 }
@@ -117,9 +117,10 @@ export async function loadAuthClient(): Promise<AuthClientLike> {
     },
     async signOut() {
       try {
-        await client.signOut();
+        const { error } = await client.signOut();
+        return !error;
       } catch {
-        // sem rede: a sessão daqui acaba mesmo assim, e o cookie expira sozinho
+        return false; // sem rede: a sessão daqui acaba mesmo assim, mas a do servidor (e o cookie) continua até expirar
       }
     },
     async signOutEverywhere() {

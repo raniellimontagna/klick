@@ -116,8 +116,9 @@ export function twoAccounts(strict = true) {
       return result;
     },
     async signOut() {
-      await auth.signOut();
+      const ok = await auth.signOut();
       session.user = null;
+      return ok;
     },
   });
   return { api, servers, session, requests, signIn };
@@ -150,6 +151,7 @@ export function fakeAuth(user = { id: 'conta-1', email: 'ranielli@exemplo.com' }
     send: 'sent' as SendResult,
     passkeyUser: user as { id: string; email: string } | null,
     revokeOk: true,
+    signOutOk: true, // false: o servidor não confirmou a saída (sem rede)
     renew: null as Error | null,
   };
   const auth: AuthClientLike = {
@@ -180,6 +182,7 @@ export function fakeAuth(user = { id: 'conta-1', email: 'ranielli@exemplo.com' }
     },
     async signOut() {
       calls.push('sign-out');
+      return state.signOutOk;
     },
     async signOutEverywhere() {
       calls.push('sign-out-everywhere');
