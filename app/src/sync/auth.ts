@@ -33,8 +33,10 @@ export interface AuthClientLike {
 
 type Failure = { status?: number; code?: string } | null | undefined;
 
+// OTP_DEVICE: o código foi pedido em outro aparelho (worker/abuse.ts, guardVerifyCode); a saída é a mesma do vencido, pedir outro aqui.
 const verifyFailure = (error: Failure): VerifyResult => {
-  const reason = error?.code === 'INVALID_OTP' ? 'bad-code' : error?.code === 'OTP_EXPIRED' ? 'expired' : error?.code === 'TOO_MANY_ATTEMPTS' ? 'too-many' : 'failed';
+  const code = error?.code;
+  const reason = code === 'INVALID_OTP' ? 'bad-code' : code === 'OTP_EXPIRED' || code === 'OTP_DEVICE' ? 'expired' : code === 'TOO_MANY_ATTEMPTS' ? 'too-many' : 'failed';
   return { ok: false, reason };
 };
 

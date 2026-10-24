@@ -3,7 +3,7 @@
 // rotas da conta pedem sessão e a conta que o aparelho espera (a da sessão, senão 401), e falam com o Durable Object dela. O que não é /api
 // são os arquivos do app. Os logs levam só ids, contagens, durações e erros (spec 8.5).
 import { ACCOUNT_HEADER, isFloor, SYNC_PROTOCOL, type RestoreRefusal, type SyncRequest, type SyncResponse } from '../src/core/sync/types';
-import { E2E_TOKEN, emailKeyOf, guardPasskeyOptions, guardSendCode, turnstileVerifier, type VerifyCaptcha } from './abuse';
+import { E2E_TOKEN, emailKeyOf, guardPasskeyOptions, guardSendCode, guardVerifyCode, otpBindCookie, turnstileVerifier, type VerifyCaptcha } from './abuse';
 import { authSecretOk, createAuth, sessionUser, type User } from './auth';
 import { countOps } from './budget';
 import type { Env } from './env';
@@ -121,8 +121,21 @@ async function authRoute(request: Request, path: string, env: Env, ctx: Executio
   const forward = new Request(request.url, { method: 'POST', headers, body: text || null });
   if (path === '/api/auth/email-otp/send-verification-otp') {
     const body = parseJson(text);
-    if (!isRec(body) || body.type !== 'sign-in') return fail(400, 'bad-request');
-    const blocked = await guardSendCode(forward, env, deps);
+    if (!isRec(body) || body.type !== 'sign-in' || typeof body.email !== 'string') return fail(400, 'bad-request');
+    const guard = await guardSendCode(forward, env, deps);
+    if (guard instanceof Response) return guard;
+    const sent = await createAuth(env, ctx, deps.mailer).handler(forward);
+    // O Better Auth recusou depois da reserva: o e-mail não saiu, e volta ao teto. Saiu: o código fica preso a este aparelho (abuse.ts).
+    if (!sent.ok) {
+      await guard.release();
+      return sent;
+    }
+    const res = new Response(sent.body, sent);
+    res.headers.append('Set-Cookie', await otpBindCookie(body.email, env.BETTER_AUTH_SECRET, env.APP_ORIGIN.startsWith('https://')));
+    return res;
+  }
+  if (path === '/api/auth/sign-in/email-otp') {
+    const blocked = await guardVerifyCode(forward, env);
     if (blocked) return blocked;
   }
   return createAuth(env, ctx, deps.mailer).handler(forward);

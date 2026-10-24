@@ -5,11 +5,17 @@ import {
   CODES_PER_IP_HOUR,
   E2E_TOKEN,
   emailKeyOf,
-  guardSendCode,
+  guardSendCode as guardSendCodeRaw,
   ipBucket,
   ipKeyOf,
   turnstileVerifier,
 } from '../../worker/abuse';
+
+// O guarda devolve a Response que barra, ou o que deixa seguir (com a devolução do e-mail): aqui, a Response ou null.
+const guardSendCode = async (...args: Parameters<typeof guardSendCodeRaw>): Promise<Response | null> => {
+  const result = await guardSendCodeRaw(...args);
+  return result instanceof Response ? result : null;
+};
 import { codeEmail, resendMailer } from '../../worker/mail';
 import { defaultDeps } from '../../worker/router';
 import { authDeps, call, captchaOk, ORIGIN, postJson, signIn, T0, testDeps, testEnv } from './helpers';
@@ -35,31 +41,31 @@ const spyBurst = (keys: string[]): RateLimit => ({
 
 describe('abuso no pedido de código (spec 7.5)', () => {
   it(`${CODES_PER_EMAIL_HOUR} códigos por e-mail por hora; depois de uma hora, libera`, async () => {
-    for (let i = 0; i < CODES_PER_EMAIL_HOUR; i++) expect(await guardSendCode(ask('limite@exemplo.com', `10.0.0.${i}`), testEnv(), deps)).toBeNull();
+    for (let i = 0; i < CODES_PER_EMAIL_HOUR; i++) expect(await guardSendCode(ask('limite@exemplo.com', `10.0.0.${i}`), testEnv(), deps)).not.toBeInstanceOf(Response);
     const blocked = await guardSendCode(ask(' Limite@Exemplo.com ', '10.0.1.1'), testEnv(), deps);
     expect(blocked?.status).toBe(429);
     now += 3_599_999; // a janela é de uma hora exata: 1 ms antes, ainda conta
     expect((await guardSendCode(ask('limite@exemplo.com', '10.0.1.1'), testEnv(), deps))?.status).toBe(429);
     now += 1;
-    expect(await guardSendCode(ask('limite@exemplo.com', '10.0.1.1'), testEnv(), deps)).toBeNull();
+    expect(await guardSendCode(ask('limite@exemplo.com', '10.0.1.1'), testEnv(), deps)).not.toBeInstanceOf(Response);
   });
 
   it(`${CODES_PER_IP_HOUR} pedidos por IP por hora, com e-mails diferentes`, async () => {
-    for (let i = 0; i < CODES_PER_IP_HOUR; i++) expect(await guardSendCode(ask(`p${i}@exemplo.com`, '10.9.9.9'), testEnv(), deps)).toBeNull();
+    for (let i = 0; i < CODES_PER_IP_HOUR; i++) expect(await guardSendCode(ask(`p${i}@exemplo.com`, '10.9.9.9'), testEnv(), deps)).not.toBeInstanceOf(Response);
     expect((await guardSendCode(ask('mais-um@exemplo.com', '10.9.9.9'), testEnv(), deps))?.status).toBe(429);
     now += 3_599_999;
     expect((await guardSendCode(ask('mais-dois@exemplo.com', '10.9.9.9'), testEnv(), deps))?.status).toBe(429);
     now += 1;
-    expect(await guardSendCode(ask('mais-dois@exemplo.com', '10.9.9.9'), testEnv(), deps)).toBeNull();
+    expect(await guardSendCode(ask('mais-dois@exemplo.com', '10.9.9.9'), testEnv(), deps)).not.toBeInstanceOf(Response);
   });
 
   it('uma onda de pedidos em paralelo não passa dos limites: contar e gravar é uma transação só', async () => {
     const byEmail = await Promise.all(Array.from({ length: 12 }, (_, i) => guardSendCode(ask('onda@exemplo.com', `10.20.0.${i}`), testEnv(), deps)));
-    expect(byEmail.filter((r) => r === null)).toHaveLength(CODES_PER_EMAIL_HOUR);
+    expect(byEmail.filter((r) => !(r instanceof Response))).toHaveLength(CODES_PER_EMAIL_HOUR);
     expect(byEmail.filter((r) => r?.status === 429)).toHaveLength(12 - CODES_PER_EMAIL_HOUR);
     expect(await countKey(await emailKeyOf('onda@exemplo.com', SECRET))).toBe(CODES_PER_EMAIL_HOUR);
     const byIp = await Promise.all(Array.from({ length: 30 }, (_, i) => guardSendCode(ask(`onda-${i}@exemplo.com`, '10.21.0.1'), testEnv(), deps)));
-    expect(byIp.filter((r) => r === null)).toHaveLength(CODES_PER_IP_HOUR);
+    expect(byIp.filter((r) => !(r instanceof Response))).toHaveLength(CODES_PER_IP_HOUR);
     expect(await countKey(await ipKeyOf('10.21.0.1', SECRET))).toBe(CODES_PER_IP_HOUR);
   });
 
@@ -118,10 +124,10 @@ describe('o balde do IP: IPv6 por /64 (spec 7.5)', () => {
 
   it('os endereços do mesmo /64 dividem o limite por IP e a rajada; outro /64, não', async () => {
     for (let i = 0; i < CODES_PER_IP_HOUR; i++) {
-      expect(await guardSendCode(ask(`v6-${i}@exemplo.com`, `2001:db8:1:2::${i + 1}`), testEnv(), deps)).toBeNull();
+      expect(await guardSendCode(ask(`v6-${i}@exemplo.com`, `2001:db8:1:2::${i + 1}`), testEnv(), deps)).not.toBeInstanceOf(Response);
     }
     expect((await guardSendCode(ask('v6-mais@exemplo.com', '2001:db8:1:2:ffff:ffff:ffff:ffff'), testEnv(), deps))?.status).toBe(429);
-    expect(await guardSendCode(ask('v6-mais@exemplo.com', '2001:db8:1:3::1'), testEnv(), deps)).toBeNull();
+    expect(await guardSendCode(ask('v6-mais@exemplo.com', '2001:db8:1:3::1'), testEnv(), deps)).not.toBeInstanceOf(Response);
     expect(await ipKeyOf('2001:db8:1:2::1', SECRET)).toBe(await ipKeyOf('2001:db8:1:2:abcd::9', SECRET));
     const keys: string[] = [];
     await guardSendCode(ask('v6-rajada@exemplo.com', '2001:db8:1:4::9'), testEnv({ OTP_BURST: spyBurst(keys) }), deps);
@@ -285,9 +291,9 @@ describe('os códigos vencidos saem do D1 (spec 10)', () => {
     expect(row?.kind).toBe('text');
     expect(row?.expiresAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
     const expires = Date.parse(row!.expiresAt);
-    expect(await guardSendCode(ask('outra-pessoa@exemplo.com', '198.51.100.8'), testEnv(), { now: () => expires - 1, verifyCaptcha: captchaOk })).toBeNull();
+    expect(await guardSendCode(ask('outra-pessoa@exemplo.com', '198.51.100.8'), testEnv(), { now: () => expires - 1, verifyCaptcha: captchaOk })).not.toBeInstanceOf(Response);
     expect(await codeRow(email)).not.toBeNull();
-    expect(await guardSendCode(ask('mais-uma@exemplo.com', '198.51.100.9'), testEnv(), { now: () => expires + 1, verifyCaptcha: captchaOk })).toBeNull();
+    expect(await guardSendCode(ask('mais-uma@exemplo.com', '198.51.100.9'), testEnv(), { now: () => expires + 1, verifyCaptcha: captchaOk })).not.toBeInstanceOf(Response);
     expect(await codeRow(email)).toBeNull();
   });
 });

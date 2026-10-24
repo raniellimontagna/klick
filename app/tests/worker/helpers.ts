@@ -54,13 +54,16 @@ export function authDeps(): Deps & { mailer: ReturnType<typeof fakeMailer> } {
 // Pede o código, entra com ele e devolve o cookie de sessão, pronto para o cabeçalho Cookie. Cada login vem de um IP próprio: os testes
 // não dividem o limite de pedidos por IP por hora.
 let signIns = 0;
+// O cookie que prende o código ao aparelho que o pediu (abuse.ts, OTP_BIND_COOKIE), da resposta do pedido: o Cookie de quem confere.
+export const bindOf = (send: Response): string => send.headers.getSetCookie().find((c) => c.startsWith('klick-otp='))?.split(';')[0] ?? '';
+
 export async function signIn(email: string, deps: ReturnType<typeof authDeps>): Promise<string> {
   const ip = `198.18.${(signIns >> 8) & 255}.${signIns++ & 255}`;
   const headers = { 'x-turnstile-token': 'ok', 'cf-connecting-ip': ip };
   const send = await call('/api/auth/email-otp/send-verification-otp', postJson({ email, type: 'sign-in' }, headers), { deps });
   if (send.status !== 200) throw new Error(`pedir o código deu ${send.status}`);
   const code = deps.mailer.sent.at(-1)!.code;
-  const res = await call('/api/auth/sign-in/email-otp', postJson({ email, otp: code }), { deps });
+  const res = await call('/api/auth/sign-in/email-otp', postJson({ email, otp: code }, { Cookie: bindOf(send) }), { deps });
   if (res.status !== 200) throw new Error(`entrar deu ${res.status}`);
   return res.headers.getSetCookie().map((c) => c.split(';')[0]).join('; ');
 }

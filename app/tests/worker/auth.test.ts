@@ -6,7 +6,7 @@ import { createAuth, SESSION_DAYS } from '../../worker/auth';
 import type { Env } from '../../worker/env';
 import { codeEmail, e2eMailbox, type Mailer } from '../../worker/mail';
 import { defaultDeps, handle, MAX_AUTH_BODY, type Deps } from '../../worker/router';
-import { accountOf, authDeps, call, fakeMailer, ORIGIN, postJson, signIn, T0, testDeps, testEnv } from './helpers';
+import { accountOf, authDeps, bindOf, call, fakeMailer, ORIGIN, postJson, signIn, T0, testDeps, testEnv } from './helpers';
 
 // `account`: a conta que o aparelho espera (C1), a da sessão quando o teste quer 200.
 const syncBody = (changes: unknown[] = [], account = 'qualquer') => ({ v: SYNC_PROTOCOL, account, deviceId: 'd1', cursor: 0, clock: T0, changes });
@@ -29,7 +29,7 @@ describe('login por código (spec 7.1 a 7.3)', () => {
     expect(send.status).toBe(200);
     const { code } = deps.mailer.sent.at(-1)!;
     expect(code).toMatch(/^\d{6}$/);
-    const res = await call('/api/auth/sign-in/email-otp', postJson({ email: 'ranielli@exemplo.com', otp: code }), { deps });
+    const res = await call('/api/auth/sign-in/email-otp', postJson({ email: 'ranielli@exemplo.com', otp: code }, { Cookie: bindOf(send) }), { deps });
     expect(res.status).toBe(200);
     const cookie = res.headers.getSetCookie().find((c) => c.includes('session_token'))!;
     expect(cookie).toMatch(/HttpOnly/i);
@@ -43,11 +43,12 @@ describe('login por código (spec 7.1 a 7.3)', () => {
     await signIn('ja-tem@exemplo.com', deps);
     const ask = (email: string) => call('/api/auth/email-otp/send-verification-otp', postJson({ email, type: 'sign-in' }, { 'x-turnstile-token': 'ok' }), { deps });
     const [known, unknown] = await Promise.all([ask('ja-tem@exemplo.com'), ask('nunca-veio@exemplo.com')]);
+    const binds = { 'ja-tem@exemplo.com': bindOf(known), 'nunca-veio@exemplo.com': bindOf(unknown) };
     expect([known.status, await known.text()]).toEqual([unknown.status, await unknown.text()]);
     // E o código errado também: o erro não diz se o e-mail tem conta (spec 7.5).
     const codes = deps.mailer.sent.slice(-2).map((m) => m.code);
     const wrong = ['000000', '111111', '222222'].find((c) => !codes.includes(c))!;
-    const enter = (email: string) => call('/api/auth/sign-in/email-otp', postJson({ email, otp: wrong }), { deps });
+    const enter = (email: keyof typeof binds) => call('/api/auth/sign-in/email-otp', postJson({ email, otp: wrong }, { Cookie: binds[email] }), { deps });
     const [knownIn, unknownIn] = await Promise.all([enter('ja-tem@exemplo.com'), enter('nunca-veio@exemplo.com')]);
     expect([knownIn.status, await knownIn.text()]).toEqual([unknownIn.status, await unknownIn.text()]);
   });
@@ -55,13 +56,62 @@ describe('login por código (spec 7.1 a 7.3)', () => {
   it('5 tentativas erradas esgotam o código (spec 7.1)', async () => {
     const deps = authDeps();
     const email = 'tentativas@exemplo.com';
-    await call('/api/auth/email-otp/send-verification-otp', postJson({ email, type: 'sign-in' }, { 'x-turnstile-token': 'ok' }), { deps });
+    const send = await call('/api/auth/email-otp/send-verification-otp', postJson({ email, type: 'sign-in' }, { 'x-turnstile-token': 'ok' }), { deps });
     const { code } = deps.mailer.sent.at(-1)!;
     const wrong = code === '000000' ? '111111' : '000000';
-    for (let i = 0; i < 5; i++) await call('/api/auth/sign-in/email-otp', postJson({ email, otp: wrong }), { deps });
-    const res = await call('/api/auth/sign-in/email-otp', postJson({ email, otp: code }), { deps });
+    const mine = { Cookie: bindOf(send) };
+    for (let i = 0; i < 5; i++) await call('/api/auth/sign-in/email-otp', postJson({ email, otp: wrong }, mine), { deps });
+    const res = await call('/api/auth/sign-in/email-otp', postJson({ email, otp: code }, mine), { deps });
     expect(res.status).not.toBe(200);
     expect(await res.text()).toContain('TOO_MANY_ATTEMPTS');
+  });
+
+  it('o código fica preso ao aparelho que o pediu: palpites de fora não gastam as tentativas (a auditoria de segurança, NV-1)', async () => {
+    const deps = authDeps();
+    const email = 'vitima@exemplo.com';
+    const send = await call('/api/auth/email-otp/send-verification-otp', postJson({ email, type: 'sign-in' }, { 'x-turnstile-token': 'ok' }), { deps });
+    const bind = bindOf(send);
+    expect(bind).toMatch(/^klick-otp=[0-9a-f]{32}\.[0-9a-f]{64}$/);
+    const cookie = send.headers.getSetCookie().find((c) => c.startsWith('klick-otp='))!;
+    expect(cookie).toMatch(/HttpOnly/i);
+    expect(cookie).toMatch(/SameSite=Strict/i);
+    expect(cookie).toMatch(/Path=\/api\/auth/i);
+    const { code } = deps.mailer.sent.at(-1)!;
+    const wrong = code === '000000' ? '111111' : '000000';
+    // Sem o cookie, com um cookie torto, ou com o de outro e-mail: 403 antes do Better Auth, 10 vezes.
+    const other = bindOf(await call('/api/auth/email-otp/send-verification-otp', postJson({ email: 'outro@exemplo.com', type: 'sign-in' }, { 'x-turnstile-token': 'ok' }), { deps }));
+    for (const headers of [{}, { Cookie: 'klick-otp=abc.def' }, { Cookie: other }, {}, {}, {}, {}, {}, {}, {}] as Record<string, string>[]) {
+      const res = await call('/api/auth/sign-in/email-otp', postJson({ email, otp: wrong }, headers), { deps });
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject({ code: 'OTP_DEVICE' });
+    }
+    // A pessoa, no aparelho dela, ainda entra com o código.
+    expect((await call('/api/auth/sign-in/email-otp', postJson({ email, otp: code }, { Cookie: bind }), { deps })).status).toBe(200);
+  });
+
+  it('o e-mail torto volta 400 antes de gastar o teto; o que o Better Auth recusa devolve a reserva (a auditoria de segurança, NV-2)', async () => {
+    const env = testEnv({ MAIL_PER_DAY: '5', MAIL_PER_MONTH: '100' });
+    const deps = { ...authDeps(), now: () => Date.parse('2031-03-03T12:00:00Z') }; // um dia só deste teste no teto de e-mails
+    const day = `d:${new Date(deps.now()).toISOString().slice(0, 10)}`;
+    const used = async () => (await env.DB.prepare('SELECT count FROM mail_sent WHERE period = ?').bind(day).first<{ count: number }>())?.count ?? 0;
+    const before = await used();
+    const ask = (email: string, ip: string) =>
+      call('/api/auth/email-otp/send-verification-otp', postJson({ email, type: 'sign-in' }, { 'x-turnstile-token': 'ok', 'cf-connecting-ip': ip }), { deps, env });
+    for (const bad of ['x', 'sem-arroba.com', 'a@b', ' @exemplo.com']) {
+      const res = await ask(bad, '198.51.100.1');
+      expect(res.status).toBe(400);
+    }
+    expect(await used()).toBe(before);
+    expect((await ask('certo@exemplo.com', '198.51.100.2')).status).toBe(200);
+    expect(await used()).toBe(before + 1);
+    // A parte de um requisitante: um /48 do IPv6, trocando de /64 a cada pedido, não passa de um décimo do dia (no mínimo 3).
+    const v6 = (i: number) => `2001:db8:77:${i}::1`;
+    for (let i = 1; i <= 3; i++) expect((await ask(`parte${i}@exemplo.com`, v6(i))).status).toBe(200);
+    const over = await ask('parte4@exemplo.com', v6(4));
+    expect(over.status).toBe(429);
+    expect(await over.json()).toMatchObject({ code: 'TOO_MANY_REQUESTS' });
+    expect(await used()).toBe(before + 4); // o recusado não conta no dia
+    expect((await ask('outro-lugar@exemplo.com', '198.51.100.3')).status).toBe(200); // os outros seguem
   });
 
   it('com a sessão, /api/sync funciona; uma conta não lê nem grava na outra', async () => {
@@ -131,9 +181,9 @@ describe('login por código (spec 7.1 a 7.3)', () => {
     const deps = authDeps();
     const email = 'sem-ip@exemplo.com';
     const ip = { 'cf-connecting-ip': '203.0.113.7' };
-    await call('/api/auth/email-otp/send-verification-otp', postJson({ email, type: 'sign-in' }, { 'x-turnstile-token': 'ok', ...ip }), { deps });
+    const sent = await call('/api/auth/email-otp/send-verification-otp', postJson({ email, type: 'sign-in' }, { 'x-turnstile-token': 'ok', ...ip }), { deps });
     const { code } = deps.mailer.sent.at(-1)!;
-    expect((await call('/api/auth/sign-in/email-otp', postJson({ email, otp: code }, ip), { deps })).status).toBe(200);
+    expect((await call('/api/auth/sign-in/email-otp', postJson({ email, otp: code }, { ...ip, Cookie: bindOf(sent) }), { deps })).status).toBe(200);
     const row = await testEnv()
       .DB.prepare('SELECT s.ipAddress FROM session s JOIN "user" u ON u.id = s.userId WHERE u.email = ?')
       .bind(email)
@@ -194,12 +244,12 @@ describe('/api/auth/*: só as rotas que o app usa (spec 7.1 e 7.2)', () => {
   it('conferir o código sem consumir a tentativa não existe: a rajada de palpites dá 404, e o código continua valendo', async () => {
     const deps = authDeps();
     const email = 'rajada@exemplo.com';
-    await call('/api/auth/email-otp/send-verification-otp', postJson({ email, type: 'sign-in' }, { 'x-turnstile-token': 'ok' }), { deps });
+    const sent = await call('/api/auth/email-otp/send-verification-otp', postJson({ email, type: 'sign-in' }, { 'x-turnstile-token': 'ok' }), { deps });
     const { code } = deps.mailer.sent.at(-1)!;
     const guesses = Array.from({ length: 41 }, (_, i) => String(i).padStart(6, '0'));
     const burst = await Promise.all(guesses.map((otp) => call('/api/auth/email-otp/check-verification-otp', postJson({ email, type: 'sign-in', otp }), { deps })));
     expect(new Set(burst.map((r) => r.status))).toEqual(new Set([404]));
-    expect((await call('/api/auth/sign-in/email-otp', postJson({ email, otp: code }), { deps })).status).toBe(200);
+    expect((await call('/api/auth/sign-in/email-otp', postJson({ email, otp: code }, { Cookie: bindOf(sent) }), { deps })).status).toBe(200);
   });
 
   it('senha, verificação de e-mail, rotas desconhecidas e método errado: 404', async () => {

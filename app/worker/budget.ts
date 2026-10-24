@@ -152,17 +152,37 @@ export async function releaseRows(db: D1Database, n: number, now: number): Promi
 
 // Reserva um e-mail no dia e no mês UTC, juntos ou nenhum: o UPDATE confere as duas linhas antes de somar nas duas (as subconsultas não
 // dependem da linha, e o SQLite as calcula antes da primeira soma), e as duas somadas (changes = 2) dizem que passou.
-export async function reserveMail(db: D1Database, now: number, caps: Pick<Caps, 'mailDay' | 'mailMonth'>): Promise<boolean> {
-  if (!isCount(caps.mailDay) || !isCount(caps.mailMonth)) return false;
+//
+// Com `share`, também a parte de quem pede (a auditoria de segurança, NV-2): a linha `i:<dia>:<chave>` do requisitante (abuse.ts,
+// mailShareKey), que não passa de `share.cap` no dia. As três linhas sobem juntas (changes = 3), ou nenhuma. Sem ela, um requisitante só
+// esgotava o dia de todos. As linhas `i:` de dias passados saem com os pedidos vencidos (abuse.ts, forgetStatements).
+export async function reserveMail(
+  db: D1Database,
+  now: number,
+  caps: Pick<Caps, 'mailDay' | 'mailMonth'>,
+  share?: { key: string; cap: number },
+): Promise<boolean> {
+  if (!isCount(caps.mailDay) || !isCount(caps.mailMonth) || (share && !isCount(share.cap))) return false;
   const [day, month] = [`d:${utcDay(now)}`, `m:${utcMonth(now)}`];
+  const mine = share ? `i:${utcDay(now)}:${share.key}` : day; // sem parte, a terceira linha é a do dia de novo, e o IN a ignora
   const [, taken] = await db.batch([
-    db.prepare("INSERT INTO mail_sent (period, count) VALUES (?1, 0), (?2, 0) ON CONFLICT (period) DO NOTHING").bind(day, month),
+    db.prepare('INSERT INTO mail_sent (period, count) VALUES (?1, 0), (?2, 0), (?3, 0) ON CONFLICT (period) DO NOTHING').bind(day, month, mine),
     db
       .prepare(
-        `UPDATE mail_sent SET count = count + 1 WHERE period IN (?1, ?2)
-           AND (SELECT count FROM mail_sent WHERE period = ?1) < ?3 AND (SELECT count FROM mail_sent WHERE period = ?2) < ?4`,
+        `UPDATE mail_sent SET count = count + 1 WHERE period IN (?1, ?2, ?5)
+           AND (SELECT count FROM mail_sent WHERE period = ?1) < ?3 AND (SELECT count FROM mail_sent WHERE period = ?2) < ?4
+           AND (SELECT count FROM mail_sent WHERE period = ?5) < ?6`,
       )
-      .bind(day, month, caps.mailDay, caps.mailMonth),
+      .bind(day, month, caps.mailDay, caps.mailMonth, mine, share ? share.cap : caps.mailDay),
   ]);
-  return taken.meta.changes === 2;
+  return taken.meta.changes === (share ? 3 : 2);
+}
+
+// Devolve um e-mail reservado que não saiu (o Better Auth recusou o pedido depois da reserva: router.ts): as mesmas linhas da reserva.
+export async function releaseMail(db: D1Database, now: number, shareKey?: string): Promise<void> {
+  const periods = [`d:${utcDay(now)}`, `m:${utcMonth(now)}`, ...(shareKey ? [`i:${utcDay(now)}:${shareKey}`] : [])];
+  await db
+    .prepare(`UPDATE mail_sent SET count = max(0, count - 1) WHERE period IN (${periods.map((_, i) => `?${i + 1}`).join(', ')})`)
+    .bind(...periods)
+    .run();
 }
