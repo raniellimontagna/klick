@@ -6,7 +6,7 @@ import { ACCOUNT_HEADER, SYNC_PROTOCOL, type Change, type CloudCopies, type Clou
 import type { KlickExport } from '../../src/core/types';
 import { emailKeyOf } from '../../worker/abuse';
 import type { Env } from '../../worker/env';
-import { COMPACT_PER_DAY, DAILY_WRITE_BUDGET, MAX_WRITES_PER_REQUEST, rowsOf, utcDay } from '../../worker/limits';
+import { ACCOUNT_BYTES_CAP, COMPACT_PER_DAY, DAILY_WRITE_BUDGET, MAX_WRITES_PER_REQUEST, rowsOf, utcDay } from '../../worker/limits';
 import { COMPACTABLE } from '../../worker/records-sql';
 import { dayOf, gunzipJson, gzipJson, nextSnapshotAt, partKey, preRestoreName, snapshotKey, snapshotPrefix } from '../../worker/snapshots';
 import { authDeps, call, ORIGIN, postJson, setState, stateOf, stubOf, T0, testDeps, testEnv } from './helpers';
@@ -240,6 +240,27 @@ describe('restaurar um dia (spec 8.3)', () => {
     expect(all.get('a')).toMatchObject({ deletedAt: null, data: { ms: 1000 } });
     expect(all.get('a')!.updatedAt).toBeGreaterThan(T0 + 50);
     expect(all.get('extra')!.deletedAt).not.toBeNull();
+  });
+
+  it('a restauração que passaria a conta do teto de bytes volta too-big, sem gravar nada (a auditoria de segurança, NV-6)', async () => {
+    const user = 'conta-teto-bytes';
+    const noted = (note: string, updatedAt: number): Change => ({ ...solve('grande'), updatedAt, data: { ...solve('grande').data, note } });
+    await sync(user, [session, noted('x'.repeat(4000), T0)]);
+    expect(await stubOf(user).snapshot(T0)).toBe(true);
+    await sync(user, [noted('', T0 + 50)]); // encolhe: passa sempre, mesmo perto do teto
+    await setState(user, 'bytes', String(ACCOUNT_BYTES_CAP - 100)); // a conta cheia de outros registros
+    const restores = await stateOf(user, 'restores');
+    const res = await call(`/api/snapshots/${dayOf(T0)}/restore`, postJson({}, as(user)), { deps: testDeps({ user, now: () => T0 + 1000 }) });
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual({ error: 'too-big' });
+    const all = new Map((await sync(user, [], 0)).changes.map((c) => [c.id, c]));
+    expect(all.get('grande')!.data).toMatchObject({ note: '' }); // nada voltou
+    expect(Number(await stateOf(user, 'bytes'))).toBe(ACCOUNT_BYTES_CAP - 100);
+    expect(await stateOf(user, 'restores')).toEqual(restores); // não contou como restauração
+    // O app novo ouve as partes e restaura no aparelho, onde o sync aplica o teto.
+    const device = await call(`/api/snapshots/${dayOf(T0)}/restore`, postJson({ device: true }, as(user)), { deps: testDeps({ user, now: () => T0 + 2000 }) });
+    expect(device.status).toBe(200);
+    expect(await device.json()).toMatchObject({ parts: 0 });
   });
 
   it('um nome torto é 400; um dia sem cópia é 404; na rajada, listar e restaurar dão 429', async () => {

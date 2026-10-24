@@ -188,6 +188,9 @@ function bytesCap(batch: Batch, stored: number): (before: Change | undefined, ne
   };
 }
 
+// A restauração que passaria a conta de ACCOUNT_BYTES_CAP: lançada dentro da transação, para desfazê-la (restoreSnapshot).
+class BytesCapExceeded extends Error {}
+
 export class AccountStore extends DurableObject<Env> {
   private readonly sql: SqlStorage;
   // As linhas lidas no dia que ainda não foram para o estado (o orçamento de leituras: readsOf, countReads, saveReads).
@@ -1122,15 +1125,28 @@ export class AccountStore extends DurableObject<Env> {
       // nela, não gasta o dia do ambiente. Recusada aqui, nada é gravado, e a cópia de antes fica no R2, como a de um clique duplo.
       const reserved = await this.reserveDay(rows, now, 'restore');
       if (reserved !== 'ok') return unfit(reserved);
-      const wrote = this.ctx.storage.transactionSync(() => {
-        const usage = this.usage(now);
-        const batch = this.batch();
-        const wrote = this.commit(applyChanges(batch.view, changes, { mode: 'server' }), batch, usage);
-        this.countReads(batch.rows(), now);
-        counted();
-        this.raiseFloor(stamp);
-        return wrote;
-      });
+      // O teto de bytes vale no fim (a auditoria de segurança, NV-6): a lixeira guarda o conteúdo do que a restauração tira, então encolher
+      // os registros, encher a conta de novo e restaurar levava a conta além de ACCOUNT_BYTES_CAP. A restauração que cresce a conta para
+      // além do teto desfaz a transação (nada gravado) e devolve as linhas; o app novo restaura no aparelho, onde o sync aplica o teto.
+      let wrote: number;
+      try {
+        wrote = this.ctx.storage.transactionSync(() => {
+          const usage = this.usage(now);
+          const batch = this.batch();
+          const wrote = this.commit(applyChanges(batch.view, changes, { mode: 'server' }), batch, usage);
+          const bytes = Number(this.getState('bytes') ?? '0');
+          if (bytes > usage.bytes && bytes > ACCOUNT_BYTES_CAP) throw new BytesCapExceeded();
+          this.countReads(batch.rows(), now);
+          counted();
+          this.raiseFloor(stamp);
+          return wrote;
+        });
+      } catch (error) {
+        if (!(error instanceof BytesCapExceeded)) throw error;
+        await this.settleRows(rows, 0, now);
+        console.log(JSON.stringify({ evt: 'restore-bytes-cap', user: userId }));
+        return device ? onDevice() : 'too-big';
+      }
       await this.settleRows(rows, wrote, now);
       return 'ok';
     });
