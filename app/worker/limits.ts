@@ -88,6 +88,13 @@ export const DEVICE_FLOOR_AHEAD_MS = 10 * 60_000;
 // chegam no máximo a 2,9 ms.
 export const COMPACT_PER_DAY = 1_000;
 export const STORAGE_HEADROOM = 0.95; // grava só até 95% do teto do espaço
+// A parte de uma conta no espaço das cópias (a auditoria de segurança, NV-5): as cópias dela dos últimos COPY_KEEP_DAYS dias (a regra de
+// ciclo de vida do bucket) não passam de COPY_SHARE do espaço usável. Sem isso, poucas contas de notas que não comprimem enchiam o espaço de
+// todas, e as cópias e as restaurações de todo mundo paravam até as cópias vencerem. Folgado: uma conta comum (~0,5 MB comprimida) cabe
+// com as 30 cópias do mês no beta; acima da parte, a cópia dela pausa com 'space' (e a restauração no servidor, no-room), sem tocar as outras.
+export const COPY_SHARE = 0.1;
+export const COPY_KEEP_DAYS = 30;
+export const copyShareOf = (snapshotBytes: number): number => Math.floor(snapshotBytes * STORAGE_HEADROOM * COPY_SHARE);
 
 // O tamanho de um pedido do sync (spec 6.1; a medição, seções 6, 7 e 10). O servidor lê no máximo MAX_WRITES_PER_REQUEST mudanças de um
 // pedido; o resto volta em `deferred` com retryAt = a hora do pedido, e o motor do app o manda em seguida, na mesma rodada. O app manda

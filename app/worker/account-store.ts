@@ -35,6 +35,8 @@ import {
   COPY_PART_READS_PER_DAY,
   COPY_PART_RECORDS,
   COPY_READS_EXTRA,
+  COPY_KEEP_DAYS,
+  copyShareOf,
   DAILY_READ_BUDGET,
   DAILY_WRITE_BUDGET,
   DEVICE_FLOOR_AHEAD_MS,
@@ -827,11 +829,27 @@ export class AccountStore extends DurableObject<Env> {
     now: number,
     caps: Caps,
   ): Promise<{ gz: number; parts: number } | CopiesPaused> {
+    // A parte da conta no espaço (NV-5): o que as cópias dela dos últimos 30 dias ocupam, mais a estimativa desta (o tamanho da última).
+    const kept = this.copyBytesKept(now);
+    const share = copyShareOf(caps.snapshotBytes);
+    if (kept.total >= share || kept.total + (this.copies().gz ?? 0) > share) {
+      console.log(JSON.stringify({ evt: 'copy-share', user: userId, kept: kept.total }));
+      return 'space';
+    }
     const started = Date.now();
     const done = await this.writeCopyIn(userId, name, meta, now, caps);
     if (typeof done === 'string') return done;
+    this.setState('copyBytes', JSON.stringify([...kept.list, { day: utcDay(now), bytes: done.gz }]));
     console.log(JSON.stringify({ evt: 'copy', user: userId, kind: meta.kind, parts: done.parts, ms: Date.now() - started }));
     return done;
+  }
+
+  // As cópias gravadas pela conta que a regra de 30 dias do bucket ainda não apagou: o dia UTC e o tamanho comprimido de cada uma.
+  private copyBytesKept(now: number): { list: { day: string; bytes: number }[]; total: number } {
+    const since = utcDay(now - COPY_KEEP_DAYS * 86_400_000);
+    const stored = JSON.parse(this.getState('copyBytes') ?? '[]') as { day: string; bytes: number }[];
+    const list = Array.isArray(stored) ? stored.filter((c) => typeof c?.day === 'string' && c.day > since && Number.isSafeInteger(c.bytes)) : [];
+    return { list, total: list.reduce((sum, c) => sum + c.bytes, 0) };
   }
 
   private async writeCopyIn(

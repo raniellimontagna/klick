@@ -31,6 +31,8 @@ import {
   rowsOf,
   STORAGE_HEADROOM,
   utcDay,
+  copyShareOf,
+  COPY_KEEP_DAYS,
   utcMonth,
 } from '../../worker/limits';
 import { COMPACTABLE, COUNT_RECORDS, PAGE_AFTER, RANGE_AFTER, rowToChange, SLICE_PAGE, type Row } from '../../worker/records-sql';
@@ -188,6 +190,22 @@ describe('a cópia do dia dentro do teto (endurecimento 4.2)', () => {
     const object = await env.SNAPSHOTS.head(key);
     expect([await storageUsed(env.DB), await opsOf('A')]).toEqual([object!.size, 2]); // o tamanho da cópia; a lista e o put
     expect((await sync(user, [])).copiesPaused).toBeNull();
+  });
+
+  it('cada conta tem uma parte do espaço: acima dela, só as cópias dela pausam (a auditoria de segurança, NV-5)', async () => {
+    const [heavy, light] = ['copia-parte-a', 'copia-parte-b'];
+    for (const user of [heavy, light]) await sync(user, [session, solve('a')]);
+    const share = copyShareOf(caps.snapshotBytes);
+    await setState(heavy, 'copyBytes', [{ day: utcDay(T0 - 86_400_000), bytes: share }]); // as cópias dela do mês já ocupam a parte
+    expect(await stubOf(heavy).snapshot(T0)).toBe(false);
+    expect(await objectsOf(heavy)).toEqual([]);
+    expect((await sync(heavy, [])).copiesPaused).toBe('space');
+    expect(await stubOf(light).snapshot(T0)).toBe(true); // a outra conta segue
+    // Depois de 30 dias, a regra do bucket apagou aquelas cópias: a parte volta, e a cópia gravada entra na conta.
+    const later = T0 + COPY_KEEP_DAYS * 86_400_000;
+    expect(await stubOf(heavy).snapshot(later)).toBe(true);
+    const kept = JSON.parse((await stateOf(heavy, 'copyBytes')) as string) as { day: string; bytes: number }[];
+    expect(kept).toEqual([{ day: utcDay(later), bytes: expect.any(Number) }]);
   });
 
   it('o alarme com o espaço cheio não grava a cópia, pausa com "space" e marca o alarme de amanhã', async () => {
