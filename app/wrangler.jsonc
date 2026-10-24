@@ -74,7 +74,10 @@
     "MAIL_PER_MONTH": "250",
     "SNAPSHOT_MAX_RECORDS": "150000",
     "RESTORE_MAX_RECORDS": "5000",
-    "ROWS_WRITTEN_DAY_CAP": "10000"
+    "ROWS_WRITTEN_DAY_CAP": "10000",
+    // As linhas lidas por dia (ROWS_READ_DAY_CAP, a auditoria de segurança NV-7): as 5 milhões do grátis, também da conta inteira. Beta e
+    // raiz somam 4,5 milhões, com folga para o que os objetos leem fora do sync (a cópia, a restauração) e o que o SQLite conta a mais.
+    "ROWS_READ_DAY_CAP": "1000000"
   },
   "env": {
     "production": {
@@ -104,7 +107,8 @@
         "MAIL_PER_MONTH": "2500",
         "SNAPSHOT_MAX_RECORDS": "150000",
         "RESTORE_MAX_RECORDS": "5000",
-        "ROWS_WRITTEN_DAY_CAP": "60000"
+        "ROWS_WRITTEN_DAY_CAP": "60000",
+        "ROWS_READ_DAY_CAP": "3500000"
       }
     }
   }

@@ -20,6 +20,7 @@ export interface Caps {
   snapshotRecords: number; // acima disto (registros da conta), nenhuma cópia sai: CopiesPaused 'size'. Até aí, sai em partes (COPY_PART_RECORDS)
   restoreRecords: number; // acima disto em mudanças (ou do dia útil), a restauração no servidor é 'too-big' (o app novo restaura no aparelho)
   rowsDay: number; // as linhas gravadas nos objetos das contas por dia UTC, somadas entre todas as contas do ambiente
+  readsDay: number; // as linhas lidas, do mesmo jeito (ROWS_READ_DAY_CAP)
 }
 
 export type CapName =
@@ -30,7 +31,8 @@ export type CapName =
   | 'MAIL_PER_MONTH'
   | 'SNAPSHOT_MAX_RECORDS'
   | 'RESTORE_MAX_RECORDS'
-  | 'ROWS_WRITTEN_DAY_CAP';
+  | 'ROWS_WRITTEN_DAY_CAP'
+  | 'ROWS_READ_DAY_CAP';
 // As vars dos tetos, como o env do Worker as tem (worker/env.ts). Sem o tipo dele, limits.ts não puxa os tipos da Cloudflare, e os testes
 // de unidade também o leem (tests/unit/wrangler-config.test.ts, o dia útil de cada ambiente).
 export type CapVars = Partial<Record<CapName, unknown>>;
@@ -52,6 +54,10 @@ export const ROWS_RETRY_MS = 300_000;
 // READS_SAVE_EVERY linhas (contar não grava uma linha por pedido); o que ainda estava só na memória quando o objeto sai dela se perde.
 export const DAILY_READ_BUDGET = 500_000;
 export const READS_SAVE_EVERY = 10_000;
+// O teto do dia somado entre todas as contas do ambiente (a auditoria de segurança, NV-7) é a var ROWS_READ_DAY_CAP (a tabela reads_day do
+// D1): o objeto reserva READS_CHUNK linhas de cada vez, na memória, antes do sync que lê; sem elas no dia, o sync volta como depois do
+// orçamento da conta (readsDeferred). O lote que sobra quando o objeto sai da memória fica contado (a mais, nunca a menos).
+export const READS_CHUNK = 20_000;
 // O aparelho de cada pedido (a tabela `devices`, que a página de privacidade cita e nada lê): gravado só quando é novo ou quando a linha dele
 // passou de DEVICE_TOUCH_MS, e só os MAX_DEVICES mais recentes ficam. Assim um sync que só recebe não grava nada, e um id de aparelho novo a
 // cada pedido não enche o espaço que todas as contas dividem.
@@ -168,5 +174,6 @@ export function capsOf(env: CapVars): Caps {
     snapshotRecords: capOf(env, 'SNAPSHOT_MAX_RECORDS'),
     restoreRecords: capOf(env, 'RESTORE_MAX_RECORDS'),
     rowsDay: capOf(env, 'ROWS_WRITTEN_DAY_CAP'),
+    readsDay: capOf(env, 'ROWS_READ_DAY_CAP'),
   };
 }

@@ -139,6 +139,16 @@ Antes de subir `SNAPSHOT_MAX_RECORDS` acima de `150000` (as cópias grandes, `do
     parte custa uns 100 ms (uma reserva no D1 e um put de ~400 KB) mais ~27 ms de CPU: a cópia de 150 mil registros (30 partes) fica
     perto de 4 s, e a restauração no servidor (as leituras das partes, a comparação e a cópia de antes) perto de 10 s.
 
+Antes de publicar as correções da auditoria de segurança (`fix/auditoria-seguranca`):
+
+14. **A migração 0005 nos dois D1 remotos** (`reads_day`, o teto de linhas lidas por dia somado entre as contas), antes do deploy:
+    `npx wrangler d1 migrations apply DB --remote` (e `--env production`). Sem ela, a reserva das leituras falha e o Worker deixa ler
+    (`{evt:'reads-cap-error'}` nos logs): nada quebra, mas o teto não vale. Conferir na saída do deploy `ROWS_READ_DAY_CAP` em `1000000`
+    (na raiz, `3500000`).
+15. **O código por e-mail fica preso ao aparelho que o pediu** (cookie `klick-otp`, 10 minutos): pedir o código num aparelho e digitar em
+    outro volta "código vencido, peça outro". No teste de fumaça do beta, conferir o login por código num aparelho de verdade (Safari e
+    Chrome) antes da raiz.
+
 Voltar o Worker (rollback) depois das cópias em partes: um Worker de antes delas lista cada parte de uma cópia grande
 (`snap/<conta>/<nome>/001.json.gz`, ...) como uma cópia de "0 solves". Restaurar uma delas dá 400 `bad-name` (o nome com a barra não passa
 na rota), sem risco para os dados. Com o Worker novo publicado de novo, a lista volta ao normal.

@@ -126,6 +126,20 @@ export async function reserveRows(db: D1Database, n: number, now: number, cap: n
   return taken.meta.changes > 0;
 }
 
+// Reserva `n` linhas lidas nos objetos das contas no dia UTC de `now`, somadas entre todas as contas do ambiente, se couberem no teto
+// (ROWS_READ_DAY_CAP), como reserveRows. Os objetos reservam em lotes (READS_CHUNK), não por pedido. false: recusado, nada foi contado.
+export async function reserveReads(db: D1Database, n: number, now: number, cap: number): Promise<boolean> {
+  if (!isCount(n) || !isCount(cap)) return false;
+  const taken = await db
+    .prepare(
+      `INSERT INTO reads_day (day, count) SELECT ?1, ?2 WHERE ?2 <= ?3
+         ON CONFLICT (day) DO UPDATE SET count = reads_day.count + excluded.count WHERE reads_day.count + excluded.count <= ?3`,
+    )
+    .bind(utcDay(now), n, cap)
+    .run();
+  return taken.meta.changes > 0;
+}
+
 // Antes de reservar, quando a reserva ainda não pode sair (a restauração, antes do R2): o dia UTC de `now` mais `n` linhas cabe no teto? Só
 // lê; a reserva de depois (reserveRows) continua a autoridade.
 export async function rowsRoom(db: D1Database, n: number, now: number, cap: number): Promise<boolean> {

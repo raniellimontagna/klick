@@ -22,7 +22,7 @@ import {
   type SyncStore,
 } from '../src/core/sync/types';
 import type { KlickExport, ProfilePatch } from '../src/core/types';
-import { copyRoom, countRows, releaseRows, releaseStorage, reserveCopy, reserveRows, reserveStorage, rowsRoom, takeOps } from './budget';
+import { copyRoom, countRows, releaseRows, releaseStorage, reserveCopy, reserveReads, reserveRows, reserveStorage, rowsRoom, takeOps } from './budget';
 import type { Env } from './env';
 import {
   ACCOUNT_BYTES_CAP,
@@ -42,10 +42,12 @@ import {
   DEVICE_FLOOR_AHEAD_MS,
   DEVICE_TOUCH_MS,
   MAX_DEVICES,
+  MAX_SYNC_REQUEST,
   MAX_WRITES_PER_REQUEST,
   nextUtcDay,
   PULL_PAGE,
   PULL_PAGE_WITH_PUSH,
+  READS_CHUNK,
   READS_SAVE_EVERY,
   recordsPerDay,
   REQUEST_ROWS,
@@ -197,6 +199,8 @@ export class AccountStore extends DurableObject<Env> {
   private readonly sql: SqlStorage;
   // As linhas lidas no dia que ainda não foram para o estado (o orçamento de leituras: readsOf, countReads, saveReads).
   private unsaved: DayCount = { day: '', n: 0 };
+  // As linhas lidas que este objeto já reservou no teto do ambiente hoje e ainda não leu (readsRoom), só na memória.
+  private readGrant: DayCount = { day: '', n: 0 };
   // A menor reserva que o teto do ambiente recusou no dia UTC `day`, com o teto `cap` (reserveDay, dayRoom; a compactação reserva só na
   // metade dele): no mesmo dia, o D1 só sobe, então pedir o mesmo ou mais contra o mesmo teto seria recusado de novo, e o objeto não volta
   // a ele (nem ao log). Perdê-la ao sair da memória só faz a próxima perguntar de novo.
@@ -320,10 +324,31 @@ export class AccountStore extends DurableObject<Env> {
     return { day: stored.day, n: stored.n + this.unsaved.n };
   }
 
-  // Soma `n` linhas lidas, na memória.
+  // Soma `n` linhas lidas, na memória, e as tira do que foi reservado no teto do ambiente.
   private countReads(n: number, now: number): void {
     this.readsOf(now);
     this.unsaved.n += n;
+    if (this.readGrant.day === utcDay(now)) this.readGrant.n = Math.max(0, this.readGrant.n - n);
+  }
+
+  // Antes do sync que lê (a auditoria de segurança, NV-7): sobra, do que este objeto reservou hoje no teto do ambiente (ROWS_READ_DAY_CAP),
+  // o bastante para o pedido mais pesado (o lote inteiro e a página)? Senão reserva outro lote (READS_CHUNK) no D1. false: o dia do ambiente
+  // acabou, e o sync volta como sem o orçamento da conta. Um D1 que falha deixa ler (vai para o log): o orçamento de cada conta continua.
+  private async readsRoom(now: number): Promise<boolean> {
+    const day = utcDay(now);
+    if (this.readGrant.day !== day) this.readGrant = { day, n: 0 };
+    if (this.readGrant.n >= MAX_SYNC_REQUEST + PULL_PAGE + 1) return true;
+    try {
+      if (!(await reserveReads(this.env.DB, READS_CHUNK, now, capsOf(this.env).readsDay))) {
+        console.log(JSON.stringify({ evt: 'reads-cap', user: this.getState('userId') }));
+        return false;
+      }
+    } catch {
+      console.log(JSON.stringify({ evt: 'reads-cap-error' }));
+      return true;
+    }
+    this.readGrant.n += READS_CHUNK;
+    return true;
   }
 
   // As linhas lidas vão para o estado só quando juntam READS_SAVE_EVERY: contar não grava uma linha por pedido. Fora da transação de quem
@@ -579,11 +604,12 @@ export class AccountStore extends DurableObject<Env> {
   // resposta o confirma (`floorSet`). O pedido que não é lido (sem leituras no dia) não o sobe nem o confirma: o aparelho o manda de novo.
   async syncBatch(userId: string, req: SyncRequest, now: number): Promise<SyncResponse | 'deleted'> {
     const done = await this.exclusive(async (): Promise<{ response: SyncResponse; unread: boolean } | 'deleted'> => {
+      const envRoom = this.deleted() || (await this.readsRoom(now));
       const plan = this.ctx.storage.transactionSync(() => {
         if (this.deleted()) return 'deleted' as const;
         if (this.getState('userId') === null) this.setState('userId', userId);
         const reads = this.readsOf(now);
-        if (reads.n >= DAILY_READ_BUDGET) return { unread: this.unread(req, now, reads.day) };
+        if (!envRoom || reads.n >= DAILY_READ_BUDGET) return { unread: this.unread(req, now, reads.day) };
         const usage = this.usage(now);
         const most = recordsPerDay(capsOf(this.env).rowsDay);
         const children = new Map<string, number>();

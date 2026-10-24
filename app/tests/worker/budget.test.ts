@@ -39,7 +39,7 @@ describe('os tetos do Worker (spec 4, 7.1, 7.6)', () => {
     expect([utcDay(at('2026-11-01T00:00:00.000Z')), utcMonth(at('2026-11-01T00:00:00.000Z'))]).toEqual(['2026-11-01', '2026-11']);
   });
 
-  it('capsOf lê as oito vars como inteiros', () => {
+  it('capsOf lê as nove vars como inteiros', () => {
     const e = {
       SNAPSHOT_BYTES_CAP: '256000000',
       R2_CLASS_A_MONTH: '50000',
@@ -49,6 +49,7 @@ describe('os tetos do Worker (spec 4, 7.1, 7.6)', () => {
       SNAPSHOT_MAX_RECORDS: '4747',
       RESTORE_MAX_RECORDS: '5000',
       ROWS_WRITTEN_DAY_CAP: '10000',
+      ROWS_READ_DAY_CAP: '1000000',
     } as unknown as Env;
     expect(capsOf(e)).toEqual({
       snapshotBytes: 256_000_000,
@@ -59,6 +60,7 @@ describe('os tetos do Worker (spec 4, 7.1, 7.6)', () => {
       snapshotRecords: 4_747,
       restoreRecords: 5_000,
       rowsDay: 10_000,
+      readsDay: 1_000_000,
     });
   });
 
@@ -70,12 +72,13 @@ describe('os tetos do Worker (spec 4, 7.1, 7.6)', () => {
       expect(logged, String(bad)).toEqual([JSON.stringify({ evt: 'cap-missing', name: 'MAIL_PER_DAY' })]);
     }
     const { result, logged } = await withLog(() => capsOf({ MAIL_PER_DAY: '10' } as unknown as Env));
-    expect(result).toEqual({ snapshotBytes: 0, classAMonth: 0, classBMonth: 0, mailDay: 10, mailMonth: 0, snapshotRecords: 0, restoreRecords: 0, rowsDay: 0 });
+    expect(result).toEqual({ snapshotBytes: 0, classAMonth: 0, classBMonth: 0, mailDay: 10, mailMonth: 0, snapshotRecords: 0, restoreRecords: 0, rowsDay: 0, readsDay: 0 });
     expect(logged.map((l) => (JSON.parse(l) as { name: string }).name).sort()).toEqual([
       'MAIL_PER_MONTH',
       'R2_CLASS_A_MONTH',
       'R2_CLASS_B_MONTH',
       'RESTORE_MAX_RECORDS',
+      'ROWS_READ_DAY_CAP',
       'ROWS_WRITTEN_DAY_CAP',
       'SNAPSHOT_BYTES_CAP',
       'SNAPSHOT_MAX_RECORDS',

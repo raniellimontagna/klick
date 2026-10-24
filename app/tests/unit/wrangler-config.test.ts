@@ -129,6 +129,9 @@ describe('wrangler.jsonc', () => {
   it('o teto de linhas gravadas por dia fica na configuração, por ambiente, e os dois somados param em 70% do grátis', () => {
     expect([config.vars.ROWS_WRITTEN_DAY_CAP, config.env.production.vars.ROWS_WRITTEN_DAY_CAP]).toEqual(['10000', '60000']);
     expect(Number(config.vars.ROWS_WRITTEN_DAY_CAP) + Number(config.env.production.vars.ROWS_WRITTEN_DAY_CAP)).toBeLessThanOrEqual(70_000);
+    // As linhas lidas (NV-7): os dois ambientes somam abaixo das 5 milhões do grátis, com folga para o que se lê fora do sync.
+    expect([config.vars.ROWS_READ_DAY_CAP, config.env.production.vars.ROWS_READ_DAY_CAP]).toEqual(['1000000', '3500000']);
+    expect(Number(config.vars.ROWS_READ_DAY_CAP) + Number(config.env.production.vars.ROWS_READ_DAY_CAP)).toBeLessThanOrEqual(4_500_000);
   });
 
   it('somados, os dois ambientes ficam abaixo do grátis do Resend e do R2', () => {

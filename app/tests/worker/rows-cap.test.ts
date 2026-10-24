@@ -19,6 +19,7 @@ import {
   DAILY_WRITE_BUDGET,
   MAX_WRITES_PER_REQUEST,
   nextUtcDay,
+  READS_CHUNK,
   RECORDS_PER_DAY,
   recordsPerDay,
   REQUEST_ROWS,
@@ -599,5 +600,30 @@ describe('o teto do ambiente: a auditoria de segurança (NV-3)', () => {
     const ok = await sync(other, [session(), solve('o1')], { now });
     expect([ok.accepted, ok.deferred]).toEqual([2, undefined]);
     expect(await dayRow(now)).toBe(base + rowsOf(1) + rowsOf(2));
+  });
+});
+
+describe('o teto de linhas lidas por dia do ambiente (a auditoria de segurança, NV-7)', () => {
+  const readsRow = async (t: number): Promise<number> =>
+    (await env.DB.prepare('SELECT count FROM reads_day WHERE day = ?').bind(utcDay(t)).first<{ count: number }>())?.count ?? 0;
+  const setReadsCap = (user: string, cap: string) =>
+    runInDurableObject(stubOf(user), (instance) => {
+      const o = instance as unknown as { env: Env };
+      o.env = { ...o.env, ROWS_READ_DAY_CAP: cap } as Env;
+    });
+
+  it('o objeto reserva leituras em lotes no D1; sem elas no dia, o sync volta como sem o orçamento da conta, e no dia seguinte segue', async () => {
+    const now = at(70);
+    const [first, second] = ['leituras-a', 'leituras-b'];
+    for (const user of [first, second]) await setReadsCap(user, String(READS_CHUNK));
+    const a = await sync(first, [session(), solve('a1')], { now });
+    expect(a.accepted).toBe(2);
+    expect(await readsRow(now)).toBe(READS_CHUNK); // um lote, para a conta toda até ele acabar
+    await sync(first, [], { now });
+    expect(await readsRow(now)).toBe(READS_CHUNK); // o segundo pedido lê do lote, sem o D1
+    const b = await sync(second, [solve('b1')], { now }); // o dia do ambiente acabou: nada é lido nem gravado
+    expect([b.readsDeferred, b.accepted, b.deferred, b.retryAt]).toEqual([true, 0, 1, nextUtcDay(now)]);
+    const next = await sync(second, [solve('b1')], { now: nextUtcDay(now) });
+    expect([next.readsDeferred, next.accepted]).toEqual([undefined, 1]);
   });
 });
