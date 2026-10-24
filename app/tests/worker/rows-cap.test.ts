@@ -574,3 +574,30 @@ describe('o teto do ambiente: a revisão', () => {
     expect(await dayRow(today)).toBe(half);
   });
 });
+
+describe('o teto do ambiente: a auditoria de segurança (NV-3)', () => {
+  it('as linhas reservadas para mudanças tortas ou repetidas voltam ao dia: uma conta não enche o teto de todas sem gravar', async () => {
+    const now = at(60);
+    const [bad, other] = ['teto-torto-a', 'teto-torto-b'];
+    const cap = 2 * rowsOf(MAX_WRITES_PER_REQUEST);
+    for (const user of [bad, other]) await setCap(user, String(cap));
+    const junk = Array.from({ length: MAX_WRITES_PER_REQUEST }, () => ({}) as Change);
+    for (const user of [bad, other]) await sync(user, [], { now }); // o aparelho novo grava a linha dele antes
+    const base = await dayRow(now);
+    for (let i = 0; i < 3; i++) {
+      const res = await sync(bad, junk, { now });
+      expect([res.accepted, res.rejected.length, res.deferred]).toEqual([0, MAX_WRITES_PER_REQUEST, undefined]);
+    }
+    expect(await dayRow(now)).toBe(base); // reservou e devolveu tudo
+    // O mesmo com a mudança repetida: gravada uma vez, as outras não mudam nada e voltam.
+    const once = await sync(bad, [session()], { now });
+    expect(once.accepted).toBe(1);
+    expect(await dayRow(now)).toBe(base + rowsOf(1));
+    await sync(bad, [session()], { now });
+    expect(await dayRow(now)).toBe(base + rowsOf(1));
+    // A outra conta ainda grava no mesmo dia.
+    const ok = await sync(other, [session(), solve('o1')], { now });
+    expect([ok.accepted, ok.deferred]).toEqual([2, undefined]);
+    expect(await dayRow(now)).toBe(base + rowsOf(1) + rowsOf(2));
+  });
+});

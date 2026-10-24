@@ -22,7 +22,7 @@ import {
   type SyncStore,
 } from '../src/core/sync/types';
 import type { KlickExport, ProfilePatch } from '../src/core/types';
-import { copyRoom, countRows, releaseStorage, reserveCopy, reserveRows, reserveStorage, rowsRoom, takeOps } from './budget';
+import { copyRoom, countRows, releaseRows, releaseStorage, reserveCopy, reserveRows, reserveStorage, rowsRoom, takeOps } from './budget';
 import type { Env } from './env';
 import {
   ACCOUNT_BYTES_CAP,
@@ -388,13 +388,16 @@ export class AccountStore extends DurableObject<Env> {
 
   // Depois de gravar: o que passou do reservado (a sessão que a cascata devolve, que o corte não prevê: cut) já está gravado, e conta no D1
   // sem recusar; uma falha nessa conta vai só para o log, e a gravação fica. O reservado que não foi gravado (a mudança que a cota recusou,
-  // ou que não mudou nada) fica contado: a conta erra para mais, nunca para menos.
+  // a torta, a que não mudou nada) volta para o dia do ambiente: senão uma conta enchia o teto de todas com lotes que não gravam (a
+  // auditoria de segurança, NV-3). Uma falha na devolução também vai só para o log: o dia fica contado a mais, nunca a menos.
   private async settleRows(reserved: number, wrote: number, now: number): Promise<void> {
-    if (wrote <= reserved) return;
+    if (wrote === reserved) return;
+    const day = Date.parse(this.dayCount('writes', now).day);
     try {
-      await countRows(this.env.DB, wrote - reserved, Date.parse(this.dayCount('writes', now).day));
+      if (wrote > reserved) await countRows(this.env.DB, wrote - reserved, day);
+      else await releaseRows(this.env.DB, reserved - wrote, day);
     } catch {
-      console.log(JSON.stringify({ evt: 'rows-uncounted', rows: wrote - reserved }));
+      console.log(JSON.stringify({ evt: wrote > reserved ? 'rows-uncounted' : 'rows-unreleased', rows: Math.abs(wrote - reserved) }));
     }
   }
 

@@ -143,6 +143,13 @@ export async function countRows(db: D1Database, n: number, now: number): Promise
     .run();
 }
 
+// Devolve `n` linhas reservadas no dia UTC de `now` que o objeto não gravou (account-store.ts, settleRows): a mudança torta ou repetida,
+// que o corte contou e applyChanges recusou. Sem isso, uma conta mandando lotes tortos enchia o teto do ambiente sem gravar nada.
+export async function releaseRows(db: D1Database, n: number, now: number): Promise<void> {
+  if (!isCount(n) || n === 0) return;
+  await db.prepare('UPDATE rows_day SET count = max(0, count - ?2) WHERE day = ?1').bind(utcDay(now), n).run();
+}
+
 // Reserva um e-mail no dia e no mês UTC, juntos ou nenhum: o UPDATE confere as duas linhas antes de somar nas duas (as subconsultas não
 // dependem da linha, e o SQLite as calcula antes da primeira soma), e as duas somadas (changes = 2) dizem que passou.
 export async function reserveMail(db: D1Database, now: number, caps: Pick<Caps, 'mailDay' | 'mailMonth'>): Promise<boolean> {
