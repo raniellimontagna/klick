@@ -619,6 +619,8 @@ describe('o teto de linhas lidas por dia do ambiente (a auditoria de segurança,
     const a = await sync(first, [session(), solve('a1')], { now });
     expect(a.accepted).toBe(2);
     expect(await readsRow(now)).toBe(READS_CHUNK); // um lote, para a conta toda até ele acabar
+    // O lote fica no estado do objeto: acordar frio não reserva outro.
+    expect(JSON.parse((await stateOf(first, 'readsGranted')) as string)).toEqual({ day: utcDay(now), n: READS_CHUNK });
     await sync(first, [], { now });
     expect(await readsRow(now)).toBe(READS_CHUNK); // o segundo pedido lê do lote, sem o D1
     const b = await sync(second, [solve('b1')], { now }); // o dia do ambiente acabou: nada é lido nem gravado

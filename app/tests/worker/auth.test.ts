@@ -2,6 +2,7 @@ import { createExecutionContext } from 'cloudflare:test';
 import { getMigrations } from 'better-auth/db/migration';
 import { describe, expect, it, vi } from 'vitest';
 import { SYNC_PROTOCOL, type SyncResponse } from '../../src/core/sync/types';
+import { mailShareOf } from '../../worker/abuse';
 import { createAuth, SESSION_DAYS } from '../../worker/auth';
 import type { Env } from '../../worker/env';
 import { codeEmail, e2eMailbox, type Mailer } from '../../worker/mail';
@@ -90,7 +91,8 @@ describe('login por código (spec 7.1 a 7.3)', () => {
   });
 
   it('o e-mail torto volta 400 antes de gastar o teto; o que o Better Auth recusa devolve a reserva (a auditoria de segurança, NV-2)', async () => {
-    const env = testEnv({ MAIL_PER_DAY: '5', MAIL_PER_MONTH: '100' });
+    const env = testEnv({ MAIL_PER_DAY: '100', MAIL_PER_MONTH: '1000' });
+    const share = mailShareOf(100);
     const deps = { ...authDeps(), now: () => Date.parse('2031-03-03T12:00:00Z') }; // um dia só deste teste no teto de e-mails
     const day = `d:${new Date(deps.now()).toISOString().slice(0, 10)}`;
     const used = async () => (await env.DB.prepare('SELECT count FROM mail_sent WHERE period = ?').bind(day).first<{ count: number }>())?.count ?? 0;
@@ -104,14 +106,20 @@ describe('login por código (spec 7.1 a 7.3)', () => {
     expect(await used()).toBe(before);
     expect((await ask('certo@exemplo.com', '198.51.100.2')).status).toBe(200);
     expect(await used()).toBe(before + 1);
-    // A parte de um requisitante: um /48 do IPv6, trocando de /64 a cada pedido, não passa de um décimo do dia (no mínimo 3).
-    const v6 = (i: number) => `2001:db8:77:${i}::1`;
-    for (let i = 1; i <= 3; i++) expect((await ask(`parte${i}@exemplo.com`, v6(i))).status).toBe(200);
-    const over = await ask('parte4@exemplo.com', v6(4));
+    // A parte de um requisitante: um /48 do IPv6, trocando de /64 a cada pedido, não passa de um quinto do dia (no mínimo 10).
+    const v6 = (i: number) => `2001:db8:77:${i.toString(16)}::1`;
+    for (let i = 1; i <= share; i++) expect((await ask(`parte${i}@exemplo.com`, v6(i))).status).toBe(200);
+    const over = await ask('parte-mais@exemplo.com', v6(share + 1));
     expect(over.status).toBe(429);
     expect(await over.json()).toMatchObject({ code: 'TOO_MANY_REQUESTS' });
-    expect(await used()).toBe(before + 4); // o recusado não conta no dia
+    expect(await used()).toBe(before + 1 + share); // o recusado não conta no dia
     expect((await ask('outro-lugar@exemplo.com', '198.51.100.3')).status).toBe(200); // os outros seguem
+    // O Resend que falha (depois da resposta, no waitUntil) devolve a vaga.
+    const failing = { ...deps, mailer: { sent: [], sendCode: async () => Promise.reject(new Error('resend 503')) } };
+    const now = await used();
+    const res = await call('/api/auth/email-otp/send-verification-otp', postJson({ email: 'falhou@exemplo.com', type: 'sign-in' }, { 'x-turnstile-token': 'ok', 'cf-connecting-ip': '198.51.100.4' }), { deps: failing, env });
+    expect(res.status).toBe(200);
+    expect(await used()).toBe(now);
   });
 
   it('com a sessão, /api/sync funciona; uma conta não lê nem grava na outra', async () => {

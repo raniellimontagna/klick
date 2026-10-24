@@ -9,10 +9,11 @@ import type { FetchLike } from './mail';
 
 export const CODES_PER_EMAIL_HOUR = 5;
 export const CODES_PER_IP_HOUR = 20;
-// A parte de um requisitante no teto de e-mails do dia (a auditoria de segurança, NV-2): um décimo do dia, e nunca menos que
-// MAIL_SHARE_MIN. O requisitante é o IPv4, ou o /48 do IPv6 (um /64 por pessoa sai barato: quem tem um /48 tem 65 mil deles).
-export const MAIL_SHARE_MIN = 3;
-export const mailShareOf = (mailDay: number): number => Math.max(MAIL_SHARE_MIN, Math.ceil(mailDay / 10));
+// A parte de um requisitante no teto de e-mails do dia (a auditoria de segurança, NV-2): um quinto do dia, e nunca menos que
+// MAIL_SHARE_MIN (no beta, o dia inteiro). O requisitante é o IPv4, ou o /48 do IPv6 (um /64 por pessoa sai barato: quem tem um /48 tem 65
+// mil deles). Um IPv4 dividido (CGNAT, Wi-Fi público) divide a parte: na raiz, 16 códigos por dia por IP, contra os 20 por hora de antes.
+export const MAIL_SHARE_MIN = 10;
+export const mailShareOf = (mailDay: number): number => Math.max(MAIL_SHARE_MIN, Math.ceil(mailDay / 5));
 const HOUR = 3_600_000;
 
 export type VerifyCaptcha = (token: string, ip: string) => Promise<boolean>;

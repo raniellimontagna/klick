@@ -199,12 +199,10 @@ export class AccountStore extends DurableObject<Env> {
   private readonly sql: SqlStorage;
   // As linhas lidas no dia que ainda não foram para o estado (o orçamento de leituras: readsOf, countReads, saveReads).
   private unsaved: DayCount = { day: '', n: 0 };
-  // As linhas lidas que este objeto já reservou no teto do ambiente hoje e ainda não leu (readsRoom), só na memória.
-  private readGrant: DayCount = { day: '', n: 0 };
   // A menor reserva que o teto do ambiente recusou no dia UTC `day`, com o teto `cap` (reserveDay, dayRoom; a compactação reserva só na
   // metade dele): no mesmo dia, o D1 só sobe, então pedir o mesmo ou mais contra o mesmo teto seria recusado de novo, e o objeto não volta
   // a ele (nem ao log). Perdê-la ao sair da memória só faz a próxima perguntar de novo.
-  private refused = { day: '', cap: 0, rows: Infinity };
+  private refused = { day: '', cap: 0, rows: Infinity, at: 0 };
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -328,18 +326,21 @@ export class AccountStore extends DurableObject<Env> {
   private countReads(n: number, now: number): void {
     this.readsOf(now);
     this.unsaved.n += n;
-    if (this.readGrant.day === utcDay(now)) this.readGrant.n = Math.max(0, this.readGrant.n - n);
   }
 
-  // Antes do sync que lê (a auditoria de segurança, NV-7): sobra, do que este objeto reservou hoje no teto do ambiente (ROWS_READ_DAY_CAP),
-  // o bastante para o pedido mais pesado (o lote inteiro e a página)? Senão reserva outro lote (READS_CHUNK) no D1. false: o dia do ambiente
-  // acabou, e o sync volta como sem o orçamento da conta. Um D1 que falha deixa ler (vai para o log): o orçamento de cada conta continua.
-  private async readsRoom(now: number): Promise<boolean> {
-    const day = utcDay(now);
-    if (this.readGrant.day !== day) this.readGrant = { day, n: 0 };
-    if (this.readGrant.n >= MAX_SYNC_REQUEST + PULL_PAGE + 1) return true;
+  // Antes do que lê (o sync, a cópia do dia e a restauração; a auditoria de segurança, NV-7): o que este objeto já reservou hoje no teto do
+  // ambiente (ROWS_READ_DAY_CAP), no estado ('readsGranted', que acordar frio não perde), menos o que ele já leu no dia (readsOf), cobre as
+  // `need` linhas? Senão reserva no D1 o que falta, em lotes de READS_CHUNK. false: o dia do ambiente acabou, e quem chama não lê. Um D1
+  // que falha deixa ler (vai para o log): o orçamento de cada conta continua.
+  private async readsRoom(now: number, need: number): Promise<boolean> {
+    const reads = this.readsOf(now);
+    const stored = JSON.parse(this.getState('readsGranted') ?? 'null') as DayCount | null;
+    const granted = stored?.day === reads.day ? stored.n : 0;
+    const missing = reads.n + need - granted;
+    if (missing <= 0) return true;
+    const chunk = Math.ceil(missing / READS_CHUNK) * READS_CHUNK;
     try {
-      if (!(await reserveReads(this.env.DB, READS_CHUNK, now, capsOf(this.env).readsDay))) {
+      if (!(await reserveReads(this.env.DB, chunk, now, capsOf(this.env).readsDay))) {
         console.log(JSON.stringify({ evt: 'reads-cap', user: this.getState('userId') }));
         return false;
       }
@@ -347,7 +348,7 @@ export class AccountStore extends DurableObject<Env> {
       console.log(JSON.stringify({ evt: 'reads-cap-error' }));
       return true;
     }
-    this.readGrant.n += READS_CHUNK;
+    this.setState('readsGranted', JSON.stringify({ day: reads.day, n: granted + chunk }));
     return true;
   }
 
@@ -406,13 +407,14 @@ export class AccountStore extends DurableObject<Env> {
   }
 
   private refusedBefore(day: string, cap: number, rows: number): boolean {
-    return this.refused.day === day && this.refused.cap === cap && rows >= this.refused.rows;
+    // Vale por ROWS_RETRY_MS: desde a NV-3 o dia também desce (outro objeto devolve o que não gravou), e a recusa lembrada envelhece.
+    return this.refused.day === day && this.refused.cap === cap && rows >= this.refused.rows && Date.now() - this.refused.at < ROWS_RETRY_MS;
   }
 
   // O teto recusou `rows` linhas no dia: fica lembrado (refused), e vai para o log.
   private refuse(day: string, cap: number, rows: number, op: RowsOp): void {
     const same = this.refused.day === day && this.refused.cap === cap;
-    this.refused = { day, cap, rows: same ? Math.min(this.refused.rows, rows) : rows };
+    this.refused = { day, cap, rows: same ? Math.min(this.refused.rows, rows) : rows, at: Date.now() };
     console.log(JSON.stringify({ evt: 'rows-cap', user: this.getState('userId'), op, rows }));
   }
 
@@ -604,7 +606,7 @@ export class AccountStore extends DurableObject<Env> {
   // resposta o confirma (`floorSet`). O pedido que não é lido (sem leituras no dia) não o sobe nem o confirma: o aparelho o manda de novo.
   async syncBatch(userId: string, req: SyncRequest, now: number): Promise<SyncResponse | 'deleted'> {
     const done = await this.exclusive(async (): Promise<{ response: SyncResponse; unread: boolean } | 'deleted'> => {
-      const envRoom = this.deleted() || (await this.readsRoom(now));
+      const envRoom = this.deleted() || (await this.readsRoom(now, MAX_SYNC_REQUEST + PULL_PAGE + 1));
       const plan = this.ctx.storage.transactionSync(() => {
         if (this.deleted()) return 'deleted' as const;
         if (this.getState('userId') === null) this.setState('userId', userId);
@@ -812,7 +814,8 @@ export class AccountStore extends DurableObject<Env> {
       const bound = this.recordsBound(now);
       if (bound > caps.snapshotRecords || bound + COPY_READS_EXTRA > DAILY_READ_BUDGET) return this.pauseCopies(userId, 'size');
       if (this.readsOf(now).n + bound + COPY_READS_EXTRA > DAILY_READ_BUDGET) return false;
-    }
+      if (!(await this.readsRoom(now, bound + COPY_READS_EXTRA))) return false; // o dia de leituras do ambiente (NV-7): fica para amanhã
+    } else if (!(await this.readsRoom(now, records + 1))) return false;
     const estimate = this.copies().gz;
     const short = estimate === null ? null : await copyRoom(this.env.DB, estimate, now, caps);
     if (short !== null) return this.pauseCopies(userId, short);
@@ -1105,6 +1108,7 @@ export class AccountStore extends DurableObject<Env> {
       // registros da cópia, mais RESTORE_READS_EXTRA) tem de caber no orçamento do dia, senão a restauração nem compara.
       const copied = manifest !== null ? manifest.parts.reduce((sum, p) => sum + p.records, 0) : copyRecords(file!);
       if (this.readsOf(now).n + 2 * copied + RESTORE_READS_EXTRA > DAILY_READ_BUDGET) return device ? onDevice() : 'restore-limit';
+      if (!(await this.readsRoom(now, 2 * copied + RESTORE_READS_EXTRA))) return device ? onDevice() : 'restore-limit'; // o dia do ambiente (NV-7)
       // Acima do teto da cópia (o teto da conta, uma linha), a cópia de antes seria 'size': a restauração no servidor não acontece, e nem
       // compara (o app de antes ouve no-room, como na cópia de antes recusada; o novo restaura no aparelho, com a cópia local de antes).
       if (this.recordsBound(now) > caps.snapshotRecords) return device ? onDevice() : 'no-room';

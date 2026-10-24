@@ -148,7 +148,7 @@ const recordCount = (user: string): Promise<number> =>
 const accountOf = (user: string) =>
   runInDurableObject(stubOf(user), (_o, state) => ({
     records: state.storage.sql.exec('SELECT * FROM records ORDER BY store, id').toArray(),
-    state: state.storage.sql.exec("SELECT key, value FROM state WHERE key NOT IN ('copies', 'attempts', 'reads') ORDER BY key").toArray(),
+    state: state.storage.sql.exec("SELECT key, value FROM state WHERE key NOT IN ('copies', 'attempts', 'reads', 'readsGranted') ORDER BY key").toArray(),
   }));
 // Quantas mudanças restaurar a cópia `name` daria agora (restoreChanges, como o objeto faz, com a conta inteira lida do SQLite dele).
 async function restoreCount(user: string, name: string): Promise<number> {

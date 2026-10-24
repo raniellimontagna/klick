@@ -124,7 +124,12 @@ async function authRoute(request: Request, path: string, env: Env, ctx: Executio
     if (!isRec(body) || body.type !== 'sign-in' || typeof body.email !== 'string') return fail(400, 'bad-request');
     const guard = await guardSendCode(forward, env, deps);
     if (guard instanceof Response) return guard;
-    const sent = await createAuth(env, ctx, deps.mailer).handler(forward);
+    // O envio sai depois da resposta (auth.ts, waitUntil): o Resend que falha também devolve a vaga do teto.
+    const mailer: Mailer = { sendCode: (email, code) => deps.mailer.sendCode(email, code).catch(async (err: unknown) => {
+      await guard.release().catch(() => undefined);
+      throw err;
+    }) };
+    const sent = await createAuth(env, ctx, mailer).handler(forward);
     // O Better Auth recusou depois da reserva: o e-mail não saiu, e volta ao teto. Saiu: o código fica preso a este aparelho (abuse.ts).
     if (!sent.ok) {
       await guard.release();
