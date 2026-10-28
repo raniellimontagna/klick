@@ -1,3 +1,7 @@
+> [!IMPORTANT]
+> **This branch is the archived v1 of Klick** (React + Supabase, last release `v1.4.0`). It is no longer deployed or maintained.
+> The current app lives on the [`v2`](https://github.com/raniellimontagna/klick/tree/v2) branch and runs at https://klick.ranimontagna.com.
+
 # Klick
 
 **Tagline:** gire, clique, evolua.
