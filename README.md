@@ -16,7 +16,7 @@ A speedcubing timer for all 13 WCA events, with official scrambles, detailed sta
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/stats.png" alt="Klick stats tab with averages, the solve chart and the time distribution" width="760">
+  <img src="docs/screenshots/stats.png" alt="Klick stats tab with records, averages, the weekly table, goals and the year-long training calendar" width="760">
 </p>
 
 ## Features
