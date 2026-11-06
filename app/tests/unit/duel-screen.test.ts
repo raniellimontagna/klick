@@ -144,6 +144,33 @@ async function acceptedB(o: { link?: DuelLink } = {}) {
 }
 
 describe('a tela do desafio (a maquete aprovada)', () => {
+  it.each(['finished', 'reply', 'view'] as const)('em %s, números não chegam ao campo escondido do modo Digitar nem tomam o foco', async (phase) => {
+    const { a } = await device();
+    await a.updateSettings({ entry: 'typing' });
+    const reply = await answered(a);
+    if (phase === 'reply') await a.duel.openLink(duelPayloadOf(new URL(reply).hash)!);
+    if (phase === 'view') {
+      a.duel.exit();
+      await a.duel.openLink(await encodeDuelLink({ ...LINK, id: 'outrapartida12345', b: { name: 'Bia', times: [tm(10_000), tm(10_000), tm(10_000)] } }));
+    }
+    expect(a.duel.phase).toBe(phase);
+    await mount(a);
+    await tick();
+    const result = document.querySelector<HTMLElement>('[data-screen="duel"]')!;
+    result.focus();
+    const digit = new KeyboardEvent('keydown', { key: '9', code: 'Digit9', bubbles: true, cancelable: true });
+    document.body.dispatchEvent(digit);
+    await tick();
+    expect(digit.defaultPrevented).toBe(false);
+    expect(result).toHaveFocus();
+    expect(document.querySelector('[data-typed] input')).toBeNull();
+    expect(a.solves).toEqual([]);
+    // Voltando ao Timer, a mesma preferência deixa o campo disponível de novo.
+    a.duel.exit();
+    await tick();
+    expect(document.querySelector('[data-typed] input')).not.toBeNull();
+  });
+
   it('como A: resolve os sete e manda o link', async () => {
     const { a, repo } = await device({ name: 'Ranielli' });
     await mount(a);

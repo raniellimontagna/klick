@@ -91,7 +91,7 @@
   const revealTime = $derived(reveal ? splitTime(reveal.time) : null);
   // O modo Digitar (o tempo vem de um timer de fora): o campo no lugar do tempo grande, sem zonas e sem armar. Não vale no desafio.
   let typedEntry = $state<ReturnType<typeof TypedEntry>>(); // o campo, para o caractere que chega com ele solto (typeChar da entrada)
-  const typingOn = $derived(app.profile.settings.entry === 'typing' && !duelOn);
+  const typingOn = $derived(app.profile.settings.entry === 'typing' && !duelOn && !duelEnd);
   const wide = wideLayout(); // no desktop, o placar do desafio vai para a coluna da direita
   // A dica de teclado do desktop. Na confirmação e na revelação o espaço não arma: fica só o que vale ali.
   const hint = $derived(
