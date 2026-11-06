@@ -317,9 +317,10 @@ function mergeProfile(base: Profile, patch: ProfilePatch | undefined): Profile {
 // As metas de um arquivo importado juntam com as daqui pela vaga (estatísticas, spec 5): entra a que só o arquivo tem; na mesma vaga fica a
 // daqui. Se as duas são a mesma meta (tipo, evento e alvo iguais), ela fica com a data de alcance mais antiga das duas (o alcance não volta
 // atrás); com outra definição (editada num dos lados, como em remakeGoal) é outra meta, e a data de lá não vale para a daqui. Sem o teto de
-// metas vivas: como o sync, importar não tira meta nenhuma. As daqui vêm primeiro, e um arquivo com as mesmas metas devolve o mesmo objeto,
-// chave por chave.
+// metas vivas: como o sync, importar não tira definição nenhuma. Depois de juntar por id, definições repetidas ficam com o primeiro id
+// (as daqui vêm primeiro) e o alcance mais antigo. Um arquivo sem metas não muda as daqui.
 function joinGoals(mine: Profile['goals'], theirs: Profile['goals'] | undefined): Profile['goals'] {
+  if (theirs === undefined) return mine;
   const out = { ...mine };
   for (const [id, goal] of Object.entries(theirs ?? {})) {
     const here: Goal | undefined = out[id];
@@ -330,7 +331,21 @@ function joinGoals(mine: Profile['goals'], theirs: Profile['goals'] | undefined)
     const same = here.kind === goal.kind && here.event === goal.event && here.targetMs === goal.targetMs;
     if (same && goal.reachedAt !== null && (here.reachedAt === null || goal.reachedAt < here.reachedAt)) out[id] = { ...here, reachedAt: goal.reachedAt };
   }
-  return out;
+  const unique: Profile['goals'] = {};
+  const ids = new Map<string, string>();
+  for (const id of new Set([...Object.keys(mine), ...Object.keys(theirs)])) {
+    const goal = out[id]!;
+    const definition = `${goal.event}:${goal.kind}:${goal.targetMs}`;
+    const kept = ids.get(definition);
+    if (kept === undefined) {
+      ids.set(definition, id);
+      unique[id] = goal;
+    } else {
+      const here = unique[kept]!;
+      if (goal.reachedAt !== null && (here.reachedAt === null || goal.reachedAt < here.reachedAt)) unique[kept] = { ...here, reachedAt: goal.reachedAt };
+    }
+  }
+  return unique;
 }
 
 // O perfil da tela (spec 5.2): os ajustes do aparelho (store profile) mais os itens da conta (store prefs), com os padrões por baixo.

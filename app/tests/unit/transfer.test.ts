@@ -209,8 +209,6 @@ describe('formato Klick', () => {
       b02: { ...mine.b02, reachedAt: 4_000 },
       c03: mine.c03,
       d04: mine.d04,
-      h08: mine.h08,
-      i09: mine.i09,
       j00: mine.j00,
       e05: file.profile!.goals!.e05,
       f06: file.profile!.goals!.f06,
@@ -220,6 +218,57 @@ describe('formato Klick', () => {
     const now = (await repo.getProfile()).goals;
     await repo.importAll({ ...file, profile: { finish: 'fosco' } });
     expect((await repo.getProfile()).goals).toEqual(now);
+  });
+
+  it.each([null, 5_000, 1_000])('importar metas iguais com ids diferentes junta o alcance sem regredir (%s)', async (reachedAt) => {
+    const repo = createRepository(await openKlickDb(`transfer-metas-duplicadas-${reachedAt}`), { now: () => NOW, channel: null });
+    const local = goal({ startMs: 14_000, reachedAt });
+    await repo.saveProfile({ goals: { a01: local } });
+    const file: KlickExport = {
+      format: 'klick', version: 1, exportedAt: NOW, sessions: [], solves: [],
+      profile: { goals: {
+        // Ids numéricos também são válidos: a ordem das chaves do objeto não deve pôr o arquivo antes da meta local.
+        '100': goal({ startMs: 15_000, createdAt: 2, reachedAt: 3_000 }),
+        c03: goal({ reachedAt: 2_000 }),
+        d04: goal({ event: '222', reachedAt: 500 }),
+        e05: goal({ kind: 'ao5', reachedAt: 400 }),
+        f06: goal({ targetMs: 10_000, reachedAt: 300 }),
+      } },
+    };
+    await repo.importAll(file);
+    const expected = {
+      a01: { ...local, reachedAt: Math.min(reachedAt ?? Infinity, 2_000) },
+      d04: file.profile!.goals!.d04,
+      e05: file.profile!.goals!.e05,
+      f06: file.profile!.goals!.f06,
+    };
+    expect((await repo.getProfile()).goals).toEqual(expected);
+    await repo.importAll(file);
+    expect((await repo.getProfile()).goals).toEqual(expected);
+  });
+
+  it('junta também as definições repetidas dentro do arquivo e as que já estavam no aparelho', async () => {
+    const db = await openKlickDb('transfer-metas-repetidas');
+    const repo = createRepository(db, { now: () => NOW, channel: null });
+    await repo.saveSyncState({ accountId: 'conta', signedIn: true });
+    await repo.saveProfile({ goals: { a01: goal({ reachedAt: 4_000 }), b02: goal({ reachedAt: null }) } });
+    // Uma exportação antiga, sem metas, continua sem mudar esse mapa.
+    await repo.importAll({ format: 'klick', version: 1, exportedAt: NOW, sessions: [], solves: [], profile: { finish: 'fosco' } });
+    expect(Object.keys((await repo.getProfile()).goals)).toEqual(['a01', 'b02']);
+    await db.clear('outbox');
+    await repo.importAll({
+      format: 'klick', version: 1, exportedAt: NOW, sessions: [], solves: [],
+      profile: { goals: {
+        c03: goal({ kind: 'ao12', reachedAt: null }),
+        d04: goal({ kind: 'ao12', reachedAt: 3_000 }),
+      } },
+    });
+    expect((await repo.getProfile()).goals).toEqual({ a01: goal({ reachedAt: 4_000 }), c03: goal({ kind: 'ao12', reachedAt: 3_000 }) });
+    // A duplicata que já existia é apagada com o null do protocolo publicado; a que só veio no arquivo nem precisa subir.
+    expect((await repo.outboxBatch(50)).changes.filter((c) => c.store === 'prefs')).toEqual([
+      expect.objectContaining({ id: 'goal.b02', data: null }),
+      expect.objectContaining({ id: 'goal.c03', data: goal({ kind: 'ao12', reachedAt: 3_000 }) }),
+    ]);
   });
 
   it('arquivo com desafios entra; desafio inválido fica de fora; arquivo sem duels continua valendo', () => {
