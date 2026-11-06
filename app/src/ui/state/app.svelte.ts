@@ -1436,9 +1436,9 @@ export class AppState {
   // Antes, espera uma restauração em curso (o remendo não parte da memória de antes da troca nem cai no meio do replaceAll). O
   // remendo é calculado e gravado dentro da fila das leituras (serial): uma leitura em voo termina antes e deixa o perfil que leu na
   // memória, e a gravação parte dele; uma que entra depois lê o que acabou de ser gravado. Assim nenhuma leitura velha desfaz a marca.
-  // Serve a qualquer remendo do perfil; o remendo null é "nada a gravar" e devolve true sem tocar no repositório. As metas mandam uma função,
-  // que o repositório roda sobre o perfil gravado dentro da transação: elas mudam pela vaga, e um lote do sync que gravou uma meta depois da
-  // última leitura não é desfeito pela memória de antes dele.
+  // Serve a qualquer remendo do perfil; o remendo null é "nada a gravar" e devolve true sem tocar no repositório. As metas e os mapas da
+  // trilha mandam uma função, que o repositório roda sobre o perfil gravado dentro da transação: só mudam sua chave, e um lote do sync
+  // que chegou depois da última leitura não é desfeito pela memória de antes dele.
   private trailJob(job: () => ProfileJob | null): Promise<boolean> {
     const run = this.trailWrites.then(async () => {
       while (this.restoring) await this.restoring;
@@ -1472,11 +1472,11 @@ export class AppState {
   // "Consegui no meu cubo" (spec 6.2): marca a etapa e zera o passo guardado da aula, numa gravação. Já marcada, só zera o passo.
   completeLesson(step: TrailStep): Promise<boolean> {
     let fresh = false;
-    return this.trailJob(() => {
-      const trail = [...this.profile.trail];
+    return this.trailJob(() => (base) => {
+      const trail = [...base.trail];
       fresh = !trail[step];
       trail[step] = true;
-      const lessonAt = { ...this.profile.lessonAt };
+      const lessonAt = { ...base.lessonAt };
       delete lessonAt[step];
       return { trail, lessonAt };
     }).then((ok) => {
@@ -1487,13 +1487,13 @@ export class AppState {
 
   // O passo em que a aula parou (sair no meio volta dali).
   setLessonAt(step: TrailStep, part: number): Promise<boolean> {
-    return this.trailJob(() => ({ lessonAt: { ...this.profile.lessonAt, [step]: part } }));
+    return this.trailJob(() => (base) => ({ lessonAt: { ...base.lessonAt, [step]: part } }));
   }
 
   // O algoritmo que a pessoa usa no caso. O padrão (0) não fica guardado.
   setAlgChoice(caseId: string, index: number): Promise<boolean> {
-    return this.trailJob(() => {
-      const algChoice = { ...this.profile.algChoice };
+    return this.trailJob(() => (base) => {
+      const algChoice = { ...base.algChoice };
       if (index === 0) delete algChoice[caseId];
       else algChoice[caseId] = index;
       return { algChoice };
@@ -1556,8 +1556,8 @@ export class AppState {
 
   // Tira o caso do sorteio do treino, ou o devolve.
   setCaseOff(caseId: string, off: boolean): Promise<boolean> {
-    return this.trailJob(() => {
-      const rest = this.profile.trainOff.filter((id) => id !== caseId);
+    return this.trailJob(() => (base) => {
+      const rest = base.trainOff.filter((id) => id !== caseId);
       return { trainOff: off ? [...rest, caseId] : rest };
     });
   }

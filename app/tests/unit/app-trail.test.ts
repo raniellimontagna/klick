@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Change } from '../../src/core/sync/types';
+import type { Profile } from '../../src/core/types';
 import { openKlickDb } from '../../src/data/db';
 import { createRepository, type ChannelLike, type Repository } from '../../src/data/repository';
 import { createBackup } from '../../src/data/safety';
@@ -18,6 +20,42 @@ async function setup(repo?: Repository) {
 }
 const attempt = (o: Partial<{ caseId: string; ms: number; ok: boolean; helped: boolean; at: number }> = {}) => ({
   caseId: 'oll2-sune', ms: 2500, ok: true, helped: false, at: (t += 1000), ...o,
+});
+
+describe('preferências da trilha com um lote do sync no meio', () => {
+  type Maps = Pick<Profile, 'lessonAt' | 'algChoice' | 'trainOff'>;
+  const cases: { name: string; mine: Partial<Maps>; key: string; value: unknown; run: (app: AppState) => Promise<boolean>; expected: Partial<Maps> }[] = [
+    { name: 'retomar aula', mine: { lessonAt: { 0: 1 } }, key: 'lessonAt.1', value: 3, run: (app) => app.setLessonAt(0, 4), expected: { lessonAt: { 0: 4, 1: 3 } } },
+    { name: 'concluir aula', mine: { lessonAt: { 0: 1 } }, key: 'lessonAt.1', value: 3, run: (app) => app.completeLesson(0), expected: { lessonAt: { 1: 3 } } },
+    { name: 'trocar algoritmo', mine: {}, key: 'algChoice.f2l-03', value: 1, run: (app) => app.setAlgChoice('oll2-h', 1), expected: { algChoice: { 'oll2-h': 1, 'f2l-03': 1 } } },
+    { name: 'voltar ao algoritmo padrão', mine: { algChoice: { 'oll2-h': 1 } }, key: 'algChoice.f2l-03', value: 1, run: (app) => app.setAlgChoice('oll2-h', 0), expected: { algChoice: { 'f2l-03': 1 } } },
+    { name: 'tirar caso do sorteio', mine: {}, key: 'trainOff.oll2-pi', value: true, run: (app) => app.setCaseOff('pll2-z', true), expected: { trainOff: ['oll2-pi', 'pll2-z'] } },
+    { name: 'devolver caso ao sorteio', mine: { trainOff: ['pll2-z'] }, key: 'trainOff.oll2-pi', value: true, run: (app) => app.setCaseOff('pll2-z', false), expected: { trainOff: ['oll2-pi'] } },
+    { name: 'não reviver passo apagado', mine: { lessonAt: { 0: 1, 1: 3 } }, key: 'lessonAt.1', value: null, run: (app) => app.setLessonAt(0, 4), expected: { lessonAt: { 0: 4 } } },
+    { name: 'não reviver algoritmo padrão', mine: { algChoice: { 'f2l-03': 1 } }, key: 'algChoice.f2l-03', value: 0, run: (app) => app.setAlgChoice('oll2-h', 1), expected: { algChoice: { 'oll2-h': 1 } } },
+    { name: 'não tirar de novo caso devolvido', mine: { trainOff: ['oll2-pi'] }, key: 'trainOff.oll2-pi', value: false, run: (app) => app.setCaseOff('pll2-z', true), expected: { trainOff: ['pll2-z'] } },
+  ];
+
+  it.each(cases)('$name preserva a outra chave gravada pelo sync', async ({ mine, key, value, run, expected }) => {
+    const { app, repo } = await setup();
+    await repo.saveProfile(mine);
+    await app.reload();
+    const save = repo.saveProfile.bind(repo);
+    // A memória ainda é a anterior ao lote: ele chega logo antes da transação da escrita local.
+    repo.saveProfile = async (patch) => {
+      const stamp = (t += 1000);
+      const change: Change = { store: 'prefs', id: key, data: value, updatedAt: stamp, deletedAt: null, deletionStamp: stamp };
+      expect(await repo.applyRemote([change], stamp)).toEqual({ applied: 1, rejected: 0 });
+      repo.saveProfile = save;
+      return save(patch);
+    };
+    expect(await run(app)).toBe(true);
+    const stored = await repo.getProfile();
+    for (const field of Object.keys(expected) as (keyof Maps)[]) {
+      expect(stored[field]).toEqual(expected[field]);
+      expect(app.profile[field]).toEqual(expected[field]);
+    }
+  });
 });
 
 function bus() {
